@@ -1,0 +1,441 @@
+{
+  "classes": {
+    "KochCourse": {
+      "comment": "The graph-local root of the standard Koch curriculum. The curriculum face reads this Meaningful Object and follows its ordered lesson relations; the shell does not invent a Koch surface outside the graph.",
+      "predicates": {
+        "koch:courseId": {
+          "datatype": "string",
+          "multi": false,
+          "required": true,
+          "source": "stable course identifier"
+        },
+        "rdfs:label": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "koch:sequenceVersion": {
+          "datatype": "string",
+          "multi": false,
+          "required": true,
+          "source": "the named character-order edition used to construct the lessons"
+        },
+        "koch:hasLesson": {
+          "datatype": "uri",
+          "multi": true,
+          "required": true,
+          "source": "the ordered lesson objects; order is recovered from koch:lessonNumber"
+        }
+      },
+      "projection_faces": [
+        "koch.curriculum.v1"
+      ],
+      "public_jurisdiction": "koch",
+      "rdf_types": [
+        "koch:KochCourse"
+      ],
+      "subject_rule": "{graph_subject}:projection:koch-morse:course:{localId}",
+      "source_kind": "current-state",
+      "identity_kind": "logical-id",
+      "store_mode": "materialize",
+      "store_target": "projection:koch-morse",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize"
+    },
+    "MorseCharacter": {
+      "comment": "One symbol in the graph-local Morse alphabet, including its audible dit-dah pattern and position in the course sequence.",
+      "predicates": {
+        "rdfs:label": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "koch:symbol": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "koch:morseCode": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "koch:sequenceIndex": {
+          "datatype": "integer",
+          "multi": false,
+          "required": true
+        },
+        "koch:inCourse": {
+          "datatype": "uri",
+          "multi": false,
+          "required": true
+        }
+      },
+      "public_jurisdiction": "koch",
+      "rdf_types": [
+        "koch:MorseCharacter"
+      ],
+      "subject_rule": "{graph_subject}:projection:koch-morse:character:{localId}",
+      "source_kind": "current-state",
+      "identity_kind": "logical-id",
+      "store_mode": "materialize",
+      "store_target": "projection:koch-morse",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize"
+    },
+    "Lesson": {
+      "comment": "One cumulative step in a Koch course. A lesson introduces one character and names every character available for generation at that step.",
+      "predicates": {
+        "rdfs:label": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "koch:lessonNumber": {
+          "datatype": "integer",
+          "multi": false,
+          "required": true
+        },
+        "koch:introducesCharacter": {
+          "datatype": "uri",
+          "multi": false,
+          "required": true
+        },
+        "koch:availableCharacter": {
+          "datatype": "uri",
+          "multi": true,
+          "required": true
+        },
+        "koch:inCourse": {
+          "datatype": "uri",
+          "multi": false,
+          "required": true
+        }
+      },
+      "public_jurisdiction": "koch",
+      "rdf_types": [
+        "koch:Lesson"
+      ],
+      "subject_rule": "{graph_subject}:projection:koch-morse:lesson:{localId}",
+      "source_kind": "current-state",
+      "identity_kind": "logical-id",
+      "store_mode": "materialize",
+      "store_target": "projection:koch-morse",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize"
+    },
+    "Learner": {
+      "comment": "A graph-visible participant and their current practice preferences. Receive and send practice, and accumulated progress, are compatible Shrubbery faces of this same object.",
+      "predicates": {
+        "koch:learnerId": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "rdfs:label": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "koch:studiesCourse": {
+          "datatype": "uri",
+          "multi": false,
+          "required": true
+        },
+        "koch:characterWpm": {
+          "datatype": "integer",
+          "multi": false,
+          "required": true
+        },
+        "koch:effectiveWpm": {
+          "datatype": "integer",
+          "multi": false,
+          "required": true
+        },
+        "koch:toneHz": {
+          "datatype": "integer",
+          "multi": false,
+          "required": true
+        },
+        "koch:preferredRunLength": {
+          "datatype": "integer",
+          "multi": false,
+          "required": true
+        },
+        "koch:showNotation": {
+          "datatype": "boolean",
+          "multi": false,
+          "required": true
+        }
+      },
+      "projection_faces": [
+        "koch.practice.v1",
+        "koch.progress.v1"
+      ],
+      "faces_oracle": "koch_learner_practice_progress_faces_agree",
+      "public_jurisdiction": "koch",
+      "rdf_types": [
+        "koch:Learner"
+      ],
+      "subject_rule": "{graph_subject}:projection:koch-morse:learner:{localId}",
+      "source_kind": "current-state",
+      "identity_kind": "logical-id",
+      "store_mode": "materialize",
+      "store_target": "projection:koch-morse",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize"
+    },
+    "PracticeSession": {
+      "comment": "Immutable testimony for one completed receive or send run. The app creates a fresh event identity for every run and never reuses it; the graph is the collaboration and leaderboard boundary.",
+      "predicates": {
+        "rdfs:label": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "koch:activity": {
+          "datatype": "string",
+          "multi": false,
+          "required": true,
+          "source": "receive or send"
+        },
+        "koch:lesson": {
+          "datatype": "uri",
+          "multi": false,
+          "required": true
+        },
+        "koch:lessonNumber": {
+          "datatype": "integer",
+          "multi": false,
+          "required": true
+        },
+        "koch:accuracy": {
+          "datatype": "double",
+          "multi": false,
+          "required": true
+        },
+        "koch:correctCount": {
+          "datatype": "integer",
+          "multi": false,
+          "required": true
+        },
+        "koch:characterCount": {
+          "datatype": "integer",
+          "multi": false,
+          "required": true
+        },
+        "koch:expectedCopy": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "koch:submittedCopy": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "koch:characterWpm": {
+          "datatype": "integer",
+          "multi": false,
+          "required": true
+        },
+        "koch:effectiveWpm": {
+          "datatype": "integer",
+          "multi": false,
+          "required": true
+        },
+        "koch:toneHz": {
+          "datatype": "integer",
+          "multi": false,
+          "required": true
+        },
+        "koch:performanceScore": {
+          "datatype": "double",
+          "multi": false,
+          "required": true
+        },
+        "koch:timingScore": {
+          "datatype": "double",
+          "multi": false,
+          "required": false
+        },
+        "koch:durationScore": {
+          "datatype": "double",
+          "multi": false,
+          "required": false
+        },
+        "koch:spacingScore": {
+          "datatype": "double",
+          "multi": false,
+          "required": false
+        },
+        "koch:consistencyScore": {
+          "datatype": "double",
+          "multi": false,
+          "required": false
+        },
+        "koch:keyingTrace": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "koch:legacySubject": {
+          "datatype": "string",
+          "multi": false,
+          "required": false,
+          "source": "the pre-Emporium session IRI when this object was migrated"
+        },
+        "koch:hasAttempt": {
+          "datatype": "uri",
+          "multi": true,
+          "required": false
+        },
+        "prov:used": {
+          "datatype": "uri",
+          "multi": false,
+          "required": true
+        },
+        "prov:wasAssociatedWith": {
+          "datatype": "uri",
+          "multi": false,
+          "required": true
+        },
+        "prov:endedAtTime": {
+          "datatype": "dateTime",
+          "multi": false,
+          "required": true
+        }
+      },
+      "public_jurisdiction": "koch",
+      "rdf_types": [
+        "koch:PracticeSession",
+        "prov:Activity"
+      ],
+      "subject_rule": "{graph_subject}:projection:koch-morse:session:{localId}",
+      "source_kind": "current-state",
+      "identity_kind": "event-id",
+      "store_mode": "materialize",
+      "store_target": "projection:koch-morse",
+      "enforcement": "halt",
+      "reconciliation_strategy": "producerDirected",
+      "dispatch_mode": "current-state-materialize"
+    },
+    "CopyAttempt": {
+      "comment": "Immutable character-grain assessment testimony from a receiving run.",
+      "predicates": {
+        "koch:inSession": {
+          "datatype": "uri",
+          "multi": false,
+          "required": true
+        },
+        "koch:position": {
+          "datatype": "integer",
+          "multi": false,
+          "required": true
+        },
+        "koch:expectedCharacter": {
+          "datatype": "uri",
+          "multi": false,
+          "required": true
+        },
+        "koch:enteredCharacter": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "koch:isCorrect": {
+          "datatype": "boolean",
+          "multi": false,
+          "required": true
+        }
+      },
+      "public_jurisdiction": "koch",
+      "rdf_types": [
+        "koch:CopyAttempt"
+      ],
+      "subject_rule": "{graph_subject}:projection:koch-morse:copy-attempt:{localId}",
+      "source_kind": "current-state",
+      "identity_kind": "event-id",
+      "store_mode": "materialize",
+      "store_target": "projection:koch-morse",
+      "enforcement": "halt",
+      "reconciliation_strategy": "producerDirected",
+      "dispatch_mode": "current-state-materialize"
+    },
+    "KeyingAttempt": {
+      "comment": "Immutable character-grain assessment testimony from a sending run, including the expected and entered dit-dah patterns.",
+      "predicates": {
+        "koch:inSession": {
+          "datatype": "uri",
+          "multi": false,
+          "required": true
+        },
+        "koch:position": {
+          "datatype": "integer",
+          "multi": false,
+          "required": true
+        },
+        "koch:expectedCharacter": {
+          "datatype": "uri",
+          "multi": false,
+          "required": true
+        },
+        "koch:enteredCharacter": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "koch:expectedPattern": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "koch:enteredPattern": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "koch:isCorrect": {
+          "datatype": "boolean",
+          "multi": false,
+          "required": true
+        }
+      },
+      "public_jurisdiction": "koch",
+      "rdf_types": [
+        "koch:KeyingAttempt"
+      ],
+      "subject_rule": "{graph_subject}:projection:koch-morse:keying-attempt:{localId}",
+      "source_kind": "current-state",
+      "identity_kind": "event-id",
+      "store_mode": "materialize",
+      "store_target": "projection:koch-morse",
+      "enforcement": "halt",
+      "reconciliation_strategy": "producerDirected",
+      "dispatch_mode": "current-state-materialize"
+    }
+  },
+  "comanaged_forbidden": [
+    "doc:",
+    "mnemo:",
+    "nfo:"
+  ],
+  "comment": "Koch is represented as a graph-local set of Meaningful Objects. Emporium owns the object vocabulary and face declarations; Shrubbery supplies the compatible curriculum, practice, and progress renderers.",
+  "description": "A complete Morse learning domain pack: one Koch course, cumulative lessons, Morse characters, graph-visible learners, immutable practice sessions, and character-grain receive/send assessments.",
+  "name": "koch-morse",
+  "namespaces": {
+    "koch": "http://mnemosyne.dev/koch#",
+    "prov": "http://www.w3.org/ns/prov#",
+    "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+    "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
+    "xsd": "http://www.w3.org/2001/XMLSchema#"
+  },
+  "primary_prefix": "koch",
+  "title": "Koch Morse Meaningful Objects",
+  "version": "1.0.0",
+  "write_target": "projection:koch-morse"
+}

@@ -1,0 +1,131 @@
+{
+  "ownerGraphId": "graph-a",
+  "profileGraphs": ["graph-a", "graph-b"],
+  "selectorCases": [
+    {
+      "name": "owned selector remains allowed",
+      "value": {"graphId": "graph-a"},
+      "result": "allow"
+    },
+    {
+      "name": "foreign top-level selector is hidden",
+      "value": {"graph_id": "graph-b"},
+      "result": "graph-mismatch"
+    },
+    {
+      "name": "non-string selector cannot suppress owner injection",
+      "value": {"graphId": 7},
+      "result": "invalid"
+    },
+    {
+      "name": "deep foreign scene selector is rejected",
+      "value": {
+        "payload": {
+          "moves": [
+            {"wire": {"sceneGraphId": "graph-b"}}
+          ]
+        }
+      },
+      "result": "graph-mismatch"
+    },
+    {
+      "name": "snake-case scene selector is recognized",
+      "value": {"payload": {"scene_graph_id": "graph-a"}},
+      "result": "allow"
+    },
+    {
+      "name": "new graph selector is a lifecycle effect even for owner id",
+      "value": {"payload": {"newGraphId": "graph-a"}},
+      "result": "profile-denied"
+    },
+    {
+      "name": "unknown graph selector fails closed",
+      "value": {"payload": {"destinationGraphId": "graph-a"}},
+      "result": "invalid"
+    },
+    {
+      "name": "arrays are recursively inspected",
+      "value": {
+        "payload": [
+          {"nested": [{"target_graph_id": "graph-b"}]}
+        ]
+      },
+      "result": "graph-mismatch"
+    }
+  ],
+  "recoveredOperations": [
+    {
+      "name": "owned document write",
+      "kind": "document.write",
+      "graphId": "graph-a",
+      "payload": {},
+      "result": "allow"
+    },
+    {
+      "name": "foreign recovered write",
+      "kind": "document.write",
+      "graphId": "graph-b",
+      "payload": {},
+      "result": "graph-mismatch"
+    },
+    {
+      "name": "archive import cannot create a graph during recovery",
+      "kind": "graph.importArchive",
+      "graphId": "graph-a",
+      "payload": {"newGraphId": "graph-b"},
+      "result": "profile-denied"
+    },
+    {
+      "name": "foreign graph hidden deep in recovered payload",
+      "kind": "workspace.createWire",
+      "graphId": "graph-a",
+      "payload": {"wire": {"sceneGraphId": "graph-b"}},
+      "result": "graph-mismatch"
+    }
+  ],
+  "mcpOperationCases": [
+    {
+      "name": "generic graph deletion is denied",
+      "tool": "delete",
+      "arguments": {"graphId": "graph-a", "type": "graph"},
+      "result": "profile-denied"
+    },
+    {
+      "name": "ordinary document deletion remains owner-confined",
+      "tool": "delete",
+      "arguments": {
+        "graphId": "graph-a",
+        "type": "documents",
+        "documentId": "doc-a"
+      },
+      "result": "allow"
+    },
+    {
+      "name": "MCP archive CRDT operation is denied",
+      "tool": "crdt_operation",
+      "arguments": {
+        "kind": "graph.importArchive",
+        "graphId": "graph-a",
+        "payload": {"newGraphId": "graph-b"}
+      },
+      "result": "profile-denied"
+    }
+  ],
+  "scheduler": {
+    "expectedGraphs": ["graph-a"]
+  },
+  "localFile": {
+    "tool": "upload_artifact",
+    "arguments": {
+      "graphId": "graph-a",
+      "file_path": "/etc/passwd"
+    },
+    "result": "profile-denied"
+  },
+  "serviceSpawnTools": [
+    "workflow_authoring_session",
+    "workflow_run_start",
+    "workflow_run_monitor",
+    "graph_intuition"
+  ]
+}

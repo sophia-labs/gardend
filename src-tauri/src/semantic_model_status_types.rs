@@ -1,0 +1,63 @@
+use serde::Serialize;
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SemanticModelStatus {
+    pub(crate) provider_id: String,
+    pub(crate) model_id: String,
+    pub(crate) display_name: String,
+    pub(crate) hf_repo: String,
+    pub(crate) dimensions: usize,
+    pub(crate) max_tokens: usize,
+    pub(crate) backend: String,
+    pub(crate) runtime: String,
+    pub(crate) default_batch_size: usize,
+    pub(crate) effective_batch_size: usize,
+    pub(crate) runtime_available: bool,
+    pub(crate) reason: Option<String>,
+    pub(crate) prepared: bool,
+    pub(crate) loaded: bool,
+    pub(crate) setup_required: bool,
+    pub(crate) config_path: String,
+    pub(crate) setup_path: String,
+    pub(crate) cache_policy: String,
+    pub(crate) cache_path: String,
+    pub(crate) prepared_at: Option<String>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SemanticModelDescriptor {
+    pub(crate) provider_id: String,
+    pub(crate) model_id: String,
+    pub(crate) display_name: String,
+    pub(crate) family: String,
+    pub(crate) dimensions: usize,
+    pub(crate) max_tokens: usize,
+    pub(crate) backend: String,
+    pub(crate) task_prefixes: Vec<String>,
+    pub(crate) hf_repo: Option<String>,
+    pub(crate) runtime: String,
+    pub(crate) privacy: String,
+    pub(crate) cache_policy: String,
+    pub(crate) cache_path: String,
+    pub(crate) setup_path: String,
+    pub(crate) setup_required: bool,
+    pub(crate) prepared: bool,
+    pub(crate) loaded: bool,
+    pub(crate) prepared_at: Option<String>,
+    pub(crate) default_batch_size: usize,
+    pub(crate) effective_batch_size: usize,
+    pub(crate) speed: String,
+    pub(crate) quality: String,
+    pub(crate) available: bool,
+    pub(crate) selectable: bool,
+    pub(crate) reason: Option<String>,
+    pub(crate) setup_hint: Option<String>,
+    pub(crate) status: String,
+    pub(crate) selected: bool,
+    pub(crate) recommended: bool,
+    pub(crate) size_hint: String,
+    pub(crate) strengths: Vec<String>,
+    pub(crate) limitations: Vec<String>,
+}

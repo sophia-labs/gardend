@@ -1,0 +1,420 @@
+{
+    "classes": {
+        "AuthorizationFlag": {
+            "comment": "One execution-capable choice that was visible when a page-turn decision was retained. Flags are evidence that a route remained inspect-only unless explicitly authorized.",
+            "predicates": {
+                "wfui:authorizationReason": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "wfui:choiceId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "wfui:pageId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                }
+            },
+            "rdf_types": [
+                "wfui:AuthorizationFlag",
+                "prov:Entity"
+            ],
+            "subject_rule": "urn:sophia:workflow-page-turn-decision:{...}:authorization:{n}",
+            "source_kind": "current-state",
+            "identity_kind": "urn-template",
+            "store_mode": "materialize",
+            "store_target": "user:rdf",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "EvidenceArtifact": {
+            "comment": "A retained sidecar artifact that grounded a page-turn decision: handoff, transcript, preflight, page audit, or another externally inspectable evidence file.",
+            "predicates": {
+                "dcterms:identifier": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "wfui:path": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                }
+            },
+            "rdf_types": [
+                "wfui:EvidenceArtifact",
+                "prov:Entity"
+            ],
+            "subject_rule": "urn:sophia:workflow-page-turn-decision:{...}:evidence:{role}",
+            "source_kind": "current-state",
+            "identity_kind": "urn-template",
+            "store_mode": "materialize",
+            "store_target": "user:rdf",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "NavigationRoute": {
+            "comment": "A named book route over one concrete page choice. Routes are conceptual/perceptual branches for agents, while wfui:choiceId keeps the exact Garden page turn replayable.",
+            "predicates": {
+                "wfui:actionJson": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "serialized workflow_book_choose action when a route is retained as graph data",
+                    "face_only": true
+                },
+                "wfui:choiceId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "wfui:choiceLabel": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "wfui:fromPage": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "wfui:graphId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "wfui:intent": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "wfui:rationale": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "wfui:routeId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "wfui:routeKind": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "wfui:routeLabel": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "wfui:source": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "wfui:workflowName": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                }
+            },
+            "rdf_types": [
+                "wfui:NavigationRoute",
+                "prov:Entity"
+            ],
+            "subject_rule": "urn:sophia:workflow-route:{graphId}:{workflowName}:{fromPage}:{routeId}",
+            "source_kind": "current-state",
+            "identity_kind": "urn-template",
+            "store_mode": "materialize",
+            "store_target": "user:rdf",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "PageTurnDecision": {
+            "comment": "A retained workflow-book page-turn Meaningful Object: what Garden suggested, which named route/choice was recommended or followed, why, which artifacts grounded it, and whether execution was explicitly authorized.",
+            "predicates": {
+                "dcterms:identifier": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "prov:generatedAtTime": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": true
+                },
+                "prov:value": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "short rationale safe to show; not chain-of-thought"
+                },
+                "prov:wasDerivedFrom": {
+                    "datatype": "uri",
+                    "multi": true,
+                    "required": false
+                },
+                "wfui:authorizationFlagCount": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true
+                },
+                "wfui:executionAuthorized": {
+                    "datatype": "boolean",
+                    "multi": false,
+                    "required": true
+                },
+                "wfui:fromPage": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "wfui:followedChoiceId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "wfui:followedChoiceLabel": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "wfui:followedRouteId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "the named route the agent actually followed when this decision records an accepted turn"
+                },
+                "wfui:followedRouteLabel": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "wfui:graphId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "wfui:hasAuthorizationFlag": {
+                    "datatype": "uri",
+                    "multi": true,
+                    "required": false
+                },
+                "wfui:hasNavigationRoute": {
+                    "datatype": "uri",
+                    "multi": true,
+                    "required": false,
+                    "source": "links to retained wfui:NavigationRoute nodes that were visible on the origin page"
+                },
+                "wfui:intent": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "wfui:nativeSuggestedChoiceId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "wfui:readiness": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "wfui:recommendedChoiceId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "wfui:recommendedRouteId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "wfui:recommendedRouteLabel": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "wfui:schemaVersion": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true
+                },
+                "wfui:shardId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "wfui:workflowName": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                }
+            },
+            "rdf_types": [
+                "wfui:PageTurnDecision",
+                "prov:Entity"
+            ],
+            "subject_rule": "urn:sophia:workflow-page-turn-decision:{graphId}:{workflowName}:{fromPage}:{recommendedChoice}:{intent}:{shardId}",
+            "source_kind": "current-state",
+            "identity_kind": "event-id",
+            "store_mode": "materialize",
+            "store_target": "user:rdf",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "WorkflowAdventurePacket": {
+            "comment": "A retained source-side workflow-book adventure packet: the current local page, visible perception, named routes, recommended branch, raw SPARQL escape hatch, and authorization boundary before the workflow is drafted into Garden.",
+            "predicates": {
+                "dcterms:identifier": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "prov:generatedAtTime": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": true
+                },
+                "wfui:argsPath": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "wfui:authorizationFlagCount": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true
+                },
+                "wfui:fromPage": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "wfui:followedRouteId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "wfui:graphId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "wfui:hasAuthorizationFlag": {
+                    "datatype": "uri",
+                    "multi": true,
+                    "required": false
+                },
+                "wfui:hasNavigationRoute": {
+                    "datatype": "uri",
+                    "multi": true,
+                    "required": false,
+                    "source": "links to retained wfui:NavigationRoute nodes visible on this source-side page"
+                },
+                "wfui:intent": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "wfui:pageId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "wfui:pageScene": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "wfui:pageTitle": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "wfui:rawSparqlJson": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "canonical JSON array of raw SPARQL queries carried by the packet",
+                    "face_only": true
+                },
+                "wfui:recommendedChoiceId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "wfui:recommendedRouteId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "wfui:recommendedRouteLabel": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "wfui:schemaVersion": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true
+                },
+                "wfui:visibleObjectCount": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true
+                },
+                "wfui:warningCount": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true
+                },
+                "wfui:workflowName": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "wfui:workflowPath": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                }
+            },
+            "rdf_types": [
+                "wfui:WorkflowAdventurePacket",
+                "prov:Entity"
+            ],
+            "subject_rule": "urn:sophia:workflow-adventure:{graphId}:{workflowName}:{pageId}:{intent}",
+            "source_kind": "current-state",
+            "identity_kind": "urn-template",
+            "store_mode": "materialize",
+            "store_target": "user:rdf",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        }
+    },
+    "comment": "Workflow Book UI vocabulary. Publication-only contract for the agent-facing choose-your-own-adventure layer over Garden workflow books: retained source-side adventure packets, page-turn decisions, named navigation routes, evidence artifacts, and authorization flags. SPARQL remains the exact substrate; wfui: terms give agents a stable conceptual/perceptual UI contract and make route decisions auditable.",
+    "description": "Agent workflow-book UI terms: WorkflowAdventurePacket, PageTurnDecision, NavigationRoute, EvidenceArtifact, and AuthorizationFlag.",
+    "name": "workflow-ui",
+    "namespaces": {
+        "dcterms": "http://purl.org/dc/terms/",
+        "prov": "http://www.w3.org/ns/prov#",
+        "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+        "wfui": "https://sophia-labs.com/ns/workflow-ui#",
+        "xsd": "http://www.w3.org/2001/XMLSchema#"
+    },
+    "primary_prefix": "wfui",
+    "title": "Workflow Book UI Vocabulary",
+    "version": "1.0.0"
+}

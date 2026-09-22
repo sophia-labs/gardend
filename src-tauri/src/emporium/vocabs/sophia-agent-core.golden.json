@@ -1,0 +1,611 @@
+{
+    "classes": {
+        "Agent": {
+            "comment": "FROZEN (verbatim from choreograph agent-ontology.ts). Stable, config-derived identity (model + system-prompt hash). The memory-WITNESS: OWNS a perspective membrane (a named graph) and its facts are attributed, timestamped, defeasible testimony. Dual-typed prov:Agent + agt:Witness. agt:agentId is THE witness key: identical to observer_agent_id and the mem:observedBy leaf and the membrane segment (spec \u00a74 identity unification, LANDED on choreograph main so the agt:Agent subject IRI urn:sophia:agent:{agentId} byte-matches L0's observer_iri).",
+            "predicates": {
+                "agt:agentId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "stable content-addressed id agent-<hex16>; THE witness key; equals observer_agent_id (spec \u00a74)"
+                },
+                "agt:model": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "rdfs:label": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "mutable display annotation only; NEVER an identity input (spec \u00a74)"
+                },
+                "agt:voicing": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "exactly one of agt:Monovocal | agt:Parliament (I3); object property into the agt:Voicing enum"
+                },
+                "agt:ownsMembrane": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "the \u2026:projection:memory:agent:{id} named graph this agent OWNS; Voices have NO such predicate (the single hinge of secession, spec \u00a75.5)"
+                },
+                "agt:hasVoice": {
+                    "datatype": "uri",
+                    "multi": true,
+                    "required": false,
+                    "source": "inverseOf agt:voiceOf; Agent -> its internal agt:Voice(s)"
+                },
+                "agt:hasFaculty": {
+                    "datatype": "uri",
+                    "multi": true,
+                    "required": false,
+                    "source": "Agent -> agt:Faculty (Song | Memory | Valuation)"
+                }
+            },
+            "rdf_types": [
+                "agt:Agent",
+                "prov:Agent"
+            ],
+            "subject_rule": "urn:sophia:agent:{agentId} - the unified witness IRI (spec \u00a74; byte-matches L0 observer_iri)",
+            "source_kind": "current-state",
+            "identity_kind": "urn-template",
+            "store_mode": "materialize",
+            "store_target": "user:rdf",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "Session": {
+            "comment": "One conversational session owned by an agent + a user. For workflow-derived sessions, agt:realizedBy is the inverse reading of wf:Run wf:boundToAgent agt:Session.",
+            "predicates": {
+                "agt:sessionId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:ofAgent": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "Session/Tool/Capability -> the owning agt:Agent"
+                },
+                "agt:realizedBy": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "derived inverse reading: agt:Session -> wf:Run"
+                },
+                "agt:ownerUserId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:turnCount": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:graphId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:inferenceProvider": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:inferenceModel": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:model": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "the inference model the session pins (session-level attribute)"
+                },
+                "agt:systemPromptDocument": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:systemPromptDocumentId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:systemPromptSnapshot": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:systemPromptDigest": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:systemPromptBinding": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:systemPromptIdentityAlgorithm": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:systemPromptDirty": {
+                    "datatype": "boolean",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:systemPromptRevision": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:systemPromptChangeId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:systemPromptCurrentSnapshot": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:systemPromptCurrentDigest": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:systemPromptCompatibilitySeeded": {
+                    "datatype": "boolean",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:systemPromptBlock": {
+                    "datatype": "uri",
+                    "multi": true,
+                    "required": false
+                }
+            },
+            "rdf_types": [
+                "agt:Session"
+            ],
+            "subject_rule": "urn-space; code-minted off sessionId",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "user:rdf",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "Turn": {
+            "comment": "One journal entry as metadata + tool-usage pointers ONLY - never the message body. recallRef/songRef are RESERVED opaque seams into the Memory/Song faculties (emitted only if a caller injects them). For workflow-derived turns, agt:realizedBy is the inverse reading of wf:AgentRun wf:boundToAgent agt:Turn.",
+            "predicates": {
+                "agt:inSession": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "Turn -> its agt:Session"
+                },
+                "agt:inRun": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "\u00a7WS1 RELEVEL - the agt:Run this turn nests under (projection.ts:786)"
+                },
+                "agt:ordinal": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:realizedBy": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "derived inverse reading: agt:Turn -> wf:AgentRun"
+                },
+                "agt:role": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:usedTool": {
+                    "datatype": "uri",
+                    "multi": true,
+                    "required": false,
+                    "source": "Turn -> an agt:Tool it used"
+                },
+                "agt:turnTime": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:recallRef": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "reserved opaque IRI pointer INTO the Memory faculty (S5 fold emits only if injected)"
+                },
+                "agt:songRef": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "reserved opaque IRI pointer INTO the Song faculty"
+                },
+                "agt:drivenBy": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "Turn -> the agt:Driver who steered it; OPTIONAL, at most one in v1 (range left open to multiplicity for v2 - NO maxCount enforced by structural shape; v1 multi:false documents the v1 cardinality)"
+                }
+            },
+            "rdf_types": [
+                "agt:Turn"
+            ],
+            "subject_rule": "urn-space; code-minted off (session, ordinal)",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "user:rdf",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "Capability": {
+            "comment": "FROZEN (verbatim). Coarse access posture (read/write) the agent holds.",
+            "predicates": {
+                "agt:ofAgent": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "Capability -> the owning agt:Agent"
+                },
+                "agt:toolAccess": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "enum: read | write"
+                }
+            },
+            "rdf_types": [
+                "agt:Capability"
+            ],
+            "subject_rule": "urn-space; code-minted",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "user:rdf",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "Tool": {
+            "comment": "FROZEN (verbatim). A tool the agent used or DECLARED (demand-signal).",
+            "predicates": {
+                "agt:ofAgent": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "Tool -> the owning agt:Agent"
+                },
+                "agt:toolName": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:toolStatus": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "enum: used | declared"
+                }
+            },
+            "rdf_types": [
+                "agt:Tool"
+            ],
+            "subject_rule": "urn-space; code-minted off toolName",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "user:rdf",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "Voice": {
+            "comment": "NET-NEW. An internal voice of an agent. BORROWS the agent's membrane; identified at the leaf (agt:voiceId EQUALS the mem:agentId string), owns no graph of its own. A Monovocal agent has exactly one (elided). Secession (voice->agent = 'grant a membrane') is admissible but UNIMPLEMENTED in v1. Dual-typed agt:Witness.",
+            "predicates": {
+                "agt:voiceOf": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "Voice -> the agt:Agent whose membrane it borrows (I2/I4a: required, exactly one)"
+                },
+                "agt:voiceId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "the leaf tag; EQUALS the mem:agentId string written on records this voice authored (the I2 join key)"
+                }
+            },
+            "rdf_types": [
+                "agt:Voice"
+            ],
+            "subject_rule": "<agentIRI>#voice:{voiceId} - voice IRI shape (spec \u00a77-decision-5: mintVoiceUri unbuilt in v1)",
+            "source_kind": "current-state",
+            "identity_kind": "urn-template",
+            "store_mode": "materialize",
+            "store_target": "user:rdf",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "Driver": {
+            "comment": "NET-NEW, THIN by design. An EXTERNAL steerer of an agent (a human or another agent at the wheel). Distinct from agt:Voice (who the agent IS). A pointer only; turn-taking / multi-driver authority is v2. Dual-typed prov:Agent.",
+            "predicates": {
+                "agt:driverId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                }
+            },
+            "rdf_types": [
+                "agt:Driver",
+                "prov:Agent"
+            ],
+            "subject_rule": "urn-space; code-minted off driverId",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "user:rdf",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "Voicing": {
+            "comment": "NET-NEW enum-class. An enumerated mode on agt:Agent (owl:oneOf agt:Monovocal agt:Parliament). The agent is ALWAYS a parliament; voicing only says whether it has one seat or many - NOT two schemas. Registry-only (no rdf_types target -> no derived structural shape; the cardinality teeth live in the \u00a73 sh:select I3 shapes).",
+            "predicates": {},
+            "rdf_types": [],
+            "subject_rule": "fixed members urn agt:Monovocal | agt:Parliament",
+            "source_kind": "current-state",
+            "identity_kind": "urn-template",
+            "store_mode": "materialize",
+            "store_target": "user:rdf",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "Witness": {
+            "comment": "NET-NEW documentary glue. Anything whose facts are attributed, timestamped, defeasible testimony. Two scopes: Agent (OWNS a membrane) and Voice (BORROWS one). Registry-only superclass (no rdf_types target -> no structural shape; agt:Agent/agt:Voice carry it as an asserted upper type).",
+            "predicates": {},
+            "rdf_types": [],
+            "subject_rule": "abstract; never directly minted",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "user:rdf",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "Faculty": {
+            "comment": "NET-NEW. A witness-relative capacity of an agent: Song, Memory, or Valuation. Binds a real L0 vocabulary + (when witness-scoped) a per-observer membrane. The three faculty INSTANCES (agt:Song / agt:Memory / agt:Valuation) are fixed members carrying agt:bindsRecordClass + agt:membranePattern + agt:witnessScoped. bindsRecordClass is rdfs:range rdfs:Class (multi) so the A-subset-B closure check is well-defined.",
+            "predicates": {
+                "agt:bindsRecordClass": {
+                    "datatype": "uri",
+                    "multi": true,
+                    "required": false,
+                    "source": "the L0 RDF class(es) this faculty's records carry (real Ground vocab: mem:MemoryRecord / mnemo:Song* / mnemo:BlockValuation); MULTI-VALUED; ranged rdfs:Class"
+                },
+                "agt:membranePattern": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "the named-graph template that is this faculty's membrane for a given observer"
+                },
+                "agt:witnessScoped": {
+                    "datatype": "boolean",
+                    "multi": false,
+                    "required": false,
+                    "source": "true iff the membrane forks per-observer (\u2026:agent:{id}); false iff a commons (the Valuation gap, spec \u00a76 ask #5). Valuation's witnessScoped = true is the per-observer salience read side which is on main."
+                }
+            },
+            "rdf_types": [
+                "agt:Faculty"
+            ],
+            "subject_rule": "fixed members agt:Song | agt:Memory | agt:Valuation",
+            "source_kind": "current-state",
+            "identity_kind": "urn-template",
+            "store_mode": "materialize",
+            "store_target": "user:rdf",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "ReadOperation": {
+            "comment": "NET-NEW. Attunement is a READ across the three faculties, NOT a fourth faculty. agt:Attunement a agt:ReadOperation readsAcross Song+Memory+Valuation (ops: context_bundle / surface). Registry-only (no rdf_types target -> no structural shape).",
+            "predicates": {
+                "agt:readsAcross": {
+                    "datatype": "uri",
+                    "multi": true,
+                    "required": false,
+                    "source": "ReadOperation -> the agt:Faculty(ies) it reads across"
+                }
+            },
+            "rdf_types": [],
+            "subject_rule": "fixed member agt:Attunement",
+            "source_kind": "current-state",
+            "identity_kind": "urn-template",
+            "store_mode": "materialize",
+            "store_target": "user:rdf",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "PoolingMode": {
+            "comment": "NET-NEW enum-class (owl:oneOf agt:Pooled agt:Differentiated). Pooled = faculty operates at the AGENT level (all voices share it); Differentiated = per VOICE. Registry-only (no rdf_types target -> no structural shape).",
+            "predicates": {},
+            "rdf_types": [],
+            "subject_rule": "fixed members agt:Pooled | agt:Differentiated",
+            "source_kind": "current-state",
+            "identity_kind": "urn-template",
+            "store_mode": "materialize",
+            "store_target": "user:rdf",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "FacultyPooling": {
+            "comment": "NET-NEW. Reified (voice x faculty) -> pooling mode: the per-faculty 'share one Geist' knob. A multi-voice agent may pool Memory at agent level while differentiating Song per voice. Absence defaults to agt:Pooled for a monovocal agent.",
+            "predicates": {
+                "agt:poolsFaculty": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "FacultyPooling -> the agt:Faculty"
+                },
+                "agt:poolingVoice": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "FacultyPooling -> the agt:Voice"
+                },
+                "agt:poolingMode": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "FacultyPooling -> the agt:PoolingMode"
+                }
+            },
+            "rdf_types": [
+                "agt:FacultyPooling"
+            ],
+            "subject_rule": "urn-space; code-minted off (voice, faculty)",
+            "source_kind": "current-state",
+            "identity_kind": "urn-template",
+            "store_mode": "materialize",
+            "store_target": "user:rdf",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "Run": {
+            "comment": "NET-NEW (\u00a7WS1 relevel). One execution within an agt:Session (was the run-grain agt:Session). agt:realizedBy is the inverse reading of wf:Run wf:boundToAgent agt:Run; inference provider/model are the binding actually used for this run. Publication face mirrors the user:rdf serializer.",
+            "predicates": {
+                "agt:ofAgent": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "Run -> the owning agt:Agent (denormalized)"
+                },
+                "agt:ofSession": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "Run -> its parent agt:Session (REQUIRED_RUN_PREDICATES, agent-ontology.ts:122)"
+                },
+                "agt:realizedBy": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "derived inverse reading: agt:Run -> wf:Run"
+                },
+                "agt:runId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:ownerUserId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:graphId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:turnCount": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:inferenceProvider": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "the inference provider used for this run (serializer face)"
+                },
+                "agt:inferenceModel": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "the inference model used for this run (serializer face)"
+                },
+                "agt:supersedesLegacyRunSession": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "\u00a7WS1 migration bridge: the pre-relevel run-grain agt:Session this Run supersedes"
+                }
+            },
+            "rdf_types": [
+                "agt:Run"
+            ],
+            "subject_rule": "urn-space; code-minted off (agent, session, runId) - {sessionIri}:run:{runId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "user:rdf",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        }
+    },
+    "comanaged_forbidden": [
+        "doc:",
+        "mnemo:",
+        "nfo:"
+    ],
+    "comment": "Agent Ontology v1 - the agent-as-subject, observer-relative (spec plans/ca1-agent-ontology-v1-20260623.md). A COMPOSITE Meaningful-Object vocab: it owl:imports mem: (the sophia-memory-core grammar) and references the mnemo: Song / BlockValuation projections BY RELATION (agt:bindsRecordClass), never re-vocab'ing them - build-time A subset-of runtime B. The 5 frozen classes (Agent/Session/Turn/Capability/Tool) are verbatim from choreograph agent-ontology.ts and MUST NOT be altered. The one-directional alias mem:observedBy rdfs:subPropertyOf agt:witnessedBy reads UP (L0's predicate is the subproperty of the agt: reading) and is DELIBERATELY UN-RANGED so it can NEVER re-type stored L0 mem:observedBy data as agt:Agent by entailment; that constraint lives only on the I1 SHACL shape. NEVER mint mnemo:/doc:/nfo: (materializer-co-managed). agt: subjects are URN-space. This is a VOCAB-PUBLICATION pack (served + queryable), not a record-materialization pack: it has no write_target, so generic ingest of agt: instances rides the user:rdf applier path (the spec's worked instances), while the membrane/leaf testimony is written by the existing L0 memory/song materializers under mem:/mnemo:.",
+    "description": "The agent-as-subject: an agt:Agent IS a memory-witness that OWNS a perspective membrane (a named graph) - its facts are attributed, timestamped, defeasible testimony. Voices BORROW the membrane (leaf-attributed via mem:agentId); Drivers STEER it from outside. The three Geist faculties - Song (mnemo:Song*), Memory (mem:MemoryRecord), Valuation (mnemo:BlockValuation, care = its valence axis) - bind to real L0 names, with Attunement as a read-op across them. Monovocal is the proven degenerate parliament-of-one.",
+    "imports": [
+        "http://mnemosyne.dev/memory#"
+    ],
+    "name": "sophia-agent-core",
+    "namespaces": {
+        "agt": "http://mnemosyne.dev/agent#",
+        "mem": "http://mnemosyne.dev/memory#",
+        "mnemo": "https://mnemosyne.local/ns#",
+        "owl": "http://www.w3.org/2002/07/owl#",
+        "prov": "http://www.w3.org/ns/prov#",
+        "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+        "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
+        "xsd": "http://www.w3.org/2001/XMLSchema#"
+    },
+    "primary_prefix": "agt",
+    "property_aliases": {
+        "mem:observedBy": {
+            "comment": "ONE-DIRECTIONAL, UN-RANGED. mem:observedBy rdfs:subPropertyOf agt:witnessedBy. The agt: reading of the L0 predicate; carries NO rdfs:range so an alias never rewrites stored L0 datatype-IRI objects into typed agt:Agent class members. The 'object is an agt:Agent' constraint is enforced per-membrane by the I1 SHACL shape, not by property entailment.",
+            "subPropertyOf": "agt:witnessedBy"
+        }
+    },
+    "raw_shacl_shapes": "@prefix sh:    <http://www.w3.org/ns/shacl#> .\n@prefix agt:   <http://mnemosyne.dev/agent#> .\n@prefix mem:   <http://mnemosyne.dev/memory#> .\n@prefix mnemo: <https://mnemosyne.local/ns#> .\n@prefix prov:  <http://www.w3.org/ns/prov#> .\n@prefix xsd:   <http://www.w3.org/2001/XMLSchema#> .\n\n# I1 (HARD/structural via sh:select): a record INSIDE a per-observer membrane\n# (\u2026:projection:memory:agent:) MUST be observedBy exactly one agt:Agent. The\n# COMMONS (un-segmented graph, empty observer, legally no mem:observedBy) is NOT\n# targeted - observedBy is OPTIONAL at L0.\nagt:I1_MembraneWitnessShape a sh:NodeShape ;\n    sh:targetClass mem:MemoryRecord ;\n    sh:sparql [\n        sh:severity sh:Violation ;\n        sh:message \"I1: a record INSIDE a per-observer membrane (\u2026:projection:memory:agent:) MUST be observedBy exactly one agt:Agent. (Commons records, in the un-segmented graph, are exempt - observedBy is optional at L0.)\" ;\n        sh:prefixes [ sh:declare [ sh:prefix \"mem\" ; sh:namespace \"http://mnemosyne.dev/memory#\" ] ] ;\n        sh:select \"\"\"\n            SELECT $this WHERE {\n              GRAPH ?g { $this a mem:MemoryRecord . }\n              FILTER( CONTAINS(STR(?g), ':projection:memory:agent:') )\n              FILTER NOT EXISTS { GRAPH ?g { $this mem:observedBy ?obs . } }\n            }\n        \"\"\" ;\n    ] .\n\n# I1b (FlagAndAccept/IRI-surgery): observedBy leaf == the {id} segment of the\n# membrane graph. Requires the spec-\u00a74 unified stem to pass - keep FlagAndAccept until then.\nagt:I1b_MembraneOwnerShape a sh:NodeShape ;\n    sh:targetClass mem:MemoryRecord ;\n    sh:sparql [\n        sh:severity sh:Violation ;\n        sh:message \"I1b: a record's mem:observedBy agent token MUST equal the {id} segment of its membrane graph.\" ;\n        sh:prefixes [ sh:declare [ sh:prefix \"mem\" ; sh:namespace \"http://mnemosyne.dev/memory#\" ] ] ;\n        sh:select \"\"\"\n            SELECT $this WHERE {\n              GRAPH ?g { $this mem:observedBy ?obs . }\n              FILTER( CONTAINS(STR(?g), ':projection:memory:agent:') )\n              BIND( STRAFTER(STR(?g),  ':projection:memory:agent:') AS ?seg )\n              BIND( STRAFTER(STR(?obs), 'urn:sophia:agent:')        AS ?obsLeaf )\n              FILTER( ?seg != ?obsLeaf )\n            }\n        \"\"\" ;\n    ] .\n\n# I1-Song (HARD): the Song membrane graph is attributed to the agent.\nagt:I1_SongMembraneShape a sh:NodeShape ;\n    sh:targetClass mnemo:Song ;\n    sh:property [\n        sh:path prov:wasAttributedTo ; sh:minCount 1 ; sh:class agt:Agent ;\n        sh:severity sh:Violation ;\n        sh:message \"I1: a Song's membrane MUST be prov:wasAttributedTo an agt:Agent.\" ;\n    ] .\n\n# I1-Valuation (ADVISORY): check the MEMBRANE, not a never-present mem:observedBy\n# triple. Warns when a valuation's graph lacks an :agent: segment - the actual gap (ask #5).\nagt:I1_ValuationMembraneAdvisory a sh:NodeShape ;\n    sh:targetClass mnemo:BlockValuation ;\n    sh:sparql [\n        sh:severity sh:Warning ;\n        sh:message \"I1-advisory: this BlockValuation lives in a NON-witness-scoped salience graph (no :agent:{id} segment) - salience is the one Geist surface still global/commons. EA-3 ask #5: fork salience per observer (\u2026:projection:salience:agent:{id}).\" ;\n        sh:prefixes [ sh:declare [ sh:prefix \"mnemo\" ; sh:namespace \"https://mnemosyne.local/ns#\" ] ] ;\n        sh:select \"\"\"\n            SELECT $this WHERE {\n              GRAPH ?g { $this a mnemo:BlockValuation . }\n              FILTER( CONTAINS(STR(?g), ':projection:salience') )\n              FILTER( !CONTAINS(STR(?g), ':projection:salience:agent:') )\n            }\n        \"\"\" ;\n    ] .\n\n# I2 (FlagAndAccept until \u00a74): when a record carries BOTH a voice leaf and a\n# witness, the leaf MUST name an agt:Voice voiceOf that observedBy agent.\nagt:I2_VoiceContainmentShape a sh:NodeShape ;\n    sh:targetClass mem:MemoryRecord ;\n    sh:property [ sh:path mem:agentId ; sh:maxCount 1 ; sh:datatype xsd:string ] ;\n    sh:sparql [\n        sh:severity sh:Violation ;\n        sh:message \"I2: when a record carries BOTH a voice leaf (mem:agentId) and a witness (mem:observedBy), the leaf MUST name an agt:Voice voiceOf that observedBy agent - a voice cannot author testimony outside its agent.\" ;\n        sh:prefixes [ sh:declare [ sh:prefix \"agt\" ; sh:namespace \"http://mnemosyne.dev/agent#\" ] ,\n                                  [ sh:prefix \"mem\" ; sh:namespace \"http://mnemosyne.dev/memory#\" ] ] ;\n        sh:select \"\"\"\n            SELECT $this WHERE {\n              $this mem:agentId ?vid ; mem:observedBy ?agent .\n              FILTER NOT EXISTS {\n                ?voice a agt:Voice ; agt:voiceId ?vid ; agt:voiceOf ?agent .\n              }\n            }\n        \"\"\" ;\n    ] .\n\n# I2b (HARD): inside a per-observer membrane, a voice leaf MUST also carry the\n# agent witness. In the commons a leaf-only record is tolerated.\nagt:I2b_VoiceNeedsWitnessShape a sh:NodeShape ;\n    sh:targetClass mem:MemoryRecord ;\n    sh:sparql [\n        sh:severity sh:Violation ;\n        sh:message \"I2b: inside a per-observer membrane, a record with a voice leaf (mem:agentId) MUST also carry the agent witness (mem:observedBy) - a voice cannot exist without its owning agent.\" ;\n        sh:prefixes [ sh:declare [ sh:prefix \"mem\" ; sh:namespace \"http://mnemosyne.dev/memory#\" ] ] ;\n        sh:select \"\"\"\n            SELECT $this WHERE {\n              GRAPH ?g { $this mem:agentId ?vid . }\n              FILTER( CONTAINS(STR(?g), ':projection:memory:agent:') )\n              FILTER NOT EXISTS { GRAPH ?g { $this mem:observedBy ?obs . } }\n            }\n        \"\"\" ;\n    ] .\n\n# I3a/b (HARD/structural): voicing is exactly-one from the closed enum.\nagt:I3_VoicingShape a sh:NodeShape ;\n    sh:targetClass agt:Agent ;\n    sh:property [\n        sh:path agt:voicing ; sh:minCount 1 ; sh:maxCount 1 ;\n        sh:in ( agt:Monovocal agt:Parliament ) ; sh:severity sh:Violation ;\n        sh:message \"I3: every agent has exactly one voicing, drawn from {Monovocal, Parliament}.\" ;\n    ] .\n\n# I3c (HARD via sh:select): Monovocal <=> exactly one voice; Parliament <=> >=2.\nagt:I3_CardinalityShape a sh:NodeShape ;\n    sh:targetClass agt:Agent ;\n    sh:sparql [\n        sh:severity sh:Violation ;\n        sh:message \"I3: a Monovocal agent MUST have exactly one agt:Voice; a Parliament MUST have >=2 (a 1-voice Parliament is functionally Monovocal - forbidden so the graph determines the mode).\" ;\n        sh:prefixes [ sh:declare [ sh:prefix \"agt\" ; sh:namespace \"http://mnemosyne.dev/agent#\" ] ] ;\n        sh:select \"\"\"\n            SELECT $this WHERE {\n              $this agt:voicing ?mode .\n              { SELECT $this (COUNT(?v) AS ?n) WHERE { ?v agt:voiceOf $this } GROUP BY $this }\n              FILTER ( (?mode = agt:Monovocal  && ?n != 1) ||\n                       (?mode = agt:Parliament && ?n < 2) )\n            }\n        \"\"\" ;\n    ] .\n\n# I3d (ADVISORY): a Monovocal agent's records SHOULD elide the redundant voice leaf.\nagt:I3d_MonovocalElisionAdvisory a sh:NodeShape ;\n    sh:targetClass mem:MemoryRecord ;\n    sh:sparql [\n        sh:severity sh:Warning ;\n        sh:message \"I3d-advisory: this record carries a mem:agentId leaf but its witnessing agent is Monovocal - the leaf is redundant and SHOULD be elided.\" ;\n        sh:prefixes [ sh:declare [ sh:prefix \"agt\" ; sh:namespace \"http://mnemosyne.dev/agent#\" ] ,\n                                  [ sh:prefix \"mem\" ; sh:namespace \"http://mnemosyne.dev/memory#\" ] ] ;\n        sh:select \"\"\"\n            SELECT $this WHERE {\n              $this mem:agentId ?vid ; mem:observedBy ?agent .\n              ?agent agt:voicing agt:Monovocal .\n            }\n        \"\"\" ;\n    ] .\n\n# I4a (HARD/structural): a voice borrows exactly one agent and owns no membrane.\nagt:I4_BorrowShape a sh:NodeShape ;\n    sh:targetClass agt:Voice ;\n    sh:property [\n        sh:path agt:voiceOf ; sh:minCount 1 ; sh:maxCount 1 ; sh:class agt:Agent ;\n        sh:severity sh:Violation ;\n        sh:message \"I4a: a voice borrows exactly one agent's membrane (voiceOf, single).\" ;\n    ] ;\n    sh:property [\n        sh:path agt:ownsMembrane ; sh:maxCount 0 ; sh:severity sh:Violation ;\n        sh:message \"I4a: a voice MUST NOT own a membrane - it borrows its agent's (attribution at the leaf, no graph of its own).\" ;\n    ] .\n\n# I4b (FlagAndAccept until \u00a74): a voiced record's observedBy is the AGENT, not the voice.\nagt:I4b_SharedObserverShape a sh:NodeShape ;\n    sh:targetClass mem:MemoryRecord ;\n    sh:sparql [\n        sh:severity sh:Violation ;\n        sh:message \"I4b: a voiced record's mem:observedBy is the agent's witness IRI urn:sophia:agent:{agentId} - voices share it, they don't mint their own.\" ;\n        sh:prefixes [ sh:declare [ sh:prefix \"agt\" ; sh:namespace \"http://mnemosyne.dev/agent#\" ] ,\n                                  [ sh:prefix \"mem\" ; sh:namespace \"http://mnemosyne.dev/memory#\" ] ] ;\n        sh:select \"\"\"\n            SELECT $this WHERE {\n              $this mem:agentId ?vid ; mem:observedBy ?obs .\n              ?voice a agt:Voice ; agt:voiceId ?vid ; agt:voiceOf ?agent .\n              ?agent agt:agentId ?aid .\n              FILTER ( STR(?obs) != CONCAT('urn:sophia:agent:', ?aid) )\n            }\n        \"\"\" ;\n    ] .\n\n# IDENTITY UNIFICATION (spec \u00a74): subject IRI == urn:sophia:agent:{agentId}.\n# \u00a74 is LANDED on choreograph main so this is Halt-eligible now.\nagt:IdentityUnificationShape a sh:NodeShape ;\n    sh:targetClass agt:Agent ;\n    sh:sparql [\n        sh:severity sh:Violation ;\n        sh:message \"Identity unification: the agt:Agent subject IRI MUST equal urn:sophia:agent:{agentId} (the unified stem; \u00a74 landed).\" ;\n        sh:prefixes [ sh:declare [ sh:prefix \"agt\" ; sh:namespace \"http://mnemosyne.dev/agent#\" ] ] ;\n        sh:select \"\"\"\n            SELECT $this WHERE {\n              $this agt:agentId ?id .\n              FILTER( STR($this) != CONCAT('urn:sophia:agent:', ?id) )\n            }\n        \"\"\" ;\n    ] .\n",
+    "status_transitions": [
+        [
+            "active",
+            "superseded"
+        ]
+    ],
+    "title": "Sophia Agent Core Vocabulary",
+    "version": "1.1.0"
+}

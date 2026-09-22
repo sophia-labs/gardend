@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:sophia:schema:conversation-archive:v1",
+  "title": "Inert owner-only conversation archive interchange",
+  "description": "Historical testimony, never execution events. Array order is retained source order, not inferred chronology. Scope fields are claims validated against independently supplied capture and current read authority; this schema grants no access. Exact input-byte digest belongs in the transport receipt, separate from stable entity IDs.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "conversationId", "parentConversationId", "ownerPrincipal", "graphId", "audience", "source", "revision", "title", "messages", "completeness"],
+  "properties": {
+    "schema": {"const": "sophia.conversation-archive.v1"},
+    "conversationId": {"$ref": "#/$defs/id"},
+    "parentConversationId": {"anyOf": [{"$ref": "#/$defs/id"}, {"type": "null"}]},
+    "ownerPrincipal": {"$ref": "#/$defs/principal"},
+    "graphId": {"$ref": "#/$defs/text"},
+    "audience": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "ownerPrincipal", "evidence"],
+      "properties": {
+        "kind": {"const": "owner-only"},
+        "ownerPrincipal": {"$ref": "#/$defs/principal"},
+        "evidence": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/sourceRef"}}
+      }
+    },
+    "source": {"$ref": "#/$defs/sourceIdentity"},
+    "revision": {
+      "type": "object", "additionalProperties": false, "required": ["sourceRecords"],
+      "properties": {"sourceRecords": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/sourceRef"}}}
+    },
+    "title": {"type": ["string", "null"]},
+    "messages": {"type": "array", "items": {"$ref": "#/$defs/message"}},
+    "completeness": {
+      "type": "object", "additionalProperties": false, "required": ["status", "reason"],
+      "properties": {"status": {"enum": ["complete", "partial", "unknown"]}, "reason": {"type": ["string", "null"]}}
+    }
+  },
+  "$defs": {
+    "text": {"type": "string", "minLength": 1},
+    "principal": {"type": "string", "pattern": "^(user|agent|service|organization):[A-Za-z0-9_.@:-]{1,192}$"},
+    "digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "id": {"type": "string", "pattern": "^urn:sophia:conversation-archive:(conversation|message|part):[a-f0-9]{64}$"},
+    "sourceIdentity": {
+      "description": "Entity identity excludes content/version. ID is urn:sophia:conversation-archive:<kind>:SHA256(UTF8 compact JSON array [sophia.conversation-id.v1,namespace,instance,kind,identityBasis,nativeId]); kind is conversation/message/part. Strings are exact, no case folding or Unicode normalization. Instance includes realm/export-origin identity. nativeId holds the exact source key; a record-locator basis must include its containing conversation/message path. Reader must qualify source-local IDs by their container when not globally unique.",
+      "type": "object", "additionalProperties": false, "required": ["namespace", "instance", "identityBasis", "nativeId"],
+      "properties": {"namespace": {"$ref": "#/$defs/text"}, "instance": {"$ref": "#/$defs/text"}, "identityBasis": {"enum": ["native-id", "record-locator"]}, "nativeId": {"$ref": "#/$defs/text"}}
+    },
+    "sourceRef": {
+      "description": "Locators refer to retained private source custody. They are not URLs to fetch, grants, or public download links. Hashes identify exact retained bytes; redacted projections must not overwrite them.",
+      "type": "object", "additionalProperties": false,
+      "required": ["artifactSha256", "artifactLocator", "recordSha256", "recordLocator"],
+      "properties": {
+        "artifactSha256": {"$ref": "#/$defs/digest"}, "artifactLocator": {"$ref": "#/$defs/text"},
+        "recordSha256": {"$ref": "#/$defs/digest"}, "recordLocator": {"$ref": "#/$defs/text"}
+      }
+    },
+    "message": {
+      "type": "object", "additionalProperties": false,
+      "required": ["messageId", "source", "sourceRef", "state", "deletionSourceRef", "role", "authorRef", "occurredAt", "replyTo", "parts"],
+      "properties": {
+        "messageId": {"$ref": "#/$defs/id"}, "source": {"$ref": "#/$defs/sourceIdentity"},
+        "sourceRef": {"$ref": "#/$defs/sourceRef"},
+        "state": {"enum": ["present", "deleted"]},
+        "deletionSourceRef": {"anyOf": [{"$ref": "#/$defs/sourceRef"}, {"type": "null"}]},
+        "role": {"$ref": "#/$defs/text"}, "authorRef": {"type": ["string", "null"]},
+        "occurredAt": {"type": ["string", "null"]}, "replyTo": {"anyOf": [{"$ref": "#/$defs/id"}, {"type": "null"}]},
+        "parts": {"type": "array", "items": {"$ref": "#/$defs/part"}}
+      }
+    },
+    "part": {
+      "description": "Known text/reasoning use text/plain with actual source text. tool-activity uses application/vnd.sophia.tool-activity+json and content is a JSON object with exactly toolName,callId,state,input,output,error,extensions: nullable string names/state, arbitrary inert input/output/error, object extensions. It preserves one source record containing multiple tool states without inventing separate runtime events. Separate tool-call/tool-result parts exist only when the source has separate records. Unknown parts retain opaque sanitized JSON. Nothing authorizes execution.",
+      "type": "object", "additionalProperties": false,
+      "required": ["partId", "source", "kind", "mediaType", "content", "sourceRef", "redactions"],
+      "properties": {
+        "partId": {"$ref": "#/$defs/id"}, "source": {"$ref": "#/$defs/sourceIdentity"},
+        "kind": {"enum": ["text", "reasoning", "tool-activity", "tool-call", "tool-result", "attachment", "unknown"]},
+        "mediaType": {"$ref": "#/$defs/text"}, "content": {"type": "string"},
+        "sourceRef": {"$ref": "#/$defs/sourceRef"},
+        "redactions": {"type": "array", "items": {
+          "type": "object", "additionalProperties": false, "required": ["reason", "sourceLocator"],
+          "properties": {"reason": {"$ref": "#/$defs/text"}, "sourceLocator": {"$ref": "#/$defs/text"}}
+        }}
+      }
+    }
+  }
+}

@@ -1,0 +1,3 @@
+<paragraph>Hello <strong>world</strong> with <em>style</em>.</paragraph>
+<heading level="2">XML Heading</heading>
+<paragraph>Link to <a href="https://example.com">the site</a>.</paragraph>

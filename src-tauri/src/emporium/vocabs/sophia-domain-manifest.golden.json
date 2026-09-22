@@ -1,0 +1,150 @@
+{
+    "classes": {
+        "CapabilityClaim": {
+            "comment": "One declared capability in a Domain Kit manifest. Scope is the Cartesian product of its mode and role links; verdicts remain separate testimony.",
+            "predicates": {
+                "domain:stableId": { "datatype": "string", "multi": false, "required": true },
+                "domain:domain": { "datatype": "string", "multi": false, "required": true },
+                "domain:title": { "datatype": "string", "multi": false, "required": true },
+                "domain:tier": { "datatype": "uri", "multi": false, "required": true },
+                "domain:stateful": { "datatype": "boolean", "multi": false, "required": false },
+                "domain:mode": { "datatype": "uri", "multi": true, "required": true },
+                "domain:role": { "datatype": "uri", "multi": true, "required": true },
+                "domain:journey": { "datatype": "uri", "multi": true, "required": true }
+            },
+            "rdf_types": ["domain:CapabilityClaim"],
+            "subject_rule": "{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:domain-manifest",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "DomainManifest": {
+            "comment": "The deterministic served projection of one authored Domain Kit capability manifest.",
+            "predicates": {
+                "domain:programId": { "datatype": "string", "multi": false, "required": true },
+                "domain:title": { "datatype": "string", "multi": false, "required": true },
+                "domain:schemaVersion": { "datatype": "integer", "multi": false, "required": true },
+                "domain:contentSha256": { "datatype": "string", "multi": false, "required": true },
+                "domain:sourceJson": { "datatype": "string", "multi": false, "required": true },
+                "domain:hasTier": { "datatype": "uri", "multi": true, "required": true },
+                "domain:hasMode": { "datatype": "uri", "multi": true, "required": true },
+                "domain:hasRole": { "datatype": "uri", "multi": true, "required": true },
+                "domain:hasCapability": { "datatype": "uri", "multi": true, "required": true },
+                "domain:hasJourney": { "datatype": "uri", "multi": true, "required": true }
+            },
+            "rdf_types": ["domain:DomainManifest"],
+            "subject_rule": "{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:domain-manifest",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "Journey": {
+            "comment": "A reproducible domain journey linking declared scope, exercised claims, evidence kinds, and ordered steps.",
+            "predicates": {
+                "domain:stableId": { "datatype": "string", "multi": false, "required": true },
+                "domain:title": { "datatype": "string", "multi": false, "required": true },
+                "domain:order": { "datatype": "integer", "multi": false, "required": true },
+                "domain:tier": { "datatype": "uri", "multi": false, "required": true },
+                "domain:mode": { "datatype": "uri", "multi": true, "required": true },
+                "domain:role": { "datatype": "uri", "multi": true, "required": true },
+                "domain:exercisesCapability": { "datatype": "uri", "multi": true, "required": true },
+                "domain:declaresEvidence": { "datatype": "string", "multi": true, "required": true },
+                "domain:hasStep": { "datatype": "uri", "multi": true, "required": true }
+            },
+            "rdf_types": ["domain:Journey"],
+            "subject_rule": "{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:domain-manifest",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "JourneyStep": {
+            "comment": "One ordered action/expectation pair inside a domain journey.",
+            "predicates": {
+                "domain:stableId": { "datatype": "string", "multi": false, "required": true },
+                "domain:order": { "datatype": "integer", "multi": false, "required": true },
+                "domain:action": { "datatype": "string", "multi": false, "required": true },
+                "domain:expected": { "datatype": "string", "multi": false, "required": true },
+                "domain:declaresEvidence": { "datatype": "string", "multi": true, "required": true }
+            },
+            "rdf_types": ["domain:JourneyStep"],
+            "subject_rule": "{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:domain-manifest",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "Mode": {
+            "predicates": {
+                "domain:stableId": { "datatype": "string", "multi": false, "required": true }
+            },
+            "rdf_types": ["domain:Mode"],
+            "subject_rule": "{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:domain-manifest",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "Role": {
+            "predicates": {
+                "domain:stableId": { "datatype": "string", "multi": false, "required": true }
+            },
+            "rdf_types": ["domain:Role"],
+            "subject_rule": "{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:domain-manifest",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "Tier": {
+            "predicates": {
+                "domain:stableId": { "datatype": "string", "multi": false, "required": true },
+                "domain:description": { "datatype": "string", "multi": false, "required": true }
+            },
+            "rdf_types": ["domain:Tier"],
+            "subject_rule": "{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:domain-manifest",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        }
+    },
+    "comanaged_forbidden": ["doc:", "mnemo:", "nfo:"],
+    "comment": "Domain Kit manifest projection pack. The JSON document is authored source; this reserved graph is deterministic, regenerable, and writable only through Garden's Emporium gate.",
+    "description": "Capability manifests, their stable dimensions, journeys, and evidence declarations for graph-served Sophia domains.",
+    "name": "sophia-domain-manifest",
+    "namespaces": {
+        "domain": "http://sophia.ai/domain#",
+        "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+        "sh": "http://www.w3.org/ns/shacl#",
+        "xsd": "http://www.w3.org/2001/XMLSchema#"
+    },
+    "primary_prefix": "domain",
+    "raw_shacl_shapes": "@prefix sh: <http://www.w3.org/ns/shacl#> .\n@prefix domain: <http://sophia.ai/domain#> .\n\ndomain:ManifestDigestShape a sh:NodeShape ;\n    sh:targetClass domain:DomainManifest ;\n    sh:property [ sh:path domain:contentSha256 ; sh:pattern \"^[0-9a-f]{64}$\" ; sh:severity sh:Violation ] ;\n    sh:property [ sh:path domain:hasTier ; sh:class domain:Tier ; sh:severity sh:Violation ] ;\n    sh:property [ sh:path domain:hasMode ; sh:class domain:Mode ; sh:severity sh:Violation ] ;\n    sh:property [ sh:path domain:hasRole ; sh:class domain:Role ; sh:severity sh:Violation ] ;\n    sh:property [ sh:path domain:hasCapability ; sh:class domain:CapabilityClaim ; sh:severity sh:Violation ] ;\n    sh:property [ sh:path domain:hasJourney ; sh:class domain:Journey ; sh:severity sh:Violation ] .\n\ndomain:CapabilityReferenceShape a sh:NodeShape ;\n    sh:targetClass domain:CapabilityClaim ;\n    sh:property [ sh:path domain:tier ; sh:class domain:Tier ; sh:severity sh:Violation ] ;\n    sh:property [ sh:path domain:mode ; sh:class domain:Mode ; sh:severity sh:Violation ] ;\n    sh:property [ sh:path domain:role ; sh:class domain:Role ; sh:severity sh:Violation ] ;\n    sh:property [ sh:path domain:journey ; sh:class domain:Journey ; sh:severity sh:Violation ] .\n\ndomain:JourneyReferenceShape a sh:NodeShape ;\n    sh:targetClass domain:Journey ;\n    sh:property [ sh:path domain:tier ; sh:class domain:Tier ; sh:severity sh:Violation ] ;\n    sh:property [ sh:path domain:mode ; sh:class domain:Mode ; sh:severity sh:Violation ] ;\n    sh:property [ sh:path domain:role ; sh:class domain:Role ; sh:severity sh:Violation ] ;\n    sh:property [ sh:path domain:exercisesCapability ; sh:class domain:CapabilityClaim ; sh:severity sh:Violation ] ;\n    sh:property [ sh:path domain:hasStep ; sh:class domain:JourneyStep ; sh:severity sh:Violation ] .\n",
+    "title": "Sophia Domain Manifest Projection Vocabulary",
+    "version": "1.0.0",
+    "write_target": "projection:domain-manifest"
+}

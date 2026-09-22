@@ -1,0 +1,506 @@
+{
+  "schemaVersion": 1,
+  "description": "Compact response-envelope snapshots for hosted-compatible local loopback routes. These are intentionally top-level contracts; exact nested value fidelity remains in live parity probes.",
+  "routeGroups": [
+    {
+      "name": "hosted job envelope",
+      "kind": "object",
+      "requiredKeys": ["job_id", "result_url", "status"],
+      "routes": [
+        "GET /graphs",
+        "GET /graphs/{graph_id}",
+        "GET /graphs/stats"
+      ]
+    },
+    {
+      "name": "hosted job submit envelope",
+      "kind": "object",
+      "requiredKeys": ["detail", "job_id", "links", "status"],
+      "routes": [
+        "POST /graphs",
+        "POST /graphs/import",
+        "PUT /graphs/{graph_id}",
+        "DELETE /graphs/{graph_id}",
+        "POST /graphs/{graph_id}/duplicate",
+        "POST /graphs/{graph_id}/export",
+        "POST /graphs/{graph_id}/imports/rdf",
+        "POST /graphs/{graph_id}/imports/obsidian",
+        "POST /graphs/{graph_id}/imports/notion",
+        "POST /graphs/{graph_id}/imports/roam",
+        "POST /documents/{graph_id}/{doc_id}/duplicate"
+      ]
+    },
+    {
+      "name": "inline SPARQL query result",
+      "kind": "object",
+      "requiredKeys": ["boolean", "graph", "quadCount", "resultType", "rows", "variables"],
+      "routes": [
+        "POST /graphs/query",
+        "POST /api/graphs/query",
+        "POST /api/sparql/query"
+      ]
+    },
+    {
+      "name": "inline SPARQL update result",
+      "kind": "object",
+      "requiredKeys": ["ok", "quadCount"],
+      "routes": [
+        "POST /graphs/update",
+        "POST /api/graphs/update",
+        "POST /api/sparql/update"
+      ]
+    },
+    {
+      "name": "PDF accurate upload submit envelope",
+      "kind": "object",
+      "requiredKeys": ["documentId", "jobId"],
+      "routes": [
+        "POST /artifacts/{graph_id}/ingest/pdf-accurate"
+      ]
+    },
+    {
+      "name": "synchronous import response",
+      "kind": "object",
+      "requiredKeys": ["documentIds", "documentsCreated", "errors", "status", "warnings"],
+      "routes": [
+        "POST /graphs/{graph_id}/imports/clip",
+        "POST /graphs/{graph_id}/imports/youtube"
+      ]
+    },
+    {
+      "name": "hosted job status",
+      "kind": "object",
+      "requiredKeys": ["job_id", "status"],
+      "routes": [
+        "GET /graphs/jobs/{job_id}",
+        "DELETE /graphs/jobs/{job_id}"
+      ]
+    },
+    {
+      "name": "hosted job result",
+      "kind": "any",
+      "requiredKeys": [],
+      "routes": [
+        "GET /graphs/jobs/{job_id}/result"
+      ]
+    },
+    {
+      "name": "graph catalog rows",
+      "kind": "array",
+      "routes": [
+        "GET /graphs/catalog"
+      ]
+    },
+    {
+      "name": "graph summary envelope",
+      "kind": "object",
+      "requiredKeys": ["document_count", "edge_count", "graph_id", "last_updated_at", "node_count"],
+      "routes": [
+        "GET /graphs/{graph_id}/summary"
+      ]
+    },
+    {
+      "name": "graph properties envelope",
+      "kind": "object",
+      "requiredKeys": ["graph_id", "properties"],
+      "routes": [
+        "GET /graphs/{graph_id}/properties"
+      ]
+    },
+    {
+      "name": "graph viz envelope",
+      "kind": "object",
+      "requiredKeys": ["edges", "graph_id", "nodes", "stats"],
+      "routes": [
+        "GET /graphs/{graph_id}/viz"
+      ]
+    },
+    {
+      "name": "document creation preflight envelope",
+      "kind": "object",
+      "requiredKeys": ["allowed", "graph_storage"],
+      "routes": [
+        "POST /graphs/{graph_id}/documents/preflight"
+      ]
+    },
+    {
+      "name": "document arrays",
+      "kind": "array",
+      "routes": [
+        "GET /documents/{graph_id}"
+      ]
+    },
+    {
+      "name": "document envelope",
+      "kind": "object",
+      "requiredKeys": ["blocks", "graphId", "id", "title"],
+      "routes": [
+        "GET /documents/{graph_id}/{doc_id}",
+        "PUT /documents/{graph_id}/{doc_id}"
+      ]
+    },
+    {
+      "name": "document export raw content",
+      "kind": "binary",
+      "routes": [
+        "GET /documents/{graph_id}/{doc_id}/export"
+      ]
+    },
+    {
+      "name": "document ydoc blob content",
+      "kind": "binary",
+      "routes": [
+        "GET /documents/{graph_id}/workspace/blob",
+        "GET /documents/{graph_id}/{doc_id}/blob"
+      ]
+    },
+    {
+      "name": "document delete envelope",
+      "kind": "object",
+      "requiredKeys": ["graphId", "id", "status"],
+      "routes": [
+        "DELETE /documents/{graph_id}/{doc_id}"
+      ]
+    },
+    {
+      "name": "document flush envelope",
+      "kind": "object",
+      "requiredKeys": ["activeSession", "graphId", "id", "includeMaterialization", "status"],
+      "routes": [
+        "POST /documents/{graph_id}/{doc_id}/flush"
+      ]
+    },
+    {
+      "name": "document description no content",
+      "kind": "any",
+      "requiredKeys": [],
+      "routes": [
+        "PATCH /documents/{graph_id}/{doc_id}/description"
+      ]
+    },
+    {
+      "name": "document block list envelope",
+      "kind": "object",
+      "requiredKeys": ["blocks"],
+      "routes": [
+        "GET /documents/{graph_id}/{doc_id}/blocks",
+        "GET /documents/{graph_id}/{doc_id}/block-context"
+      ]
+    },
+    {
+      "name": "document snapshot list envelope",
+      "kind": "object",
+      "requiredKeys": ["snapshots"],
+      "routes": [
+        "GET /v1/documents/{graph_id}/{doc_id}/snapshots"
+      ]
+    },
+    {
+      "name": "document snapshot envelope",
+      "kind": "object",
+      "requiredKeys": ["created_at", "doc_id", "graph_id", "is_manual", "snapshot_id", "tier"],
+      "routes": [
+        "POST /v1/documents/{graph_id}/{doc_id}/snapshots",
+        "POST /v1/documents/{graph_id}/{doc_id}/snapshots/{snapshot_id}/copy"
+      ]
+    },
+    {
+      "name": "document snapshot count envelope",
+      "kind": "object",
+      "requiredKeys": ["count"],
+      "routes": [
+        "GET /v1/documents/{graph_id}/{doc_id}/snapshots/count"
+      ]
+    },
+    {
+      "name": "document snapshot raw content",
+      "kind": "binary",
+      "routes": [
+        "GET /v1/documents/{graph_id}/{doc_id}/snapshots/{snapshot_id}/html",
+        "GET /v1/documents/{graph_id}/{doc_id}/snapshots/{snapshot_id}/text"
+      ]
+    },
+    {
+      "name": "document snapshot delete no content",
+      "kind": "any",
+      "requiredKeys": [],
+      "routes": [
+        "DELETE /v1/documents/{graph_id}/{doc_id}/snapshots/{snapshot_id}"
+      ]
+    },
+    {
+      "name": "entity type registry envelope",
+      "kind": "object",
+      "requiredKeys": ["types"],
+      "routes": [
+        "GET /entities/entity-types"
+      ]
+    },
+    {
+      "name": "entity list envelope",
+      "kind": "object",
+      "requiredKeys": ["data", "meta"],
+      "routes": [
+        "GET /entities/{graph_id}/{entity_type}"
+      ]
+    },
+    {
+      "name": "entity envelope",
+      "kind": "object",
+      "requiredKeys": ["entityType", "graphId", "id"],
+      "routes": [
+        "GET /entities/{graph_id}/{entity_type}/{entity_id}",
+        "PUT /entities/{graph_id}/{entity_type}/{entity_id}"
+      ]
+    },
+    {
+      "name": "entity delete envelope",
+      "kind": "object",
+      "requiredKeys": ["entityType", "graphId", "id", "status"],
+      "routes": [
+        "DELETE /entities/{graph_id}/{entity_type}/{entity_id}"
+      ]
+    },
+    {
+      "name": "artifact download bytes",
+      "kind": "binary",
+      "routes": [
+        "GET /artifacts/{graph_id}/documents/{document_id}/download-original",
+        "GET /artifacts/{graph_id}/{artifact_id}/download"
+      ]
+    },
+    {
+      "name": "artifact upload document envelope",
+      "kind": "object",
+      "requiredKeys": ["documentId", "graphId", "status"],
+      "routes": [
+        "POST /artifacts/{graph_id}/upload"
+      ]
+    },
+    {
+      "name": "artifact import envelope",
+      "kind": "object",
+      "requiredKeys": ["documentId", "readOnly", "title"],
+      "routes": [
+        "POST /artifacts/{graph_id}/{artifact_id}/import"
+      ]
+    },
+    {
+      "name": "artifact convert envelope",
+      "kind": "object",
+      "requiredKeys": ["documentId", "title"],
+      "routes": [
+        "POST /artifacts/{graph_id}/{artifact_id}/convert"
+      ]
+    },
+    {
+      "name": "artifact batch prepare envelope",
+      "kind": "object",
+      "requiredKeys": ["batchId", "folderMap", "status"],
+      "routes": [
+        "POST /artifacts/{graph_id}/batch/prepare"
+      ]
+    },
+    {
+      "name": "artifact batch register envelope",
+      "kind": "object",
+      "requiredKeys": ["registeredDocuments", "status"],
+      "routes": [
+        "POST /artifacts/{graph_id}/batch/register"
+      ]
+    },
+    {
+      "name": "image upload envelope",
+      "kind": "object",
+      "requiredKeys": ["imageId", "src"],
+      "routes": [
+        "POST /artifacts/{graph_id}/images/upload"
+      ]
+    },
+    {
+      "name": "image bytes",
+      "kind": "binary",
+      "routes": [
+        "GET /artifacts/{graph_id}/images/{image_id}"
+      ]
+    },
+    {
+      "name": "navigation envelope",
+      "kind": "object",
+      "requiredKeys": ["artifacts", "documents", "folders"],
+      "routes": [
+        "GET /navigation/{graph_id}"
+      ]
+    },
+    {
+      "name": "navigation job result",
+      "kind": "any",
+      "routes": [
+        "GET /navigation/{graph_id}/job-result/{job_id}"
+      ]
+    },
+    {
+      "name": "navigation arrays",
+      "kind": "array",
+      "routes": [
+        "GET /navigation/{graph_id}/folders",
+        "GET /navigation/{graph_id}/artifacts"
+      ]
+    },
+    {
+      "name": "folder envelope",
+      "kind": "object",
+      "requiredKeys": ["id"],
+      "routes": [
+        "GET /navigation/{graph_id}/folders/{folder_id}",
+        "PUT /navigation/{graph_id}/folders/{folder_id}"
+      ]
+    },
+    {
+      "name": "folder delete envelope",
+      "kind": "object",
+      "requiredKeys": ["id", "status"],
+      "routes": [
+        "DELETE /navigation/{graph_id}/folders/{folder_id}"
+      ]
+    },
+    {
+      "name": "artifact metadata envelope",
+      "kind": "object",
+      "requiredKeys": ["artifactId", "graphId", "storageKey"],
+      "routes": [
+        "GET /navigation/{graph_id}/artifacts/{artifact_id}",
+        "PUT /navigation/{graph_id}/artifacts/{artifact_id}"
+      ]
+    },
+    {
+      "name": "artifact delete envelope",
+      "kind": "object",
+      "requiredKeys": ["artifactId", "status"],
+      "routes": [
+        "DELETE /navigation/{graph_id}/artifacts/{artifact_id}"
+      ]
+    },
+    {
+      "name": "search result envelope",
+      "kind": "object",
+      "requiredKeys": ["count", "results"],
+      "routes": [
+        "POST /search",
+        "POST /search/blocks",
+        "POST /search/hybrid"
+      ]
+    },
+    {
+      "name": "search rematerialize envelope",
+      "kind": "object",
+      "requiredKeys": ["errors", "graph_id", "materialized", "reindex_queued", "skipped", "total_docs"],
+      "routes": [
+        "POST /search/rematerialize"
+      ]
+    },
+    {
+      "name": "search reindex envelope",
+      "kind": "object",
+      "requiredKeys": ["graph_id", "queued", "total_docs"],
+      "routes": [
+        "POST /search/reindex"
+      ]
+    },
+    {
+      "name": "salience block values envelope",
+      "kind": "object",
+      "requiredKeys": ["blocks", "count", "graph_id"],
+      "routes": [
+        "GET /salience/{graph_id}/blocks/values"
+      ]
+    },
+    {
+      "name": "salience apply values envelope",
+      "kind": "object",
+      "requiredKeys": ["results", "updated_count"],
+      "routes": [
+        "POST /salience/{graph_id}/blocks/value"
+      ]
+    },
+    {
+      "name": "salience user value envelope",
+      "kind": "object",
+      "requiredKeys": ["block_id", "composite_score", "document_id"],
+      "routes": [
+        "PUT /salience/{graph_id}/blocks/user-value"
+      ]
+    },
+    {
+      "name": "salience config envelope",
+      "kind": "object",
+      "requiredKeys": ["importance_prompt", "valence_prompt", "weights"],
+      "routes": [
+        "PATCH /salience/{graph_id}/config"
+      ]
+    },
+    {
+      "name": "wire predicate array",
+      "kind": "array",
+      "routes": [
+        "GET /wires/{graph_id}/predicates"
+      ]
+    },
+    {
+      "name": "wire arrays",
+      "kind": "array",
+      "routes": [
+        "GET /wires/{graph_id}/document/{document_id}/outgoing",
+        "GET /wires/{graph_id}/document/{document_id}/incoming"
+      ]
+    },
+    {
+      "name": "wire bundle envelope",
+      "kind": "object",
+      "requiredKeys": ["incoming_wires", "outgoing_wires", "wired_block_ids"],
+      "routes": [
+        "GET /wires/{graph_id}/document/{document_id}/bundle"
+      ]
+    },
+    {
+      "name": "wired blocks envelope",
+      "kind": "object",
+      "requiredKeys": ["block_ids"],
+      "routes": [
+        "GET /wires/{graph_id}/document/{document_id}/wired-blocks"
+      ]
+    },
+    {
+      "name": "incoming wire indicator",
+      "kind": "boolean",
+      "routes": [
+        "GET /wires/{graph_id}/document/{document_id}/has-incoming"
+      ]
+    },
+    {
+      "name": "wire envelope",
+      "kind": "object",
+      "requiredKeys": ["id", "predicate", "source_document_id", "target_document_id"],
+      "routes": [
+        "POST /wires/{graph_id}/document/{document_id}",
+        "POST /wires/{graph_id}/{wire_id}/refresh"
+      ]
+    },
+    {
+      "name": "wire delete envelope",
+      "kind": "object",
+      "requiredKeys": ["id", "status"],
+      "routes": [
+        "DELETE /wires/{graph_id}/{wire_id}"
+      ]
+    },
+    {
+      "name": "health envelope",
+      "kind": "object",
+      "requiredKeys": ["redis", "status"],
+      "routes": [
+        "GET /health"
+      ]
+    }
+  ]
+}

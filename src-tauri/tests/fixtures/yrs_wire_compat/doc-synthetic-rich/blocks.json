@@ -1,0 +1,208 @@
+[
+  {
+    "id": "block-synth-01",
+    "type": "heading",
+    "content": "Synthetic coverage doc",
+    "parentId": null,
+    "order": 0,
+    "level": 2,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-synth-02",
+    "type": "paragraph",
+    "content": "Plain, bold, italic, struck, inline code, highlighted and a link.",
+    "parentId": null,
+    "order": 1,
+    "level": null,
+    "checked": null,
+    "language": null,
+    "marks": [
+      {
+        "id": "d7dce4cb-385",
+        "type": "bold",
+        "href": null,
+        "targetDocId": null,
+        "targetBlockId": null,
+        "targetGraphId": null,
+        "label": null,
+        "annotationId": null,
+        "wireId": null,
+        "start": 7,
+        "end": 11
+      },
+      {
+        "id": "a7e267ea-ef1",
+        "type": "italic",
+        "href": null,
+        "targetDocId": null,
+        "targetBlockId": null,
+        "targetGraphId": null,
+        "label": null,
+        "annotationId": null,
+        "wireId": null,
+        "start": 13,
+        "end": 19
+      },
+      {
+        "id": "1eafa7c9-abd",
+        "type": "strike",
+        "href": null,
+        "targetDocId": null,
+        "targetBlockId": null,
+        "targetGraphId": null,
+        "label": null,
+        "annotationId": null,
+        "wireId": null,
+        "start": 21,
+        "end": 27
+      },
+      {
+        "id": "6e02a06d-ffa",
+        "type": "code",
+        "href": null,
+        "targetDocId": null,
+        "targetBlockId": null,
+        "targetGraphId": null,
+        "label": null,
+        "annotationId": null,
+        "wireId": null,
+        "start": 29,
+        "end": 40
+      },
+      {
+        "id": "6021347c-814",
+        "type": "highlight",
+        "href": null,
+        "targetDocId": null,
+        "targetBlockId": null,
+        "targetGraphId": null,
+        "label": null,
+        "annotationId": null,
+        "wireId": null,
+        "start": 42,
+        "end": 53
+      },
+      {
+        "id": "6b1e1c95-acf",
+        "type": "link",
+        "href": "https://wormnews.net",
+        "targetDocId": null,
+        "targetBlockId": null,
+        "targetGraphId": null,
+        "label": null,
+        "annotationId": null,
+        "wireId": null,
+        "start": 58,
+        "end": 64
+      }
+    ]
+  },
+  {
+    "id": "block-synth-03",
+    "type": "paragraph",
+    "content": "An annotated stretch of prose with a trailing remark.",
+    "parentId": null,
+    "order": 2,
+    "level": null,
+    "checked": null,
+    "language": null,
+    "marks": [
+      {
+        "id": "796e45eb-893",
+        "type": "comment",
+        "href": null,
+        "targetDocId": null,
+        "targetBlockId": null,
+        "targetGraphId": null,
+        "label": null,
+        "annotationId": "comment-synth-1",
+        "wireId": null,
+        "start": 0,
+        "end": 29
+      }
+    ]
+  },
+  {
+    "id": "block-synth-04",
+    "type": "code",
+    "content": "fn main() {\n    println!(\"<&> escaped\");\n}",
+    "parentId": null,
+    "order": 3,
+    "level": null,
+    "checked": null,
+    "language": "rust",
+    "marks": []
+  },
+  {
+    "id": "block-synth-05",
+    "type": "bullet",
+    "content": "Bullet item",
+    "parentId": null,
+    "order": 4,
+    "level": null,
+    "checked": false,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-synth-06",
+    "type": "bullet",
+    "content": "Nested numbered with bold",
+    "parentId": "block-synth-05",
+    "order": 5,
+    "level": null,
+    "checked": false,
+    "language": null,
+    "marks": [
+      {
+        "id": "6ad7d962-b35",
+        "type": "bold",
+        "href": null,
+        "targetDocId": null,
+        "targetBlockId": null,
+        "targetGraphId": null,
+        "label": null,
+        "annotationId": null,
+        "wireId": null,
+        "start": 21,
+        "end": 25
+      }
+    ]
+  },
+  {
+    "id": "block-synth-07",
+    "type": "bullet",
+    "content": "Done todo item",
+    "parentId": null,
+    "order": 6,
+    "level": null,
+    "checked": true,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-synth-08",
+    "type": "quote",
+    "content": "A quoted line.",
+    "parentId": null,
+    "order": 7,
+    "level": null,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-synth-09",
+    "type": "divider",
+    "content": "",
+    "parentId": null,
+    "order": 8,
+    "level": null,
+    "checked": null,
+    "language": null,
+    "marks": []
+  }
+]

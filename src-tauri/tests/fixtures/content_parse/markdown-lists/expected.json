@@ -1,0 +1,202 @@
+{
+  "tiptapJson": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "listItem",
+        "attrs": {
+          "listType": "bullet",
+          "indent": 0
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "alpha"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "listItem",
+        "attrs": {
+          "listType": "bullet",
+          "indent": 0
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "beta with "
+              },
+              {
+                "type": "text",
+                "text": "bold",
+                "marks": [
+                  {
+                    "type": "bold"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "listItem",
+        "attrs": {
+          "listType": "bullet",
+          "indent": 1
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "beta child"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "listItem",
+        "attrs": {
+          "listType": "ordered",
+          "indent": 2
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "deep ordered"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "listItem",
+        "attrs": {
+          "listType": "bullet",
+          "indent": 0
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "gamma"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "listItem",
+        "attrs": {
+          "listType": "ordered",
+          "indent": 0
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "first"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "listItem",
+        "attrs": {
+          "listType": "ordered",
+          "indent": 0
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "second"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "listItem",
+        "attrs": {
+          "listType": "task",
+          "indent": 0,
+          "checked": false
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "open task"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "listItem",
+        "attrs": {
+          "listType": "task",
+          "indent": 0,
+          "checked": true
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "done task"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "listItem",
+        "attrs": {
+          "listType": "task",
+          "indent": 1,
+          "checked": false
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "nested task"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "derivedTitle": null,
+  "sourceFormat": "markdown",
+  "warnings": []
+}

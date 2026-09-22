@@ -1,0 +1,4 @@
+{
+  "title": "Garden Notes",
+  "markdown": "# Garden Notes\n\nSource: https://example.com/posts/garden/index.html | Author: A. Writer\n\n---\n\n# Growing Things\n\nPlants need **light** and [water](https://example.com/water), *patience*, and `seeds.sow()`.\n\nFirst line second line with ~~struck~~ text.\n\n- one\n- two with **bold**\n\n1. first\n2. second\n\n> Be patient.\n\n```\ncode here\nline two\n```\n\n---\n\n![A pic](https://example.com/posts/garden/images/pic.png) and [a relative link](https://example.com/posts/other/page.html)."
+}

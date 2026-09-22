@@ -1,0 +1,146 @@
+{
+    "classes": {
+        "Wire": {
+            "comment": "Reified cross-document Wire Meaningful Object. ONE wire:Wire subject per wire in the :projection:workspace named graph, minted as workspace_entity_subject(graph_id, \"wire\", id). Code-defined span (rdf_wire_materializer::wire_subject_triples = the rdf:type head + push_wire_triples body) — this contract is the AUTHORED mirror of that span, used to DERIVE the SHACL conformance shapes. SINGLE CLASS, flat (~24 predicates), fully DERIVED. DANGLING ENDPOINTS ARE ALLOWED BY DESIGN: sourceDocument/targetDocument/sourceBlock/targetBlock/sourceContext/targetContext are sh:nodeKind sh:IRI (they ARE IRIs) but the shapes DELIBERATELY do NOT enforce referential integrity (sh:class) — a wire may reference a document/block that does not exist (proven by oracle_dangling_endpoint_still_emitted_w1). Endpoint-consistency would be a hand-authored complement, NOT part of these shapes. Only rdf:type + wire:targetGraph are always-emitted; every other predicate is required:false (construction-driven, present only when the source field is present).",
+            "predicates": {
+                "wire:sourceDocument": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "comment": "endpoint IRI — referential integrity NOT enforced (may dangle)"
+                },
+                "wire:targetDocument": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "comment": "endpoint IRI — referential integrity NOT enforced (may dangle)"
+                },
+                "wire:sourceBlock": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "comment": "endpoint IRI — may dangle"
+                },
+                "wire:targetBlock": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "comment": "endpoint IRI — may dangle"
+                },
+                "wire:sourceContext": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false
+                },
+                "wire:targetContext": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false
+                },
+                "wire:predicate": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false
+                },
+                "wire:inverseOf": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false
+                },
+                "wire:bidirectional": {
+                    "datatype": "boolean",
+                    "multi": false,
+                    "required": false
+                },
+                "wire:targetGraph": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "comment": "ALWAYS emitted (defaults to graph_id when targetGraphId absent) — the one required non-type predicate"
+                },
+                "wire:targetTitle": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "wire:targetSnippet": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "wire:sourceTitle": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "wire:sourceSnippet": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "wire:sceneGraphId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "wire:sceneArtifactId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "wire:sceneElementId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "wire:sceneSourceElementId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "wire:sceneTargetElementId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "wire:sceneStableKey": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "wire:deletedAt": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": false
+                },
+                "wire:snapshotAt": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": false
+                },
+                "mdoc:createdAt": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": false,
+                    "comment": "the ONE non-wire-namespace predicate (push_wire_triples emits createdAt under MDOC_NS)"
+                }
+            },
+            "rdf_types": [
+                "wire:Wire"
+            ],
+            "subject_rule": "workspace_entity_subject(graph_id, \"wire\", id) = urn:mnemosyne:local:graph:{gid}:wire:{id} — code-minted"
+        }
+    },
+    "comment": "EA-2b+ SHACL retrofit contract for the WIRE Meaningful Object (structural fork: the no-referential-integrity note). NOT a served emporium pack — an AUTHORED mirror of the code-defined wire_subject_triples span, whose sole consumer is vocab_to_shacl. wire: is the runtime WIRE_NS (http://mnemosyne.ai/vocab#) — the namespace the materializer mints rdf:type mnemo:Wire AND the wire:* predicates under (the gardend MNEMO vocab prefix). primary_prefix=wire so wire:Wire is the shape target. mdoc: is MDOC_NS (the single createdAt exception). The flat closed shape is COMPLETE and CORRECT for wires; the only structural subtlety is what it must NOT do — enforce endpoint existence.",
+    "description": "A reified cross-document wire: rdf:type wire:Wire plus endpoint IRIs (source/target document/block/context — referential integrity unenforced), the predicate, optional bidirectional/inverseOf, the always-on targetGraph, and scene/temporal scalar metadata.",
+    "name": "emporium-wires",
+    "namespaces": {
+        "mdoc": "http://mnemosyne.dev/doc#",
+        "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+        "wire": "http://mnemosyne.ai/vocab#",
+        "xsd": "http://www.w3.org/2001/XMLSchema#"
+    },
+    "primary_prefix": "wire",
+    "title": "Emporium Wire Vocabulary",
+    "version": "1.0.0"
+}

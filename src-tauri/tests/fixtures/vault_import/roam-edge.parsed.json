@@ -1,0 +1,41 @@
+{
+  "documents": [
+    {
+      "title": "February 30th, 2026",
+      "markdown": "# February 30th, 2026\n\n- Rollover test",
+      "folderPath": "Daily Notes/2026/03-February",
+      "sourceFilename": "February 30th, 2026.json"
+    },
+    {
+      "title": "Attrs",
+      "markdown": "# Attrs\n\n- **Status:**  active\n- [x] done thing\n- {{embed: }} after embed\n- Nested outer inner link\n- See TODO system and edge-tag",
+      "folderPath": null,
+      "sourceFilename": "Attrs.json"
+    },
+    {
+      "title": "Bracketed Title",
+      "markdown": "# Bracketed Title\n",
+      "folderPath": null,
+      "sourceFilename": "Bracketed Title.json"
+    }
+  ],
+  "wikilinks": [
+    {
+      "sourceTitle": "Attrs",
+      "targetTitle": "outer inner",
+      "displayText": null,
+      "sourceContext": "Nested [[outer [[inner]]]] link",
+      "isTag": false
+    },
+    {
+      "sourceTitle": "Attrs",
+      "targetTitle": "edge-tag",
+      "displayText": null,
+      "sourceContext": "See [[TODO]] system and #edge-tag",
+      "isTag": true
+    }
+  ],
+  "warnings": [
+    "Multiple JSON files found, using first: a-main.json"
+  ]
+}

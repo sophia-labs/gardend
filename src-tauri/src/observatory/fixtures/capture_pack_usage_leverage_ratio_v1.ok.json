@@ -1,0 +1,230 @@
+[
+  {
+    "object_type": "MetricEvaluation",
+    "schema_version": 1,
+    "metric_definition": "urn:sophia:observatory:metric:usage_leverage_ratio_v1",
+    "requested_window": {
+      "start": "2026-07-20T00:00:00Z",
+      "end": "2026-07-21T00:00:00Z",
+      "boundary": "[start,end)"
+    },
+    "evaluated_at": "2026-07-21T19:53:03Z",
+    "outcome": "ok",
+    "engine": {
+      "name": "duckdb",
+      "version": "1.5.4"
+    },
+    "source_snapshot": {
+      "object_type": "SourceSnapshot",
+      "schema_version": 1,
+      "subject": "urn:sophia:observatory:snapshot:sha256:7d13ebb7b9b7e031285888a6f2f528f22a172ce215a18a601b4562bb178816d0",
+      "source_system": "observatory-ledger",
+      "source_authority": "validated immutable CaptureEvent NDJSON snapshot",
+      "source_ref": "file:///private/tmp/claude-501/-Users-vera-dev-sophia/0bb581b8-df75-4fc6-a929-366499f1c583/scratchpad/realrun/work/ledger-folded.ndjson",
+      "captured_at": "2026-07-21T19:52:58.893Z",
+      "sha256": "7d13ebb7b9b7e031285888a6f2f528f22a172ce215a18a601b4562bb178816d0",
+      "bytes": 27837555,
+      "conflict_count": 0
+    },
+    "observation": {
+      "object_type": "MetricObservation",
+      "schema_version": 1,
+      "subject": "urn:sophia:observatory:observation:sha256:f8bbea456cea8a11f926022c85386d50324d2773805f769408ef642d4d046db7",
+      "logical_id": "urn:sophia:observatory:observation:usage_leverage_ratio_v1:2026-07-20:ratio:agent_per_human_permille",
+      "metric_definition": "urn:sophia:observatory:metric:usage_leverage_ratio_v1",
+      "lifecycle_status": "provisional",
+      "computation_status": "no-data",
+      "value": 0,
+      "unit": "permille",
+      "window": {
+        "start": "2026-07-20T00:00:00Z",
+        "end": "2026-07-21T00:00:00Z",
+        "boundary": "[start,end)"
+      },
+      "computed_at": "2026-07-21T19:53:03Z",
+      "source_snapshot": "urn:sophia:observatory:snapshot:sha256:7d13ebb7b9b7e031285888a6f2f528f22a172ce215a18a601b4562bb178816d0",
+      "source_event_count": 0,
+      "query_sha256": "5827433ee6972e1b0b4eab24d8201a82eb2305baca47ce060abcff0ae99db8c6",
+      "engine": {
+        "name": "duckdb",
+        "version": "1.5.4"
+      },
+      "coverage": "ratio slice is per-mille; total slices are turn counts. 'Per user' is reported as the aggregate sum/sum; a per-user distribution needs a per-user emit or a defined zero-denominator policy (phase 2). orphan_agent_turns surfaces un-joinable agent work rather than dropping it.",
+      "derived_from": [
+        "urn:sophia:observatory:metric:usage_leverage_ratio_v1",
+        "urn:sophia:observatory:snapshot:sha256:7d13ebb7b9b7e031285888a6f2f528f22a172ce215a18a601b4562bb178816d0"
+      ]
+    }
+  },
+  {
+    "object_type": "MetricEvaluation",
+    "schema_version": 1,
+    "metric_definition": "urn:sophia:observatory:metric:usage_leverage_ratio_v1",
+    "requested_window": {
+      "start": "2026-07-20T00:00:00Z",
+      "end": "2026-07-21T00:00:00Z",
+      "boundary": "[start,end)"
+    },
+    "evaluated_at": "2026-07-21T19:53:03Z",
+    "outcome": "ok",
+    "engine": {
+      "name": "duckdb",
+      "version": "1.5.4"
+    },
+    "source_snapshot": {
+      "object_type": "SourceSnapshot",
+      "schema_version": 1,
+      "subject": "urn:sophia:observatory:snapshot:sha256:7d13ebb7b9b7e031285888a6f2f528f22a172ce215a18a601b4562bb178816d0",
+      "source_system": "observatory-ledger",
+      "source_authority": "validated immutable CaptureEvent NDJSON snapshot",
+      "source_ref": "file:///private/tmp/claude-501/-Users-vera-dev-sophia/0bb581b8-df75-4fc6-a929-366499f1c583/scratchpad/realrun/work/ledger-folded.ndjson",
+      "captured_at": "2026-07-21T19:52:58.893Z",
+      "sha256": "7d13ebb7b9b7e031285888a6f2f528f22a172ce215a18a601b4562bb178816d0",
+      "bytes": 27837555,
+      "conflict_count": 0
+    },
+    "observation": {
+      "object_type": "MetricObservation",
+      "schema_version": 1,
+      "subject": "urn:sophia:observatory:observation:sha256:34027d45eb10e0f17e7854a084c8741ea156965023829c0e7d0b5ab911a17cf5",
+      "logical_id": "urn:sophia:observatory:observation:usage_leverage_ratio_v1:2026-07-20:total:agent_turns",
+      "metric_definition": "urn:sophia:observatory:metric:usage_leverage_ratio_v1",
+      "lifecycle_status": "provisional",
+      "computation_status": "no-data",
+      "value": 0,
+      "unit": "permille",
+      "window": {
+        "start": "2026-07-20T00:00:00Z",
+        "end": "2026-07-21T00:00:00Z",
+        "boundary": "[start,end)"
+      },
+      "computed_at": "2026-07-21T19:53:03Z",
+      "source_snapshot": "urn:sophia:observatory:snapshot:sha256:7d13ebb7b9b7e031285888a6f2f528f22a172ce215a18a601b4562bb178816d0",
+      "source_event_count": 0,
+      "query_sha256": "5827433ee6972e1b0b4eab24d8201a82eb2305baca47ce060abcff0ae99db8c6",
+      "engine": {
+        "name": "duckdb",
+        "version": "1.5.4"
+      },
+      "coverage": "ratio slice is per-mille; total slices are turn counts. 'Per user' is reported as the aggregate sum/sum; a per-user distribution needs a per-user emit or a defined zero-denominator policy (phase 2). orphan_agent_turns surfaces un-joinable agent work rather than dropping it.",
+      "derived_from": [
+        "urn:sophia:observatory:metric:usage_leverage_ratio_v1",
+        "urn:sophia:observatory:snapshot:sha256:7d13ebb7b9b7e031285888a6f2f528f22a172ce215a18a601b4562bb178816d0"
+      ]
+    }
+  },
+  {
+    "object_type": "MetricEvaluation",
+    "schema_version": 1,
+    "metric_definition": "urn:sophia:observatory:metric:usage_leverage_ratio_v1",
+    "requested_window": {
+      "start": "2026-07-20T00:00:00Z",
+      "end": "2026-07-21T00:00:00Z",
+      "boundary": "[start,end)"
+    },
+    "evaluated_at": "2026-07-21T19:53:03Z",
+    "outcome": "ok",
+    "engine": {
+      "name": "duckdb",
+      "version": "1.5.4"
+    },
+    "source_snapshot": {
+      "object_type": "SourceSnapshot",
+      "schema_version": 1,
+      "subject": "urn:sophia:observatory:snapshot:sha256:7d13ebb7b9b7e031285888a6f2f528f22a172ce215a18a601b4562bb178816d0",
+      "source_system": "observatory-ledger",
+      "source_authority": "validated immutable CaptureEvent NDJSON snapshot",
+      "source_ref": "file:///private/tmp/claude-501/-Users-vera-dev-sophia/0bb581b8-df75-4fc6-a929-366499f1c583/scratchpad/realrun/work/ledger-folded.ndjson",
+      "captured_at": "2026-07-21T19:52:58.893Z",
+      "sha256": "7d13ebb7b9b7e031285888a6f2f528f22a172ce215a18a601b4562bb178816d0",
+      "bytes": 27837555,
+      "conflict_count": 0
+    },
+    "observation": {
+      "object_type": "MetricObservation",
+      "schema_version": 1,
+      "subject": "urn:sophia:observatory:observation:sha256:7be4668e130e0c42f7e7fe7a6ec673084f5203b25de0b2f563c9dcb2be49a713",
+      "logical_id": "urn:sophia:observatory:observation:usage_leverage_ratio_v1:2026-07-20:total:human_turns",
+      "metric_definition": "urn:sophia:observatory:metric:usage_leverage_ratio_v1",
+      "lifecycle_status": "provisional",
+      "computation_status": "no-data",
+      "value": 0,
+      "unit": "permille",
+      "window": {
+        "start": "2026-07-20T00:00:00Z",
+        "end": "2026-07-21T00:00:00Z",
+        "boundary": "[start,end)"
+      },
+      "computed_at": "2026-07-21T19:53:03Z",
+      "source_snapshot": "urn:sophia:observatory:snapshot:sha256:7d13ebb7b9b7e031285888a6f2f528f22a172ce215a18a601b4562bb178816d0",
+      "source_event_count": 0,
+      "query_sha256": "5827433ee6972e1b0b4eab24d8201a82eb2305baca47ce060abcff0ae99db8c6",
+      "engine": {
+        "name": "duckdb",
+        "version": "1.5.4"
+      },
+      "coverage": "ratio slice is per-mille; total slices are turn counts. 'Per user' is reported as the aggregate sum/sum; a per-user distribution needs a per-user emit or a defined zero-denominator policy (phase 2). orphan_agent_turns surfaces un-joinable agent work rather than dropping it.",
+      "derived_from": [
+        "urn:sophia:observatory:metric:usage_leverage_ratio_v1",
+        "urn:sophia:observatory:snapshot:sha256:7d13ebb7b9b7e031285888a6f2f528f22a172ce215a18a601b4562bb178816d0"
+      ]
+    }
+  },
+  {
+    "object_type": "MetricEvaluation",
+    "schema_version": 1,
+    "metric_definition": "urn:sophia:observatory:metric:usage_leverage_ratio_v1",
+    "requested_window": {
+      "start": "2026-07-20T00:00:00Z",
+      "end": "2026-07-21T00:00:00Z",
+      "boundary": "[start,end)"
+    },
+    "evaluated_at": "2026-07-21T19:53:03Z",
+    "outcome": "ok",
+    "engine": {
+      "name": "duckdb",
+      "version": "1.5.4"
+    },
+    "source_snapshot": {
+      "object_type": "SourceSnapshot",
+      "schema_version": 1,
+      "subject": "urn:sophia:observatory:snapshot:sha256:7d13ebb7b9b7e031285888a6f2f528f22a172ce215a18a601b4562bb178816d0",
+      "source_system": "observatory-ledger",
+      "source_authority": "validated immutable CaptureEvent NDJSON snapshot",
+      "source_ref": "file:///private/tmp/claude-501/-Users-vera-dev-sophia/0bb581b8-df75-4fc6-a929-366499f1c583/scratchpad/realrun/work/ledger-folded.ndjson",
+      "captured_at": "2026-07-21T19:52:58.893Z",
+      "sha256": "7d13ebb7b9b7e031285888a6f2f528f22a172ce215a18a601b4562bb178816d0",
+      "bytes": 27837555,
+      "conflict_count": 0
+    },
+    "observation": {
+      "object_type": "MetricObservation",
+      "schema_version": 1,
+      "subject": "urn:sophia:observatory:observation:sha256:db4db03b3cff2dfe3ca394b20db030bb65680fe236cc06b75d36cb134a137d3a",
+      "logical_id": "urn:sophia:observatory:observation:usage_leverage_ratio_v1:2026-07-20:total:orphan_agent_turns",
+      "metric_definition": "urn:sophia:observatory:metric:usage_leverage_ratio_v1",
+      "lifecycle_status": "provisional",
+      "computation_status": "no-data",
+      "value": 0,
+      "unit": "permille",
+      "window": {
+        "start": "2026-07-20T00:00:00Z",
+        "end": "2026-07-21T00:00:00Z",
+        "boundary": "[start,end)"
+      },
+      "computed_at": "2026-07-21T19:53:03Z",
+      "source_snapshot": "urn:sophia:observatory:snapshot:sha256:7d13ebb7b9b7e031285888a6f2f528f22a172ce215a18a601b4562bb178816d0",
+      "source_event_count": 0,
+      "query_sha256": "5827433ee6972e1b0b4eab24d8201a82eb2305baca47ce060abcff0ae99db8c6",
+      "engine": {
+        "name": "duckdb",
+        "version": "1.5.4"
+      },
+      "coverage": "ratio slice is per-mille; total slices are turn counts. 'Per user' is reported as the aggregate sum/sum; a per-user distribution needs a per-user emit or a defined zero-denominator policy (phase 2). orphan_agent_turns surfaces un-joinable agent work rather than dropping it.",
+      "derived_from": [
+        "urn:sophia:observatory:metric:usage_leverage_ratio_v1",
+        "urn:sophia:observatory:snapshot:sha256:7d13ebb7b9b7e031285888a6f2f528f22a172ce215a18a601b4562bb178816d0"
+      ]
+    }
+  }
+]

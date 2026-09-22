@@ -1,0 +1,112 @@
+{
+    "classes": {
+        "AgentRunBinding": {
+            "comment": "The workflow-side node invocation binding. The materialized edge is wf:boundToAgent from the wf:AgentRun subject to the agt:Turn subject; agt:realizedBy is declared as the inverse reading.",
+            "predicates": {
+                "wf:boundToAgent": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "wf:AgentRun -> agt:Turn binding edge, filed via emporium-ingest"
+                }
+            },
+            "rdf_types": [
+                "wf:AgentRun"
+            ],
+            "subject_rule": "urn-space; workflow-run fold minted",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "user:rdf",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "RunBinding": {
+            "comment": "The workflow-side run binding. The materialized edge is wf:boundToAgent from the wf:Run subject to the agt:Session subject; agt:realizedBy is declared as the inverse reading.",
+            "predicates": {
+                "wf:boundToAgent": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "wf:Run -> agt:Session binding edge, filed via emporium-ingest"
+                }
+            },
+            "rdf_types": [
+                "wf:Run"
+            ],
+            "subject_rule": "urn-space; workflow-run fold minted",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "user:rdf",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "SessionRealization": {
+            "comment": "The inverse reading of a run binding, declared here for faces and reasoners. Emit only one direction on the wire: wf:boundToAgent from wf:Run to agt:Session.",
+            "predicates": {
+                "agt:realizedBy": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "inverse reading: agt:Session -> wf:Run"
+                }
+            },
+            "rdf_types": [
+                "agt:Session"
+            ],
+            "subject_rule": "urn-space; agent-session fold minted",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "user:rdf",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "TurnRealization": {
+            "comment": "The inverse reading of a node-run binding, declared here for faces and reasoners. Emit only one direction on the wire: wf:boundToAgent from wf:AgentRun to agt:Turn.",
+            "predicates": {
+                "agt:realizedBy": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "inverse reading: agt:Turn -> wf:AgentRun"
+                }
+            },
+            "rdf_types": [
+                "agt:Turn"
+            ],
+            "subject_rule": "urn-space; agent-turn fold minted",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "user:rdf",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        }
+    },
+    "comment": "WS-7 workflow-agent binding vocabulary. A publication-only composite pack: it owl:imports wf:, references agt: by relation, and declares the binding predicate wf:boundToAgent plus inverse reading agt:realizedBy. The materialized wire edge is wf:Run/wf:AgentRun wf:boundToAgent agt:Session/agt:Turn, filed via emporium-ingest into user:rdf. This pack deliberately has no write_target.",
+    "description": "Composite vocabulary for binding workflow run subjects to agent-subject Session/Turn subjects.",
+    "imports": [
+        "http://mnemosyne.dev/workflow#"
+    ],
+    "name": "wf-agent-binding",
+    "namespaces": {
+        "agt": "http://mnemosyne.dev/agent#",
+        "owl": "http://www.w3.org/2002/07/owl#",
+        "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+        "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
+        "sh": "http://www.w3.org/ns/shacl#",
+        "wf": "http://mnemosyne.dev/workflow#",
+        "wfagt": "http://mnemosyne.dev/workflow-agent-binding#",
+        "xsd": "http://www.w3.org/2001/XMLSchema#"
+    },
+    "primary_prefix": "wfagt",
+    "raw_shacl_shapes": "@prefix sh: <http://www.w3.org/ns/shacl#> .\n@prefix wf: <http://mnemosyne.dev/workflow#> .\n@prefix agt: <http://mnemosyne.dev/agent#> .\n@prefix wfagt: <http://mnemosyne.dev/workflow-agent-binding#> .\n\nwfagt:RunBoundToSessionShape a sh:NodeShape ;\n    sh:targetClass wf:Run ;\n    sh:sparql [\n        sh:severity sh:Violation ;\n        sh:message \"WF-2: wf:Run wf:boundToAgent target must be typed agt:Session.\" ;\n        sh:select \"\"\"\n            PREFIX wf: <http://mnemosyne.dev/workflow#>\n            PREFIX agt: <http://mnemosyne.dev/agent#>\n            SELECT $this WHERE {\n              $this wf:boundToAgent ?session .\n              FILTER NOT EXISTS { ?session a agt:Session . }\n            }\n        \"\"\" ;\n    ] .\n\nwfagt:AgentRunBoundToTurnShape a sh:NodeShape ;\n    sh:targetClass wf:AgentRun ;\n    sh:sparql [\n        sh:severity sh:Violation ;\n        sh:message \"WF-2: wf:AgentRun wf:boundToAgent target must be typed agt:Turn.\" ;\n        sh:select \"\"\"\n            PREFIX wf: <http://mnemosyne.dev/workflow#>\n            PREFIX agt: <http://mnemosyne.dev/agent#>\n            SELECT $this WHERE {\n              $this wf:boundToAgent ?turn .\n              FILTER NOT EXISTS { ?turn a agt:Turn . }\n            }\n        \"\"\" ;\n    ] .\n",
+    "title": "Workflow-Agent Binding Vocabulary",
+    "version": "1.0.0"
+}

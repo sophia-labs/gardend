@@ -1,0 +1,63 @@
+{
+    "classes": {
+        "EvidenceRef": {
+            "comment": "A content-addressed evidence reference carried by a scoped domain verdict.",
+            "predicates": {
+                "domain:contentUri": { "datatype": "uri", "multi": false, "required": true },
+                "domain:contentSha256": { "datatype": "string", "multi": false, "required": true },
+                "domain:mediaType": { "datatype": "string", "multi": false, "required": false },
+                "domain:label": { "datatype": "string", "multi": false, "required": false }
+            },
+            "rdf_types": ["domain:EvidenceRef"],
+            "subject_rule": "urn:sophia:domain:evidence:{hash}",
+            "source_kind": "event-log",
+            "identity_kind": "content-hash",
+            "store_mode": "materialize",
+            "store_target": "projection:domain-verdict",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "Verdict": {
+            "comment": "Content-addressed testimony over exactly one capability, mode, role, and target digest. New verdicts append; current state is chosen on read by asOf.",
+            "predicates": {
+                "domain:domain": { "datatype": "string", "multi": false, "required": true },
+                "domain:capabilityId": { "datatype": "string", "multi": false, "required": true },
+                "domain:modeId": { "datatype": "string", "multi": false, "required": true },
+                "domain:roleId": { "datatype": "string", "multi": false, "required": true },
+                "domain:targetSha256": { "datatype": "string", "multi": false, "required": true },
+                "domain:outcome": { "datatype": "uri", "multi": false, "required": true },
+                "domain:asOf": { "datatype": "dateTime", "multi": false, "required": true },
+                "domain:agentSession": { "datatype": "uri", "multi": false, "required": true },
+                "domain:reason": { "datatype": "string", "multi": false, "required": false },
+                "domain:contentSha256": { "datatype": "string", "multi": false, "required": true },
+                "domain:sourceJson": { "datatype": "string", "multi": false, "required": true },
+                "domain:evidence": { "datatype": "uri", "multi": true, "required": true }
+            },
+            "rdf_types": ["domain:Verdict"],
+            "subject_rule": "{localId} - content-hash, host-minted",
+            "source_kind": "event-log",
+            "identity_kind": "content-hash",
+            "store_mode": "materialize",
+            "store_target": "projection:domain-verdict",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        }
+    },
+    "comanaged_forbidden": ["doc:", "mnemo:", "nfo:"],
+    "comment": "Domain Kit verdict projection pack. It is the host-executed, SHACL-gated replacement for provisional direct user-RDF verdict writes.",
+    "description": "Scoped PASS/FAIL/BLOCKED domain testimony with session attribution and content-addressed evidence.",
+    "name": "sophia-domain-verdict",
+    "namespaces": {
+        "domain": "http://sophia.ai/domain#",
+        "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+        "sh": "http://www.w3.org/ns/shacl#",
+        "xsd": "http://www.w3.org/2001/XMLSchema#"
+    },
+    "primary_prefix": "domain",
+    "raw_shacl_shapes": "@prefix sh: <http://www.w3.org/ns/shacl#> .\n@prefix domain: <http://sophia.ai/domain#> .\n\ndomain:VerdictClosedShape a sh:NodeShape ;\n    sh:targetClass domain:Verdict ;\n    sh:property [ sh:path domain:outcome ; sh:in ( domain:PASS domain:FAIL domain:BLOCKED ) ; sh:severity sh:Violation ] ;\n    sh:property [ sh:path domain:targetSha256 ; sh:pattern \"^[0-9a-f]{64}$\" ; sh:severity sh:Violation ] ;\n    sh:property [ sh:path domain:contentSha256 ; sh:pattern \"^[0-9a-f]{64}$\" ; sh:severity sh:Violation ] ;\n    sh:property [ sh:path domain:evidence ; sh:class domain:EvidenceRef ; sh:severity sh:Violation ] .\n\ndomain:EvidenceDigestShape a sh:NodeShape ;\n    sh:targetClass domain:EvidenceRef ;\n    sh:property [ sh:path domain:contentSha256 ; sh:pattern \"^[0-9a-f]{64}$\" ; sh:severity sh:Violation ] .\n",
+    "title": "Sophia Domain Verdict Projection Vocabulary",
+    "version": "1.0.0",
+    "write_target": "projection:domain-verdict"
+}

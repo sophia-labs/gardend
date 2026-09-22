@@ -1,0 +1,265 @@
+{
+    "classes": {
+        "Operation": {
+            "comment": "One published API operation \u2014 an HTTP endpoint (operationId/method/path) that invokes a Choreograph workflow. Materializes to an OpenAPI paths/{path}/{method} PathItem. The OpenAPI FACE (vocab_to_openapi, EA-3 Seq 9) is the peer of vocab_to_shacl: a deterministic projection of these triples into an OpenAPI 3.x document.",
+            "predicates": {
+                "api:operationId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "the unique operation id (e.g. 'createTask'); the OpenAPI operationId and the identity key the WorkflowBinding's bindsOperation references"
+                },
+                "api:method": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "HTTP method: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS"
+                },
+                "api:path": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "the HTTP path relative to the server root (e.g. '/tasks/{id}'); path params marked as {name}"
+                },
+                "api:summary": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "short human-readable summary of the operation"
+                },
+                "api:description": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "longer human-readable description of what the operation does"
+                },
+                "api:deprecated": {
+                    "datatype": "boolean",
+                    "multi": false,
+                    "required": false,
+                    "source": "whether this operation is deprecated (default false)"
+                },
+                "api:hasBinding": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "reference to the api:WorkflowBinding implementing this operation's invocation"
+                }
+            },
+            "rdf_types": [
+                "api:Operation"
+            ],
+            "subject_rule": "{graph_subject}:projection:api:operation:{operationId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:api",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "Parameter": {
+            "comment": "One input parameter on an Operation. Carries name, location (query/path/header/cookie), required/optional, and a bare datatype token. Materializes to an entry in the OpenAPI PathItem 'parameters' array (datatype mapped to the OpenAPI primitive type).",
+            "predicates": {
+                "api:name": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "parameter name (e.g. 'id'); must match the OpenAPI parameter name and any {name} in the path"
+                },
+                "api:in": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "parameter location: query, path, header, cookie (the OpenAPI 'in' field)"
+                },
+                "api:required": {
+                    "datatype": "boolean",
+                    "multi": false,
+                    "required": false,
+                    "source": "whether this parameter is mandatory (path params are always required in OpenAPI)"
+                },
+                "api:datatype": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "bare datatype token (string, integer, long, float, double, boolean, dateTime, uri) \u2014 NO xsd: prefix; mapped to the OpenAPI primitive schema type by the materializer"
+                },
+                "api:description": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "human-readable parameter description"
+                },
+                "api:ofOperation": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "reference to the api:Operation this parameter belongs to"
+                }
+            },
+            "rdf_types": [
+                "api:Parameter"
+            ],
+            "subject_rule": "{graph_subject}:projection:api:parameter:{operationId}:{name}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:api",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "Response": {
+            "comment": "One response variant from an Operation (success 200/201 or an error code 400/401/403/404/409/500). Carries statusCode + description. Materializes to an entry in the OpenAPI operation 'responses' map.",
+            "predicates": {
+                "api:statusCode": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true,
+                    "source": "HTTP status code (200, 201, 400, 401, 403, 404, 409, 500, ...)"
+                },
+                "api:description": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "human-readable description of when this response occurs"
+                },
+                "api:ofOperation": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "reference to the api:Operation this response belongs to"
+                },
+                "api:errorCode": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "for error responses: the machine-readable error code (e.g. 'invalid_input', 'forbidden', 'unknown_workflow') per the CA-1 standard error shape"
+                }
+            },
+            "rdf_types": [
+                "api:Response"
+            ],
+            "subject_rule": "{graph_subject}:projection:api:response:{operationId}:{statusCode}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:api",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "WorkflowBinding": {
+            "comment": "THE SEAM. Links an api:Operation to a Choreograph workflow: declares the workflow name, executor mode (gated|dumb, per CA-1 \u00a73), auth requirement, and \u2014 crucially \u2014 the I/O payload schemas as JSON-Schema STRING LITERALS (CA-1 invocation-binding contract). api:inputSchema / api:outputSchema are verbatim JSON content carried in a string literal; the OpenAPI materializer parses them and embeds them UNCHANGED into components/schemas (zero translation \u2014 the clean layer split: the contract alphabet stays in SHACL, the JSON Schema stays in OpenAPI).",
+            "predicates": {
+                "api:bindsOperation": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "reference to the api:Operation this binding implements; its operationId is the OpenAPI operationId"
+                },
+                "api:workflowName": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "the Choreograph workflow name resolved by handle_api_operation (CA-1 Seq 10, deferred) at invocation time"
+                },
+                "api:executor": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "executor mode: 'gated' (agent-powered, LLM cost, entitlement-gated) or 'dumb' (deterministic Loom pipeline, no agent, no cost) per CA-1 \u00a73; surfaced as the OpenAPI x-executor extension"
+                },
+                "api:description": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "human-readable binding description"
+                },
+                "api:requiresAuth": {
+                    "datatype": "boolean",
+                    "multi": false,
+                    "required": false,
+                    "source": "whether the operation requires authentication (default true; all published APIs are owner-gated per CA-1 \u00a75)"
+                },
+                "api:inputSchema": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "JSON Schema (as a STRING LITERAL of JSON content) for the workflow's input args. Passed VERBATIM by the OpenAPI materializer into the request body schema; NO translation by Emporium. If absent, the request body is omitted."
+                },
+                "api:outputSchema": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "JSON Schema (as a STRING LITERAL of JSON content) for the workflow's output. Passed VERBATIM into the 200-response schema; NO translation by Emporium. If absent, the 200 response carries no schema."
+                }
+            },
+            "rdf_types": [
+                "api:WorkflowBinding"
+            ],
+            "subject_rule": "{graph_subject}:projection:api:binding:{operationId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:api",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "Server": {
+            "comment": "A server hosting the API. Materializes to an entry in the OpenAPI top-level 'servers' array. One Server per environment (dev/canary/prod) or one default per deployment.",
+            "predicates": {
+                "api:url": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "the base URL (e.g. 'https://api.sophia-labs.com'); OpenAPI servers[*].url"
+                },
+                "api:description": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "human-readable server description (e.g. 'Production', 'Canary', 'Local Dev')"
+                },
+                "api:environment": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "environment tag (dev, canary, prod) for organizing multiple servers"
+                }
+            },
+            "rdf_types": [
+                "api:Server"
+            ],
+            "subject_rule": "{graph_subject}:projection:api:server:{environment}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:api",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        }
+    },
+    "comanaged_forbidden": [
+        "doc:",
+        "mnemo:",
+        "nfo:",
+        "wf:",
+        "mem:"
+    ],
+    "comment": "The Sophia API publication vocabulary (EA-3 Seq 9 / UC-2). Declares published API operations as born-RDF triples: a single source (the published api: triples) yields many faces \u2014 Turtle/SHACL (validation), and the OpenAPI 3.x face (vocab_to_openapi, the peer of vocab_to_shacl). The api:WorkflowBinding connects Operations to Choreograph workflows; its api:inputSchema / api:outputSchema are JSON-Schema STRING LITERALS (the CA-1 invocation-binding boundary), passed VERBATIM into the OpenAPI components/schemas with zero translation. The LIVE endpoint (handle_api_operation -> Choreograph /api/workflows/run) is CA-1's (Seq 10), gated on CA-1's dumb-executor + error-shape + GET /api/workflows/{name}/schema demand-signals \u2014 explicitly DEFERRED, not part of this face. api: subjects are URN-space; the projection lives ONLY in urn:mnemosyne:local:graph:{id}:projection:api and is DERIVED/regenerable, never source of truth.",
+    "description": "A minimal example API publication vocabulary: api:Operation (an HTTP endpoint), api:Parameter, api:Response, api:WorkflowBinding (the Operation -> Choreograph workflow seam carrying JSON-Schema I/O literals + executor mode), and api:Server. Authored to exercise the OpenAPI FACE \u2014 vocab_to_openapi emits a valid OpenAPI 3.x document, served via content negotiation as application/openapi+json.",
+    "name": "sophia-api",
+    "namespaces": {
+        "api": "http://sophia.ai/api#",
+        "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+        "xsd": "http://www.w3.org/2001/XMLSchema#"
+    },
+    "primary_prefix": "api",
+    "title": "Sophia API Publication Vocabulary",
+    "version": "1.0.0",
+    "write_target": "projection:api"
+}

@@ -1,0 +1,47 @@
+{
+  "documents": [
+    {
+      "title": "Archive Source fixture",
+      "markdown": "See target display and loose-tag-fixture.\n\nAlso see Archive Missing fixture.\n",
+      "folderPath": "Projects",
+      "sourceFilename": "Projects/Archive Source fixture.md"
+    },
+    {
+      "title": "Archive Target fixture",
+      "markdown": "# Archive Target fixture\n\nTarget body.\n",
+      "folderPath": null,
+      "sourceFilename": "Archive Target fixture.md"
+    }
+  ],
+  "wikilinks": [
+    {
+      "sourceTitle": "Archive Source fixture",
+      "targetTitle": "Archive Target fixture",
+      "displayText": "target display",
+      "sourceContext": "See [[Archive Target fixture|target display]] and #loose-tag-fixture.",
+      "isTag": false
+    },
+    {
+      "sourceTitle": "Archive Source fixture",
+      "targetTitle": "Archive Missing fixture",
+      "displayText": null,
+      "sourceContext": "Also see [[Archive Missing fixture]].",
+      "isTag": false
+    },
+    {
+      "sourceTitle": "Archive Source fixture",
+      "targetTitle": "archive-tag-fixture",
+      "displayText": null,
+      "sourceContext": null,
+      "isTag": true
+    },
+    {
+      "sourceTitle": "Archive Source fixture",
+      "targetTitle": "loose-tag-fixture",
+      "displayText": null,
+      "sourceContext": "See [[Archive Target fixture|target display]] and #loose-tag-fixture.",
+      "isTag": true
+    }
+  ],
+  "warnings": []
+}

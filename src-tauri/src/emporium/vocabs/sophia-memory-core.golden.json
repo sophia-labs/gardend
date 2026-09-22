@@ -1,0 +1,497 @@
+{
+    "classes": {
+        "Claim": {
+            "comment": "Dormant truth-bearer. v1: a record either inlines its claim in mem:content OR references a Claim node when validFrom/validUntil/contradicts must attach independently of the record lifecycle. No required predicate -> inline records mint zero Claim triples.",
+            "predicates": {
+                "mem:claimObject": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "mem:claimPredicate": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "mem:claimSubject": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false
+                },
+                "mem:claimText": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "mem:contradicts": {
+                    "datatype": "uri",
+                    "multi": true,
+                    "required": false
+                },
+                "mem:validFrom": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": false
+                },
+                "mem:validUntil": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": false
+                }
+            },
+            "rdf_types": [
+                "mem:Claim"
+            ],
+            "subject_rule": "urn-space; code-minted (descriptive)",
+            "source_kind": "current-state",
+            "identity_kind": "urn-template",
+            "store_mode": "materialize",
+            "store_target": "projection:memory",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "EvidenceLink": {
+            "comment": "Reified support/contradiction edge carrying confidence/strength/trust. REQUIRED as a class (I2/I4) because attributes live ON the relation.",
+            "predicates": {
+                "mem:confidence": {
+                    "datatype": "double",
+                    "multi": false,
+                    "required": true,
+                    "source": "0.0..1.0 calibrated"
+                },
+                "mem:evidenceStrength": {
+                    "datatype": "double",
+                    "multi": false,
+                    "required": false
+                },
+                "mem:linkObject": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "supported/contradicted record or Claim/SourceReference"
+                },
+                "mem:linkSubject": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "the asserting MemoryRecord"
+                },
+                "mem:linkType": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "enum: supports|contradicts|reconciles|validates"
+                },
+                "mem:trustTier": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "enum: system|verified|tool|inferred|untrusted"
+                }
+            },
+            "rdf_types": [
+                "mem:EvidenceLink",
+                "prov:Entity"
+            ],
+            "subject_rule": "{graph_subject}:projection:memory:ev:{hash} - code-minted",
+            "source_kind": "current-state",
+            "identity_kind": "content-hash",
+            "store_mode": "materialize",
+            "store_target": "projection:memory",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "MemoryRecord": {
+            "comment": "The universal typed memory node. All 16 families instantiate this; family = mem:kind x mem:contentOrientation x mem:scope DIMENSIONS, not subclasses. Subject is URN-space so dcterms:/prov: are safe. accessFrequency/lastAccessedAt/updatedAt are DERIVED (:projection:salience ONLY) and MUST NOT be stamped on the authoritative record (would break zero-ops re-file).",
+            "predicates": {
+                "mem:accessFrequency": {
+                    "datatype": "long",
+                    "multi": false,
+                    "required": false,
+                    "source": "DERIVED - :projection:salience ONLY"
+                },
+                "mem:agentId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "required when scope=agent"
+                },
+                "mem:confidence": {
+                    "datatype": "double",
+                    "multi": false,
+                    "required": false,
+                    "source": "record-level; REQUIRED-when an action predicate is present (I4, planner conditional)"
+                },
+                "mem:content": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "mem:contentBlock": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "<docUri>#<blockId> when content is a CRDT block (OBJECT only)"
+                },
+                "mem:contentOrientation": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "enum: knowledge|execution|affective|safety|structural|policy"
+                },
+                "mem:contradicts": {
+                    "datatype": "uri",
+                    "multi": true,
+                    "required": false
+                },
+                "mem:createdAt": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": true,
+                    "source": "set once at version mint; never re-stamped"
+                },
+                "mem:createdByProcess": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "ingestion|extraction|consolidation"
+                },
+                "mem:derivedFrom": {
+                    "datatype": "uri",
+                    "multi": true,
+                    "required": true,
+                    "source": "I1 NO MEMORY WITHOUT PROVENANCE - >=1 SourceReference; planner rejects empty"
+                },
+                "mem:graphId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "mem:isCurrent": {
+                    "datatype": "boolean",
+                    "multi": false,
+                    "required": false
+                },
+                "mem:kind": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "16-family enum (ClaimMemory|ProfileMemory|...|SafetyMemory|SummaryMemory)"
+                },
+                "mem:lastAccessedAt": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": false,
+                    "source": "DERIVED - :projection:salience ONLY"
+                },
+                "mem:lastValidatedAt": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": false
+                },
+                "mem:logicalId": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "content-independent lifecycle identity (scope+logicalKey)"
+                },
+                "mem:observedAt": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": false,
+                    "source": "valid-time of the underlying fact/event"
+                },
+                "mem:observedBy": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "the OBSERVER (witness) agt:Agent this memory is attributed to (Variant B per-observer perspective); OPTIONAL, NOT minCount 1; mem:agentId is the legacy alias"
+                },
+                "mem:partOf": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "episode/rollup aggregation (dormant v1)"
+                },
+                "mem:reconciledBy": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false
+                },
+                "mem:references": {
+                    "datatype": "uri",
+                    "multi": true,
+                    "required": false
+                },
+                "mem:scope": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "enum: user|agent|graph|thread|task|organization|environment|global"
+                },
+                "mem:status": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "enum: draft|active|stale|superseded|contradicted|archived|deleted|quarantined"
+                },
+                "mem:lineage": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "planner-minted: first version's subject, inherited through supersession (8.2 two-tier identity)"
+                },
+                "mem:supersededBy": {
+                    "datatype": "uri",
+                    "multi": true,
+                    "required": false
+                },
+                "mem:supersedes": {
+                    "datatype": "uri",
+                    "multi": true,
+                    "required": false
+                },
+                "mem:tag": {
+                    "datatype": "string",
+                    "multi": true,
+                    "required": false
+                },
+                "mem:updatedAt": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": false,
+                    "source": "DERIVED - :projection:salience ONLY; NOT on authoritative record"
+                },
+                "mem:valence": {
+                    "datatype": "double",
+                    "multi": false,
+                    "required": false,
+                    "source": "-1.0..1.0 affective valence"
+                },
+                "mem:validFrom": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": false,
+                    "source": "I7 REQUIRED-when isCurrent present (planner conditional)"
+                },
+                "mem:validUntil": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": false
+                },
+                "mem:version": {
+                    "datatype": "long",
+                    "multi": false,
+                    "required": false,
+                    "source": "bumps only on value change within a logicalId"
+                },
+                "mem:visibility": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "enum: private|shared|system|read_only - shared REQUIRES scope+Policy (I5)"
+                }
+            },
+            "rdf_types": [
+                "mem:MemoryRecord"
+            ],
+            "subject_rule": "{graph_subject}:projection:memory:record:{memId} - code-minted, content-hash",
+            "source_kind": "current-state",
+            "identity_kind": "content-hash",
+            "store_mode": "materialize",
+            "store_target": "projection:memory",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "Policy": {
+            "comment": "Reified governance object. Conflict resolution is DATA. mem:conflictStrategy enumerates the 6 per-pack strategies. STORED in v1, NOT executed (resolver is v2).",
+            "predicates": {
+                "mem:appliesTo": {
+                    "datatype": "uri",
+                    "multi": true,
+                    "required": false
+                },
+                "mem:appliesToOrientation": {
+                    "datatype": "string",
+                    "multi": true,
+                    "required": false
+                },
+                "mem:appliesToScope": {
+                    "datatype": "string",
+                    "multi": true,
+                    "required": false
+                },
+                "mem:conflictStrategy": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "enum: latestWins|sourceAuthorityWins|explicitCorrectionWins|preserveAmbiguity|requireValidation|quarantineUntilResolved (REQUIRED when policyKind=conflict)"
+                },
+                "mem:policyKind": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "enum: retrieval|update|safety|conflict"
+                },
+                "mem:requiresValidation": {
+                    "datatype": "boolean",
+                    "multi": false,
+                    "required": false
+                }
+            },
+            "rdf_types": [
+                "mem:Policy"
+            ],
+            "subject_rule": "urn-space; code-minted (descriptive)",
+            "source_kind": "current-state",
+            "identity_kind": "urn-template",
+            "store_mode": "materialize",
+            "store_target": "projection:memory",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "SourceReference": {
+            "comment": "Provenance anchor (I1). The 8 source kinds are a CLOSED DIMENSION (mem:sourceKind enum), NOT 8 classes. mem:sourceBlock points at the real CRDT doc block IRI when applicable.",
+            "predicates": {
+                "mem:externalUri": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "ExternalEvent|PlatformEvent|CodeChangeEvent"
+                },
+                "mem:observedAt": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": false
+                },
+                "mem:sourceBlock": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "<docUri>#<blockId> when sourceKind=DocumentBlock"
+                },
+                "mem:sourceKind": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "enum (8): ConversationTurn|DocumentBlock|ToolCall|ToolResult|ArtifactReference|ExternalEvent|PlatformEvent|CodeChangeEvent"
+                },
+                "mem:sourceLabel": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "mem:trustTier": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "enum: system|verified|tool|inferred|untrusted"
+                }
+            },
+            "rdf_types": [
+                "mem:SourceReference",
+                "prov:Entity"
+            ],
+            "subject_rule": "{graph_subject}:projection:memory:src:{hash} - code-minted",
+            "source_kind": "current-state",
+            "identity_kind": "content-hash",
+            "store_mode": "materialize",
+            "store_target": "projection:memory",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        }
+    },
+    "comanaged_forbidden": [
+        "doc:",
+        "mnemo:",
+        "nfo:"
+    ],
+    "comment": "NEVER mint mnemo: (mnemosyne.ai/vocab) - materializer-co-managed (CRDT wires + the LEGACY flat Memory projection this pack supersedes). mem: subjects are URN-space so dcterms:/prov: on them are safe. The mem: projection lives ONLY in urn:mnemosyne:local:graph:{id}:projection:memory and is DERIVED/regenerable - never source of truth (CRDT-authority invariant).",
+    "conflict_policies": [
+        {
+            "appliesToScope": [
+                "graph",
+                "user",
+                "agent"
+            ],
+            "comment": "CONTESTED-BY-DEFAULT (ratified 2026-07-05, plans/mo-reconciliation-policy-20260704.md): a forked lineage (>1 current head) is flagged contested and read-back returns ALL heads; the engine never picks a winner. Resolution is an explicit supersession by a witness. This field is the declared per-vocab override surface.",
+            "conflictStrategy": "contested",
+            "name": "core-contested",
+            "policyKind": "conflict",
+            "stored_not_run": true
+        }
+    ],
+    "description": "Sophia Memory core grammar: the universal MemoryRecord node plus provenance (SourceReference), reified evidence (EvidenceLink), governance (Policy), and the reified truth-bearer (Claim). The 16 families are dimension combinations (mem:kind x mem:contentOrientation x mem:scope), not subclasses - the core stays SMALLER than the union of packs.",
+    "name": "sophia-memory-core",
+    "namespaces": {
+        "dcterms": "http://purl.org/dc/terms/",
+        "mem": "http://mnemosyne.dev/memory#",
+        "prov": "http://www.w3.org/ns/prov#",
+        "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+        "xsd": "http://www.w3.org/2001/XMLSchema#"
+    },
+    "primary_prefix": "mem",
+    "protocol_subject": "urn:sophia:mem:protocol",
+    "slug_rule": {
+        "lowercase": true,
+        "pattern": "[^A-Za-z0-9_-]+",
+        "replacement": "-",
+        "strip": "-"
+    },
+    "status_transitions": [
+        [
+            "draft",
+            "active"
+        ],
+        [
+            "active",
+            "superseded"
+        ],
+        [
+            "active",
+            "stale"
+        ],
+        [
+            "active",
+            "contradicted"
+        ],
+        [
+            "active",
+            "archived"
+        ],
+        [
+            "active",
+            "deleted"
+        ],
+        [
+            "draft",
+            "quarantined"
+        ],
+        [
+            "active",
+            "quarantined"
+        ]
+    ],
+    "title": "Sophia Memory Core Vocabulary",
+    "version": "1.3.0",
+    "wires": {
+        "derivedFrom": {
+            "from_kind": "MemoryRecord",
+            "predicate_uri": "http://mnemosyne.dev/memory#derivedFrom",
+            "source": "provenance",
+            "to_kind": "SourceReference"
+        },
+        "supersedes": {
+            "from_kind": "MemoryRecord",
+            "predicate_uri": "http://mnemosyne.dev/memory#supersedes",
+            "source": "lifecycle",
+            "to_kind": "MemoryRecord"
+        }
+    },
+    "write_target": "projection:memory"
+}

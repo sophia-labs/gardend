@@ -1,0 +1,9 @@
+{
+  "serviceId": "kg-ultra",
+  "command": "kg-ultra/.venv/bin/python",
+  "args": ["-m", "kg_ultra_service.server"],
+  "workingDir": "kg-ultra",
+  "healthPath": "/health",
+  "proxyMount": "/services/kg-ultra",
+  "env": [{ "name": "KG_ULTRA_MODE", "value": "local" }]
+}

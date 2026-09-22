@@ -1,0 +1,56 @@
+{
+    "classes": {
+        "Song": {
+            "comment": "The SONG HEAD — ONE mnemo:Song subject per cell, graph_subject(gid):song, in the :projection:song named graph. Code-defined span (geist_song_rdf::song_value_triples head block) — AUTHORED mirror, DERIVED flat. verseCount is a DERIVED count (= |verses|); the shape only constrains its datatype/cardinality, NOT the derivation (that is Lean-proven + oracle-checked, NOT expressible in SHACL-core).",
+            "predicates": {
+                "mnemo:graphId": { "datatype": "string", "multi": false, "required": true },
+                "mnemo:narrativeKind": { "datatype": "string", "multi": false, "required": true },
+                "mnemo:documentId": { "datatype": "string", "multi": false, "required": true },
+                "mnemo:verseCount": { "datatype": "integer", "multi": false, "required": true }
+            },
+            "rdf_types": [ "mnemo:Song" ],
+            "subject_rule": "graph_subject(graph_id):song — code-minted"
+        },
+        "SongVerse": {
+            "comment": "A VERSE — mnemo:SongVerse at {song}:song/verse/{i}, one per verse. Code-defined span (song_value_triples verse loop). DERIVED flat. CROSS-CLASS INVARIANT verseIndex == position (the i in the subject URI == the verseIndex literal) is OUT-OF-BAND: it spans the subject-minting and the literal, NOT expressible by per-subject sh:property; it stays Lean-proven + oracle-checked (oracle_positional_verse_index_equals_position). voiceCount = 1 + counterpointCount is a DERIVED count, same status. created/modified are SIMPLE string literals (push_string_triple, NOT xsd:dateTime).",
+            "predicates": {
+                "mnemo:graphId": { "datatype": "string", "multi": false, "required": true },
+                "mnemo:narrativeKind": { "datatype": "string", "multi": false, "required": true },
+                "mnemo:documentId": { "datatype": "string", "multi": false, "required": true },
+                "mnemo:verseIndex": { "datatype": "integer", "multi": false, "required": true },
+                "mnemo:verseLabel": { "datatype": "string", "multi": false, "required": true },
+                "mnemo:content": { "datatype": "string", "multi": false, "required": true },
+                "mnemo:voiceCount": { "datatype": "integer", "multi": false, "required": true },
+                "mnemo:counterpointCount": { "datatype": "integer", "multi": false, "required": true },
+                "dcterms:created": { "datatype": "string", "multi": false, "required": true, "comment": "simple literal (NOT xsd:dateTime) — push_string_triple" },
+                "dcterms:modified": { "datatype": "string", "multi": false, "required": true, "comment": "simple literal (NOT xsd:dateTime)" }
+            },
+            "rdf_types": [ "mnemo:SongVerse" ],
+            "subject_rule": "{song}:song/verse/{i} — POSITION-KEYED (verseIndex == i)"
+        },
+        "SongCoda": {
+            "comment": "The optional CODA — mnemo:SongCoda at {song}:song/coda, emitted ONLY when store.coda.is_some() (Option => 0-or-1 cardinality). Code-defined span (song_value_triples coda block). DERIVED flat. The 0-or-1 cardinality is a GRAPH-LEVEL count (at most one SongCoda subject), NOT a per-subject constraint, so it is NOT expressible in SHACL-core; it is by-construction (Option) + oracle-checked (oracle_coda_some_emits_exactly_one).",
+            "predicates": {
+                "mnemo:graphId": { "datatype": "string", "multi": false, "required": true },
+                "mnemo:narrativeKind": { "datatype": "string", "multi": false, "required": true },
+                "mnemo:documentId": { "datatype": "string", "multi": false, "required": true },
+                "mnemo:content": { "datatype": "string", "multi": false, "required": true },
+                "mnemo:ejectionsRemaining": { "datatype": "integer", "multi": false, "required": true }
+            },
+            "rdf_types": [ "mnemo:SongCoda" ],
+            "subject_rule": "{song}:song/coda — emitted iff coda present"
+        }
+    },
+    "comment": "EA-2b+ SHACL retrofit contract for the SONG Meaningful Object (structural fork: a MULTI-CLASS union). NOT a served emporium pack — an AUTHORED mirror of the code-defined song_value_triples span, whose sole consumer is vocab_to_shacl. THREE classes (Song / SongVerse / SongCoda) each derive an independent flat closed sh:NodeShape (the union is just multiple shapes — already supported, no emitter change). mnemo: is the runtime MNEMO_NS (https://mnemosyne.local/ns#). The cross-class invariants (verseIndex==position, verseCount==|verses|, voiceCount==1+counterpointCount, coda 0-or-1) are SHACL-INEXPRESSIBLE in rudof 0.2.12 (no sh:sparql) and stay Lean-proven + oracle-checked — NOT silently skipped (the song oracle asserts them via SPARQL read-back).",
+    "description": "A song: one mnemo:Song head (verseCount), N mnemo:SongVerse (position-keyed verseIndex, content, derived voiceCount), and an optional mnemo:SongCoda (ejectionsRemaining).",
+    "name": "emporium-song",
+    "namespaces": {
+        "dcterms": "http://purl.org/dc/terms/",
+        "mnemo": "https://mnemosyne.local/ns#",
+        "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+        "xsd": "http://www.w3.org/2001/XMLSchema#"
+    },
+    "primary_prefix": "mnemo",
+    "title": "Emporium Song Vocabulary",
+    "version": "1.0.0"
+}

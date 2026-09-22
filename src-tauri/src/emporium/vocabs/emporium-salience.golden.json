@@ -1,0 +1,125 @@
+{
+    "classes": {
+        "BlockValuation": {
+            "comment": "Per-block valuation Meaningful Object. One reified BlockValuation subject per valued-or-tagged block in the :projection:salience named graph, keyed by mnemo:graphId (cell conjunct). Code-defined span (salience_rdf_materializer::salience_value_triples) — this contract is the AUTHORED mirror of that span, used to DERIVE the SHACL conformance shapes (EA-2b). DUAL-NAMESPACE: the materializer mints mirrored mnemo:/mdoc: predicates (cumulativeImportance, cumulativeValence, lastValuatedAt, tag) plus mdoc:-only and mnemo:-only ones; ALL are declared so the closed shape permits exactly the minted set. FLOAT: push_float_triple emits ^^xsd:float, so the float predicates are datatype=float (the emitter maps float->xsd:float, an EXACT-IRI match — xsd:double would NOT match, proven by the validator probe).",
+            "predicates": {
+                "mnemo:blockId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "mnemo:cumulativeImportance": {
+                    "datatype": "float",
+                    "multi": false,
+                    "required": true
+                },
+                "mnemo:cumulativeValence": {
+                    "datatype": "float",
+                    "multi": false,
+                    "required": true
+                },
+                "mnemo:documentId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "mnemo:graphId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "mnemo:lastValuatedAt": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "mnemo:tag": {
+                    "datatype": "string",
+                    "multi": true,
+                    "required": false
+                },
+                "mnemo:targetsBlock": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true
+                },
+                "mnemo:valuationCount": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true
+                },
+                "mdoc:blockRef": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true
+                },
+                "mdoc:cumulativeImportance": {
+                    "datatype": "float",
+                    "multi": false,
+                    "required": true
+                },
+                "mdoc:cumulativeValence": {
+                    "datatype": "float",
+                    "multi": false,
+                    "required": true
+                },
+                "mdoc:importanceCount": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true
+                },
+                "mdoc:lastValuatedAt": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "mdoc:rawImportanceSum": {
+                    "datatype": "float",
+                    "multi": false,
+                    "required": true
+                },
+                "mdoc:rawValenceSum": {
+                    "datatype": "float",
+                    "multi": false,
+                    "required": true
+                },
+                "mdoc:tag": {
+                    "datatype": "string",
+                    "multi": true,
+                    "required": false
+                },
+                "mdoc:userImportance": {
+                    "datatype": "float",
+                    "multi": false,
+                    "required": false
+                },
+                "mdoc:userValence": {
+                    "datatype": "float",
+                    "multi": false,
+                    "required": false
+                },
+                "mdoc:valenceCount": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true
+                }
+            },
+            "rdf_types": [
+                "mnemo:BlockValuation"
+            ],
+            "subject_rule": "graph_subject(graph_id)value/{document_id}/{block_id} — code-minted"
+        }
+    },
+    "comment": "EA-2b SHACL retrofit contract for the Salience BlockValuation Meaningful Object. NOT a served emporium pack — an AUTHORED mirror of the code-defined salience_value_triples span, whose sole consumer is vocab_to_shacl. mnemo: is the runtime MNEMO_NS (https://mnemosyne.local/ns#); mdoc: is MDOC_NS (http://mnemosyne.dev/doc#). primary_prefix=mnemo so only mnemo:BlockValuation is a shape target (mdoc: predicates are still permitted by the closed shape).",
+    "description": "Per-block valuation: a reified BlockValuation carrying cumulative importance/valence sums and counts, the targeted block, optional user overrides and tags, mirrored across the mnemo: and mdoc: namespaces.",
+    "name": "emporium-salience",
+    "namespaces": {
+        "mdoc": "http://mnemosyne.dev/doc#",
+        "mnemo": "https://mnemosyne.local/ns#",
+        "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+        "xsd": "http://www.w3.org/2001/XMLSchema#"
+    },
+    "primary_prefix": "mnemo",
+    "title": "Emporium Salience Valuation Vocabulary",
+    "version": "1.0.0"
+}

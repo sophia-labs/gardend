@@ -1,0 +1,143 @@
+{
+  "tiptapJson": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "paragraph",
+        "attrs": {
+          "data-source-format": null,
+          "data-source-approach": null,
+          "data-source-page": null,
+          "data-source-role": null,
+          "data-source-id": null,
+          "data-pdf-page": null,
+          "data-pdf-role": null,
+          "textAlign": null,
+          "indent": 0,
+          "collapsed": false
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "Leading and trailing spaces collapse."
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "attrs": {
+          "data-source-format": null,
+          "data-source-approach": null,
+          "data-source-page": null,
+          "data-source-role": null,
+          "data-source-id": null,
+          "data-pdf-page": null,
+          "data-pdf-role": null,
+          "textAlign": null,
+          "indent": 0,
+          "collapsed": false
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "Line breaks inside paragraphs"
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "attrs": {
+          "data-source-format": null,
+          "data-source-approach": null,
+          "data-source-page": null,
+          "data-source-role": null,
+          "data-source-id": null,
+          "data-pdf-page": null,
+          "data-pdf-role": null,
+          "textAlign": null,
+          "indent": 0,
+          "collapsed": false
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "bare span text"
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "attrs": {
+          "data-source-format": null,
+          "data-source-approach": null,
+          "data-source-page": null,
+          "data-source-role": null,
+          "data-source-id": null,
+          "data-pdf-page": null,
+          "data-pdf-role": null,
+          "textAlign": null,
+          "indent": 0,
+          "collapsed": false
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "bare div text"
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "attrs": {
+          "data-source-format": null,
+          "data-source-approach": null,
+          "data-source-page": null,
+          "data-source-role": null,
+          "data-source-id": null,
+          "data-pdf-page": null,
+          "data-pdf-role": null,
+          "textAlign": null,
+          "indent": 0,
+          "collapsed": false
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "Non breaking spaces stay."
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "attrs": {
+          "data-source-format": null,
+          "data-source-approach": null,
+          "data-source-page": null,
+          "data-source-role": null,
+          "data-source-id": null,
+          "data-pdf-page": null,
+          "data-pdf-role": null,
+          "textAlign": null,
+          "indent": 0,
+          "collapsed": false
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "after"
+          },
+          {
+            "type": "hardBreak"
+          },
+          {
+            "type": "text",
+            "text": "a break"
+          }
+        ]
+      }
+    ]
+  },
+  "derivedTitle": null,
+  "sourceFormat": "html",
+  "warnings": []
+}

@@ -1,0 +1,641 @@
+{
+  "schemaVersion": 1,
+  "classificationValues": [
+    "implemented",
+    "adapter-ready",
+    "core-missing",
+    "local-replacement",
+    "hosted-only"
+  ],
+  "routeClassifications": {
+    "GET /graphs": {
+      "classification": "implemented",
+      "note": "Hosted alias returns a local file-backed list_graphs job envelope; wait_ms resolves synchronously like hosted."
+    },
+    "GET /graphs/catalog": {
+      "classification": "implemented",
+      "note": "Local graph catalog exposes the hosted catalog row shape synchronously."
+    },
+    "POST /graphs": {
+      "classification": "implemented",
+      "note": "Hosted alias creates the local graph and returns a local file-backed create_graph job envelope."
+    },
+    "POST /graphs/query": {
+      "classification": "implemented",
+      "note": "Inline admitted SPARQL query with a server-clamped deadline/result ceiling and real Oxigraph cancellation."
+    },
+    "POST /graphs/update": {
+      "classification": "implemented",
+      "note": "Inline admitted SPARQL update that returns only after the real commit/failure; update deadlines are refused until engine cancellation is transaction-safe."
+    },
+    "GET /graphs/stats": {
+      "classification": "implemented",
+      "note": "Hosted stats alias returns a graph-query-style local job envelope by default and synchronously aggregates active local graph quad counts with wait_ms."
+    },
+    "GET /graphs/jobs/{job_id}": {
+      "classification": "implemented",
+      "note": "Local file-backed job status facade."
+    },
+    "DELETE /graphs/jobs/{job_id}": {
+      "classification": "implemented",
+      "note": "Local file-backed job cancellation facade."
+    },
+    "GET /graphs/jobs/{job_id}/result": {
+      "classification": "implemented",
+      "note": "Local file-backed job result facade."
+    },
+    "GET /graphs/{graph_id}": {
+      "classification": "implemented",
+      "note": "Hosted graph metadata read alias uses the local graph manifest and returns either a local job envelope or inline hosted-shaped graph catalog row when wait_ms is supplied."
+    },
+    "PUT /graphs/{graph_id}": {
+      "classification": "implemented",
+      "note": "Hosted graph metadata update alias updates the local graph manifest and records a hosted-shaped local job envelope."
+    },
+    "DELETE /graphs/{graph_id}": {
+      "classification": "implemented",
+      "note": "Hosted graph delete alias soft-deletes the local graph manifest and records a hosted-shaped local job envelope."
+    },
+    "POST /graphs/{graph_id}/duplicate": {
+      "classification": "implemented",
+      "note": "Hosted graph duplicate alias flushes pending local CRDT state, copies local graph directories, rematerializes RDF, and records a hosted-shaped local job envelope."
+    },
+    "POST /graphs/{graph_id}/documents/preflight": {
+      "classification": "implemented",
+      "note": "Hosted document-creation preflight alias returns the allowed/storage envelope over local profile directory usage with unlimited local-profile limits."
+    },
+    "GET /graphs/{graph_id}/summary": {
+      "classification": "implemented",
+      "note": "Hosted workspace summary alias derives node, edge, document, and last-update counts from the local graph RDF projection and document manifests."
+    },
+    "GET /graphs/{graph_id}/viz": {
+      "classification": "implemented",
+      "note": "Hosted workspace viz alias derives graph nodes and edges from the local graph RDF projection."
+    },
+    "GET /graphs/{graph_id}/properties": {
+      "classification": "implemented",
+      "note": "Hosted workspace properties alias derives predicate usage counts from the local graph RDF projection."
+    },
+    "POST /graphs/{graph_id}/export": {
+      "classification": "implemented",
+      "note": "Hosted graph export alias records a local job and exposes a TriG RDF dump through the graph job result facade; artifact bundle export remains unsupported."
+    },
+    "POST /graphs/{graph_id}/imports/rdf": {
+      "classification": "implemented",
+      "note": "Hosted RDF import alias accepts multipart RDF uploads, detects the old supported RDF formats from extension or form override, loads them into the local per-graph RDF store, and exposes the result through the local graph job facade."
+    },
+    "POST /graphs/{graph_id}/imports/obsidian": {
+      "classification": "implemented",
+      "note": "Hosted Obsidian vault import alias accepts ZIP uploads, parses markdown/frontmatter/wikilinks/tags locally through the desktop runtime, creates documents/folders/tag hubs/wires through CRDT authority, and exposes the result through the local graph job facade."
+    },
+    "POST /graphs/{graph_id}/imports/notion": {
+      "classification": "implemented",
+      "note": "Hosted Notion export import alias accepts ZIP uploads, strips Notion UUID suffixes, converts markdown and CSV database views, resolves internal links to wires through local CRDT authority, and exposes the result through the local graph job facade."
+    },
+    "POST /graphs/{graph_id}/imports/roam": {
+      "classification": "implemented",
+      "note": "Hosted Roam import alias accepts ZIP uploads, parses Roam JSON pages, nested blocks, TODO/DONE states, daily-note folders, wikilinks and tags, then creates local CRDT documents and wires through the local graph job facade."
+    },
+    "POST /graphs/{graph_id}/imports/clip": {
+      "classification": "implemented",
+      "note": "Hosted web clip alias validates HTTP(S), rejects localhost/private/link-local/reserved fetch targets before each request and redirect, fetches public HTML from Rust outside browser CORS, runs a local HTML noise-stripping and Markdown conversion path in the desktop runtime, writes a local CRDT document, and returns the synchronous hosted ImportResponse shape."
+    },
+    "POST /graphs/{graph_id}/imports/youtube": {
+      "classification": "implemented",
+      "note": "Hosted YouTube import alias validates YouTube video IDs/URLs, fetches watch and caption-track URLs through the same private-network redirect guard, renders readable or timestamped transcript Markdown, writes a local CRDT document, and returns the synchronous hosted ImportResponse shape. Success still depends on YouTube caption availability and network blocking."
+    },
+    "POST /graphs/import": {
+      "classification": "implemented",
+      "note": "Hosted graph archive import alias accepts mnemosyne-graph-export .tar.gz uploads, validates graph IDs and gzip magic at the route boundary, replays workspace/document Y.Doc updates through the desktop CRDT materialization path, rewrites archive RDF/storage references to the target local graph, and exposes the result through the local graph job facade."
+    },
+    "GET /documents/{graph_id}": {
+      "classification": "implemented",
+      "note": "Local loopback exposes a hosted-shaped document summary alias over local document records and workspace parents."
+    },
+    "GET /documents/{graph_id}/{doc_id}": {
+      "classification": "implemented",
+      "note": "Local loopback exposes a hosted-shaped document read alias over the canonical local document projection."
+    },
+    "GET /documents/{graph_id}/{doc_id}/export": {
+      "classification": "implemented",
+      "note": "Local loopback streams hosted-compatible Markdown, XML, or HTML exports from the canonical local document projection."
+    },
+    "GET /documents/{graph_id}/workspace/blob": {
+      "classification": "implemented",
+      "note": "Local loopback streams the persisted workspace Y.Doc update bytes from the local profile store."
+    },
+    "GET /documents/{graph_id}/{doc_id}/blob": {
+      "classification": "implemented",
+      "note": "Local loopback streams persisted document Y.Doc update bytes from the local profile store."
+    },
+    "POST /documents/{graph_id}/{doc_id}/duplicate": {
+      "classification": "implemented",
+      "note": "Hosted duplicate alias copies the projected document through the local document.write CRDT path and records a local job result."
+    },
+    "PATCH /documents/{graph_id}/{doc_id}/description": {
+      "classification": "implemented",
+      "note": "Hosted document description alias queues workspace.updateDocument through the desktop workspace Y.Doc and materializes dcterms:description into the local RDF store."
+    },
+    "PUT /documents/{graph_id}/{doc_id}": {
+      "classification": "implemented",
+      "note": "Hosted path alias queues document.write through the desktop Yjs runtime, then returns the hosted document envelope from local projections."
+    },
+    "DELETE /documents/{graph_id}/{doc_id}": {
+      "classification": "implemented",
+      "note": "Hosted path alias queues the same workspace/document CRDT delete operation as the local API namespace, then returns the hosted delete envelope."
+    },
+    "GET /documents/{graph_id}/{doc_id}/blocks": {
+      "classification": "implemented",
+      "note": "Local loopback returns hosted-shaped block summaries from the document projection."
+    },
+    "POST /documents/{graph_id}/{doc_id}/flush": {
+      "classification": "implemented",
+      "note": "Hosted document flush alias queues crdt.flush through the desktop runtime and returns the hosted durability checkpoint envelope."
+    },
+    "GET /documents/{graph_id}/{doc_id}/block-context": {
+      "classification": "implemented",
+      "note": "Local loopback returns block-neighborhood or TOC-style context from projected blocks."
+    },
+    "GET /entities/entity-types": {
+      "classification": "implemented",
+      "note": "Generic entity metadata mirrors the hosted registry for document, folder, and artifact handlers, including cascade policy and document WebSocket capability."
+    },
+    "GET /entities/{graph_id}/{entity_type}": {
+      "classification": "implemented",
+      "note": "Generic entity list aliases project typed local document summaries, folders, or artifacts into the hosted paginated data/meta envelope."
+    },
+    "GET /entities/{graph_id}/{entity_type}/{entity_id}": {
+      "classification": "implemented",
+      "note": "Generic entity get aliases read typed local document, folder, or artifact projections and preserve hosted 404 behavior for unknown types or IDs."
+    },
+    "PUT /entities/{graph_id}/{entity_type}/{entity_id}": {
+      "classification": "implemented",
+      "note": "Generic entity put validates hosted-required fields, then queues document.write, workspace.createFolder, or workspace.putArtifact through the desktop CRDT authority before returning a hosted-shaped entity."
+    },
+    "DELETE /entities/{graph_id}/{entity_type}/{entity_id}": {
+      "classification": "implemented",
+      "note": "Generic entity delete queues workspace/document deletes through the desktop CRDT authority and preserves folder non-empty 409 semantics unless cascade=true is supplied."
+    },
+    "GET /artifacts/{graph_id}/documents/{document_id}/download-original": {
+      "classification": "implemented",
+      "note": "Local loopback streams document original bytes from the native per-document original-file store when present."
+    },
+    "GET /artifacts/{graph_id}/{artifact_id}/download": {
+      "classification": "implemented",
+      "note": "Local loopback streams locally persisted artifact original bytes; the parity harness writes inline bytes through the artifact metadata alias before downloading."
+    },
+    "POST /artifacts/{graph_id}/{artifact_id}/import": {
+      "classification": "implemented",
+      "note": "Hosted artifact import alias ingests a locally persisted artifact original through the desktop document.uploadIngest runtime and returns the hosted documentId/title/readOnly envelope."
+    },
+    "POST /artifacts/{graph_id}/{artifact_id}/convert": {
+      "classification": "implemented",
+      "note": "Hosted artifact convert alias clears the artifact ingestedDocId link and marks the target document editable through workspace CRDT operations."
+    },
+    "POST /artifacts/{graph_id}/batch/prepare": {
+      "classification": "implemented",
+      "note": "Hosted batch prepare alias queues document.batchPrepare through the desktop workspace Y.Doc, creates document-section folder paths, and stores retry-safe local batch metadata keyed by clientBatchKey."
+    },
+    "POST /artifacts/{graph_id}/batch/register": {
+      "classification": "implemented",
+      "note": "Hosted batch register alias queues document.batchRegister through the desktop workspace Y.Doc, resolves relative paths through the prepared folder map, and bulk-registers uploaded document originals into workspace navigation."
+    },
+    "POST /artifacts/{graph_id}/upload": {
+      "classification": "implemented",
+      "note": "Hosted upload alias accepts multipart files, queues document.uploadIngest through the desktop parser/Y.Doc runtime, stores original bytes, and returns a hosted-shaped read-only document upload response. Local parser coverage includes Markdown, TipTap XML, plain/text-like files, HTML main-content import, and EPUB index/chapter imports. With batch_id, it skips primary workspace registration and returns sourceFile metadata for batch/register."
+    },
+    "POST /artifacts/{graph_id}/ingest/pdf-accurate": {
+      "classification": "implemented",
+      "note": "Hosted accurate PDF upload alias accepts multipart PDFs, pre-allocates a document ID, records a local job envelope, and uses the prepared local Python/Docling runtime when available. Unsupported or unprepared profiles continue to fulfill searchable PDFs through the optimized local pdf.fast-text layout parser while explicitly marking the job result as a local fallback."
+    },
+    "POST /artifacts/{graph_id}/images/upload": {
+      "classification": "implemented",
+      "note": "Local loopback accepts hosted-shaped multipart image uploads, stores image bytes outside sidebar artifact navigation, and returns imageId/src with an expiring token query for inline document image blocks."
+    },
+    "GET /artifacts/{graph_id}/images/{image_id}": {
+      "classification": "implemented",
+      "note": "Local loopback serves locally persisted inline image bytes with hosted-shaped cache/CORP headers; auth is accepted via bearer token or the expiring unguessable token query included in upload src URLs. The old uid query bypass is rejected."
+    },
+    "GET /navigation/{graph_id}": {
+      "classification": "implemented",
+      "note": "Local loopback returns hosted-shaped workspace navigation from the workspace Y.Doc snapshot."
+    },
+    "GET /navigation/{graph_id}/job-result/{job_id}": {
+      "classification": "implemented",
+      "note": "Local loopback exposes graph-scoped local job results through the hosted navigation polling alias."
+    },
+    "GET /navigation/{graph_id}/folders": {
+      "classification": "implemented",
+      "note": "Local loopback returns hosted-shaped folders from the workspace Y.Doc snapshot."
+    },
+    "GET /navigation/{graph_id}/folders/{folder_id}": {
+      "classification": "implemented",
+      "note": "Local loopback returns a hosted-shaped folder from the workspace Y.Doc snapshot."
+    },
+    "PUT /navigation/{graph_id}/folders/{folder_id}": {
+      "classification": "implemented",
+      "note": "Hosted folder put alias queues workspace.createFolder through the desktop workspace Y.Doc, using folderId as an upsert key, then returns the hosted-shaped folder from the workspace snapshot."
+    },
+    "DELETE /navigation/{graph_id}/folders/{folder_id}": {
+      "classification": "implemented",
+      "note": "Hosted folder delete alias queues workspace.deleteFolder through the desktop workspace Y.Doc; used by batch parity cleanup for prepared folder paths."
+    },
+    "GET /navigation/{graph_id}/artifacts": {
+      "classification": "implemented",
+      "note": "Local loopback returns hosted-shaped artifact rows from the workspace Y.Doc snapshot."
+    },
+    "GET /navigation/{graph_id}/artifacts/{artifact_id}": {
+      "classification": "implemented",
+      "note": "Local loopback returns a hosted-shaped artifact row from the workspace Y.Doc snapshot."
+    },
+    "PUT /navigation/{graph_id}/artifacts/{artifact_id}": {
+      "classification": "implemented",
+      "note": "Hosted artifact metadata alias queues workspace.putArtifact through the desktop workspace Y.Doc and returns a hosted-shaped Artifact."
+    },
+    "DELETE /navigation/{graph_id}/artifacts/{artifact_id}": {
+      "classification": "implemented",
+      "note": "Hosted artifact metadata alias queues workspace.deleteArtifact through the desktop workspace Y.Doc and returns a hosted-shaped delete response."
+    },
+    "POST /search": {
+      "classification": "implemented",
+      "note": "Local loopback exposes hosted-shaped semantic search when a local fastembed index exists."
+    },
+    "POST /search/blocks": {
+      "classification": "implemented",
+      "note": "Local loopback wraps projection-backed lexical block search in the hosted response envelope."
+    },
+    "POST /search/hybrid": {
+      "classification": "implemented",
+      "note": "Local loopback wraps lexical plus fastembed-if-indexed search in the hosted hybrid envelope."
+    },
+    "POST /search/rematerialize": {
+      "classification": "implemented",
+      "note": "Hosted rematerialize alias refreshes local RDF projections from graph/workspace/document manifests and returns the hosted rematerialization result envelope."
+    },
+    "POST /search/reindex": {
+      "classification": "implemented",
+      "note": "Hosted reindex alias submits a local fastembed semantic index refresh job when the model is prepared; otherwise it returns a stable setup-required 503 without downloading model data during parity probes."
+    },
+    "GET /wires/{graph_id}/predicates": {
+      "classification": "implemented",
+      "note": "Local loopback returns hosted-shaped predicate info from built-ins plus workspace snapshot custom predicates."
+    },
+    "GET /wires/{graph_id}/document/{document_id}/bundle": {
+      "classification": "implemented",
+      "note": "Local loopback returns outgoing, incoming, and wired-block IDs from one workspace snapshot."
+    },
+    "GET /wires/{graph_id}/document/{document_id}/outgoing": {
+      "classification": "implemented",
+      "note": "Local loopback returns hosted-shaped outgoing wire summaries from the workspace snapshot."
+    },
+    "GET /wires/{graph_id}/document/{document_id}/incoming": {
+      "classification": "implemented",
+      "note": "Local loopback returns hosted-shaped incoming wire summaries from the workspace snapshot."
+    },
+    "GET /wires/{graph_id}/document/{document_id}/wired-blocks": {
+      "classification": "implemented",
+      "note": "Local loopback returns source block IDs for active outgoing workspace wires."
+    },
+    "GET /wires/{graph_id}/document/{document_id}/has-incoming": {
+      "classification": "implemented",
+      "note": "Local loopback returns a boolean incoming-wire indicator from the workspace snapshot."
+    },
+    "POST /wires/{graph_id}/document/{document_id}": {
+      "classification": "implemented",
+      "note": "Hosted path alias queues workspace.createWire through the desktop workspace Y.Doc, materializes the workspace snapshot/RDF, and returns a hosted-shaped Wire."
+    },
+    "POST /wires/{graph_id}/{wire_id}/refresh": {
+      "classification": "implemented",
+      "note": "Hosted path alias queues workspace.refreshWire to refresh local source/target preview fields from current document projections."
+    },
+    "DELETE /wires/{graph_id}/{wire_id}": {
+      "classification": "implemented",
+      "note": "Hosted path alias queues workspace.deleteWire through the desktop workspace Y.Doc and removes the wire from snapshot/RDF."
+    },
+    "GET /salience/{graph_id}/blocks/values": {
+      "classification": "implemented",
+      "note": "Local loopback exposes hosted-shaped block valuation reads over the durable local value store, including raw sums, log cumulative values, user overlays, wire counts, and composite scores."
+    },
+    "POST /salience/{graph_id}/blocks/value": {
+      "classification": "implemented",
+      "note": "Hosted salience batch value alias routes to the local value adapter, preserving legacy partial batch errors, duplicate accumulation, raw-sum/log scoring, tags, and active forgetting semantics."
+    },
+    "PUT /salience/{graph_id}/blocks/user-value": {
+      "classification": "implemented",
+      "note": "Hosted salience user overlay alias stores replaceable user importance/valence separately from agent valuation sums and recomputes composite block scores."
+    },
+    "PATCH /salience/{graph_id}/config": {
+      "classification": "implemented",
+      "note": "Hosted salience config alias updates the local scoring prompts and weight map used by block value scoring."
+    },
+    "POST /api/crdt/operations": {
+      "classification": "implemented",
+      "note": "Local-only loopback extension for routing writes through the desktop Yjs runtime."
+    },
+    "POST /api/rdf/load": {
+      "classification": "implemented",
+      "note": "Local-only low-level RDF adapter; hosted import aliases still need wrappers."
+    },
+    "POST /api/rdf/dump": {
+      "classification": "implemented",
+      "note": "Local-only low-level RDF adapter; hosted export aliases still need wrappers."
+    },
+    "POST /api/sparql/query": {
+      "classification": "implemented",
+      "note": "Local SPARQL read alias over the shared admitted/cancellable Oxigraph path."
+    },
+    "POST /api/sparql/update": {
+      "classification": "implemented",
+      "note": "Local SPARQL update alias over the shared admitted inline-commit path."
+    }
+  },
+  "routeFamilyClassifications": [
+    {
+      "prefix": "/documents",
+      "classification": "adapter-ready",
+      "note": "Document projections, key CRDT-backed read/write aliases, and /v1 document snapshot history aliases exist; deeper route fidelity remains outstanding."
+    },
+    {
+      "prefix": "/navigation",
+      "classification": "adapter-ready",
+      "note": "Workspace snapshot, folder delete, and artifact metadata CRUD aliases exist; remaining navigation parity is folder create/update path aliases, non-empty folder behavior, and edge cases."
+    },
+    {
+      "prefix": "/search",
+      "classification": "adapter-ready",
+      "note": "Local lexical/semantic primitives and hosted envelopes exist for search, reindex, and rematerialize; remaining parity is semantic fixture depth and model lifecycle edge cases."
+    },
+    {
+      "prefix": "/wires",
+      "classification": "adapter-ready",
+      "note": "Core wire read/create/refresh/delete routes exist over the workspace Y.Doc; remaining parity is deeper traversal/MCP multi-target delete and tombstone/history hardening."
+    },
+    {
+      "prefix": "/graphs",
+      "classification": "core-missing",
+      "note": "Graph identity, base list/create/job aliases, metadata detail/update/delete, duplicate, stats, document preflight, MCP duplicate/manage, workspace analytics reads, RDF export, graph archive import, graph-scoped RDF import, vault import aliases, web clip, and YouTube transcript import exist. Remaining graph-level core gaps are restore-point time-travel routes."
+    },
+    {
+      "prefix": "/artifacts",
+      "classification": "core-missing",
+      "note": "Local artifact/document original-byte downloads, single-file upload ingestion, hosted artifact import/convert aliases, MCP artifact upload/import adapters, batch prepare/register, inline image upload/serve, fast searchable-PDF text ingestion, and a runtime-gated Docling/pdf-accurate job path exist; large-ingest offload/progress/cancel remains incomplete."
+    },
+    {
+      "prefix": "/salience",
+      "classification": "implemented",
+      "note": "Core hosted salience routes for block value reads, agent valuation batches, user overlays, and config updates are backed by the local value store with parity coverage for legacy raw-sum/log semantics. Calendar remains intentionally deferred under the separate MCP calendar tool."
+    },
+    {
+      "prefix": "/entities",
+      "classification": "implemented",
+      "note": "Generic entity metadata, list, get, put, and delete aliases are mapped to local document/navigation/artifact CRDT-backed primitives, including hosted validation and folder cascade behavior."
+    },
+    {
+      "prefix": "/v1/documents",
+      "classification": "implemented",
+      "note": "Document history/snapshot APIs are backed by append-only local per-document history stores."
+    },
+    {
+      "prefix": "/v1/time-travel",
+      "classification": "core-missing",
+      "note": "Time-travel depends on local graph/document snapshot strategy."
+    },
+    {
+      "prefix": "/graphs/{graph_id}/imports",
+      "classification": "implemented",
+      "note": "RDF, Obsidian, Notion, Roam, web clip, and YouTube transcript imports all have local facades backed by local RDF/document/workspace/wire stores or synchronous CRDT document writes. YouTube success remains naturally dependent on caption availability and network blocking."
+    },
+    {
+      "prefix": "/hocuspocus",
+      "classification": "local-replacement",
+      "note": "Tauri UI uses in-process Yjs channels; external CRDT WebSockets are deferred."
+    },
+    {
+      "prefix": "/events",
+      "classification": "local-replacement",
+      "note": "Hosted pub/sub should become local diagnostics or optional external sync later."
+    },
+    {
+      "prefix": "/sessions",
+      "classification": "local-replacement",
+      "note": "Hosted session routes map to local session/location state."
+    },
+    {
+      "prefix": "/profile",
+      "classification": "local-replacement",
+      "note": "Hosted profile routes map to local profile/preferences plus hosted auth when logged in."
+    },
+    {
+      "prefix": "/api/agent/session",
+      "classification": "local-replacement",
+      "note": "Hosted agent sessions map to local loopback tokens/scopes."
+    },
+    {
+      "prefix": "/api-keys",
+      "classification": "local-replacement",
+      "note": "Hosted API keys map to local loopback token/scope management."
+    },
+    {
+      "prefix": "/chat",
+      "classification": "local-replacement",
+      "note": "Desktop chat should use BYOK/local provider surfaces, not hosted billing assumptions."
+    },
+    {
+      "prefix": "/v1/chat",
+      "classification": "local-replacement",
+      "note": "OpenAI-compatible proxy should become BYOK/local provider plumbing."
+    },
+    {
+      "prefix": "/v1/models",
+      "classification": "local-replacement",
+      "note": "Model listing should reflect local/BYOK providers."
+    },
+    {
+      "prefix": "/terminal",
+      "classification": "local-replacement",
+      "note": "Hosted terminal/OpenCode should become an explicit local runtime integration."
+    },
+    {
+      "prefix": "/aws",
+      "classification": "hosted-only",
+      "note": "AWS diagnostics are not a desktop dependency."
+    },
+    {
+      "prefix": "/billing",
+      "classification": "hosted-only",
+      "note": "Hosted billing is not part of local-only runtime."
+    },
+    {
+      "prefix": "/oauth",
+      "classification": "hosted-only",
+      "note": "Hosted OAuth endpoints are not a local-only runtime requirement."
+    },
+    {
+      "prefix": "/social",
+      "classification": "hosted-only",
+      "note": "Hosted sharing/social graph is not local-only runtime behavior."
+    },
+    {
+      "prefix": "/share-tokens",
+      "classification": "hosted-only",
+      "note": "Public share tokens are hosted-only until explicit mirror/share support exists."
+    },
+    {
+      "prefix": "/public-aliases",
+      "classification": "hosted-only",
+      "note": "Public aliases are hosted-only."
+    },
+    {
+      "prefix": "/waitlist",
+      "classification": "hosted-only",
+      "note": "Hosted product ops route."
+    },
+    {
+      "prefix": "/feedback",
+      "classification": "hosted-only",
+      "note": "Hosted product ops route."
+    },
+    {
+      "prefix": "/internal",
+      "classification": "hosted-only",
+      "note": "Internal hosted worker/admin routes are not desktop APIs."
+    },
+    {
+      "prefix": "/debug",
+      "classification": "hosted-only",
+      "note": "Hosted debug routes should become local diagnostics only where useful."
+    },
+    {
+      "prefix": "/tts",
+      "classification": "local-replacement",
+      "note": "TTS should use local/BYOK provider configuration."
+    },
+    {
+      "prefix": "/health",
+      "classification": "implemented",
+      "note": "Local loopback health endpoint exists."
+    },
+    {
+      "prefix": "/metrics",
+      "classification": "hosted-only",
+      "note": "Prometheus-style production metrics are not a desktop parity requirement."
+    },
+    {
+      "prefix": "/",
+      "classification": "hosted-only",
+      "note": "Root compatibility and uncategorized hosted routes must be reviewed before local exposure."
+    }
+  ],
+  "mcpToolClassifications": {
+    "archive_memories": "implemented",
+    "cancel_job": "implemented",
+    "care": "implemented",
+    "context_bundle": "implemented",
+    "create_folder": "implemented",
+    "create_graph": "implemented",
+    "create_wires": "implemented",
+    "delete": "implemented",
+    "document_digest": "implemented",
+    "dump_chat": "local-replacement",
+    "duplicate_graph": "implemented",
+    "edit_block_text": "implemented",
+    "edit_comment": "implemented",
+    "get_block": "implemented",
+    "get_block_values": "implemented",
+    "get_document_history": "implemented",
+    "get_important_blocks": "implemented",
+    "get_session_state": "local-replacement",
+    "get_user_location": "local-replacement",
+    "get_values": "implemented",
+    "get_wires": "implemented",
+    "get_workspace": "implemented",
+    "ingest_artifact": "implemented",
+    "insert_blocks": "implemented",
+    "insert_calendar_event": "core-missing",
+    "list_graphs": "implemented",
+    "list_wire_predicates": "implemented",
+    "make_document_editable": "implemented",
+    "manage_graph": "implemented",
+    "move_documents": "implemented",
+    "move_folder": "implemented",
+    "music": "implemented",
+    "query_blocks": "implemented",
+    "query_graph": "implemented",
+    "quick_orient": "implemented",
+    "read_blocks": "implemented",
+    "read_document": "implemented",
+    "read_document_at_snapshot": "implemented",
+    "recall": "implemented",
+    "reindex_graph": "implemented",
+    "remember": "implemented",
+    "rename": "implemented",
+    "revaluate": "implemented",
+    "search_blocks": "implemented",
+    "search_documents": "implemented",
+    "set_home_graph": "local-replacement",
+    "sing": "implemented",
+    "sparql_query": "implemented",
+    "sparql_update": "implemented",
+    "surface": "implemented",
+    "traverse_wires": "implemented",
+    "update_blocks": "implemented",
+    "update_graph": "implemented",
+    "upload_artifact": "implemented",
+    "value": "implemented",
+    "write_document": "implemented"
+  },
+  "localMcpExtensions": {
+    "backfill_memory_projection": "implemented",
+    "cancel_restore_operation": "implemented",
+    "create_document": "implemented",
+    "create_document_once": "implemented",
+    "create_restore_point": "implemented",
+    "crdt_operation": "implemented",
+    "delete_blocks": "implemented",
+    "delete_document": "implemented",
+    "delete_restore_point": "implemented",
+    "diff_restore_points": "implemented",
+    "edit_artifact_image": "implemented",
+    "emporium_heads": "implemented",
+    "emporium_list": "implemented",
+    "emporium_query": "implemented",
+    "emporium_read": "implemented",
+    "emporium_retract": "implemented",
+    "emporium_sweep": "implemented",
+    "emporium_violations": "implemented",
+    "emporium_vocab": "implemented",
+    "emporium_write": "implemented",
+    "flush_crdt": "implemented",
+    "get_job_result": "implemented",
+    "get_job_status": "implemented",
+    "get_restore_operation": "implemented",
+    "get_restore_point": "implemented",
+    "graph_intuition": "implemented",
+    "list_artifact_kinds": "implemented",
+    "list_artifact_revisions": "implemented",
+    "list_documents": "implemented",
+    "list_restore_points": "implemented",
+    "memory_semantic_recall": "implemented",
+    "propose_domain_ontology": "implemented",
+    "rdf_dump": "implemented",
+    "rdf_load": "implemented",
+    "read_artifact": "implemented",
+    "remember_batch": "implemented",
+    "restore_artifact_revision": "implemented",
+    "restore_to_restore_point": "implemented",
+    "semantic_reason": "implemented",
+    "semantic_search": "implemented",
+    "sparql_query_named": "implemented",
+    "workflow_authoring_session": "implemented",
+    "workflow_book_apply": "implemented",
+    "workflow_book_choose": "implemented",
+    "workflow_book_compose": "implemented",
+    "workflow_book_open": "implemented",
+    "workflow_book_validate": "implemented",
+    "workflow_run_monitor": "implemented",
+    "workflow_run_start": "implemented"
+  },
+  "notes": {
+    "delete_blocks": "Hosted MCP exposes a multi-target `delete` tool (docs, folders, wires, blocks). The local loopback exposes `delete_blocks` as the explicit block-target variant for now; the multi-target `delete` tool can route to it once folder/wire deletes also exist locally."
+  }
+}

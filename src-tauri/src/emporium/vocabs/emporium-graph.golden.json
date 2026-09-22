@@ -1,0 +1,62 @@
+{
+    "classes": {
+        "LocalGraph": {
+            "comment": "Per-graph metadata Meaningful Object. SINGLE owned subject graph_subject(graph_id) in the :projection:graph named graph. Code-defined span (rdf_record_materializer::graph_desired_triples) — this contract is the AUTHORED minimal mirror of that span, used to DERIVE the SHACL conformance shapes (EA-2b). created/modified are SIMPLE string literals (the materializer emits sparql_string_literal, NOT ^^xsd:dateTime), so they are declared datatype=string here to match the real projection byte-for-byte.",
+            "predicates": {
+                "dcterms:created": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "comment": "simple literal (NOT xsd:dateTime) — matches sparql_string_literal"
+                },
+                "dcterms:identifier": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "dcterms:modified": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "comment": "simple literal (NOT xsd:dateTime) — matches sparql_string_literal"
+                },
+                "dcterms:title": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "mnemo:localPath": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "mnemo:origin": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "mnemo:providerId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                }
+            },
+            "rdf_types": [
+                "mnemo:LocalGraph"
+            ],
+            "subject_rule": "graph_subject(graph_id) = urn:mnemosyne:local:graph:{id} — owned OUTRIGHT"
+        }
+    },
+    "comment": "EA-2b SHACL retrofit contract for the Graph-metadata Meaningful Object. NOT a served emporium pack — an AUTHORED minimal mirror of the code-defined graph_desired_triples span (8 triples on one subject), whose sole consumer is vocab_to_shacl (the conformance-oracle shapes source). mnemo: is the runtime MNEMO_NS (https://mnemosyne.local/ns#), matching rdf_record_materializer.",
+    "description": "Per-graph metadata: a single LocalGraph subject carrying its dcterms identity/title/timestamps and mnemo filesystem provenance.",
+    "name": "emporium-graph",
+    "namespaces": {
+        "dcterms": "http://purl.org/dc/terms/",
+        "mnemo": "https://mnemosyne.local/ns#",
+        "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+        "xsd": "http://www.w3.org/2001/XMLSchema#"
+    },
+    "primary_prefix": "mnemo",
+    "title": "Emporium Graph-Metadata Vocabulary",
+    "version": "1.0.0"
+}

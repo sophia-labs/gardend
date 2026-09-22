@@ -1,0 +1,299 @@
+{
+  "name": "garden-pdf-source",
+  "version": "1.0.0",
+  "title": "Garden PDF source anchors",
+  "description": "Read-only, document-owned PDF originals, text anchors, selected regions and page selectors derived from durable Y.Doc metadata. Use emporium_query or named queries; emporium_read/CRUD and generic writes are not supported. SHA values are declared provenance, not original-byte attestation.",
+  "namespaces": {
+    "pdf": "http://mnemosyne.dev/pdf-source#",
+    "oa": "http://www.w3.org/ns/oa#",
+    "prov": "http://www.w3.org/ns/prov#",
+    "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+    "xsd": "http://www.w3.org/2001/XMLSchema#"
+  },
+  "primary_prefix": "pdf",
+  "classes": {
+    "PdfOriginal": {
+      "comment": "Native read-only projection of document-owned PDF source metadata. Regenerable from the document; never independently authored.",
+      "rdf_types": [
+        "pdf:PdfOriginal",
+        "prov:Entity"
+      ],
+      "subject_rule": "{graph_subject}:projection:pdf-source:{localId}",
+      "source_kind": "derived",
+      "identity_kind": "logical-id",
+      "store_mode": "materialize",
+      "store_target": "projection:pdf-source",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "derived-materialize",
+      "predicates": {
+        "pdf:document": {
+          "datatype": "uri",
+          "required": true,
+          "multi": false
+        },
+        "pdf:sha256": {
+          "datatype": "string",
+          "required": true,
+          "multi": false
+        },
+        "pdf:byteLength": {
+          "datatype": "long",
+          "required": true,
+          "multi": false
+        },
+        "pdf:artifactId": {
+          "datatype": "string",
+          "required": false,
+          "multi": false
+        },
+        "pdf:revisionId": {
+          "datatype": "string",
+          "required": false,
+          "multi": false
+        },
+        "pdf:attestation": {
+          "datatype": "string",
+          "required": true,
+          "multi": false
+        },
+        "pdf:documentId": {
+          "datatype": "string",
+          "required": true,
+          "multi": false
+        }
+      }
+    },
+    "TextSourceAnchor": {
+      "comment": "Native read-only projection of document-owned PDF source metadata. Regenerable from the document; never independently authored.",
+      "rdf_types": [
+        "pdf:TextSourceAnchor",
+        "prov:Entity"
+      ],
+      "subject_rule": "{graph_subject}:projection:pdf-source:{localId}",
+      "source_kind": "derived",
+      "identity_kind": "logical-id",
+      "store_mode": "materialize",
+      "store_target": "projection:pdf-source",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "derived-materialize",
+      "predicates": {
+        "pdf:document": {
+          "datatype": "uri",
+          "required": true,
+          "multi": false
+        },
+        "pdf:textBlock": {
+          "datatype": "uri",
+          "required": true,
+          "multi": false
+        },
+        "oa:hasBody": {
+          "datatype": "uri",
+          "required": false,
+          "multi": false
+        },
+        "oa:hasTarget": {
+          "datatype": "uri",
+          "required": false,
+          "multi": true
+        },
+        "prov:wasDerivedFrom": {
+          "datatype": "uri",
+          "required": false,
+          "multi": false
+        },
+        "pdf:blockId": {
+          "datatype": "string",
+          "required": true,
+          "multi": false
+        },
+        "pdf:mappingStatus": {
+          "datatype": "string",
+          "required": true,
+          "multi": false
+        },
+        "pdf:reason": {
+          "datatype": "string",
+          "required": false,
+          "multi": false
+        },
+        "pdf:payloadSha256": {
+          "datatype": "string",
+          "required": true,
+          "multi": false
+        },
+        "pdf:textSha256": {
+          "datatype": "string",
+          "required": false,
+          "multi": false
+        },
+        "pdf:currentTextSha256": {
+          "datatype": "string",
+          "required": true,
+          "multi": false
+        },
+        "pdf:editedText": {
+          "datatype": "boolean",
+          "required": true,
+          "multi": false
+        },
+        "pdf:approach": {
+          "datatype": "string",
+          "required": false,
+          "multi": false
+        },
+        "pdf:extractorVersion": {
+          "datatype": "string",
+          "required": false,
+          "multi": false
+        },
+        "pdf:projectionComplete": {
+          "datatype": "boolean",
+          "required": true,
+          "multi": false
+        },
+        "pdf:omittedAnchors": {
+          "datatype": "integer",
+          "required": true,
+          "multi": false
+        },
+        "pdf:omittedRectangles": {
+          "datatype": "integer",
+          "required": true,
+          "multi": false
+        },
+        "pdf:documentId": {
+          "datatype": "string",
+          "required": true,
+          "multi": false
+        }
+      }
+    },
+    "PdfRegion": {
+      "comment": "Native read-only projection of document-owned PDF source metadata. Regenerable from the document; never independently authored.",
+      "rdf_types": [
+        "pdf:PdfRegion",
+        "oa:SpecificResource"
+      ],
+      "subject_rule": "{graph_subject}:projection:pdf-source:{localId}",
+      "source_kind": "derived",
+      "identity_kind": "logical-id",
+      "store_mode": "materialize",
+      "store_target": "projection:pdf-source",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "derived-materialize",
+      "predicates": {
+        "pdf:document": {
+          "datatype": "uri",
+          "required": true,
+          "multi": false
+        },
+        "oa:hasSource": {
+          "datatype": "uri",
+          "required": true,
+          "multi": false
+        },
+        "oa:hasSelector": {
+          "datatype": "uri",
+          "required": true,
+          "multi": false
+        },
+        "pdf:documentId": {
+          "datatype": "string",
+          "required": true,
+          "multi": false
+        }
+      }
+    },
+    "PdfPageSelector": {
+      "comment": "Native read-only projection of document-owned PDF source metadata. Regenerable from the document; never independently authored.",
+      "rdf_types": [
+        "pdf:PdfPageSelector",
+        "oa:Selector"
+      ],
+      "subject_rule": "{graph_subject}:projection:pdf-source:{localId}",
+      "source_kind": "derived",
+      "identity_kind": "logical-id",
+      "store_mode": "materialize",
+      "store_target": "projection:pdf-source",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "derived-materialize",
+      "predicates": {
+        "pdf:document": {
+          "datatype": "uri",
+          "required": true,
+          "multi": false
+        },
+        "pdf:pageIndex": {
+          "datatype": "long",
+          "required": true,
+          "multi": false
+        },
+        "pdf:space": {
+          "datatype": "string",
+          "required": true,
+          "multi": false
+        },
+        "pdf:cropXMin": {
+          "datatype": "double",
+          "required": true,
+          "multi": false
+        },
+        "pdf:cropYMin": {
+          "datatype": "double",
+          "required": true,
+          "multi": false
+        },
+        "pdf:cropXMax": {
+          "datatype": "double",
+          "required": true,
+          "multi": false
+        },
+        "pdf:cropYMax": {
+          "datatype": "double",
+          "required": true,
+          "multi": false
+        },
+        "pdf:xMin": {
+          "datatype": "double",
+          "required": true,
+          "multi": false
+        },
+        "pdf:yMin": {
+          "datatype": "double",
+          "required": true,
+          "multi": false
+        },
+        "pdf:xMax": {
+          "datatype": "double",
+          "required": true,
+          "multi": false
+        },
+        "pdf:yMax": {
+          "datatype": "double",
+          "required": true,
+          "multi": false
+        },
+        "pdf:userUnit": {
+          "datatype": "double",
+          "required": true,
+          "multi": false
+        },
+        "pdf:rotation": {
+          "datatype": "integer",
+          "required": true,
+          "multi": false
+        },
+        "pdf:documentId": {
+          "datatype": "string",
+          "required": true,
+          "multi": false
+        }
+      }
+    }
+  }
+}

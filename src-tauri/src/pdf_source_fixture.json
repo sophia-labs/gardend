@@ -1,0 +1,48 @@
+{
+  "description": "Portable source-only fixture. No PDF bytes are attested. Text leaves concatenate to Aé\\nB (a literal newline).",
+  "text": "Aé\nB",
+  "anchor": {
+    "version": 1,
+    "textSha256": "ff495df19f788e72fd0a3fd00af45244faf18cc7c0261f62c70cc3c3dfe6622f",
+    "source": {
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "byteLength": 1234,
+      "artifactId": "artifact-1",
+      "revisionId": "revision-1"
+    },
+    "relation": "derived-from",
+    "precision": "block",
+    "extraction": {
+      "approach": "pdfjs-layout",
+      "version": "1"
+    },
+    "targets": [
+      {
+        "pageIndex": 0,
+        "space": "pdf-user-space",
+        "viewBox": [
+          -10,
+          20,
+          590,
+          820
+        ],
+        "userUnit": 2,
+        "rotation": 90,
+        "rects": [
+          [
+            10,
+            40,
+            100,
+            60
+          ],
+          [
+            200,
+            80,
+            300,
+            100
+          ]
+        ]
+      }
+    ]
+  }
+}

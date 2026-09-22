@@ -1,0 +1,137 @@
+{
+  "scope": "synthetic actual PDF.js extraction and real editor JSON; no native persistence yet",
+  "originalBase64": "JVBERi0xLjQKMSAwIG9iago8PCAvVHlwZSAvQ2F0YWxvZyAvUGFnZXMgMiAwIFIgPj4KZW5kb2JqCjIgMCBvYmoKPDwgL1R5cGUgL1BhZ2VzIC9LaWRzIFs0IDAgUiA2IDAgUl0gL0NvdW50IDIgPj4KZW5kb2JqCjMgMCBvYmoKPDwgL1R5cGUgL0ZvbnQgL1N1YnR5cGUgL1R5cGUxIC9CYXNlRm9udCAvSGVsdmV0aWNhID4+CmVuZG9iago0IDAgb2JqCjw8IC9UeXBlIC9QYWdlIC9QYXJlbnQgMiAwIFIgL01lZGlhQm94IFswIDAgNjEyIDc5Ml0gL1Jlc291cmNlcyA8PCAvRm9udCA8PCAvRjEgMyAwIFIgPj4gPj4gL0NvbnRlbnRzIDUgMCBSID4+CmVuZG9iago1IDAgb2JqCjw8IC9MZW5ndGggMjY2ID4+CnN0cmVhbQpCVAovRjEgMjIgVGYKMSAwIDAgMSA1NSA3MzAgVG0KKEEgZ2FyZGVuIG9mIHNvdXJjZSBwYXNzYWdlcykgVGoKRVQKQlQKL0YxIDEyIFRmCjEgMCAwIDEgNTUgNjc1IFRtCihFYWNoIHRleHQgcGFzc2FnZSByZW1lbWJlcnMgdGhlIHBhZ2UgZnJvbSB3aGljaCBpdCBncmV3LikgVGoKRVQKQlQKL0YxIDEyIFRmCjEgMCAwIDEgNTUgNjUwIFRtCihBIHJlYWRlciBjYW4gcmV0dXJuIHRvIHRoZSBvcmlnaW5hbCB3aXRob3V0IGxvc2luZyB0aGVpciBwbGFjZS4pIFRqCkVUCmVuZHN0cmVhbQplbmRvYmoKNiAwIG9iago8PCAvVHlwZSAvUGFnZSAvUGFyZW50IDIgMCBSIC9NZWRpYUJveCBbMCAwIDYxMiA3OTJdIC9Dcm9wQm94IFsyNSA0MCA2MDAgNzcwXSAvUm90YXRlIDkwIC9Vc2VyVW5pdCAyIC9SZXNvdXJjZXMgPDwgL0ZvbnQgPDwgL0YxIDMgMCBSID4+ID4+IC9Db250ZW50cyA3IDAgUiA+PgplbmRvYmoKNyAwIG9iago8PCAvTGVuZ3RoIDI0MSA+PgpzdHJlYW0KQlQKL0YxIDIwIFRmCjAgMSAtMSAwIDEwNSA5MCBUbQooVGhlIHR1cm5lZCBwYWdlKSBUagpFVApCVAovRjEgMTIgVGYKMCAxIC0xIDAgMTUwIDkwIFRtCihUaGlzIHBhc3NhZ2UgbGl2ZXMgb24gYSBjcm9wcGVkIGFuZCByb3RhdGVkIHBhZ2UuKSBUagpFVApCVAovRjEgMTIgVGYKMCAxIC0xIDAgMTc4IDkwIFRtCihJdHMgcG9zaXRpb24gc3RheXMgYXR0YWNoZWQgdG8gdGhlIG9yaWdpbmFsIFBERiBieXRlcy4pIFRqCkVUCmVuZHN0cmVhbQplbmRvYmoKeHJlZgowIDgKMDAwMDAwMDAwMCA2NTUzNSBmIAowMDAwMDAwMDA5IDAwMDAwIG4gCjAwMDAwMDAwNTggMDAwMDAgbiAKMDAwMDAwMDEyMSAwMDAwMCBuIAowMDAwMDAwMTkxIDAwMDAwIG4gCjAwMDAwMDAzMTcgMDAwMDAgbiAKMDAwMDAwMDYzMyAwMDAwMCBuIAowMDAwMDAwODA3IDAwMDAwIG4gCnRyYWlsZXIKPDwgL1NpemUgOCAvUm9vdCAxIDAgUiA+PgpzdGFydHhyZWYKMTA5OAolJUVPRgo=",
+  "tiptapJson": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "heading",
+        "attrs": {
+          "textAlign": null,
+          "indent": 0,
+          "collapsed": false,
+          "data-source-format": null,
+          "data-source-approach": null,
+          "data-source-page": null,
+          "data-source-role": null,
+          "data-source-id": null,
+          "data-pdf-page": null,
+          "data-pdf-role": "title",
+          "data-pdf-anchor": null,
+          "data-tags": null,
+          "data-tag-expirations": null,
+          "data-block-id": "fixture-0",
+          "level": 1
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "Source proof"
+          }
+        ]
+      },
+      {
+        "type": "heading",
+        "attrs": {
+          "textAlign": null,
+          "indent": 0,
+          "collapsed": false,
+          "data-source-format": "pdf",
+          "data-source-approach": "pdf.fast-text",
+          "data-source-page": 1,
+          "data-source-role": "heading",
+          "data-source-id": "pdf-p1-b1",
+          "data-pdf-page": 1,
+          "data-pdf-role": "heading",
+          "data-pdf-anchor": "{\"version\":1,\"source\":{\"sha256\":\"d091b0a649e3210486477f76e48572348fd5559cbb4317e44bd36384fb1a3787\",\"byteLength\":1322},\"textSha256\":\"3cfbb0d2acbae4e26afefa0dbf9bcf71a95ded6ed7689617007a41219bad4d54\",\"relation\":\"derived-from\",\"precision\":\"block\",\"extraction\":{\"approach\":\"pdf.fast-text\",\"version\":\"5.7.284\"},\"targets\":[{\"pageIndex\":0,\"space\":\"pdf-user-space\",\"viewBox\":[0,0,612,792],\"userUnit\":1,\"rotation\":0,\"rects\":[[55,725.446,341.154,745.796]]}]}",
+          "data-tags": null,
+          "data-tag-expirations": null,
+          "data-block-id": "fixture-1",
+          "level": 2
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "A garden of source passages"
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "attrs": {
+          "textAlign": null,
+          "indent": 1,
+          "collapsed": false,
+          "data-source-format": "pdf",
+          "data-source-approach": "pdf.fast-text",
+          "data-source-page": 1,
+          "data-source-role": "body",
+          "data-source-id": "pdf-p1-b2",
+          "data-pdf-page": 1,
+          "data-pdf-role": "body",
+          "data-pdf-anchor": "{\"version\":1,\"source\":{\"sha256\":\"d091b0a649e3210486477f76e48572348fd5559cbb4317e44bd36384fb1a3787\",\"byteLength\":1322},\"textSha256\":\"edfda10c69ced498a68c31c0261c64b171edab55ca2ed52277b82f8b8b4c0ebe\",\"relation\":\"derived-from\",\"precision\":\"block\",\"extraction\":{\"approach\":\"pdf.fast-text\",\"version\":\"5.7.284\"},\"targets\":[{\"pageIndex\":0,\"space\":\"pdf-user-space\",\"viewBox\":[0,0,612,792],\"userUnit\":1,\"rotation\":0,\"rects\":[[55,672.516,371.12800000000016,683.616],[55,647.516,371.8120000000001,658.616]]}]}",
+          "data-tags": null,
+          "data-tag-expirations": null,
+          "data-block-id": "fixture-2"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "Each text passage remembers the page from which it grew. A reader can return to the original without losing their place."
+          }
+        ]
+      },
+      {
+        "type": "heading",
+        "attrs": {
+          "textAlign": null,
+          "indent": 1,
+          "collapsed": false,
+          "data-source-format": "pdf",
+          "data-source-approach": "pdf.fast-text",
+          "data-source-page": 2,
+          "data-source-role": "heading",
+          "data-source-id": "pdf-p2-b3",
+          "data-pdf-page": 2,
+          "data-pdf-role": "heading",
+          "data-pdf-anchor": "{\"version\":1,\"source\":{\"sha256\":\"d091b0a649e3210486477f76e48572348fd5559cbb4317e44bd36384fb1a3787\",\"byteLength\":1322},\"textSha256\":\"e62f21ab33f304e5db3f9158d9b300d4aa9fd4285a28a608c24123b946a6bdc4\",\"relation\":\"derived-from\",\"precision\":\"block\",\"extraction\":{\"approach\":\"pdf.fast-text\",\"version\":\"5.7.284\"},\"targets\":[{\"pageIndex\":1,\"space\":\"pdf-user-space\",\"viewBox\":[25,40,600,770],\"userUnit\":2,\"rotation\":90,\"rects\":[[90.64,90,109.14,236.76000000000005]]}]}",
+          "data-tags": null,
+          "data-tag-expirations": null,
+          "data-block-id": "fixture-3",
+          "level": 3
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "The turned page"
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "attrs": {
+          "textAlign": null,
+          "indent": 2,
+          "collapsed": false,
+          "data-source-format": "pdf",
+          "data-source-approach": "pdf.fast-text",
+          "data-source-page": 2,
+          "data-source-role": "body",
+          "data-source-id": "pdf-p2-b4",
+          "data-pdf-page": 2,
+          "data-pdf-role": "body",
+          "data-pdf-anchor": "{\"version\":1,\"source\":{\"sha256\":\"d091b0a649e3210486477f76e48572348fd5559cbb4317e44bd36384fb1a3787\",\"byteLength\":1322},\"textSha256\":\"3e300710c1927d065ae9f293c6072d8f30f1237bcb15a4b45bfd291e8e22ede4\",\"relation\":\"derived-from\",\"precision\":\"block\",\"extraction\":{\"approach\":\"pdf.fast-text\",\"version\":\"5.7.284\"},\"targets\":[{\"pageIndex\":1,\"space\":\"pdf-user-space\",\"viewBox\":[25,40,600,770],\"userUnit\":2,\"rotation\":90,\"rects\":[[141.38400000000001,90,152.484,359.48400000000015],[169.38400000000001,90,180.484,366.13200000000006]]}]}",
+          "data-tags": null,
+          "data-tag-expirations": null,
+          "data-block-id": "fixture-4"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "This passage lives on a cropped and rotated page. Its position stays attached to the original PDF bytes."
+          }
+        ]
+      }
+    ]
+  }
+}

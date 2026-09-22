@@ -1,0 +1,165 @@
+{
+  "tiptapJson": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "heading",
+        "attrs": {
+          "level": 1
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "Mixed Content"
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "Intro paragraph."
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "attrs": {
+          "data-source-format": null,
+          "data-source-approach": null,
+          "data-source-page": null,
+          "data-source-role": null,
+          "data-source-id": null,
+          "data-pdf-page": null,
+          "data-pdf-role": null,
+          "textAlign": null,
+          "indent": 0,
+          "collapsed": false
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "An embedded "
+          },
+          {
+            "type": "text",
+            "marks": [
+              {
+                "type": "bold"
+              }
+            ],
+            "text": "HTML"
+          },
+          {
+            "type": "text",
+            "text": " block."
+          }
+        ]
+      },
+      {
+        "type": "listItem",
+        "attrs": {
+          "data-source-format": null,
+          "data-source-approach": null,
+          "data-source-page": null,
+          "data-source-role": null,
+          "data-source-id": null,
+          "data-pdf-page": null,
+          "data-pdf-role": null,
+          "indent": 0,
+          "collapsed": false,
+          "listType": "bullet",
+          "checked": false
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "attrs": {
+              "data-source-format": null,
+              "data-source-approach": null,
+              "data-source-page": null,
+              "data-source-role": null,
+              "data-source-id": null,
+              "data-pdf-page": null,
+              "data-pdf-role": null,
+              "textAlign": null,
+              "indent": 0,
+              "collapsed": false
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "html item one"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "listItem",
+        "attrs": {
+          "data-source-format": null,
+          "data-source-approach": null,
+          "data-source-page": null,
+          "data-source-role": null,
+          "data-source-id": null,
+          "data-pdf-page": null,
+          "data-pdf-role": null,
+          "indent": 0,
+          "collapsed": false,
+          "listType": "bullet",
+          "checked": false
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "attrs": {
+              "data-source-format": null,
+              "data-source-approach": null,
+              "data-source-page": null,
+              "data-source-role": null,
+              "data-source-id": null,
+              "data-pdf-page": null,
+              "data-pdf-role": null,
+              "textAlign": null,
+              "indent": 0,
+              "collapsed": false
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "html item two"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "Closing "
+          },
+          {
+            "type": "text",
+            "text": "markdown",
+            "marks": [
+              {
+                "type": "italic"
+              }
+            ]
+          },
+          {
+            "type": "text",
+            "text": " paragraph."
+          }
+        ]
+      }
+    ]
+  },
+  "derivedTitle": "Mixed Content",
+  "sourceFormat": "markdown",
+  "warnings": []
+}

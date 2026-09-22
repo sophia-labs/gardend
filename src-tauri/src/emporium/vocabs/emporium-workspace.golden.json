@@ -1,0 +1,79 @@
+{
+    "classes": {
+        "Folder": {
+            "comment": "A workspace Folder — mdoc:Folder, one per folder. Code-defined span (rdf_workspace_entity_triples::push_folder_snapshot_triples). DERIVED flat. order is xsd:float (push_workspace_number_triple).",
+            "predicates": {
+                "nfo:fileName": { "datatype": "string", "multi": false, "required": false },
+                "nfo:belongsToContainer": { "datatype": "uri", "multi": false, "required": false },
+                "mdoc:order": { "datatype": "float", "multi": false, "required": false },
+                "mdoc:section": { "datatype": "string", "multi": false, "required": false },
+                "mdoc:createdAt": { "datatype": "string", "multi": false, "required": false },
+                "mdoc:updatedAt": { "datatype": "string", "multi": false, "required": false }
+            },
+            "rdf_types": [ "mdoc:Folder" ],
+            "subject_rule": "urn:mnemosyne:local:graph:{gid}:folder:{id}"
+        },
+        "TipTapDocument": {
+            "comment": "A workspace document entry — mdoc:TipTapDocument. Code-defined span (push_document_snapshot_triples). DERIVED flat. The doc-entry metadata face (title/order/parent + optional source-file predicates); sourceContentSize is xsd:integer.",
+            "predicates": {
+                "dcterms:title": { "datatype": "string", "multi": false, "required": false },
+                "dcterms:description": { "datatype": "string", "multi": false, "required": false },
+                "nfo:belongsToContainer": { "datatype": "uri", "multi": false, "required": false },
+                "mdoc:order": { "datatype": "float", "multi": false, "required": false },
+                "mdoc:section": { "datatype": "string", "multi": false, "required": false },
+                "mdoc:readOnly": { "datatype": "boolean", "multi": false, "required": false },
+                "mdoc:createdAt": { "datatype": "string", "multi": false, "required": false },
+                "mdoc:updatedAt": { "datatype": "string", "multi": false, "required": false },
+                "mdoc:describedAt": { "datatype": "string", "multi": false, "required": false },
+                "mdoc:lastAccessedAt": { "datatype": "string", "multi": false, "required": false },
+                "mdoc:sourceStorageKey": { "datatype": "string", "multi": false, "required": false },
+                "mdoc:sourceOriginalFilename": { "datatype": "string", "multi": false, "required": false },
+                "mdoc:sourceMimeType": { "datatype": "string", "multi": false, "required": false },
+                "mdoc:sourceContentSize": { "datatype": "integer", "multi": false, "required": false },
+                "mdoc:sourceFileType": { "datatype": "string", "multi": false, "required": false }
+            },
+            "rdf_types": [ "mdoc:TipTapDocument" ],
+            "subject_rule": "urn:mnemosyne:local:document:{id}"
+        },
+        "Artifact": {
+            "comment": "A workspace Artifact — mdoc:Artifact PLUS a dual kind-class type (mdoc:Image/mdoc:Pdf/...). Code-defined span (push_artifact_snapshot_triples). DERIVED flat. The kind-class rdf:type is permitted by the closed shape (rdf:type is ignored). order is xsd:float; fileSize is xsd:integer.",
+            "predicates": {
+                "mdoc:kind": { "datatype": "string", "multi": false, "required": false },
+                "mdoc:contentHashSha256": { "datatype": "string", "multi": false, "required": false },
+                "mdoc:contentOperationId": { "datatype": "string", "multi": false, "required": false },
+                "nfo:fileName": { "datatype": "string", "multi": false, "required": false },
+                "nfo:belongsToContainer": { "datatype": "uri", "multi": false, "required": false },
+                "mdoc:order": { "datatype": "float", "multi": false, "required": false },
+                "nie:mimeType": { "datatype": "string", "multi": false, "required": false },
+                "mdoc:status": { "datatype": "string", "multi": false, "required": false },
+                "nfo:fileSize": { "datatype": "integer", "multi": false, "required": false },
+                "mdoc:ingestedDocId": { "datatype": "uri", "multi": false, "required": false },
+                "mdoc:fileType": { "datatype": "string", "multi": false, "required": false },
+                "mdoc:errorMessage": { "datatype": "string", "multi": false, "required": false },
+                "mdoc:storageKey": { "datatype": "string", "multi": false, "required": false },
+                "mdoc:originalFilename": { "datatype": "string", "multi": false, "required": false },
+                "mdoc:sceneProjectionText": { "datatype": "string", "multi": false, "required": false },
+                "mdoc:sceneProjectedAt": { "datatype": "string", "multi": false, "required": false },
+                "mdoc:createdAt": { "datatype": "string", "multi": false, "required": false },
+                "mdoc:updatedAt": { "datatype": "string", "multi": false, "required": false },
+                "mdoc:sceneProjection": { "datatype": "uri", "multi": false, "required": false, "comment": "link to the artifact's SceneProjection root (when a scene is attached)" }
+            },
+            "rdf_types": [ "mdoc:Artifact" ],
+            "subject_rule": "urn:mnemosyne:local:graph:{gid}:artifact:{id}"
+        }
+    },
+    "comment": "EA-2b+ SHACL retrofit contract for the WORKSPACE Meaningful Object (structural fork: a MULTI-CLASS union + a once-at-seed rdfs:subClassOf ontology block). NOT a served emporium pack — an AUTHORED mirror of the code-defined workspace_entity_triples span, whose sole consumer is vocab_to_shacl. SCOPE: this contract declares the 3 MDOC-NAMESPACED ENTITY classes (Folder/TipTapDocument/Artifact), each an independent flat closed sh:NodeShape — the multi-class union (already supported, no emitter change). The 4th entity class WIRE (wire:Wire, in WIRE_NS not MDOC_NS) is OUT of this contract: the emitter targets only primary-namespace (mdoc:) rdf_types, and wire:Wire is the same span as the standalone WIRES kind — it has its OWN dedicated contract (emporium-wires.golden.json) and oracle, and the wire oracle's equivalence test proves the workspace-composed Wire span == the standalone Wire span. The 6 SCENE classes (mdoc:SceneProjection/SceneAnchor/SceneFrame/SceneText/SceneWireCandidate/SceneDiagnostic) share the SAME flat derivation and are surveyed first-class by the reconcile path; they are LEFT OUT here to keep the oracle tight (their many conditionally-emitted attribute predicates would bloat a closed shape) — a deliberate scope choice, documented, not a gap in the method. The ONTOLOGY BLOCK (mdoc:Image rdfs:subClassOf mdoc:Artifact + capability triples, subjects are CLASS IRIs with NO rdf:type) is SHACL-INEXPRESSIBLE in this instance-shape model (no instance targets a class-level subject) and is a once-at-seed idempotent INSERT (seed_ontology_block) — the honest hand-authored complement, NOT silently skipped (the oracle asserts the subclass triples are present + outside the reconcile diff).",
+    "description": "A workspace projection: a multi-class union of Folder, TipTapDocument, and Artifact (dual kind-typed) entities, over a once-seeded artifact-kind subclass ontology.",
+    "name": "emporium-workspace",
+    "namespaces": {
+        "dcterms": "http://purl.org/dc/terms/",
+        "mdoc": "http://mnemosyne.dev/doc#",
+        "nfo": "http://www.semanticdesktop.org/ontologies/2007/03/22/nfo#",
+        "nie": "http://www.semanticdesktop.org/ontologies/2007/01/19/nie#",
+        "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+        "xsd": "http://www.w3.org/2001/XMLSchema#"
+    },
+    "primary_prefix": "mdoc",
+    "title": "Emporium Workspace Vocabulary",
+    "version": "1.1.0"
+}

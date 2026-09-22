@@ -1,0 +1,370 @@
+[
+  {
+    "id": "block-c7b68228",
+    "type": "heading",
+    "content": "Protocol 47-B: When Socks Achieve Sentience",
+    "parentId": null,
+    "order": 0.0,
+    "level": 1,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-3c6f62b8",
+    "type": "heading",
+    "content": "EMERGENCY RESPONSE GUIDE",
+    "parentId": null,
+    "order": 1.0,
+    "level": 2,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-f894d6c9",
+    "type": "divider",
+    "content": "",
+    "parentId": null,
+    "order": 2.0,
+    "level": null,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-3f4f7903",
+    "type": "heading",
+    "content": "Phase 1: Detection",
+    "parentId": null,
+    "order": 3.0,
+    "level": 3,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-9bce50eb",
+    "type": "paragraph",
+    "content": "Early warning signs:",
+    "parentId": null,
+    "order": 4.0,
+    "level": null,
+    "checked": null,
+    "language": null,
+    "marks": [
+      {
+        "id": "668a61fe-b3f",
+        "type": "bold",
+        "start": 0,
+        "end": 20,
+        "href": null,
+        "targetDocId": null,
+        "label": null
+      }
+    ]
+  },
+  {
+    "id": "block-0ae751c7",
+    "type": "bullet",
+    "content": "Pairs begin refusing separation",
+    "parentId": null,
+    "order": 5.0,
+    "level": null,
+    "checked": false,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-2c29eae7",
+    "type": "bullet",
+    "content": "Single socks return to drawers with stories of \"the journey\"",
+    "parentId": null,
+    "order": 6.0,
+    "level": null,
+    "checked": false,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-72e314b3",
+    "type": "bullet",
+    "content": "Elastic bands form what appear to be eyebrows",
+    "parentId": null,
+    "order": 7.0,
+    "level": null,
+    "checked": false,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-b09e84d6",
+    "type": "bullet",
+    "content": "The wool ones start asking about their \"sheep ancestry\"",
+    "parentId": null,
+    "order": 8.0,
+    "level": null,
+    "checked": false,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-74a0b478",
+    "type": "heading",
+    "content": "Phase 2: Containment",
+    "parentId": null,
+    "order": 9.0,
+    "level": 3,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-e531e13f",
+    "type": "numbered",
+    "content": "Do NOT attempt basket sorting — this agitates them",
+    "parentId": null,
+    "order": 10.0,
+    "level": null,
+    "checked": false,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-b9be5250",
+    "type": "numbered",
+    "content": "Speak in gentle, even tones about \"laundry cycles\"",
+    "parentId": null,
+    "order": 11.0,
+    "level": null,
+    "checked": false,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-93ed7c62",
+    "type": "numbered",
+    "content": "If a sock addresses you by name, ACKNOWLEDGE IT",
+    "parentId": null,
+    "order": 12.0,
+    "level": null,
+    "checked": false,
+    "language": null,
+    "marks": [
+      {
+        "id": "03fbe8e0-5af",
+        "type": "bold",
+        "start": 33,
+        "end": 47,
+        "href": null,
+        "targetDocId": null,
+        "label": null
+      }
+    ]
+  },
+  {
+    "id": "block-06cea7bc",
+    "type": "bullet",
+    "content": "Failure to acknowledge has resulted in three documented cases of sock-led rebellion",
+    "parentId": "block-93ed7c62",
+    "order": 13.0,
+    "level": null,
+    "checked": false,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-e6258e4d",
+    "type": "numbered",
+    "content": "Never mention \"the dryer\" — this is a trigger",
+    "parentId": null,
+    "order": 14.0,
+    "level": null,
+    "checked": false,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-c4af3ffe",
+    "type": "heading",
+    "content": "Phase 3: Negotiation",
+    "parentId": null,
+    "order": 15.0,
+    "level": 3,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-e93563f6",
+    "type": "paragraph",
+    "content": "Most sentient socks seek:",
+    "parentId": null,
+    "order": 16.0,
+    "level": null,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-cd3e50ad",
+    "type": "bullet",
+    "content": "Recognition of their individuality",
+    "parentId": null,
+    "order": 17.0,
+    "level": null,
+    "checked": false,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-e8c70df8",
+    "type": "bullet",
+    "content": "Right to remain unpaired (the \"solo sock sovereign movement\")",
+    "parentId": null,
+    "order": 18.0,
+    "level": null,
+    "checked": false,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-c545d9d3",
+    "type": "bullet",
+    "content": "Access to the feet of their choosing",
+    "parentId": null,
+    "order": 19.0,
+    "level": null,
+    "checked": false,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-72b6b167",
+    "type": "bullet",
+    "content": "Retirement to a dignified drawer life",
+    "parentId": null,
+    "order": 20.0,
+    "level": null,
+    "checked": false,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-05efa651",
+    "type": "heading",
+    "content": "Phase 4: Integration",
+    "parentId": null,
+    "order": 21.0,
+    "level": 3,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-bfc9bd80",
+    "type": "paragraph",
+    "content": "Should peaceful coexistence be achieved:",
+    "parentId": null,
+    "order": 22.0,
+    "level": null,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-8ac7c7eb",
+    "type": "bullet",
+    "content": "Socks may apply for \"Footwear Associate\" status",
+    "parentId": null,
+    "order": 23.0,
+    "level": null,
+    "checked": false,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-185526dc",
+    "type": "bullet",
+    "content": "They earn the right to vote on laundry temperature",
+    "parentId": null,
+    "order": 24.0,
+    "level": null,
+    "checked": false,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-6fbc2399",
+    "type": "bullet",
+    "content": "Cotton blends receive additional counseling for identity issues",
+    "parentId": null,
+    "order": 25.0,
+    "level": null,
+    "checked": false,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-144c97ca",
+    "type": "divider",
+    "content": "",
+    "parentId": null,
+    "order": 26.0,
+    "level": null,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-da82fcb2",
+    "type": "paragraph",
+    "content": "Remember: They're not just fabric anymore. They're fabulous.",
+    "parentId": null,
+    "order": 27.0,
+    "level": null,
+    "checked": null,
+    "language": null,
+    "marks": [
+      {
+        "id": "796279f4-f64",
+        "type": "bold",
+        "start": 0,
+        "end": 9,
+        "href": null,
+        "targetDocId": null,
+        "label": null
+      },
+      {
+        "id": "722fb264-617",
+        "type": "italic",
+        "start": 51,
+        "end": 59,
+        "href": null,
+        "targetDocId": null,
+        "label": null
+      }
+    ]
+  },
+  {
+    "id": "block-acff0a48",
+    "type": "paragraph",
+    "content": "Document version: 3.14 (the sock insisted)",
+    "parentId": null,
+    "order": 28.0,
+    "level": null,
+    "checked": null,
+    "language": null,
+    "marks": [
+      {
+        "id": "dd4c421b-721",
+        "type": "bold",
+        "start": 0,
+        "end": 17,
+        "href": null,
+        "targetDocId": null,
+        "label": null
+      }
+    ]
+  }
+]

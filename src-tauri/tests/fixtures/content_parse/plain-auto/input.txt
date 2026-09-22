@@ -1,0 +1,7 @@
+Garden status update.
+Second line same paragraph.
+
+Next   paragraph with   extra spaces.
+
+
+Final paragraph.

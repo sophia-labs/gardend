@@ -1,0 +1,148 @@
+[package]
+name = "garden"
+version = "0.1.0"
+description = "Garden — local-first native knowledge-graph desktop"
+authors = ["Veronica Chambers"]
+repository = "https://github.com/sophia-labs/gardend"
+license = "LicenseRef-PolyForm-Noncommercial-1.0.0"
+edition = "2021"
+rust-version = "1.88"
+publish = false
+# `garden` (src/main.rs) is the desktop GUI app and the only [[bin]]. The
+# headless cell is an [[example]] (`examples/gardend.rs`), NOT a [[bin]]:
+# tauri-cli's bundler copies EVERY manifest [[bin]] into the .app, so a second
+# bin that a default desktop build never compiles makes bundling fail with
+# `failed to copy binary ... gardend does not exist`. Examples are invisible to
+# the bundler. default-run pins the GUI for `cargo run`.
+default-run = "garden"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "garden_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+# The desktop GUI app — the sole [[bin]], so tauri-cli's bundler bundles only it.
+[[bin]]
+name = "garden"
+path = "src/main.rs"
+
+# The headless gardend cell. An [[example]] (not a [[bin]]) so the desktop
+# bundler ignores it; still a real, named `gardend` binary. Built explicitly:
+#   cargo build --release --no-default-features --features headless --example gardend
+# Output: target/release/examples/gardend. required-features keeps `cargo build
+# --examples` (desktop) from compiling it (env_logger is headless-gated).
+[[example]]
+name = "gardend"
+path = "examples/gardend.rs"
+required-features = ["headless"]
+
+[features]
+default = ["desktop"]
+# Desktop app: real Tauri runtime (wry webview) + desktop-only plugins.
+desktop = ["dep:tauri", "dep:tauri-build", "tauri/wry", "tauri/common-controls-v6", "dep:tauri-plugin-log", "dep:tauri-plugin-opener"]
+# Compatibility switch for the retired TypeScript CRDT authority. The normal
+# desktop build deliberately leaves this OFF: Shrubbery is a sync client and
+# the Rust cell executor owns queue draining and cold projection, exactly as it
+# does in gardend.
+frontend-crdt = []
+# Headless cell (gardend): native managed-state/runtime facade; no Tauri or GUI.
+# Build with: cargo build --no-default-features --features headless --example gardend
+headless = [
+  "dep:env_logger",
+  "dep:ulid",
+  "dep:aws-config",
+  "dep:aws-sdk-dynamodb",
+  "dep:aws-smithy-http-client",
+]
+
+[build-dependencies]
+tauri-build = { version = "2.5.6", features = [], optional = true }
+
+[dependencies]
+# `preserve_order` makes serde_json::Map iterate in insertion order (IndexMap),
+# required for the emporium ingest doc builders to reproduce Python
+# `json.dumps` (which preserves dict order) byte-for-byte — see
+# emporium/content.rs. API-compatible; only ordering changes.
+serde_json = { version = "1.0", features = ["preserve_order"] }
+serde_json_canonicalizer = "0.3.2"
+serde = { version = "1.0", features = ["derive"] }
+axum = { version = "0.8", features = ["multipart", "ws"] }
+base64 = "0.22"
+hmac = "0.12"
+chrono = { version = "0.4.44", default-features = false, features = ["clock", "std"] }
+candle-core = "0.10.2"
+fastembed = { version = "5", default-features = false, features = ["hf-hub-native-tls", "nomic-v2-moe", "ort-load-dynamic"] }
+fs4 = { version = "0.13", features = ["sync"] }
+log = "0.4"
+oxigraph = { version = "0.5.9", features = ["rdf-12"] }
+# rudof SHACL toolkit — the EA-1 validation face. shacl_validation 0.2.12 (native
+# engine, NO "sparql" feature → no SPARQL-endpoint tree) compiles vocab-derived
+# SHACL shapes and validates the desired graph just before the store write.
+# rudof_rdf supplies RDFFormat + InMemoryGraph (its oxigraph ^0.5.2 / oxrdf ^0.3.0
+# resolve to garden's oxigraph 0.5.9 / oxrdf 0.3.3 — no oxigraph conflict).
+#
+# VERSION PIN (load-bearing): the rudof 0.2.x line renamed its IRI crate
+# `iri_s` → `rudof_iri` at the 0.2.14 patch, but shacl_ast/shacl_ir/shacl_rdf
+# 0.2.9 (the only published shacl_* and what shacl_validation 0.2.12 pulls) were
+# NEVER updated off `iri_s`. So the default resolution (rudof_rdf/sparql_service
+# 0.2.20, prefixmap 0.2.20 = rudof_iri) is type-incompatible with shacl_ast 0.2.9
+# (iri_s) and does NOT compile. The last self-consistent `iri_s`-era patch is
+# 0.2.12; pinning rudof_rdf + sparql_service + prefixmap to that line restores a
+# buildable set. See the [patch]-free precise pins enforced in Cargo.lock.
+rudof_rdf = "=0.2.12"
+sparql_service = { version = "=0.2.12", default-features = false }
+prefixmap = "=0.2.9"
+# default-features = false drops the "sparql" feature (default-on). Without it,
+# shacl_validation pulls a SPARQL-endpoint engine AND the `ShaclProcessor<RdfData>`
+# impl displaces the native `ShaclProcessor<InMemoryGraph>` one (the latter is
+# `#[cfg(not(feature = "sparql"))]`). We validate in-memory, so we want native.
+shacl_validation = { version = "0.2.12", default-features = false }
+# shacl_ir supplies the compiled `SchemaIR` (the output of `ShaclDataManager::load`)
+# so the SHACL COMPILE CACHE can hold `Arc<SchemaIR>` and skip re-deriving+re-loading
+# a contract's shapes on every validated write (appraisal §4.4). Already in the tree as
+# a transitive dep of shacl_validation 0.2.12; pinned to the same iri_s-era 0.2.9 patch.
+shacl_ir = "=0.2.9"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+sha2 = "0.10"
+tauri = { version = "2.10.3", default-features = false, features = [], optional = true }
+tauri-plugin-log = { version = "2", optional = true }
+tauri-plugin-opener = { version = "2", optional = true }
+env_logger = { version = "0.11", optional = true }
+ulid = { version = "1.2", optional = true }
+aws-config = { version = "1", default-features = false, features = ["rt-tokio", "behavior-version-latest"], optional = true }
+aws-sdk-dynamodb = { version = "1", default-features = false, features = ["rt-tokio", "behavior-version-latest"], optional = true }
+aws-smithy-http-client = { version = "1", default-features = false, features = ["rustls-ring"], optional = true }
+tokio = { version = "1", features = ["net", "sync", "time", "signal", "rt-multi-thread"] }
+tower-http = { version = "0.6", features = ["cors"] }
+turso = { version = "0.6.0-pre.26", default-features = false }
+uuid = { version = "1", features = ["v4"] }
+yrs = "0.27.0"
+futures-util = "0.3.32"
+pulldown-cmark = { version = "0.13.4", default-features = false }
+roxmltree = "0.21.1"
+regex = "1.12.4"
+zip = "8.6.0"
+tar = "0.4.46"
+flate2 = "1.1.9"
+ureq = "3.3.0"
+scraper = "0.27.0"
+url = "2.5.8"
+
+[dev-dependencies]
+# Deterministic current-thread retry scheduler tests use Tokio's paused clock.
+tokio = { version = "1", features = ["test-util", "rt-multi-thread", "macros"] }
+rusqlite = { version = "0.37", features = ["bundled"] }
+
+# Already present transitively via axum (Router implements tower::Service);
+# declared directly so tests can drive a real Router end-to-end with
+# `ServiceExt::oneshot` instead of hand-constructing axum's internal `Next`.
+tower = { version = "0.5", features = ["util"] }
+
+# macOS-only: runtime title-bar style tweaks (transparent titlebar / hidden
+# title / full-size content view) for the Minimal window mode, applied live via
+# NSWindow from the desktop-only `window_settings` module. Present transitively
+# through Tauri on macOS; declared directly so window_settings.rs can call it.
+# The headless `gardend` cell does not use it (window_settings is desktop-gated).
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"

@@ -1,0 +1,480 @@
+{
+    "classes": {
+        "ComponentBinding": {
+            "comment": "Binds a custom-element tag string to the npm package that vets and ships it. REFERENCES the sux:renderedByComponent convention: layout triples only ever name tags (e.g. 'mn-sidebar-panel'), and this class is the site-level manifest row (tag -> package -> min version -> persistence class) that says where a tag comes from. It NEVER introduces a parallel tag predicate on layout nodes - sux:renderedByComponent stays the sole tag carrier in layout; unknown tags render the honest fallback.",
+            "predicates": {
+                "site:componentTag": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "the custom-element tag EXACTLY as it appears in sux:renderedByComponent literals (e.g. 'mn-sidebar-panel')"
+                },
+                "site:npmPackage": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "npm package name exporting the vetted @customElement (npm-install-is-vetting in OSS mode)"
+                },
+                "site:minVersion": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "minimum package version whose manifest declares this tag"
+                },
+                "site:persistenceClass": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "CURIE of the Emporium vocabulary class the component reads/writes (e.g. 'bm:Bookmark'); a CURIE token, not a resolvable IRI, hence string"
+                },
+                "site:fallbackTag": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "tag to render when the bound component is not installed; absence means the host's generic unknown-tag fallback"
+                }
+            },
+            "rdf_types": [
+                "site:ComponentBinding"
+            ],
+            "subject_rule": "{graph_subject}:projection:site:component-binding:{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:site",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "ContentSource": {
+            "comment": "A triple store a planter host reads a site from - the RDF twin of TripleSource and the exact owner+graph hosted boot contract. Local/static sources may omit ownerPrincipal. Liveness is declared, never assumed: push | poll | static. tripleCount 0 is first-class EMPTY status.",
+            "predicates": {
+                "site:endpoint": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "base URL of the store: gardend loopback apiUrl, hosted-gateway base (e.g. https://api.canary.sophia-labs.com), or a generic SPARQL endpoint"
+                },
+                "site:ownerPrincipal": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "exact typed owner principal for a hosted source; omitted only for local/static adapters"
+                },
+                "site:graphId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "the graph id passed to the adapter (the {graph} of the three-fact bootstrap)"
+                },
+                "site:graphIri": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "the named graph actually read, e.g. urn:mnemosyne:local:graph:{id}:ux:config (uxConfigGraphIri)"
+                },
+                "site:authMode": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "closed host testimony: 'dev' | 'cognito' | 'none' | 'service'. Service means the trusted stateless pool delegated through gateway service-auth; the secret itself is never represented."
+                },
+                "site:liveness": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "adapter-declared liveness class: 'push' | 'poll' | 'static' (gardend/gateway MCP reads are 'poll' today; the .nt fossil adapter is 'static')"
+                },
+                "site:readAt": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": false,
+                    "source": "epoch-ms of the last completed read - the TripleSource testimony field (mirrors Attributed<T>.observedAt / turnover readAt); feeds the capture-age chip"
+                },
+                "site:observer": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "who performed the read (mirrors Attributed<T>.observer)"
+                },
+                "site:tripleCount": {
+                    "datatype": "long",
+                    "multi": false,
+                    "required": false,
+                    "source": "parsed-body triple count of the last read; 0 = first-class EMPTY status (never trust the envelope quadCount)"
+                }
+            },
+            "rdf_types": [
+                "site:ContentSource"
+            ],
+            "subject_rule": "{graph_subject}:projection:site:content-source:{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:site",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "PackProvenance": {
+            "comment": "NEW (no sux: precursor). A sha-pinned record of which Emporium vocabulary pack version a site was built against. Naming deliberately reuses the wardrobe artifact-reference and testimony conventions (sux:artifactId / sux:contentSha / sux:witness in wardrobe-rdf.ts) and the Emporium golden discipline (the served golden's pinned sha256 IS the contentSha; version bumps mean a new golden + new sha). A site that renders persistence-class-bound components can prove which contract bytes it trusted.",
+            "predicates": {
+                "site:packName": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "the Emporium pack name exactly as registered (VOCAB_REGISTRY row / golden 'name' field, e.g. 'shrubbery-site')"
+                },
+                "site:packVersion": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "the pack's semver as served at /emporium/vocab/{name}/{version}"
+                },
+                "site:contentSha": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "sha256 of the golden bytes (equals the served ETag; wardrobe contentSha naming)"
+                },
+                "site:artifactId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "cell artifact id when the pack bytes are also archived as a graph artifact (wardrobe artifactId naming)"
+                },
+                "site:witness": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "who attests this pin (wardrobe witness naming - testimony, defeasible, two witnesses may disagree)"
+                },
+                "site:pinnedAt": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": false,
+                    "source": "epoch-ms when the pin was taken"
+                },
+                "site:vocabUrl": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "where the golden is served, e.g. {endpoint}/emporium/vocab/{name}/{version}"
+                }
+            },
+            "rdf_types": [
+                "site:PackProvenance"
+            ],
+            "subject_rule": "{graph_subject}:projection:site:pack-provenance:{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:site",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "PublicationRoute": {
+            "comment": "A host-owned public or unlisted route to one exact owner+graph tuple. Interpreter identity is copied from the reviewed SiteDefinition by the trusted host; sandbox proposals cannot select it. Published state requires a human approval witness.",
+            "predicates": {
+                "site:publicName": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "canonical host or route name"
+                },
+                "site:pathPrefix": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "absolute URL path prefix beginning with slash"
+                },
+                "site:ownerPrincipal": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "exact typed target owner principal"
+                },
+                "site:graphId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "canonical graph slug paired with ownerPrincipal"
+                },
+                "site:siteDefinition": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "SiteDefinition in the target graph"
+                },
+                "site:interpreterPackage": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "reviewed package identity copied from SiteDefinition"
+                },
+                "site:interpreterVersion": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "exact reviewed interpreter version copied from SiteDefinition"
+                },
+                "site:publicationState": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "closed state: unlisted | published | retired"
+                },
+                "site:approvedBy": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "human user principal required for published state"
+                },
+                "site:approvedAt": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": false,
+                    "source": "time the human approved public publication"
+                }
+            },
+            "rdf_types": [
+                "site:PublicationRoute"
+            ],
+            "subject_rule": "{graph_subject}:projection:site:publication-route:{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:site",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "Route": {
+            "comment": "Binds a URL path to the existing dim-app machinery that planFor executes. appValue and appRootEntry reference the exact sux nodes emitted by the deployed Nucleus layout serializer; this class neither aliases nor redefines them.",
+            "predicates": {
+                "site:path": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "URL path pattern the host serves this route at (e.g. '/', '/emporium')"
+                },
+                "site:label": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "human-readable route name"
+                },
+                "site:appValue": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "the existing dim-app config-value node (typed sux:ConfigValue) whose sux:literalValue planFor consumes"
+                },
+                "site:appRootEntry": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "the existing app-root-entry node (typed sux:AppRootEntry) binding the app to its root region set; absent for the default/garden spine"
+                },
+                "site:surface": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "the site:Surface instance this route lands on - an IRI minted ONLY by the Surface subject rule, under {graph_subject}:projection:site:surface:{localId} in the declared graph projection; examples and implementation must never mint it under http://sophia.ai/ux# (or any ontology namespace)"
+                },
+                "site:order": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": false,
+                    "source": "presentation order among sibling routes (navigation menus)"
+                }
+            },
+            "rdf_types": [
+                "site:Route"
+            ],
+            "subject_rule": "{graph_subject}:projection:site:route:{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:site",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "SiteDefinition": {
+            "comment": "Graph-resident identity for a code-reviewed SiteBundle and the exact interpreter version that gives it meaning. A pool that does not serve this pair must refuse rather than reinterpret the site.",
+            "predicates": {
+                "site:bundleId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "code-reviewed SiteBundle registry id"
+                },
+                "site:bundleVersion": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "exact SiteBundle version"
+                },
+                "site:interpreterPackage": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "package that interprets this SiteBundle"
+                },
+                "site:interpreterVersion": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "exact package version; no silent upgrade"
+                },
+                "site:layoutSeedSha256": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "sha256 of the reviewed layout seed bytes"
+                }
+            },
+            "rdf_types": [
+                "site:SiteDefinition"
+            ],
+            "subject_rule": "{graph_subject}:projection:site:definition:{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:site",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "Surface": {
+            "comment": "A navigable presentation of an existing sux layout. workspace, entryRegion, and presentsPanel reference exact nodes emitted by Nucleus. All layout facts remain in the sux graph; Surface adds only site-level naming and entry-point selection.",
+            "predicates": {
+                "site:label": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "human-readable surface name (what navigation shows)"
+                },
+                "site:workspace": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "the existing workspace node (typed sux:Workspace) this surface presents"
+                },
+                "site:entryRegion": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "the existing region node (typed sux:Region) where navigation enters"
+                },
+                "site:presentsPanel": {
+                    "datatype": "uri",
+                    "multi": true,
+                    "required": false,
+                    "source": "zero or more existing panel nodes (typed sux:Panel) this surface foregrounds; visibility intent only"
+                }
+            },
+            "rdf_types": [
+                "site:Surface"
+            ],
+            "subject_rule": "{graph_subject}:projection:site:surface:{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:site",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "Theme": {
+            "comment": "A site's default appearance, expressed only as references to the existing dim-theme and dim-skin nodes emitted by Nucleus. Their values and appliesAttribute facts are not restated here.",
+            "predicates": {
+                "site:label": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "human-readable theme name"
+                },
+                "site:themeDimension": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "the existing theme config-dimension node (typed sux:ConfigDimension)"
+                },
+                "site:skinDimension": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "the existing skin config-dimension node (typed sux:ConfigDimension)"
+                },
+                "site:defaultThemeValue": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "the existing default theme config-value node (typed sux:ConfigValue)"
+                },
+                "site:defaultSkinValue": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "the existing default skin config-value node (typed sux:ConfigValue)"
+                }
+            },
+            "rdf_types": [
+                "site:Theme"
+            ],
+            "subject_rule": "{graph_subject}:projection:site:theme:{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:site",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        }
+    },
+    "comanaged_forbidden": [
+        "doc:",
+        "mnemo:",
+        "nfo:"
+    ],
+    "comment": "Registered internal-substrate vocabulary for graph-defined Shrubbery sites. A site is an exact owner+graph target whose projection names a code-reviewed bundle and interpreter version. Surface/Route/Theme/ComponentBinding extend existing sux layout facts by reference; PublicationRoute is host-owned routing authority. Instance subjects live in {graph_subject}:projection:site URN space, never inside ontology namespaces.",
+    "description": "Graph-defined SiteDefinition, exact owner-scoped PublicationRoute, surfaces, local routes, theme, component bindings, redacted content-source testimony, and pack provenance.",
+    "name": "shrubbery-site",
+    "namespaces": {
+        "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+        "site": "http://sophia.ai/site#",
+        "sux": "http://sophia.ai/ux#",
+        "xsd": "http://www.w3.org/2001/XMLSchema#"
+    },
+    "primary_prefix": "site",
+    "registration": {
+        "comment": "EA-3 registration testimony. The registry name equals this golden's name and Garden pins the sha256 of these exact served bytes.",
+        "registry_name": "shrubbery-site",
+        "registry_row": "(\"shrubbery-site\", SHRUBBERY_SITE_GOLDEN_JSON, SHRUBBERY_SITE_GOLDEN_SHA) in VOCAB_REGISTRY, garden/src-tauri/src/emporium/vocabs.rs",
+        "embedded_bytes": "SHRUBBERY_SITE_GOLDEN_JSON = include_str!(\"vocabs/shrubbery-site.golden.json\") - served byte-verbatim, never re-serialized",
+        "sha_constant": "SHRUBBERY_SITE_GOLDEN_SHA = sha256 of the on-disk golden bytes (recompute with: shasum -a 256 src/emporium/vocabs/shrubbery-site.golden.json), pinned at land time; equals the served ETag",
+        "sha_pin_test": "embedded_shrubbery_site_sha_is_pinned",
+        "jurisdiction": {
+            "name": "shrubbery-site",
+            "public_jurisdiction": "internal-substrate",
+            "canonical_ontology": "internal-substrate",
+            "canonical_pack": "shrubbery-site",
+            "status": "internal-substrate",
+            "slug_aliases": [],
+            "compatibility_aliases": []
+        },
+        "served_at": "/emporium/vocab/shrubbery-site/{latest|version} (+ /emporium/vocabs catalog row), ETag = sha, ?format=/Accept negotiation",
+        "invariants": [
+            "registry name equals this golden's 'name' field exactly (registry_names_match_golden_names)",
+            "NOT a fourth canonical-public pillar - lex-scotus-core precedent (vocabs.rs jurisdiction comment); the pillar question is explicitly Vera's, not this registration's",
+            "version bump = new golden + new sha; the served body is the embedded bytes verbatim"
+        ]
+    },
+    "raw_shacl_shapes": "@prefix sh: <http://www.w3.org/ns/shacl#> .\n@prefix site: <http://sophia.ai/site#> .\n\nsite:DefinitionIntegrityShape a sh:NodeShape ;\n    sh:targetClass site:SiteDefinition ;\n    sh:property [ sh:path site:layoutSeedSha256 ; sh:pattern \"^[a-f0-9]{64}$\" ; sh:severity sh:Violation ] .\n\nsite:ContentSourceIntegrityShape a sh:NodeShape ;\n    sh:targetClass site:ContentSource ;\n    sh:property [ sh:path site:authMode ; sh:in ( \"none\" \"dev\" \"cognito\" \"service\" ) ; sh:severity sh:Violation ] ;\n    sh:property [ sh:path site:liveness ; sh:in ( \"static\" \"poll\" \"push\" ) ; sh:severity sh:Violation ] .\n\nsite:PublicationRouteIntegrityShape a sh:NodeShape ;\n    sh:targetClass site:PublicationRoute ;\n    sh:property [ sh:path site:ownerPrincipal ; sh:pattern \"^(user|agent|service|organization):[A-Za-z0-9_.@:-]{1,192}$\" ; sh:severity sh:Violation ] ;\n    sh:property [ sh:path site:graphId ; sh:pattern \"^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$\" ; sh:severity sh:Violation ] ;\n    sh:property [ sh:path site:pathPrefix ; sh:pattern \"^/\" ; sh:severity sh:Violation ] ;\n    sh:property [ sh:path site:publicationState ; sh:in ( \"unlisted\" \"published\" \"retired\" ) ; sh:severity sh:Violation ] ;\n    sh:or (\n        [ sh:property [ sh:path site:publicationState ; sh:in ( \"unlisted\" \"retired\" ) ] ]\n        [ sh:property [ sh:path site:publicationState ; sh:hasValue \"published\" ] ;\n          sh:property [ sh:path site:approvedBy ; sh:minCount 1 ; sh:pattern \"^user:[A-Za-z0-9_.@:-]{1,192}$\" ] ;\n          sh:property [ sh:path site:approvedAt ; sh:minCount 1 ] ]\n    ) .\n",
+    "title": "Shrubbery Site Self-Description Vocabulary",
+    "version": "0.2.1",
+    "write_target": "projection:site"
+}

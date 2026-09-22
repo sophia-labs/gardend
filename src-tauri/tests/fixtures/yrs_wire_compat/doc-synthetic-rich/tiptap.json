@@ -1,0 +1,249 @@
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "heading",
+      "attrs": {
+        "data-block-id": "block-synth-01",
+        "indent": 0,
+        "collapsed": false,
+        "level": 2
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Synthetic coverage doc"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "data-block-id": "block-synth-02",
+        "indent": 0,
+        "collapsed": false
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Plain, "
+        },
+        {
+          "type": "text",
+          "text": "bold",
+          "marks": [
+            {
+              "type": "bold",
+              "attrs": {}
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": ", "
+        },
+        {
+          "type": "text",
+          "text": "italic",
+          "marks": [
+            {
+              "type": "italic",
+              "attrs": {}
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": ", "
+        },
+        {
+          "type": "text",
+          "text": "struck",
+          "marks": [
+            {
+              "type": "strike",
+              "attrs": {}
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": ", "
+        },
+        {
+          "type": "text",
+          "text": "inline code",
+          "marks": [
+            {
+              "type": "code",
+              "attrs": {}
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": ", "
+        },
+        {
+          "type": "text",
+          "text": "highlighted",
+          "marks": [
+            {
+              "type": "highlight",
+              "attrs": {}
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": " and "
+        },
+        {
+          "type": "text",
+          "text": "a link",
+          "marks": [
+            {
+              "type": "link",
+              "attrs": {
+                "href": "https://wormnews.net",
+                "target": "_blank",
+                "rel": "noopener noreferrer nofollow",
+                "class": "editor-link"
+              }
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": "."
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "data-block-id": "block-synth-03",
+        "indent": 0,
+        "collapsed": false
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "An annotated stretch of prose",
+          "marks": [
+            {
+              "type": "commentMark",
+              "attrs": {
+                "commentId": "comment-synth-1"
+              }
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": " with a trailing remark."
+        }
+      ]
+    },
+    {
+      "type": "codeBlock",
+      "attrs": {
+        "data-block-id": "block-synth-04",
+        "language": "rust"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "fn main() {\n    println!(\"<&> escaped\");\n}"
+        }
+      ]
+    },
+    {
+      "type": "listItem",
+      "attrs": {
+        "data-block-id": "block-synth-05",
+        "indent": 0,
+        "collapsed": false,
+        "listType": "bullet",
+        "checked": false
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Bullet item"
+        }
+      ]
+    },
+    {
+      "type": "listItem",
+      "attrs": {
+        "data-block-id": "block-synth-06",
+        "indent": 1,
+        "collapsed": false,
+        "listType": "numbered",
+        "checked": false
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Nested numbered with "
+        },
+        {
+          "type": "text",
+          "text": "bold",
+          "marks": [
+            {
+              "type": "bold",
+              "attrs": {}
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "listItem",
+      "attrs": {
+        "data-block-id": "block-synth-07",
+        "indent": 0,
+        "collapsed": false,
+        "listType": "todo",
+        "checked": true
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Done todo item"
+        }
+      ]
+    },
+    {
+      "type": "blockquote",
+      "attrs": {
+        "data-block-id": "block-synth-08",
+        "indent": 0,
+        "collapsed": false
+      },
+      "content": [
+        {
+          "type": "paragraph",
+          "attrs": {
+            "indent": 0,
+            "collapsed": false
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "A quoted line."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "horizontalRule",
+      "attrs": {
+        "data-block-id": "block-synth-09"
+      }
+    }
+  ]
+}

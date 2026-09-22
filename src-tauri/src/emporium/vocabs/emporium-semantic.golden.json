@@ -1,0 +1,332 @@
+{
+  "name": "emporium-semantic",
+  "version": "0.1.0",
+  "title": "SEMMA Semantic Projection Vocabulary",
+  "description": "Internal SHACL-retrofit contract for SEMMA+ semantic projection records materialized into :projection:semantic. This is not a served vocabulary pack; it validates derived scaffold and relation testimony.",
+  "namespaces": {
+    "mnemo": "https://mnemosyne.local/ns#"
+  },
+  "primary_prefix": "mnemo",
+  "classes": {
+    "SemanticEntity": {
+      "rdf_types": [
+        "mnemo:SemanticEntity"
+      ],
+      "subject_rule": "{entityIri}:semantic",
+      "source_kind": "derived",
+      "identity_kind": "urn-template",
+      "identity_fields": [
+        "entityIri"
+      ],
+      "store_mode": "materialize",
+      "store_target": "projection:semantic",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "derived-materialize",
+      "projection_faces": [
+        "semantic-projection-rdf"
+      ],
+      "public_jurisdiction": "semantic",
+      "predicates": {
+        "mnemo:graphId": {
+          "datatype": "string",
+          "required": true
+        },
+        "mnemo:entityIri": {
+          "datatype": "uri",
+          "required": true
+        },
+        "mnemo:semanticKind": {
+          "datatype": "string",
+          "required": true
+        },
+        "mnemo:vectorFile": {
+          "datatype": "string",
+          "required": true
+        },
+        "mnemo:vectorIndex": {
+          "datatype": "integer",
+          "required": true
+        },
+        "mnemo:dimensions": {
+          "datatype": "integer",
+          "required": true
+        },
+        "mnemo:contentHash": {
+          "datatype": "string",
+          "required": true
+        }
+      },
+      "comment": "A bridge record from RDF IRI to filesystem vector reference."
+    },
+    "SemanticNeighborEdge": {
+      "rdf_types": [
+        "mnemo:SemanticNeighborEdge"
+      ],
+      "subject_rule": "urn:mnemosyne:local:graph:{gid}:semantic:edge:{id}",
+      "source_kind": "derived",
+      "identity_kind": "urn-template",
+      "identity_fields": [
+        "gid",
+        "id"
+      ],
+      "store_mode": "materialize",
+      "store_target": "projection:semantic",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "derived-materialize",
+      "projection_faces": [
+        "semantic-projection-rdf"
+      ],
+      "public_jurisdiction": "semantic",
+      "predicates": {
+        "mnemo:graphId": {
+          "datatype": "string",
+          "required": true
+        },
+        "mnemo:sourceEntity": {
+          "datatype": "uri",
+          "required": true
+        },
+        "mnemo:targetEntity": {
+          "datatype": "uri",
+          "required": true
+        },
+        "mnemo:score": {
+          "datatype": "float",
+          "required": true
+        },
+        "mnemo:rank": {
+          "datatype": "integer",
+          "required": true
+        },
+        "mnemo:mutual": {
+          "datatype": "boolean",
+          "required": true
+        }
+      },
+      "comment": "A derived exact-kNN semantic neighbor edge."
+    },
+    "SemanticCluster": {
+      "rdf_types": [
+        "mnemo:SemanticCluster"
+      ],
+      "subject_rule": "urn:mnemosyne:local:graph:{gid}:semantic:cluster:{id}",
+      "source_kind": "derived",
+      "identity_kind": "content-hash",
+      "identity_fields": [
+        "sortedMemberIris"
+      ],
+      "store_mode": "materialize",
+      "store_target": "projection:semantic",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "derived-materialize",
+      "projection_faces": [
+        "semantic-projection-rdf"
+      ],
+      "public_jurisdiction": "semantic",
+      "predicates": {
+        "mnemo:graphId": {
+          "datatype": "string",
+          "required": true
+        },
+        "mnemo:clusterId": {
+          "datatype": "string",
+          "required": true
+        },
+        "mnemo:memberCount": {
+          "datatype": "integer",
+          "required": true
+        }
+      },
+      "comment": "A content-addressed mutual-kNN connected-component cluster."
+    },
+    "SemanticClusterMembership": {
+      "rdf_types": [
+        "mnemo:SemanticClusterMembership"
+      ],
+      "subject_rule": "urn:mnemosyne:local:graph:{gid}:semantic:membership:{id}",
+      "source_kind": "derived",
+      "identity_kind": "content-hash",
+      "identity_fields": [
+        "clusterId",
+        "memberEntity"
+      ],
+      "store_mode": "materialize",
+      "store_target": "projection:semantic",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "derived-materialize",
+      "projection_faces": [
+        "semantic-projection-rdf"
+      ],
+      "public_jurisdiction": "semantic",
+      "predicates": {
+        "mnemo:graphId": {
+          "datatype": "string",
+          "required": true
+        },
+        "mnemo:cluster": {
+          "datatype": "uri",
+          "required": true
+        },
+        "mnemo:memberEntity": {
+          "datatype": "uri",
+          "required": true
+        },
+        "mnemo:rank": {
+          "datatype": "integer",
+          "required": true
+        }
+      },
+      "comment": "Membership testimony linking an entity to a semantic cluster."
+    },
+    "SemanticRelationProfile": {
+      "rdf_types": [
+        "mnemo:SemanticRelationProfile"
+      ],
+      "subject_rule": "urn:mnemosyne:local:graph:{gid}:semantic:relation:{predicate}",
+      "source_kind": "derived",
+      "identity_kind": "urn-template",
+      "identity_fields": [
+        "gid",
+        "predicate"
+      ],
+      "store_mode": "materialize",
+      "store_target": "projection:semantic",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "derived-materialize",
+      "projection_faces": [
+        "semantic-projection-rdf"
+      ],
+      "public_jurisdiction": "semantic",
+      "predicates": {
+        "mnemo:graphId": {
+          "datatype": "string",
+          "required": true
+        },
+        "mnemo:predicate": {
+          "datatype": "uri",
+          "required": true
+        },
+        "mnemo:label": {
+          "datatype": "string",
+          "required": true
+        },
+        "mnemo:category": {
+          "datatype": "string",
+          "required": false
+        },
+        "mnemo:obsCount": {
+          "datatype": "integer",
+          "required": true
+        },
+        "mnemo:variance": {
+          "datatype": "float",
+          "required": false
+        }
+      },
+      "comment": "A relation predicate profile; Slice 5 materializes these."
+    },
+    "RelationInteractionEdge": {
+      "rdf_types": [
+        "mnemo:RelationInteractionEdge"
+      ],
+      "subject_rule": "urn:mnemosyne:local:graph:{gid}:semantic:relation-interaction:{id}",
+      "source_kind": "derived",
+      "identity_kind": "content-hash",
+      "identity_fields": [
+        "sourceRelation",
+        "targetRelation",
+        "interactionKind"
+      ],
+      "store_mode": "materialize",
+      "store_target": "projection:semantic",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "derived-materialize",
+      "projection_faces": [
+        "semantic-projection-rdf"
+      ],
+      "public_jurisdiction": "semantic",
+      "predicates": {
+        "mnemo:graphId": {
+          "datatype": "string",
+          "required": true
+        },
+        "mnemo:sourceRelation": {
+          "datatype": "uri",
+          "required": true
+        },
+        "mnemo:targetRelation": {
+          "datatype": "uri",
+          "required": true
+        },
+        "mnemo:interactionKind": {
+          "datatype": "string",
+          "required": true
+        },
+        "mnemo:count": {
+          "datatype": "integer",
+          "required": true
+        },
+        "mnemo:weight": {
+          "datatype": "float",
+          "required": true
+        }
+      },
+      "comment": "Relation interaction graph edge; Slice 5 materializes these."
+    },
+    "RelationSemanticNeighborEdge": {
+      "rdf_types": [
+        "mnemo:RelationSemanticNeighborEdge"
+      ],
+      "subject_rule": "urn:mnemosyne:local:graph:{gid}:semantic:relation-neighbor:{id}",
+      "source_kind": "derived",
+      "identity_kind": "content-hash",
+      "identity_fields": [
+        "sourceRelation",
+        "targetRelation"
+      ],
+      "store_mode": "materialize",
+      "store_target": "projection:semantic",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "derived-materialize",
+      "projection_faces": [
+        "semantic-projection-rdf"
+      ],
+      "public_jurisdiction": "semantic",
+      "predicates": {
+        "mnemo:graphId": {
+          "datatype": "string",
+          "required": true
+        },
+        "mnemo:sourceRelation": {
+          "datatype": "uri",
+          "required": true
+        },
+        "mnemo:targetRelation": {
+          "datatype": "uri",
+          "required": true
+        },
+        "mnemo:score": {
+          "datatype": "float",
+          "required": true
+        },
+        "mnemo:rank": {
+          "datatype": "integer",
+          "required": true
+        },
+        "mnemo:mutual": {
+          "datatype": "boolean",
+          "required": true
+        }
+      },
+      "comment": "Semantic neighbor edge between relation profiles; Slice 5 materializes these."
+    }
+  },
+  "comment": "SEMMA+ SHACL retrofit contract for derived semantic projection records. Embedded and sha-pinned; deliberately absent from VOCAB_REGISTRY."
+}

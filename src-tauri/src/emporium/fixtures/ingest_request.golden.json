@@ -1,0 +1,56 @@
+{
+  "_comment": "SHARED GOLDEN — two BYTE-IDENTICAL copies exist until a shared cross-repo fixture mechanism lands: choreograph/src/test/fixtures/ingest_request.golden.json and garden/src-tauri/src/emporium/fixtures/ingest_request.golden.json. Any edit to one MUST be mirrored verbatim to the other. `request` is the EXACT serialized IngestRequest that choreograph's buildIngestRequest(sampleRun, sampleSha) produces; it is the wire contract between Choreograph (TS producer) and Garden/emporium (Rust consumer, schemas.rs). The TS golden test deep-equals `request` against buildIngestRequest; the Rust golden test deserializes `request` into IngestRequest via serde. A field rename/drop on either side fails its test.",
+  "request": {
+    "vocab": "workflow",
+    "dry_run": false,
+    "payload": {
+      "kind": "workflow",
+      "parsed": {
+        "kind": "run-record",
+        "name": "graph-survey-synthesize",
+        "scriptSha256": "deadbeefcafef00d",
+        "script": "",
+        "phases": [],
+        "nodes": [],
+        "edges": [],
+        "run": {
+          "runId": "wfr-abc123",
+          "status": "completed",
+          "startTimeMs": 1700000000000,
+          "endTimeMs": 1700000005000,
+          "totalTokens": 350,
+          "agentCount": 2,
+          "durationMs": 5000,
+          "agents": [
+            {
+              "label": "map:d1",
+              "phaseIndex": 1,
+              "model": "mistralai/mistral-nemo",
+              "state": "done",
+              "tokens": 100,
+              "toolCalls": 1,
+              "durationMs": 900,
+              "queuedAt": 1700000000100,
+              "startedAt": 1700000000200,
+              "cached": false,
+              "agentType": "graph-surveyor"
+            },
+            {
+              "label": "synthesize",
+              "phaseIndex": 2,
+              "model": "google/gemini-2.5-flash",
+              "state": "done",
+              "tokens": 250,
+              "toolCalls": 0,
+              "durationMs": 3800,
+              "queuedAt": 1700000001000,
+              "startedAt": 1700000001100,
+              "cached": false,
+              "agentType": "findings-synthesizer"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

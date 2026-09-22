@@ -1,0 +1,33 @@
+{
+  "corpusId": "semantic-stock-v1",
+  "graphId": "semantic-stock-fixtures",
+  "title": "Semantic Stock Fixtures",
+  "description": "Deterministic documents for local/legacy semantic search and materialization parity.",
+  "documents": [
+    {
+      "id": "stock-crdt-rdf-roundtrip",
+      "title": "CRDT RDF Roundtrip Notes",
+      "file": "crdt-rdf-roundtrip.md"
+    },
+    {
+      "id": "stock-local-embedding-pipeline",
+      "title": "Local Embedding Pipeline",
+      "file": "local-embedding-pipeline.md"
+    },
+    {
+      "id": "stock-pdf-ingestion-playbook",
+      "title": "PDF Ingestion Playbook",
+      "file": "pdf-ingestion-playbook.md"
+    },
+    {
+      "id": "stock-loopback-api-mcp",
+      "title": "Loopback API and MCP Surface",
+      "file": "loopback-api-mcp.md"
+    },
+    {
+      "id": "stock-hybrid-sync-runtime",
+      "title": "Hybrid Sync Runtime",
+      "file": "hybrid-sync-runtime.md"
+    }
+  ]
+}

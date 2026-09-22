@@ -1,0 +1,37 @@
+{
+  "tiptapJson": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "# Not a heading"
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "- not a list - still text"
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "Done **here**."
+          }
+        ]
+      }
+    ]
+  },
+  "derivedTitle": null,
+  "sourceFormat": "plain",
+  "warnings": []
+}

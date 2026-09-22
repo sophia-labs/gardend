@@ -1,0 +1,326 @@
+{
+  "tiptapJson": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "table",
+        "attrs": {
+          "data-source-format": null,
+          "data-source-approach": null,
+          "data-source-page": null,
+          "data-source-role": null,
+          "data-source-id": null,
+          "data-pdf-page": null,
+          "data-pdf-role": null,
+          "indent": 0,
+          "collapsed": false
+        },
+        "content": [
+          {
+            "type": "tableRow",
+            "attrs": {
+              "data-source-format": null,
+              "data-source-approach": null,
+              "data-source-page": null,
+              "data-source-role": null,
+              "data-source-id": null,
+              "data-pdf-page": null,
+              "data-pdf-role": null
+            },
+            "content": [
+              {
+                "type": "tableHeader",
+                "attrs": {
+                  "data-source-format": null,
+                  "data-source-approach": null,
+                  "data-source-page": null,
+                  "data-source-role": null,
+                  "data-source-id": null,
+                  "data-pdf-page": null,
+                  "data-pdf-role": null,
+                  "colspan": 1,
+                  "rowspan": 1,
+                  "colwidth": null
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "attrs": {
+                      "data-source-format": null,
+                      "data-source-approach": null,
+                      "data-source-page": null,
+                      "data-source-role": null,
+                      "data-source-id": null,
+                      "data-pdf-page": null,
+                      "data-pdf-role": null,
+                      "textAlign": null,
+                      "indent": 0,
+                      "collapsed": false
+                    },
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "Name"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "tableHeader",
+                "attrs": {
+                  "data-source-format": null,
+                  "data-source-approach": null,
+                  "data-source-page": null,
+                  "data-source-role": null,
+                  "data-source-id": null,
+                  "data-pdf-page": null,
+                  "data-pdf-role": null,
+                  "colspan": 1,
+                  "rowspan": 1,
+                  "colwidth": null
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "attrs": {
+                      "data-source-format": null,
+                      "data-source-approach": null,
+                      "data-source-page": null,
+                      "data-source-role": null,
+                      "data-source-id": null,
+                      "data-pdf-page": null,
+                      "data-pdf-role": null,
+                      "textAlign": null,
+                      "indent": 0,
+                      "collapsed": false
+                    },
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "Value"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "tableRow",
+            "attrs": {
+              "data-source-format": null,
+              "data-source-approach": null,
+              "data-source-page": null,
+              "data-source-role": null,
+              "data-source-id": null,
+              "data-pdf-page": null,
+              "data-pdf-role": null
+            },
+            "content": [
+              {
+                "type": "tableCell",
+                "attrs": {
+                  "data-source-format": null,
+                  "data-source-approach": null,
+                  "data-source-page": null,
+                  "data-source-role": null,
+                  "data-source-id": null,
+                  "data-pdf-page": null,
+                  "data-pdf-role": null,
+                  "colspan": 1,
+                  "rowspan": 1,
+                  "colwidth": null
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "attrs": {
+                      "data-source-format": null,
+                      "data-source-approach": null,
+                      "data-source-page": null,
+                      "data-source-role": null,
+                      "data-source-id": null,
+                      "data-pdf-page": null,
+                      "data-pdf-role": null,
+                      "textAlign": null,
+                      "indent": 0,
+                      "collapsed": false
+                    },
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "alpha"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "tableCell",
+                "attrs": {
+                  "data-source-format": null,
+                  "data-source-approach": null,
+                  "data-source-page": null,
+                  "data-source-role": null,
+                  "data-source-id": null,
+                  "data-pdf-page": null,
+                  "data-pdf-role": null,
+                  "colspan": 1,
+                  "rowspan": 1,
+                  "colwidth": null
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "attrs": {
+                      "data-source-format": null,
+                      "data-source-approach": null,
+                      "data-source-page": null,
+                      "data-source-role": null,
+                      "data-source-id": null,
+                      "data-pdf-page": null,
+                      "data-pdf-role": null,
+                      "textAlign": null,
+                      "indent": 0,
+                      "collapsed": false
+                    },
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "1"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "tableRow",
+            "attrs": {
+              "data-source-format": null,
+              "data-source-approach": null,
+              "data-source-page": null,
+              "data-source-role": null,
+              "data-source-id": null,
+              "data-pdf-page": null,
+              "data-pdf-role": null
+            },
+            "content": [
+              {
+                "type": "tableCell",
+                "attrs": {
+                  "data-source-format": null,
+                  "data-source-approach": null,
+                  "data-source-page": null,
+                  "data-source-role": null,
+                  "data-source-id": null,
+                  "data-pdf-page": null,
+                  "data-pdf-role": null,
+                  "colspan": 1,
+                  "rowspan": 1,
+                  "colwidth": null
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "attrs": {
+                      "data-source-format": null,
+                      "data-source-approach": null,
+                      "data-source-page": null,
+                      "data-source-role": null,
+                      "data-source-id": null,
+                      "data-pdf-page": null,
+                      "data-pdf-role": null,
+                      "textAlign": null,
+                      "indent": 0,
+                      "collapsed": false
+                    },
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "beta with "
+                      },
+                      {
+                        "type": "text",
+                        "marks": [
+                          {
+                            "type": "bold"
+                          }
+                        ],
+                        "text": "bold"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "tableCell",
+                "attrs": {
+                  "data-source-format": null,
+                  "data-source-approach": null,
+                  "data-source-page": null,
+                  "data-source-role": null,
+                  "data-source-id": null,
+                  "data-pdf-page": null,
+                  "data-pdf-role": null,
+                  "colspan": 1,
+                  "rowspan": 1,
+                  "colwidth": null
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "attrs": {
+                      "data-source-format": null,
+                      "data-source-approach": null,
+                      "data-source-page": null,
+                      "data-source-role": null,
+                      "data-source-id": null,
+                      "data-pdf-page": null,
+                      "data-pdf-role": null,
+                      "textAlign": null,
+                      "indent": 0,
+                      "collapsed": false
+                    },
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "2"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "attrs": {
+          "data-source-format": null,
+          "data-source-approach": null,
+          "data-source-page": null,
+          "data-source-role": null,
+          "data-source-id": null,
+          "data-pdf-page": null,
+          "data-pdf-role": null,
+          "textAlign": null,
+          "indent": 0,
+          "collapsed": false
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "After the table."
+          }
+        ]
+      }
+    ]
+  },
+  "derivedTitle": null,
+  "sourceFormat": "html",
+  "warnings": []
+}

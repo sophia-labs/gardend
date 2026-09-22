@@ -1,0 +1,643 @@
+{
+  "content": [
+    {
+      "attrs": {
+        "collapsed": false,
+        "data-block-id": "block-c7b68228",
+        "indent": 0,
+        "level": 1
+      },
+      "content": [
+        {
+          "text": "Protocol 47-B: When Socks Achieve Sentience",
+          "type": "text"
+        }
+      ],
+      "type": "heading"
+    },
+    {
+      "attrs": {
+        "collapsed": false,
+        "data-block-id": "block-3c6f62b8",
+        "indent": 0,
+        "level": 2
+      },
+      "content": [
+        {
+          "text": "EMERGENCY RESPONSE GUIDE",
+          "type": "text"
+        }
+      ],
+      "type": "heading"
+    },
+    {
+      "attrs": {
+        "data-block-id": "block-f894d6c9"
+      },
+      "type": "horizontalRule"
+    },
+    {
+      "attrs": {
+        "collapsed": false,
+        "data-block-id": "block-3f4f7903",
+        "indent": 0,
+        "level": 3
+      },
+      "content": [
+        {
+          "text": "Phase 1: Detection",
+          "type": "text"
+        }
+      ],
+      "type": "heading"
+    },
+    {
+      "attrs": {
+        "collapsed": false,
+        "data-block-id": "block-9bce50eb",
+        "indent": 0
+      },
+      "content": [
+        {
+          "marks": [
+            {
+              "attrs": {},
+              "type": "bold"
+            }
+          ],
+          "text": "Early warning signs:",
+          "type": "text"
+        }
+      ],
+      "type": "paragraph"
+    },
+    {
+      "attrs": {
+        "checked": false,
+        "collapsed": false,
+        "data-block-id": "block-0ae751c7",
+        "indent": 0,
+        "listType": "bullet"
+      },
+      "content": [
+        {
+          "attrs": {
+            "collapsed": false,
+            "data-block-id": "block-a06ea9db",
+            "indent": 0
+          },
+          "content": [
+            {
+              "text": "Pairs begin refusing separation",
+              "type": "text"
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
+      "type": "listItem"
+    },
+    {
+      "attrs": {
+        "checked": false,
+        "collapsed": false,
+        "data-block-id": "block-2c29eae7",
+        "indent": 0,
+        "listType": "bullet"
+      },
+      "content": [
+        {
+          "attrs": {
+            "collapsed": false,
+            "data-block-id": "block-4a6663f9",
+            "indent": 0
+          },
+          "content": [
+            {
+              "text": "Single socks return to drawers with stories of \"the journey\"",
+              "type": "text"
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
+      "type": "listItem"
+    },
+    {
+      "attrs": {
+        "checked": false,
+        "collapsed": false,
+        "data-block-id": "block-72e314b3",
+        "indent": 0,
+        "listType": "bullet"
+      },
+      "content": [
+        {
+          "attrs": {
+            "collapsed": false,
+            "data-block-id": "block-791c799e",
+            "indent": 0
+          },
+          "content": [
+            {
+              "text": "Elastic bands form what appear to be eyebrows",
+              "type": "text"
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
+      "type": "listItem"
+    },
+    {
+      "attrs": {
+        "checked": false,
+        "collapsed": false,
+        "data-block-id": "block-b09e84d6",
+        "indent": 0,
+        "listType": "bullet"
+      },
+      "content": [
+        {
+          "attrs": {
+            "collapsed": false,
+            "data-block-id": "block-29ac64cc",
+            "indent": 0
+          },
+          "content": [
+            {
+              "text": "The wool ones start asking about their \"sheep ancestry\"",
+              "type": "text"
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
+      "type": "listItem"
+    },
+    {
+      "attrs": {
+        "collapsed": false,
+        "data-block-id": "block-74a0b478",
+        "indent": 0,
+        "level": 3
+      },
+      "content": [
+        {
+          "text": "Phase 2: Containment",
+          "type": "text"
+        }
+      ],
+      "type": "heading"
+    },
+    {
+      "attrs": {
+        "checked": false,
+        "collapsed": false,
+        "data-block-id": "block-e531e13f",
+        "indent": 0,
+        "listType": "ordered"
+      },
+      "content": [
+        {
+          "attrs": {
+            "collapsed": false,
+            "data-block-id": "block-64d01bd8",
+            "indent": 0
+          },
+          "content": [
+            {
+              "text": "Do NOT attempt basket sorting — this agitates them",
+              "type": "text"
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
+      "type": "listItem"
+    },
+    {
+      "attrs": {
+        "checked": false,
+        "collapsed": false,
+        "data-block-id": "block-b9be5250",
+        "indent": 0,
+        "listType": "ordered"
+      },
+      "content": [
+        {
+          "attrs": {
+            "collapsed": false,
+            "data-block-id": "block-44b54681",
+            "indent": 0
+          },
+          "content": [
+            {
+              "text": "Speak in gentle, even tones about \"laundry cycles\"",
+              "type": "text"
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
+      "type": "listItem"
+    },
+    {
+      "attrs": {
+        "checked": false,
+        "collapsed": false,
+        "data-block-id": "block-93ed7c62",
+        "indent": 0,
+        "listType": "ordered"
+      },
+      "content": [
+        {
+          "attrs": {
+            "collapsed": false,
+            "data-block-id": "block-3e89cb55",
+            "indent": 0
+          },
+          "content": [
+            {
+              "text": "If a sock addresses you by name, ",
+              "type": "text"
+            },
+            {
+              "marks": [
+                {
+                  "attrs": {},
+                  "type": "bold"
+                }
+              ],
+              "text": "ACKNOWLEDGE IT",
+              "type": "text"
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
+      "type": "listItem"
+    },
+    {
+      "attrs": {
+        "checked": false,
+        "collapsed": false,
+        "data-block-id": "block-06cea7bc",
+        "indent": 1,
+        "listType": "bullet"
+      },
+      "content": [
+        {
+          "attrs": {
+            "collapsed": false,
+            "data-block-id": "block-578e1150",
+            "indent": 0
+          },
+          "content": [
+            {
+              "text": "Failure to acknowledge has resulted in three documented cases of sock-led rebellion",
+              "type": "text"
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
+      "type": "listItem"
+    },
+    {
+      "attrs": {
+        "checked": false,
+        "collapsed": false,
+        "data-block-id": "block-e6258e4d",
+        "indent": 0,
+        "listType": "ordered"
+      },
+      "content": [
+        {
+          "attrs": {
+            "collapsed": false,
+            "data-block-id": "block-cf119416",
+            "indent": 0
+          },
+          "content": [
+            {
+              "text": "Never mention \"the dryer\" — this is a trigger",
+              "type": "text"
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
+      "type": "listItem"
+    },
+    {
+      "attrs": {
+        "collapsed": false,
+        "data-block-id": "block-c4af3ffe",
+        "indent": 0,
+        "level": 3
+      },
+      "content": [
+        {
+          "text": "Phase 3: Negotiation",
+          "type": "text"
+        }
+      ],
+      "type": "heading"
+    },
+    {
+      "attrs": {
+        "collapsed": false,
+        "data-block-id": "block-e93563f6",
+        "indent": 0
+      },
+      "content": [
+        {
+          "text": "Most sentient socks seek:",
+          "type": "text"
+        }
+      ],
+      "type": "paragraph"
+    },
+    {
+      "attrs": {
+        "checked": false,
+        "collapsed": false,
+        "data-block-id": "block-cd3e50ad",
+        "indent": 0,
+        "listType": "bullet"
+      },
+      "content": [
+        {
+          "attrs": {
+            "collapsed": false,
+            "data-block-id": "block-70f83e70",
+            "indent": 0
+          },
+          "content": [
+            {
+              "text": "Recognition of their individuality",
+              "type": "text"
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
+      "type": "listItem"
+    },
+    {
+      "attrs": {
+        "checked": false,
+        "collapsed": false,
+        "data-block-id": "block-e8c70df8",
+        "indent": 0,
+        "listType": "bullet"
+      },
+      "content": [
+        {
+          "attrs": {
+            "collapsed": false,
+            "data-block-id": "block-c7eae3a4",
+            "indent": 0
+          },
+          "content": [
+            {
+              "text": "Right to remain unpaired (the \"solo sock sovereign movement\")",
+              "type": "text"
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
+      "type": "listItem"
+    },
+    {
+      "attrs": {
+        "checked": false,
+        "collapsed": false,
+        "data-block-id": "block-c545d9d3",
+        "indent": 0,
+        "listType": "bullet"
+      },
+      "content": [
+        {
+          "attrs": {
+            "collapsed": false,
+            "data-block-id": "block-dd76865b",
+            "indent": 0
+          },
+          "content": [
+            {
+              "text": "Access to the feet of their choosing",
+              "type": "text"
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
+      "type": "listItem"
+    },
+    {
+      "attrs": {
+        "checked": false,
+        "collapsed": false,
+        "data-block-id": "block-72b6b167",
+        "indent": 0,
+        "listType": "bullet"
+      },
+      "content": [
+        {
+          "attrs": {
+            "collapsed": false,
+            "data-block-id": "block-291d1872",
+            "indent": 0
+          },
+          "content": [
+            {
+              "text": "Retirement to a dignified drawer life",
+              "type": "text"
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
+      "type": "listItem"
+    },
+    {
+      "attrs": {
+        "collapsed": false,
+        "data-block-id": "block-05efa651",
+        "indent": 0,
+        "level": 3
+      },
+      "content": [
+        {
+          "text": "Phase 4: Integration",
+          "type": "text"
+        }
+      ],
+      "type": "heading"
+    },
+    {
+      "attrs": {
+        "collapsed": false,
+        "data-block-id": "block-bfc9bd80",
+        "indent": 0
+      },
+      "content": [
+        {
+          "text": "Should peaceful coexistence be achieved:",
+          "type": "text"
+        }
+      ],
+      "type": "paragraph"
+    },
+    {
+      "attrs": {
+        "checked": false,
+        "collapsed": false,
+        "data-block-id": "block-8ac7c7eb",
+        "indent": 0,
+        "listType": "bullet"
+      },
+      "content": [
+        {
+          "attrs": {
+            "collapsed": false,
+            "data-block-id": "block-e7ee4906",
+            "indent": 0
+          },
+          "content": [
+            {
+              "text": "Socks may apply for \"Footwear Associate\" status",
+              "type": "text"
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
+      "type": "listItem"
+    },
+    {
+      "attrs": {
+        "checked": false,
+        "collapsed": false,
+        "data-block-id": "block-185526dc",
+        "indent": 0,
+        "listType": "bullet"
+      },
+      "content": [
+        {
+          "attrs": {
+            "collapsed": false,
+            "data-block-id": "block-8a29c9cc",
+            "indent": 0
+          },
+          "content": [
+            {
+              "text": "They earn the right to vote on laundry temperature",
+              "type": "text"
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
+      "type": "listItem"
+    },
+    {
+      "attrs": {
+        "checked": false,
+        "collapsed": false,
+        "data-block-id": "block-6fbc2399",
+        "indent": 0,
+        "listType": "bullet"
+      },
+      "content": [
+        {
+          "attrs": {
+            "collapsed": false,
+            "data-block-id": "block-1b3bc5ff",
+            "indent": 0
+          },
+          "content": [
+            {
+              "text": "Cotton blends receive additional counseling for identity issues",
+              "type": "text"
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
+      "type": "listItem"
+    },
+    {
+      "attrs": {
+        "data-block-id": "block-144c97ca"
+      },
+      "type": "horizontalRule"
+    },
+    {
+      "attrs": {
+        "collapsed": false,
+        "data-block-id": "block-da82fcb2",
+        "indent": 0
+      },
+      "content": [
+        {
+          "marks": [
+            {
+              "attrs": {},
+              "type": "bold"
+            }
+          ],
+          "text": "Remember:",
+          "type": "text"
+        },
+        {
+          "text": " They're not just fabric anymore. They're ",
+          "type": "text"
+        },
+        {
+          "marks": [
+            {
+              "attrs": {},
+              "type": "italic"
+            }
+          ],
+          "text": "fabulous",
+          "type": "text"
+        },
+        {
+          "text": ".",
+          "type": "text"
+        }
+      ],
+      "type": "paragraph"
+    },
+    {
+      "attrs": {
+        "collapsed": false,
+        "data-block-id": "block-acff0a48",
+        "indent": 0
+      },
+      "content": [
+        {
+          "marks": [
+            {
+              "attrs": {},
+              "type": "bold"
+            }
+          ],
+          "text": "Document version:",
+          "type": "text"
+        },
+        {
+          "text": " 3.14 (the sock insisted)",
+          "type": "text"
+        }
+      ],
+      "type": "paragraph"
+    }
+  ],
+  "type": "doc"
+}

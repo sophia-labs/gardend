@@ -1,0 +1,386 @@
+{
+  "tiptapJson": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "heading",
+        "attrs": {
+          "data-source-format": null,
+          "data-source-approach": null,
+          "data-source-page": null,
+          "data-source-role": null,
+          "data-source-id": null,
+          "data-pdf-page": null,
+          "data-pdf-role": null,
+          "textAlign": null,
+          "indent": 0,
+          "collapsed": false,
+          "level": 1
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "How Gardens Grow"
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "attrs": {
+          "data-source-format": null,
+          "data-source-approach": null,
+          "data-source-page": null,
+          "data-source-role": null,
+          "data-source-id": null,
+          "data-pdf-page": null,
+          "data-pdf-role": null,
+          "textAlign": null,
+          "indent": 0,
+          "collapsed": false
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "By "
+          },
+          {
+            "type": "text",
+            "marks": [
+              {
+                "type": "link",
+                "attrs": {
+                  "href": "https://example.com/author",
+                  "target": "_blank",
+                  "rel": "noopener noreferrer nofollow",
+                  "class": "editor-link"
+                }
+              }
+            ],
+            "text": "A. Writer"
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "attrs": {
+          "data-source-format": null,
+          "data-source-approach": null,
+          "data-source-page": null,
+          "data-source-role": null,
+          "data-source-id": null,
+          "data-pdf-page": null,
+          "data-pdf-role": null,
+          "textAlign": null,
+          "indent": 0,
+          "collapsed": false
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "Plants need "
+          },
+          {
+            "type": "text",
+            "marks": [
+              {
+                "type": "bold"
+              }
+            ],
+            "text": "light"
+          },
+          {
+            "type": "text",
+            "text": ", water, and "
+          },
+          {
+            "type": "text",
+            "marks": [
+              {
+                "type": "italic"
+              }
+            ],
+            "text": "time"
+          },
+          {
+            "type": "text",
+            "text": "."
+          }
+        ]
+      },
+      {
+        "type": "heading",
+        "attrs": {
+          "data-source-format": null,
+          "data-source-approach": null,
+          "data-source-page": null,
+          "data-source-role": null,
+          "data-source-id": null,
+          "data-pdf-page": null,
+          "data-pdf-role": null,
+          "textAlign": null,
+          "indent": 0,
+          "collapsed": false,
+          "level": 2
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "Steps"
+          }
+        ]
+      },
+      {
+        "type": "listItem",
+        "attrs": {
+          "data-source-format": null,
+          "data-source-approach": null,
+          "data-source-page": null,
+          "data-source-role": null,
+          "data-source-id": null,
+          "data-pdf-page": null,
+          "data-pdf-role": null,
+          "indent": 0,
+          "collapsed": false,
+          "listType": "ordered",
+          "checked": false
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "attrs": {
+              "data-source-format": null,
+              "data-source-approach": null,
+              "data-source-page": null,
+              "data-source-role": null,
+              "data-source-id": null,
+              "data-pdf-page": null,
+              "data-pdf-role": null,
+              "textAlign": null,
+              "indent": 0,
+              "collapsed": false
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Prepare the soil"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "listItem",
+        "attrs": {
+          "data-source-format": null,
+          "data-source-approach": null,
+          "data-source-page": null,
+          "data-source-role": null,
+          "data-source-id": null,
+          "data-pdf-page": null,
+          "data-pdf-role": null,
+          "indent": 0,
+          "collapsed": false,
+          "listType": "ordered",
+          "checked": false
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "attrs": {
+              "data-source-format": null,
+              "data-source-approach": null,
+              "data-source-page": null,
+              "data-source-role": null,
+              "data-source-id": null,
+              "data-pdf-page": null,
+              "data-pdf-role": null,
+              "textAlign": null,
+              "indent": 0,
+              "collapsed": false
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Plant the seeds"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "listItem",
+        "attrs": {
+          "data-source-format": null,
+          "data-source-approach": null,
+          "data-source-page": null,
+          "data-source-role": null,
+          "data-source-id": null,
+          "data-pdf-page": null,
+          "data-pdf-role": null,
+          "indent": 1,
+          "collapsed": false,
+          "listType": "bullet",
+          "checked": false
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "attrs": {
+              "data-source-format": null,
+              "data-source-approach": null,
+              "data-source-page": null,
+              "data-source-role": null,
+              "data-source-id": null,
+              "data-pdf-page": null,
+              "data-pdf-role": null,
+              "textAlign": null,
+              "indent": 0,
+              "collapsed": false
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Cover lightly"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "listItem",
+        "attrs": {
+          "data-source-format": null,
+          "data-source-approach": null,
+          "data-source-page": null,
+          "data-source-role": null,
+          "data-source-id": null,
+          "data-pdf-page": null,
+          "data-pdf-role": null,
+          "indent": 0,
+          "collapsed": false,
+          "listType": "ordered",
+          "checked": false
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "attrs": {
+              "data-source-format": null,
+              "data-source-approach": null,
+              "data-source-page": null,
+              "data-source-role": null,
+              "data-source-id": null,
+              "data-pdf-page": null,
+              "data-pdf-role": null,
+              "textAlign": null,
+              "indent": 0,
+              "collapsed": false
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Water gently"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "blockquote",
+        "attrs": {
+          "data-source-format": null,
+          "data-source-approach": null,
+          "data-source-page": null,
+          "data-source-role": null,
+          "data-source-id": null,
+          "data-pdf-page": null,
+          "data-pdf-role": null,
+          "indent": 0,
+          "collapsed": false
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "attrs": {
+              "data-source-format": null,
+              "data-source-approach": null,
+              "data-source-page": null,
+              "data-source-role": null,
+              "data-source-id": null,
+              "data-pdf-page": null,
+              "data-pdf-role": null,
+              "textAlign": null,
+              "indent": 0,
+              "collapsed": false
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Patience is the gardener’s tool."
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "codeBlock",
+        "attrs": {
+          "data-source-format": null,
+          "data-source-approach": null,
+          "data-source-page": null,
+          "data-source-role": null,
+          "data-source-id": null,
+          "data-pdf-page": null,
+          "data-pdf-role": null,
+          "language": "bash"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "water --daily"
+          }
+        ]
+      },
+      {
+        "type": "image",
+        "attrs": {
+          "data-source-format": null,
+          "data-source-approach": null,
+          "data-source-page": null,
+          "data-source-role": null,
+          "data-source-id": null,
+          "data-pdf-page": null,
+          "data-pdf-role": null,
+          "src": "https://example.com/garden.jpg",
+          "alt": "A garden",
+          "title": null,
+          "size": "large"
+        }
+      },
+      {
+        "type": "paragraph",
+        "attrs": {
+          "data-source-format": null,
+          "data-source-approach": null,
+          "data-source-page": null,
+          "data-source-role": null,
+          "data-source-id": null,
+          "data-pdf-page": null,
+          "data-pdf-role": null,
+          "textAlign": null,
+          "indent": 0,
+          "collapsed": false
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "A thriving garden"
+          }
+        ]
+      }
+    ]
+  },
+  "derivedTitle": "How Gardens Grow",
+  "sourceFormat": "html",
+  "warnings": []
+}

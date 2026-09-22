@@ -1,0 +1,1393 @@
+{
+    "classes": {
+        "CapacityEstimate": {
+            "comment": "A first-order fixed-run-topology cost estimate over runs with both creation and end evidence (machine_lifecycle_v1.json semantics.capacity) -- never simulates reconnect-driven run splitting, storage, network, control-plane, or node-bin-packing cost.",
+            "derived_from_query": "observatory.directMaterializer.capacityEstimate(content-hash subject-upsert rollup written by the A3 apply into :projection:obs:rollups; read via sparql_select_over_graph(:projection:obs:rollups))",
+            "dispatch_mode": "derived-virtual",
+            "enforcement": "warning",
+            "identity_kind": "resolve-by-query",
+            "predicates": {
+                "obs:asOf": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": true,
+                    "source": "CapacityEstimateBody.as_of"
+                },
+                "obs:assumption": {
+                    "datatype": "string",
+                    "multi": true,
+                    "required": false,
+                    "source": "CapacityEstimateBody.assumptions (multi)"
+                },
+                "obs:coverageIdleTerminatedRuns": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true,
+                    "source": "CapacityCoverage.idle_terminated_runs"
+                },
+                "obs:coverageMaterializedRuns": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true,
+                    "source": "CapacityCoverage.materialized_runs"
+                },
+                "obs:coverageRuntimeObservedRuns": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true,
+                    "source": "CapacityCoverage.runtime_observed_runs"
+                },
+                "obs:environment": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "CapacityEstimateBody.environment_id"
+                },
+                "obs:estimatedComputeUsd": {
+                    "datatype": "double",
+                    "multi": false,
+                    "required": true,
+                    "source": "CapacityEstimateBody.estimated_compute_usd"
+                },
+                "obs:estimatedRuntimeHours": {
+                    "datatype": "double",
+                    "multi": false,
+                    "required": true,
+                    "source": "CapacityEstimateBody.estimated_runtime_hours"
+                },
+                "obs:objectType": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "the rollup stamp's object_type literal (A.2)"
+                },
+                "obs:observedRuntimeHours": {
+                    "datatype": "double",
+                    "multi": false,
+                    "required": true,
+                    "source": "CapacityEstimateBody.observed_runtime_hours"
+                },
+                "obs:rateCpuCoreHourUsd": {
+                    "datatype": "double",
+                    "multi": false,
+                    "required": true,
+                    "source": "ComputeRates.cpu_core_hour"
+                },
+                "obs:rateMemoryGibHourUsd": {
+                    "datatype": "double",
+                    "multi": false,
+                    "required": true,
+                    "source": "ComputeRates.memory_gib_hour"
+                },
+                "obs:resourceCpuCores": {
+                    "datatype": "double",
+                    "multi": false,
+                    "required": true,
+                    "source": "ResourceShape.cpu_cores"
+                },
+                "obs:resourceMemoryGib": {
+                    "datatype": "double",
+                    "multi": false,
+                    "required": true,
+                    "source": "ResourceShape.memory_gib"
+                },
+                "obs:schemaVersion": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true,
+                    "source": "the rollup stamp's schema_version literal, xsd:integer (A.2)"
+                },
+                "obs:targetIdleTtlSeconds": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true,
+                    "source": "CapacityEstimateBody.target_idle_ttl_seconds"
+                },
+                "prov:wasAttributedTo": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "the observer-relative testimony stamp every rollup subject carries (A.2): urn:sophia:agent:obs-projector"
+                },
+                "prov:wasDerivedFrom": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "CapacityEstimateBody.source_snapshot"
+                }
+            },
+            "rdf_types": [
+                "obs:CapacityEstimate",
+                "prov:Entity"
+            ],
+            "reconciliation_strategy": "codeBacked",
+            "source_kind": "derived",
+            "store_mode": "virtual",
+            "store_target": "none",
+            "subject_rule": "virtual:resolve-by-query:observatory.capacityEstimate"
+        },
+        "CaptureEvent": {
+            "comment": "Raw lifecycle/governance testimony, windowed-replaced (72h) into :projection:obs:raw by the A3 apply -- v1 materializes ONLY the low-volume lifecycle-90d + governance-395d kinds (A.2); the high-volume interaction-30d kinds never raw-materialize (rollup aggregates only). Subject urn:sophia:observatory:capture:{event_id}, minted by the projector, never here.",
+            "derived_from_query": "observatory.directMaterializer.captureEvent(lifecycle+governance CaptureEvent testimony windowed-replaced into :projection:obs:raw by the A3 apply; read back via a plain SPARQL SELECT over that graph, never through generic Emporium ingest)",
+            "dispatch_mode": "derived-virtual",
+            "enforcement": "warning",
+            "identity_kind": "resolve-by-query",
+            "predicates": {
+                "obs:authMethod": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "wire envelope 'auth_method'"
+                },
+                "obs:capturedAt": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": true,
+                    "source": "wire envelope 'ts' (RFC-3339 event timestamp)"
+                },
+                "obs:clientClass": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "wire envelope 'client_class'"
+                },
+                "obs:durationMs": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": false,
+                    "source": "wire envelope 'duration_ms'"
+                },
+                "obs:graphId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "wire envelope 'graph_id'"
+                },
+                "obs:kind": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "wire envelope 'kind' (e.g. cell.spawn, cell.boot -- lifecycle-90d/governance-395d raw classes only, per contract retention.kind_to_raw_class)"
+                },
+                "obs:onBehalfOf": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "wire envelope 'on_behalf_of' (service-acting-for-user)"
+                },
+                "obs:outcome": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "wire envelope 'outcome' (ok|denied|error|timeout)"
+                },
+                "obs:payloadJson": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "wire envelope 'payload', canonicalized as one <=4096-byte JSON literal (A.2: the typed payload rides as one canonical obs:payloadJson literal)"
+                },
+                "obs:principal": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "wire envelope 'principal'"
+                },
+                "obs:seq": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true,
+                    "source": "wire envelope 'seq' (per-witness sequence number)"
+                },
+                "obs:viaService": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "wire envelope 'via_service'"
+                },
+                "obs:wireVersion": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true,
+                    "source": "wire envelope 'v' (sophia-observatory-capture contract_version 0.1.0, wire_version 1)"
+                },
+                "obs:witness": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "wire envelope 'witness' (emitting process identity, e.g. gateway:.../<ulid>)"
+                }
+            },
+            "rdf_types": [
+                "obs:CaptureEvent"
+            ],
+            "reconciliation_strategy": "codeBacked",
+            "source_kind": "derived",
+            "store_mode": "virtual",
+            "store_target": "none",
+            "subject_rule": "virtual:resolve-by-query:observatory.captureEvent"
+        },
+        "FleetObservation": {
+            "comment": "A content-addressed observation over all candidate runs in one immutable source snapshot (machine_lifecycle_v1.json semantics.fleet). Subject urn:sophia:observatory:fleet-observation:sha256:{hash} (content_subject, lifecycle/projector.rs:506,721-724).",
+            "derived_from_query": "observatory.directMaterializer.fleetObservation(content-hash subject-upsert rollup written by the A3 apply into :projection:obs:rollups; read via sparql_select_over_graph(:projection:obs:rollups))",
+            "dispatch_mode": "derived-virtual",
+            "enforcement": "warning",
+            "identity_kind": "resolve-by-query",
+            "predicates": {
+                "obs:activeRuns": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true,
+                    "source": "FleetObservationBody.active_runs"
+                },
+                "obs:asOf": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": true,
+                    "source": "FleetObservationBody.as_of"
+                },
+                "obs:candidateCount": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true,
+                    "source": "FleetObservationBody.candidate_count"
+                },
+                "obs:coldOrStartingRuns": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true,
+                    "source": "FleetObservationBody.cold_or_starting_runs"
+                },
+                "obs:coldStartP50Ms": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": false,
+                    "source": "FleetObservationBody.cold_start_p50_ms"
+                },
+                "obs:coldStartP95Ms": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": false,
+                    "source": "FleetObservationBody.cold_start_p95_ms"
+                },
+                "obs:createdRuns": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true,
+                    "source": "FleetObservationBody.created_runs"
+                },
+                "obs:drainingRuns": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true,
+                    "source": "FleetObservationBody.draining_runs"
+                },
+                "obs:environment": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "FleetObservationBody.environment_id"
+                },
+                "obs:failedAttempts": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true,
+                    "source": "FleetObservationBody.failed_attempts"
+                },
+                "obs:failedFinalFlushes": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true,
+                    "source": "FleetObservationBody.failed_final_flushes"
+                },
+                "obs:failedRuns": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true,
+                    "source": "FleetObservationBody.failed_runs"
+                },
+                "obs:finalFlushP50Ms": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": false,
+                    "source": "FleetObservationBody.final_flush_p50_ms"
+                },
+                "obs:finalFlushP95Ms": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": false,
+                    "source": "FleetObservationBody.final_flush_p95_ms"
+                },
+                "obs:hydrateP50Ms": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": false,
+                    "source": "FleetObservationBody.hydrate_p50_ms"
+                },
+                "obs:hydrateP95Ms": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": false,
+                    "source": "FleetObservationBody.hydrate_p95_ms"
+                },
+                "obs:objectType": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "the rollup stamp's object_type literal (A.2)"
+                },
+                "obs:observedRuntimeMs": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true,
+                    "source": "FleetObservationBody.observed_runtime_ms"
+                },
+                "obs:observedThrough": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": false,
+                    "source": "FleetObservationBody.observed_through"
+                },
+                "obs:runCount": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true,
+                    "source": "FleetObservationBody.run_count"
+                },
+                "obs:schemaVersion": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true,
+                    "source": "the rollup stamp's schema_version literal, xsd:integer (A.2)"
+                },
+                "obs:succeededRuns": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true,
+                    "source": "FleetObservationBody.succeeded_runs"
+                },
+                "obs:unmaterializedAttempts": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true,
+                    "source": "FleetObservationBody.unmaterialized_attempts"
+                },
+                "obs:unobservedFinalFlushes": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true,
+                    "source": "FleetObservationBody.unobserved_final_flushes"
+                },
+                "prov:wasAttributedTo": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "the observer-relative testimony stamp every rollup subject carries (A.2): urn:sophia:agent:obs-projector"
+                },
+                "prov:wasDerivedFrom": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "FleetObservationBody.source_snapshot"
+                }
+            },
+            "rdf_types": [
+                "obs:FleetObservation",
+                "prov:Entity"
+            ],
+            "reconciliation_strategy": "codeBacked",
+            "source_kind": "derived",
+            "store_mode": "virtual",
+            "store_target": "none",
+            "subject_rule": "virtual:resolve-by-query:observatory.fleetObservation"
+        },
+        "MachineRun": {
+            "comment": "Preserves the mach: URN join VERBATIM (A.2): subject urn:sophia:machine-run:{environmentId}:{runId}, byte-identical to sophia-machine-core.golden.json's MachineRun.subject_rule and MachineRunProjection.subject (3c1b097e:observatory/crates/projector/src/lifecycle/projector.rs:524-527). rdf_types are mach:-only (no obs:-prefixed discriminator), so this class's shape is a deliberate no-op in vocab_to_shacl's primary-namespace filter -- the mach: type identity is genuinely foreign to obs:, exactly as designed; the real validation for this class's triples runs through the A3 apply's shacl_validator gate, not this pack's derived shape.",
+            "derived_from_query": "observatory.directMaterializer.machineRun(logical-id subject-upsert/supersede rollup folded from lifecycle-90d cell.* testimony by the A3 apply into :projection:obs:rollups; read via sparql_select_over_graph(:projection:obs:rollups))",
+            "dispatch_mode": "derived-virtual",
+            "enforcement": "warning",
+            "identity_kind": "resolve-by-query",
+            "predicates": {
+                "mach:machine": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "MachineRunProjection.machine -- urn:sophia:machine:{env}:garden-cell:{graph_id}, the sophia-machine-core join"
+                },
+                "mach:runState": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "MachineRunProjection.run_state, an IRI via run_state_iri() (ready/draining/succeeded/failed/created/requested/unknown)"
+                },
+                "obs:asOf": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": true,
+                    "source": "MachineRunProjection.as_of -- the historical cutoff every projection carries"
+                },
+                "obs:bootDurationMs": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": false,
+                    "source": "BootObservation.duration_ms"
+                },
+                "obs:bootMode": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "BootObservation.mode (fresh|restored|warm_profile|no_durable_plane)"
+                },
+                "obs:bootReadyAt": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": false,
+                    "source": "BootObservation.ready_at"
+                },
+                "obs:bootSnapshotId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "BootObservation.snapshot_id"
+                },
+                "obs:drainingAt": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": false,
+                    "source": "StopObservation.draining_at"
+                },
+                "obs:endedAt": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": false,
+                    "source": "MachineRunProjection.ended_at"
+                },
+                "obs:evidenceEventCount": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true,
+                    "source": "ProjectionEvidence.event_count"
+                },
+                "obs:evidenceEventId": {
+                    "datatype": "string",
+                    "multi": true,
+                    "required": false,
+                    "source": "ProjectionEvidence.event_ids (multi)"
+                },
+                "obs:finalFlush": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "DurabilityObservation.final_flush (completed|failed|not_configured)"
+                },
+                "obs:firstObservedAt": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": true,
+                    "source": "MachineRunProjection.first_observed_at -- the weaker lower bound"
+                },
+                "obs:flushBytes": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": false,
+                    "source": "DurabilityObservation.bytes"
+                },
+                "obs:flushDurationMs": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": false,
+                    "source": "DurabilityObservation.duration_ms"
+                },
+                "obs:flushErrorCode": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "DurabilityObservation.error_code"
+                },
+                "obs:flushPublished": {
+                    "datatype": "boolean",
+                    "multi": false,
+                    "required": false,
+                    "source": "DurabilityObservation.published"
+                },
+                "obs:flushSnapshotId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "DurabilityObservation.snapshot_id"
+                },
+                "obs:graphId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "MachineRunProjection.graph_id"
+                },
+                "obs:hydrateMs": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": false,
+                    "source": "BootObservation.hydrate_ms"
+                },
+                "obs:hydratedBytes": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": false,
+                    "source": "BootObservation.hydrated_bytes"
+                },
+                "obs:idleMs": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": false,
+                    "source": "StopObservation.idle_ms"
+                },
+                "obs:objectType": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "the rollup stamp's object_type literal (A.2)"
+                },
+                "obs:outstandingJobs": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": false,
+                    "source": "StopObservation.outstanding.jobs"
+                },
+                "obs:outstandingLeases": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": false,
+                    "source": "StopObservation.outstanding.leases"
+                },
+                "obs:outstandingRequests": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": false,
+                    "source": "StopObservation.outstanding.requests"
+                },
+                "obs:outstandingWebsockets": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": false,
+                    "source": "StopObservation.outstanding.websockets"
+                },
+                "obs:podName": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "Placement.pod_name"
+                },
+                "obs:podUid": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "Placement.pod_uid"
+                },
+                "obs:quiesceTimedOut": {
+                    "datatype": "boolean",
+                    "multi": false,
+                    "required": false,
+                    "source": "StopObservation.quiesce_timed_out"
+                },
+                "obs:quiescedAt": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": false,
+                    "source": "StopObservation.quiesced_at"
+                },
+                "obs:runId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "MachineRunProjection.run_id"
+                },
+                "obs:runtimeMs": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": false,
+                    "source": "MachineRunProjection.runtime_ms"
+                },
+                "obs:schemaVersion": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true,
+                    "source": "the rollup stamp's schema_version literal, xsd:integer (A.2)"
+                },
+                "obs:setupMs": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": false,
+                    "source": "BootObservation.setup_ms"
+                },
+                "obs:startedAt": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": false,
+                    "source": "MachineRunProjection.started_at -- absent without creation evidence"
+                },
+                "obs:stopReason": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "StopObservation.reason"
+                },
+                "prov:wasAttributedTo": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "the observer-relative testimony stamp every rollup subject carries (A.2): urn:sophia:agent:obs-projector"
+                },
+                "prov:wasDerivedFrom": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "MachineRunProjection's owning SourceSnapshot subject"
+                }
+            },
+            "rdf_types": [
+                "mach:MachineRun",
+                "prov:Entity"
+            ],
+            "reconciliation_strategy": "codeBacked",
+            "source_kind": "derived",
+            "store_mode": "virtual",
+            "store_target": "none",
+            "subject_rule": "virtual:resolve-by-query:observatory.machineRun"
+        },
+        "MetricDefinition": {
+            "comment": "A discoverable measurement definition authored in platform-next/observatory/metrics/definitions and carried in the immutable projector bundle. Garden validates and full-class reconciles the definitions-only catalogue into :projection:obs:rollups; generic Emporium ingest remains refused.",
+            "derived_from_query": "observatory.directMaterializer.metricDefinition(definitions-only metric_catalog bundle member, full-class reconciled into :projection:obs:rollups; read via sparql_select_over_graph(:projection:obs:rollups))",
+            "dispatch_mode": "derived-virtual",
+            "enforcement": "warning",
+            "identity_kind": "resolve-by-query",
+            "predicates": {
+                "obs:catalogBinding": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "MetricCatalogProjection.definitions[].catalogBinding (must be definition-bound)"
+                },
+                "obs:computationStatus": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "MetricCatalogProjection.definitions[].computationStatus"
+                },
+                "obs:description": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "MetricDefinition.description"
+                },
+                "obs:label": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "MetricDefinition.label"
+                },
+                "obs:lifecycleStatus": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "MetricDefinition.lifecycle_status"
+                },
+                "obs:metricId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "MetricDefinition.metric_id"
+                },
+                "obs:owner": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "MetricDefinition.provenance.steward"
+                },
+                "obs:pack": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "metric_catalog_v1 governance overlay or metric family"
+                },
+                "obs:querySha256": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "MetricDefinition.query.sha256, verified against the embedded SQL"
+                },
+                "obs:querySha256Provenance": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "build_metric_catalog.py definition/SQL binding testimony"
+                },
+                "obs:unit": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "MetricDefinition.unit"
+                },
+                "obs:version": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true,
+                    "source": "MetricDefinition.version"
+                },
+                "prov:wasAttributedTo": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "MetricDefinition.provenance.steward"
+                },
+                "rdfs:label": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "MetricDefinition.label"
+                }
+            },
+            "rdf_types": [
+                "obs:MetricDefinition",
+                "prov:Entity"
+            ],
+            "reconciliation_strategy": "codeBacked",
+            "source_kind": "derived",
+            "store_mode": "virtual",
+            "store_target": "none",
+            "subject_rule": "virtual:resolve-by-query:observatory.metricDefinition"
+        },
+        "MetricEvaluation": {
+            "comment": "The billing metric evaluation ACTIVITY -- the untagged Success/Failure union (billing/model.rs BillingMetricEvaluation). A failure never manufactures a synthetic zero MetricObservation (contract/DECISIONS.md).",
+            "derived_from_query": "observatory.directMaterializer.metricEvaluation(minted subject-upsert rollup written by the A3 apply into :projection:obs:rollups; read via sparql_select_over_graph(:projection:obs:rollups))",
+            "dispatch_mode": "derived-virtual",
+            "enforcement": "warning",
+            "identity_kind": "resolve-by-query",
+            "predicates": {
+                "obs:engineName": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "AnalysisEngine.name"
+                },
+                "obs:engineVersion": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "AnalysisEngine.version"
+                },
+                "obs:errorCode": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "MetricErrorBody.code"
+                },
+                "obs:errorRetryable": {
+                    "datatype": "boolean",
+                    "multi": false,
+                    "required": false,
+                    "source": "MetricErrorBody.retryable"
+                },
+                "obs:errorSafeMessage": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "MetricErrorBody.safe_message"
+                },
+                "obs:evaluatedAt": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": true,
+                    "source": "BillingMetricSuccess/Failure.evaluated_at"
+                },
+                "obs:metricDefinition": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "BillingMetricSuccess/Failure.metric_definition"
+                },
+                "obs:objectType": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "the rollup stamp's object_type literal (A.2)"
+                },
+                "obs:outcome": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "BillingMetricSuccess/Failure.outcome"
+                },
+                "obs:producedObservation": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "the MetricObservation subject minted on success"
+                },
+                "obs:requestedWindowBoundary": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "MetricWindow.boundary (requested_window)"
+                },
+                "obs:requestedWindowEnd": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": true,
+                    "source": "MetricWindow.end (requested_window)"
+                },
+                "obs:requestedWindowStart": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": true,
+                    "source": "MetricWindow.start (requested_window)"
+                },
+                "obs:schemaVersion": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true,
+                    "source": "the rollup stamp's schema_version literal, xsd:integer (A.2)"
+                },
+                "prov:wasAttributedTo": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "the observer-relative testimony stamp every rollup subject carries (A.2): urn:sophia:agent:obs-projector"
+                },
+                "prov:wasDerivedFrom": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "BillingSourceSnapshot subject (absent on some failures)"
+                }
+            },
+            "rdf_types": [
+                "obs:MetricEvaluation",
+                "prov:Activity"
+            ],
+            "reconciliation_strategy": "codeBacked",
+            "source_kind": "derived",
+            "store_mode": "virtual",
+            "store_target": "none",
+            "subject_rule": "virtual:resolve-by-query:observatory.metricEvaluation"
+        },
+        "MetricObservation": {
+            "comment": "Content-hash version subject urn:sophia:observatory:observation:sha256:{hash} plus the logical window id obs:logicalId (A.2, billing/projector.rs:234-236). A no-data empty closed window is a valid zero; a failure is never a synthetic zero (contract/DECISIONS.md).",
+            "derived_from_query": "observatory.directMaterializer.metricObservation(content-hash version + logical supersede subject-upsert rollup written by the A3 apply into :projection:obs:rollups; read via sparql_select_over_graph(:projection:obs:rollups))",
+            "dispatch_mode": "derived-virtual",
+            "enforcement": "warning",
+            "identity_kind": "resolve-by-query",
+            "predicates": {
+                "obs:computationStatus": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "MetricObservation.computation_status (ok|no-data -- a no-data closed window is a valid zero, A.2)"
+                },
+                "obs:computedAt": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": true,
+                    "source": "MetricObservation.computed_at"
+                },
+                "obs:coverage": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "MetricObservation.coverage"
+                },
+                "obs:engineName": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "AnalysisEngine.name"
+                },
+                "obs:engineVersion": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "AnalysisEngine.version"
+                },
+                "obs:lifecycleStatus": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "MetricObservation.lifecycle_status"
+                },
+                "obs:logicalId": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "MetricObservation.logical_id -- urn:sophia:observatory:observation:billing_llm_dau_v1:{day}"
+                },
+                "obs:metricDefinition": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "MetricObservation.metric_definition"
+                },
+                "obs:objectType": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "the rollup stamp's object_type literal (A.2)"
+                },
+                "obs:observedThrough": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": false,
+                    "source": "MetricObservation.observed_through"
+                },
+                "obs:querySha256": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "MetricObservation.query_sha256"
+                },
+                "obs:schemaVersion": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true,
+                    "source": "the rollup stamp's schema_version literal, xsd:integer (A.2)"
+                },
+                "obs:sourceEventCount": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true,
+                    "source": "MetricObservation.source_event_count"
+                },
+                "obs:unit": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "MetricObservation.unit"
+                },
+                "obs:value": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true,
+                    "source": "MetricObservation.value"
+                },
+                "obs:windowBoundary": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "MetricWindow.boundary ('[start,end)')"
+                },
+                "obs:windowEnd": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": true,
+                    "source": "MetricWindow.end"
+                },
+                "obs:windowStart": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": true,
+                    "source": "MetricWindow.start"
+                },
+                "prov:wasAttributedTo": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "the observer-relative testimony stamp every rollup subject carries (A.2): urn:sophia:agent:obs-projector"
+                },
+                "prov:wasDerivedFrom": {
+                    "datatype": "uri",
+                    "multi": true,
+                    "required": true,
+                    "source": "MetricObservation.source_snapshot + derived_from (multi)"
+                }
+            },
+            "rdf_types": [
+                "obs:MetricObservation",
+                "prov:Entity"
+            ],
+            "reconciliation_strategy": "codeBacked",
+            "source_kind": "derived",
+            "store_mode": "virtual",
+            "store_target": "none",
+            "subject_rule": "virtual:resolve-by-query:observatory.metricObservation"
+        },
+        "ProjectionRun": {
+            "comment": "The freshness object every face reads (A.4): mint urn:sophia:observatory:projection-run:{env}:{evaluated_at}. obs:projectedThrough on the latest obs:ProjectionRun is the single freshness predicate the hourly poke and every Lane B panel consult.",
+            "derived_from_query": "observatory.directMaterializer.projectionRun(minted subject-upsert freshness rollup written in the SAME gated apply as the other rollup triples by the A3 apply into :projection:obs:rollups; read via sparql_select_over_graph(:projection:obs:rollups))",
+            "dispatch_mode": "derived-virtual",
+            "enforcement": "warning",
+            "identity_kind": "resolve-by-query",
+            "predicates": {
+                "obs:asOf": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": true,
+                    "source": "LifecycleProjectionEvaluation.as_of"
+                },
+                "obs:computationStatus": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "LifecycleProjectionEvaluation.computation_status"
+                },
+                "obs:cursorHighWaterMark": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "the durable-cursor freshness triple (A.3): max ledger object key processed"
+                },
+                "obs:engineName": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "Engine.name"
+                },
+                "obs:engineVersion": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "Engine.version"
+                },
+                "obs:environment": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "LifecycleProjectionEvaluation.environment_id"
+                },
+                "obs:evaluatedAt": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": true,
+                    "source": "LifecycleProjectionEvaluation.evaluated_at"
+                },
+                "obs:fleetSummaryQuerySha256": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "ProjectionExecution.fleet_summary_query_sha256 (pinned: 08cc6b90... A.4)"
+                },
+                "obs:machineRunsQuerySha256": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "ProjectionExecution.machine_runs_query_sha256 (pinned: 351cf4a0... A.4)"
+                },
+                "obs:objectType": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "the rollup stamp's object_type literal (A.2)"
+                },
+                "obs:outcome": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "LifecycleProjectionEvaluation.outcome"
+                },
+                "obs:projectedThrough": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": false,
+                    "source": "LifecycleProjectionEvaluation.projected_through (omitted when None -- A.2)"
+                },
+                "obs:schemaVersion": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true,
+                    "source": "the rollup stamp's schema_version literal, xsd:integer (A.2)"
+                },
+                "prov:wasAttributedTo": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "the observer-relative testimony stamp every rollup subject carries (A.2): urn:sophia:agent:obs-projector"
+                },
+                "prov:wasDerivedFrom": {
+                    "datatype": "uri",
+                    "multi": true,
+                    "required": false,
+                    "source": "the constituent SourceSnapshot/FleetObservation/etc. subjects this run evaluated (multi)"
+                }
+            },
+            "rdf_types": [
+                "obs:ProjectionRun",
+                "prov:Activity"
+            ],
+            "reconciliation_strategy": "codeBacked",
+            "source_kind": "derived",
+            "store_mode": "virtual",
+            "store_target": "none",
+            "subject_rule": "virtual:resolve-by-query:observatory.projectionRun"
+        },
+        "SequenceGap": {
+            "comment": "SequenceGap has no subject in the projector struct (A.2) -- the direct-on-store apply mints urn:sophia:observatory:sequence-gap:sha256:{sha256(env|witness|expected|observed|gap|snapshot)}.",
+            "derived_from_query": "observatory.directMaterializer.sequenceGap(content-hash, minted subject-upsert rollup written by the A3 apply into :projection:obs:rollups; read via sparql_select_over_graph(:projection:obs:rollups))",
+            "dispatch_mode": "derived-virtual",
+            "enforcement": "warning",
+            "identity_kind": "resolve-by-query",
+            "predicates": {
+                "obs:environment": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "the environment component of the minted subject hash (A.2)"
+                },
+                "obs:expectedSeq": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true,
+                    "source": "SequenceGap.expected_seq"
+                },
+                "obs:gapCount": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true,
+                    "source": "SequenceGap.gap_count"
+                },
+                "obs:objectType": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "the rollup stamp's object_type literal (A.2)"
+                },
+                "obs:observedSeq": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true,
+                    "source": "SequenceGap.observed_seq"
+                },
+                "obs:schemaVersion": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true,
+                    "source": "the rollup stamp's schema_version literal, xsd:integer (A.2)"
+                },
+                "obs:witness": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "SequenceGap.witness"
+                },
+                "prov:wasAttributedTo": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "the observer-relative testimony stamp every rollup subject carries (A.2): urn:sophia:agent:obs-projector"
+                },
+                "prov:wasDerivedFrom": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "the source-snapshot component of the minted subject hash (A.2)"
+                }
+            },
+            "rdf_types": [
+                "obs:SequenceGap",
+                "prov:Entity"
+            ],
+            "reconciliation_strategy": "codeBacked",
+            "source_kind": "derived",
+            "store_mode": "virtual",
+            "store_target": "none",
+            "subject_rule": "virtual:resolve-by-query:observatory.sequenceGap"
+        },
+        "SourceSnapshot": {
+            "comment": "One immutable, content-addressed fold-input snapshot per projector run -- the union of the lifecycle SourceSnapshotObject and billing BillingSourceSnapshot shapes (3c1b097e:observatory/crates/projector/src/{lifecycle,billing}/model.rs). Subject-upsert (content-hash) rollup, per A.2's reconcile-scope table.",
+            "derived_from_query": "observatory.directMaterializer.sourceSnapshot(content-hash subject-upsert rollup written by the A3 apply into :projection:obs:rollups; read via sparql_select_over_graph(:projection:obs:rollups))",
+            "dispatch_mode": "derived-virtual",
+            "enforcement": "warning",
+            "identity_kind": "resolve-by-query",
+            "predicates": {
+                "obs:bytes": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true,
+                    "source": "SourceSnapshotObject.bytes / BillingSourceSnapshot.bytes"
+                },
+                "obs:capturedAt": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": true,
+                    "source": "SourceSnapshotObject.captured_at / BillingSourceSnapshot.captured_at"
+                },
+                "obs:lineCount": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": false,
+                    "source": "SourceSnapshotObject.line_count (lifecycle snapshots only)"
+                },
+                "obs:objectType": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "the rollup stamp's object_type literal (A.2)"
+                },
+                "obs:schemaVersion": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true,
+                    "source": "the rollup stamp's schema_version literal, xsd:integer (A.2)"
+                },
+                "obs:sha256": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "SourceSnapshotObject.sha256 / BillingSourceSnapshot.sha256"
+                },
+                "obs:sourceAuthority": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "SourceSnapshotObject.source_authority / BillingSourceSnapshot.source_authority"
+                },
+                "obs:sourceRef": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "SourceSnapshotObject.source_ref / BillingSourceSnapshot.source_ref"
+                },
+                "obs:sourceSystem": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "SourceSnapshotObject.source_system / BillingSourceSnapshot.source_system"
+                },
+                "obs:uniqueEventCount": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": false,
+                    "source": "SourceSnapshotObject.unique_event_count (lifecycle snapshots only)"
+                },
+                "prov:wasAttributedTo": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "the observer-relative testimony stamp every rollup subject carries (A.2): urn:sophia:agent:obs-projector"
+                }
+            },
+            "rdf_types": [
+                "obs:SourceSnapshot",
+                "prov:Entity"
+            ],
+            "reconciliation_strategy": "codeBacked",
+            "source_kind": "derived",
+            "store_mode": "virtual",
+            "store_target": "none",
+            "subject_rule": "virtual:resolve-by-query:observatory.sourceSnapshot"
+        },
+        "SpawnAttempt": {
+            "comment": "A gateway-minted candidate run without incarnation evidence (A.2/machine_lifecycle_v1.json semantics.spawn_attempt); it is NEVER promoted to mach:MachineRun.",
+            "derived_from_query": "observatory.directMaterializer.spawnAttempt(logical-id subject-upsert/supersede rollup folded by the A3 apply into :projection:obs:rollups; read via sparql_select_over_graph(:projection:obs:rollups))",
+            "dispatch_mode": "derived-virtual",
+            "enforcement": "warning",
+            "identity_kind": "resolve-by-query",
+            "predicates": {
+                "mach:machine": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "SpawnAttemptProjection.machine"
+                },
+                "obs:asOf": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": true,
+                    "source": "SpawnAttemptProjection.as_of"
+                },
+                "obs:candidateRunId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "SpawnAttemptProjection.candidate_run_id"
+                },
+                "obs:evidenceEventCount": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true,
+                    "source": "ProjectionEvidence.event_count"
+                },
+                "obs:evidenceEventId": {
+                    "datatype": "string",
+                    "multi": true,
+                    "required": false,
+                    "source": "ProjectionEvidence.event_ids (multi)"
+                },
+                "obs:graphId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "SpawnAttemptProjection.graph_id"
+                },
+                "obs:lastObservedAt": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": true,
+                    "source": "SpawnAttemptProjection.last_observed_at"
+                },
+                "obs:objectType": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "the rollup stamp's object_type literal (A.2)"
+                },
+                "obs:requestedAt": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": true,
+                    "source": "SpawnAttemptProjection.requested_at"
+                },
+                "obs:schemaVersion": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true,
+                    "source": "the rollup stamp's schema_version literal, xsd:integer (A.2)"
+                },
+                "obs:state": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "SpawnAttemptProjection.state"
+                },
+                "prov:wasAttributedTo": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "the observer-relative testimony stamp every rollup subject carries (A.2): urn:sophia:agent:obs-projector"
+                },
+                "prov:wasDerivedFrom": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "ProjectionEvidence.source_snapshot"
+                }
+            },
+            "rdf_types": [
+                "obs:SpawnAttempt",
+                "prov:Entity"
+            ],
+            "reconciliation_strategy": "codeBacked",
+            "source_kind": "derived",
+            "store_mode": "virtual",
+            "store_target": "none",
+            "subject_rule": "virtual:resolve-by-query:observatory.spawnAttempt"
+        }
+    },
+    "comanaged_forbidden": [
+        "doc:",
+        "mnemo:",
+        "nfo:",
+        "user:",
+        "ux:"
+    ],
+    "comment": "A.1's Settled Design holds the write partition non-negotiable: the projector owns :projection:obs:* via gardend's direct-on-store reconcile machinery (raw = windowed-replace, rollups = subject-scoped upsert), routed OUTSIDE this pack entirely. Registering every class here as store_mode=virtual is the deliberate mechanism that keeps this pack from ever becoming a second, competing write path -- an emporium_write against any class below is rejected by class_dispatch::resolve before touching the store (DispatchRoute::VirtualSkip), exactly mirroring workflow.golden.json's Draft/CompletenessGap/DraftWarning/RunStatistics/LiveRecommendedAction precedent. The mach: namespace and MachineRun's urn:sophia:machine-run:{environmentId}:{runId} subject convention are reused VERBATIM from sophia-machine-core.golden.json (never re-minted under an obs:-local IRI) to preserve the machine-core join.",
+    "description": "Publish-only vocabulary for cloud-2's self-knowledge subsystem (the Observatory): the JSON-MO -> RDF projection classes materialized by the observatory analysis cell's direct-on-store apply (A2/A3), never through generic Emporium ingest. Declares CaptureEvent (raw testimony) plus the SourceSnapshot/MachineRun/SpawnAttempt/FleetObservation/CapacityEstimate/SequenceGap/ProjectionRun/MetricDefinition/MetricObservation/MetricEvaluation rollup classes projected into :projection:obs:raw and :projection:obs:rollups. Every class is store_mode=virtual so the generic ingest write path refuses it outright (see plans/observatory-analysis-cell-spec-20260715.md SS A.7-A.8) -- this pack exists for vocab publication, derived SHACL, and catalog/discovery faces only.",
+    "name": "emporium-observatory",
+    "namespaces": {
+        "mach": "http://mnemosyne.dev/machine#",
+        "obs": "http://mnemosyne.dev/observatory#",
+        "prov": "http://www.w3.org/ns/prov#",
+        "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+        "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
+        "xsd": "http://www.w3.org/2001/XMLSchema#"
+    },
+    "primary_prefix": "obs",
+    "title": "Emporium Observatory Vocabulary",
+    "version": "0.2.0",
+    "write_target": "projection:obs:rollups"
+}

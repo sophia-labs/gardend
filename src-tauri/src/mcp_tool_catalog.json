@@ -1,0 +1,4760 @@
+{
+  "tools": [
+    {"name":"agent_status","description":"Read the authorized graph's Emporium Agent identities and bounded latest body reports. Recent reports are editable testimony, never independent process liveness. Read server asOf and age expiresAt locally. No reports and unavailable are different; no cross-graph directory or conversation binding.","inputSchema":{"type":"object","properties":{"graph_id":{"type":"string"},"graphId":{"type":"string"}},"additionalProperties":false}},
+    {"name":"status","description":"Optionally report concise current work for an EXISTING Emporium Agent and one body. Requires exact graph incarnation. Server timestamps expire after 30–600 seconds. Supplied agent/seat/session/run coordinates are claims, not authenticated identities or navigation grants. Captured hosted ingress principal is attribution in editable graph RDF. No launch, message or ACK effects.","inputSchema":{"type":"object","properties":{"graph_id":{"type":"string"},"graphId":{"type":"string"},"graphIncarnation":{"type":"string"},"agentId":{"type":"string","pattern":"^agent-[a-f0-9]{16}$"},"bodyId":{"type":"string"},"activity":{"type":"string","maxLength":2048},"ttlSeconds":{"type":"integer","minimum":30,"maximum":600},"origin":{"type":"string","enum":["self-reported","operator-reported"]},"sessionId":{"type":["string","null"]},"runId":{"type":["string","null"]},"seatLabel":{"type":["string","null"]}},"required":["graphIncarnation","agentId","bodyId","activity","ttlSeconds","origin"],"additionalProperties":false}},
+    {"name":"custom_css","description":"Opt-in CSS workshop. Start with action=guide for exact stylesheet API, public tokens/parts, concurrency and recovery. Read/change/reset the graph source used by Hoja; never auto-applies or inspects rendered DOM.","inputSchema":{"type":"object","properties":{"graph_id":{"type":"string"},"action":{"type":"string","enum":["guide","read","replace","reset"],"default":"guide"},"graphIncarnation":{"type":"string"},"expectedContentSha256":{"type":"string"},"expectedRevision":{"type":"integer"},"operationId":{"type":"string"},"cssText":{"type":"string"}},"required":["graph_id"],"additionalProperties":false}},
+    {
+      "name": "read_custom_css", "optionalCapability": "custom-css",
+      "description": "Optional Custom CSS capability: read the graph-shared exact stylesheet, incarnation/revision/SHA and host styling guide. No rendered DOM or computed-style inspection. Local user approval is required to apply a content hash.",
+      "inputSchema": {"type":"object","properties":{"graph_id":{"type":"string"}},"required":["graph_id"],"additionalProperties":false}
+    },
+    {
+      "name": "write_custom_css", "optionalCapability": "custom-css",
+      "description": "Guardedly change the same graph stylesheet used by the Custom CSS Hoja editor. Read first; require exact incarnation, revision and hash. Empty cssText resets shared source, not local consent. Retain operationId and every field on uncertain retry; changed duplicates refuse. This does not auto-apply CSS or grant capabilities.",
+      "inputSchema": {"type":"object","properties":{"graph_id":{"type":"string"},"graphIncarnation":{"type":"string","minLength":1},"expectedContentSha256":{"type":"string","pattern":"^[a-f0-9]{64}$"},"expectedRevision":{"type":"integer","minimum":0,"maximum":9007199254740991},"cssText":{"type":"string","description":"Exact CSS, at most 65536 UTF-8 bytes; no syntax normalization."},"operationId":{"type":"string","minLength":1}},"required":["graph_id","graphIncarnation","expectedContentSha256","expectedRevision","cssText","operationId"],"additionalProperties":false}
+    },
+    {
+      "name": "list_graphs",
+      "description": "List local Sophia graphs in the running desktop app.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "quick_orient",
+      "description": "Return a lightweight local orientation bundle for a graph using local profile, recent documents, and workspace summary data.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "recall_limit": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 20
+          },
+          "recallLimit": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 20
+          }
+        }
+      }
+    },
+    {
+      "name": "context_bundle",
+      "description": "Return local orientation, recent document recall substitutes, important block previews, and workspace structure for a graph.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "agent_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "agentName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recall_limit": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 20
+          },
+          "recallLimit": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 20
+          },
+          "important_limit": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 20
+          },
+          "importantLimit": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 20
+          },
+          "workspace_depth": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 5
+          },
+          "workspaceDepth": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 5
+          },
+          "workspace_limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "workspaceLimit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "workspace_max_bytes": {
+            "type": "integer",
+            "minimum": 16384,
+            "maximum": 262144
+          },
+          "workspaceMaxBytes": {
+            "type": "integer",
+            "minimum": 16384,
+            "maximum": 262144
+          },
+          "set_home": {
+            "type": "boolean"
+          },
+          "setHome": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "remember",
+      "description": "Store a typed, provenance-anchored memory (sophia-memory-core) into the graph memory projection. Requires content AND at least one of source_refs / block_ids (I1: no memory without provenance). Returns {ok, subject, supersededSubject?}.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "content"
+        ],
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "block_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "CRDT block ids that ground this memory; each expands into a DocumentBlock source reference (paired with document_id when supplied)."
+          },
+          "blockIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "document_id": {
+            "type": "string"
+          },
+          "documentId": {
+            "type": "string"
+          },
+          "source_refs": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Explicit SourceReference shapes (sourceKind + label/blockId/documentId/externalId/externalUri/...)."
+          },
+          "sourceRefs": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "scope": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "content_orientation": {
+            "type": "string"
+          },
+          "contentOrientation": {
+            "type": "string"
+          },
+          "visibility": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "agent_id": {
+            "type": "string"
+          },
+          "agentId": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "supersedes_ref": {
+            "type": "string"
+          },
+          "supersedesRef": {
+            "type": "string"
+          },
+          "client_ref": {
+            "type": "string"
+          },
+          "clientRef": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "remember_batch",
+      "description": "Store many typed memory records (sophia-memory-core) in one atomic ingest. Each record requires content AND at least one source reference (I1); a provenance-less entry rejects the whole batch. Returns {ok, subjects, supersededSubjects?}.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "records"
+        ],
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "records": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Each entry matches the remember argument shape (content + source_refs/block_ids + optional scope/kind/...)."
+          }
+        }
+      }
+    },
+    {
+      "name": "recall",
+      "description": "Read the local graph memory queue by recency, number, or substring query.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "number": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "query": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          }
+        }
+      }
+    },
+    {
+      "name": "propose_domain_ontology",
+      "description": "CHAMBER (EA-3 \u00a74): an agent proposes a runtime domain ontology \u2014 its provisional, defeasible testimony about how to model this benchmark's domain. Emporium validates it (parse -> derive SHACL -> compile-check; loud-reject on failure), then stores it as a born-RDF chm:DomainOntology in the chamber graph. Thereafter the agent's instances of that ontology are SHACL-validated against ITS OWN proposed shapes. A new version supersedes the prior (the old stays queryable). The frozen core meta-ontology is never touched. Returns {status, ontologySubject, ontologyName, ontologyVersion, validation}.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "contract"
+        ],
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "contract": {
+            "type": "object",
+            "description": "The proposed VocabularyContract (name, version, namespaces, primary_prefix, write_target=projection:*, classes{...}). Its derived SHACL shapes must compile."
+          },
+          "contractJson": {
+            "type": "string",
+            "description": "Alternative to 'contract': the VocabularyContract as a JSON string."
+          },
+          "version": {
+            "type": "string",
+            "description": "Override the stored version (default = the contract's own version)."
+          },
+          "rationale": {
+            "type": "string",
+            "description": "The agent's reasoning for this domain model."
+          },
+          "observer": {
+            "type": "string",
+            "description": "The proposing agent id (observer-relative testimony)."
+          },
+          "supersedesName": {
+            "type": "string",
+            "description": "A prior ontology NAME this proposal replaces (default = the contract's own name)."
+          }
+        }
+      }
+    },
+    {
+      "name": "care",
+      "description": "Update last_active timestamps for local memory numbers so they stay in the recall window.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "numbers": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "archive_memories",
+      "description": "Archive older local memories, keeping the most recently active memory records in the live queue.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "keep": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          }
+        }
+      }
+    },
+    {
+      "name": "backfill_memory_projection",
+      "description": "ADMIN one-shot migration: file every legacy memory-queue record into the typed :projection:memory projection as a mem:MemoryRecord (sophia-memory-core), through the real ingest spine. Idempotent — already-projected records are skipped (content-addressed subjects); the queue itself is never appended. Records carry the mem:tag 'backfill:memory-queue' and their own queue block_id as DocumentBlock provenance. Optional observer attribution: observer_agent_id + observer_numbers (both or neither) attribute exactly those queue numbers to that witness; all other records land as commons. Re-runs must pass the SAME attribution split to converge. Returns {ok, scanned, ingested, skippedExisting, rejected:[{number, reason}], subjects}.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "observer_agent_id": {
+            "type": "string",
+            "description": "The recovered agt:Agent witness id (e.g. agent-<hex16>) to attribute observer_numbers to. Requires observer_numbers. The tool never invents an observer."
+          },
+          "observerAgentId": {
+            "type": "string"
+          },
+          "observer_numbers": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "description": "Queue numbers (recovered from witnessed events) to attribute to observer_agent_id; every listed number must exist in the queue. Requires observer_agent_id."
+          },
+          "observerNumbers": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "emporium_vocab",
+      "description": "Read the Emporium vocabulary registry: a registered VocabularyContract (sha-pinned, cacheable). With no 'name' returns the full catalog — every registered vocab's {name, version, namespace, sha, title, publicJurisdiction, canonicalOntology, canonicalPack, registryStatus, slugAliases, compatibilityAliases} — so an agent learns what resolves to what before addressing a class. With 'name' (+ optional 'version', default 'latest') returns that contract's metadata plus its parsed canonical JSON body under 'contract'.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The vocab name (e.g. 'workflow', 'sophia-memory-core', 'emporium-bookmark'). Omit for the full catalog."
+          },
+          "vocab": {
+            "type": "string",
+            "description": "Alias for 'name'."
+          },
+          "vocabulary": {
+            "type": "string",
+            "description": "Alias for 'name'."
+          },
+          "version": {
+            "type": "string",
+            "description": "Default 'latest'."
+          }
+        }
+      }
+    },
+    {
+      "name": "emporium_list",
+      "description": "LIST the subjects of one class in a vocab's projection sink, paginated (READ ONLY — the object surface's create/update/delete are deliberately deferred this wave). Thin wrapper over Emporium's generic Meaningful-Object object surface. Returns {graphId, vocab, class, sink, limit, offset, subjects:[...]}.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graph_id",
+          "vocab",
+          "class"
+        ],
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "vocab": {
+            "type": "string",
+            "description": "The vocab name (e.g. 'emporium-bookmark', 'sophia-memory-core')."
+          },
+          "class": {
+            "type": "string",
+            "description": "The class name declared by the vocab's contract (e.g. 'Bookmark')."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500,
+            "description": "Default 100; the engine clamps to 1..=500."
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Default 0."
+          }
+        }
+      }
+    },
+    {
+      "name": "emporium_read",
+      "description": "READ one object's full predicate span, rendered as {predicate: [values]} (N-Triples value forms). READ ONLY — the object surface's create/update/delete are deliberately deferred this wave. Returns {graphId, vocab, class, subject, predicates:{...}}.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graph_id",
+          "vocab",
+          "class",
+          "address"
+        ],
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "vocab": {
+            "type": "string",
+            "description": "The vocab name (e.g. 'emporium-bookmark', 'sophia-memory-core')."
+          },
+          "class": {
+            "type": "string",
+            "description": "The class name declared by the vocab's contract (e.g. 'Bookmark')."
+          },
+          "address": {
+            "type": "string",
+            "description": "A full subject IRI, or a bare localId minted through the class's subject_rule."
+          }
+        }
+      }
+    },
+    {
+      "name": "emporium_heads",
+      "description": "The ratified §8.1 'return all heads flagged' read (contested-by-default): every current memory head, grouped by lineage, each lineage flagged 'contested' when it has more than one head. A PURE READ — storage never picks a winner. Returns {graphId, observerGraph, strategy, lineages:[{lineage, heads:[...], contested}]}.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graph_id"
+        ],
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "observer": {
+            "type": "string",
+            "description": "A per-agent membrane; default = the shared commons."
+          }
+        }
+      }
+    },
+    {
+      "name": "emporium_sweep",
+      "description": "The §8.1 post-hoc conformance sweep: detects contested lineages (more than one mem:isCurrent head sharing a mem:lineage) over the LIVE memory projection and files each finding into the violation ledger (:projection:violations) as this sweep's advisory testimony. MUTATES the ledger projection (never the memory records themselves) — never picks a winner, never resolves. Returns {graphId, observerGraph, strategy, contested:[{lineage, heads:[...]}], ledgered}.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graph_id"
+        ],
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "observer": {
+            "type": "string",
+            "description": "A per-agent membrane; default = the shared commons."
+          }
+        }
+      }
+    },
+    {
+      "name": "emporium_violations",
+      "description": "Read-only SPARQL listing of the violation ledger (:projection:violations, EA-6) — the observer-relative testimony both the write-time SHACL gate (FlagAndAccept) and the §8.1 conformance sweep file there. Newest first (observedAt descending). Returns {graphId, ledger, limit, violations:[{subject, focusNode, message, severity, observedAt, observer, shape?, propertyPath?, offendingValue?}]}.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graph_id"
+        ],
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string",
+            "description": "Filter by SHACL severity (e.g. 'Violation', 'Warning', 'Info')."
+          },
+          "observer": {
+            "type": "string",
+            "description": "Filter by the witness URI that filed the finding (e.g. the write-time validator or the conformance sweep)."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500,
+            "description": "Default 100, clamped to 1..=500."
+          }
+        }
+      }
+    },
+    {
+      "name": "music",
+      "description": "Read the local graph Song narrative with its rolling verses, counterpoints, and coda state.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "sing",
+      "description": "Write a verse, counterpoint, or coda into the local graph Song narrative.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "verse": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "verse",
+              "counterpoint",
+              "coda"
+            ]
+          },
+          "verse_index": {
+            "type": "integer",
+            "minimum": -2,
+            "maximum": 0
+          },
+          "verseIndex": {
+            "type": "integer",
+            "minimum": -2,
+            "maximum": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "surface",
+      "description": "Return completed actions as chat-surface document/block references with local document titles resolved.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "document_id": {
+                  "type": "string"
+                },
+                "documentId": {
+                  "type": "string"
+                },
+                "block_id": {
+                  "type": "string"
+                },
+                "blockId": {
+                  "type": "string"
+                },
+                "action": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "get_document_history",
+      "description": "Return local append-only document snapshots as a git-log-style history list.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "documentId"
+        ],
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "document_id": {
+            "type": "string"
+          },
+          "documentId": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        }
+      }
+    },
+    {
+      "name": "read_document_at_snapshot",
+      "description": "Read local document content at a stored snapshot as markdown text.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "documentId",
+          "snapshotId"
+        ],
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "document_id": {
+            "type": "string"
+          },
+          "documentId": {
+            "type": "string"
+          },
+          "snapshot_id": {
+            "type": "string"
+          },
+          "snapshotId": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_graph",
+      "description": "Create a local knowledge graph. Offline/sync-later callers may supply a client-minted graphIncarnation plus stable operationId; retrying that exact lifecycle identity is idempotent.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graph_id",
+          "title"
+        ],
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "graphIncarnation": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "graph_incarnation": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "operationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "operation_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          }
+        }
+      }
+    },
+    {
+      "name": "duplicate_graph",
+      "description": "Duplicate a local graph, preserving document IDs, workspace hierarchy, wires, artifacts, original bytes, and local RDF data.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "source_graph_id",
+          "new_graph_id"
+        ],
+        "properties": {
+          "source_graph_id": {
+            "type": "string"
+          },
+          "sourceGraphId": {
+            "type": "string"
+          },
+          "new_graph_id": {
+            "type": "string"
+          },
+          "newGraphId": {
+            "type": "string"
+          },
+          "new_title": {
+            "type": "string"
+          },
+          "newTitle": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "manage_graph",
+      "description": "Read local graph metadata, get graph statistics, or soft-delete a local graph.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graph_id",
+          "action"
+        ],
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "read",
+              "stats",
+              "delete"
+            ]
+          },
+          "hard": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "update_graph",
+      "description": "Update local graph title or description metadata.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graph_id"
+        ],
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "query_graph",
+      "description": "Run a SPARQL read query against a local graph.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graph_id",
+          "query"
+        ],
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "result_format": {
+            "type": "string"
+          },
+          "timeout_ms": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Requested deadline in milliseconds; clamped by the server."
+          },
+          "max_rows": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Requested materialized row/triple ceiling; clamped by the server."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_job_status",
+      "description": "Read local job status, progress, and result links for async local work.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "job_id"
+        ],
+        "properties": {
+          "job_id": {
+            "type": "string"
+          },
+          "jobId": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_job_result",
+      "description": "Read the JSON result payload for a completed local job.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "job_id"
+        ],
+        "properties": {
+          "job_id": {
+            "type": "string"
+          },
+          "jobId": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "cancel_job",
+      "description": "Cancel a local graph job when it is still queued, or report that a completed job cannot be cancelled.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "job_id"
+        ],
+        "properties": {
+          "job_id": {
+            "type": "string"
+          },
+          "jobId": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "reindex_graph",
+      "description": "Submit a local semantic index refresh job for a graph when the embedding model is already prepared.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graph_id"
+        ],
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_documents",
+      "description": "List compact document summaries with server-enforced cursor, item, and byte limits. Document bodies and Y.Doc state are never returned by this directory operation.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graphId"
+        ],
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "cursor": {
+            "type": ["string", "integer"]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          },
+          "maxBytes": {
+            "type": "integer",
+            "minimum": 8192,
+            "maximum": 262144
+          }
+        }
+      }
+    },
+    {
+      "name": "get_workspace",
+      "description": "Return a compact workspace page with server-enforced depth, cursor, item, and serialized-byte limits. Wires and document bodies are represented only by counts or summaries.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graphId"
+        ],
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "depth": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 5
+          },
+          "foldersOnly": {
+            "type": "boolean"
+          },
+          "folderId": {
+            "type": "string"
+          },
+          "cursor": {
+            "type": ["string", "integer"]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "maxBytes": {
+            "type": "integer",
+            "minimum": 16384,
+            "maximum": 262144
+          }
+        }
+      }
+    },
+    {
+      "name": "read_document",
+      "description": "Read a bounded character page from a local document projection. Use offset/nextOffset for continuation or read_blocks for structural pagination.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graphId",
+          "documentId"
+        ],
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "documentId": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "xml",
+              "markdown",
+              "ids_only",
+              "json"
+            ]
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "maxChars": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 262144
+          },
+          "cursor": {
+            "type": ["string", "integer"],
+            "description": "Block offset used only by ids_only format."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "description": "Block ID page size used only by ids_only format."
+          }
+        }
+      }
+    },
+    {
+      "name": "create_document_once",
+      "description": "Attempt first creation of a root-level document under the managed graph execution lease. Requires explicit stable block IDs and order. Refuses every existing, deleted, partial or previously admitted ID, including the same recovered operation. Partial failures retain admission and require inspection, never automatic resend. Ordinary write_document is not a fallback. Success reports actual durability watermarks; it does not force publication or promise off-host recovery.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["graph_id", "document_id", "title", "tiptapJson", "order"],
+        "properties": {
+          "graphIncarnation": { "type": "string", "minLength": 1, "maxLength": 256, "description": "Optional expected source graph lifetime, checked before queue admission and again before effects. Read source_pull.mutationCapabilities.expectedGraphIncarnation version 1 first; older engines may ignore unsupported optional inputs." },
+          "graph_incarnation": { "type": "string", "minLength": 1, "maxLength": 256, "description": "Alias of graphIncarnation; if both occur they must agree." },
+          "graph_id": { "type": "string", "minLength": 1 },
+          "document_id": { "type": "string", "minLength": 1 },
+          "title": { "type": "string", "minLength": 1 },
+          "tiptapJson": { "type": "object" },
+          "order": { "type": "number" },
+          "parentId": { "type": "null" },
+          "awaitDurable": { "type": "boolean", "default": true }
+        }
+      }
+    },
+    {
+      "name": "write_document",
+      "description": "Replace a local document through the same CRDT document.write path used by hosted-compatible writes. Accepts either plain text, markdown, HTML, or TipTap XML content, or a canonical TipTap JSON document without a lossy string roundtrip.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "document_id": {
+            "type": "string"
+          },
+          "documentId": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "tiptapJson": {
+            "type": "object"
+          },
+          "tiptap_json": {
+            "type": "object"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "plain",
+              "markdown",
+              "html",
+              "xml"
+            ]
+          },
+          "comments": {
+            "type": "object"
+          },
+          "await_durable": {
+            "type": "boolean"
+          },
+          "awaitDurable": {
+            "type": "boolean"
+          },
+          "expectedRevision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "expected_revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          }
+        },
+        "allOf": [
+          {
+            "anyOf": [
+              {
+                "required": [
+                  "graph_id"
+                ]
+              },
+              {
+                "required": [
+                  "graphId"
+                ]
+              }
+            ]
+          },
+          {
+            "anyOf": [
+              {
+                "required": [
+                  "document_id"
+                ]
+              },
+              {
+                "required": [
+                  "documentId"
+                ]
+              }
+            ]
+          },
+          {
+            "oneOf": [
+              {
+                "required": [
+                  "content"
+                ]
+              },
+              {
+                "required": [
+                  "tiptapJson"
+                ]
+              },
+              {
+                "required": [
+                  "tiptap_json"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "read_blocks",
+      "description": "Read paginated local document blocks from persisted block projections.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graphId",
+          "documentId"
+        ],
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "documentId": {
+            "type": "string"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "blockId": {
+            "type": "string"
+          },
+          "includeIds": {
+            "type": "boolean"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "markdown",
+              "text",
+              "xml"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "document_digest",
+      "description": "Return a compact local document digest from persisted projections and workspace wire snapshots.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graphId",
+          "documentId"
+        ],
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "documentId": {
+            "type": "string"
+          },
+          "topValued": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 20
+          }
+        }
+      }
+    },
+    {
+      "name": "value",
+      "description": "Assign local durable importance, valence, and tags to one block or a batch of blocks.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "document_id": {
+            "type": "string"
+          },
+          "documentId": {
+            "type": "string"
+          },
+          "block_id": {
+            "type": "string"
+          },
+          "blockId": {
+            "type": "string"
+          },
+          "importance": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 5
+          },
+          "valence": {
+            "type": "integer",
+            "minimum": -5,
+            "maximum": 5
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "operationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9._:-]+$",
+            "description": "Stable source operation identity. Reuse the same value for an at-least-once retry."
+          },
+          "operation_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "valuationEventId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "valuation_event_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "atMs": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "at_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "valuations": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "get_values",
+      "description": "Return the local valuation scoring configuration for a graph.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "revaluate",
+      "description": "Update the local valuation scoring configuration, archiving the previous config in the local value store.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "importance_prompt": {
+            "type": "string"
+          },
+          "importancePrompt": {
+            "type": "string"
+          },
+          "valence_prompt": {
+            "type": "string"
+          },
+          "valencePrompt": {
+            "type": "string"
+          },
+          "weights": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_block_values",
+      "description": "Retrieve local block valuation scores graph-wide, document-scoped, or block-scoped.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "document_id": {
+            "type": "string"
+          },
+          "documentId": {
+            "type": "string"
+          },
+          "block_id": {
+            "type": "string"
+          },
+          "blockId": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "min_score": {
+            "type": "number"
+          },
+          "minScore": {
+            "type": "number"
+          },
+          "valence": {
+            "type": "string",
+            "enum": [
+              "positive",
+              "negative"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "get_important_blocks",
+      "description": "Return highest-scored local blocks with content and document titles.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "document_id": {
+            "type": "string"
+          },
+          "documentId": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20
+          },
+          "valence": {
+            "type": "string",
+            "enum": [
+              "positive",
+              "negative"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "get_block",
+      "description": "Read one local document block by ID from persisted block projections.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graphId",
+          "documentId",
+          "blockId"
+        ],
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "documentId": {
+            "type": "string"
+          },
+          "blockId": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "xml",
+              "markdown",
+              "text"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "query_blocks",
+      "description": "Query local document blocks by projected type, heading level, checked state, or text content.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graphId",
+          "documentId"
+        ],
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "documentId": {
+            "type": "string"
+          },
+          "blockType": {
+            "type": "string"
+          },
+          "headingLevel": {
+            "type": "integer"
+          },
+          "checked": {
+            "type": "boolean"
+          },
+          "textContains": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "queries": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "insert_blocks",
+      "description": "Insert one or more blocks into a local document through the desktop Yjs document CRDT. Accepts plain text, markdown, HTML, or TipTap XML content; or a structured blocks array. Optionally inserts after/before a reference blockId, or at a given index.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graphId",
+          "documentId"
+        ],
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "documentId": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "plain",
+              "markdown",
+              "html",
+              "xml"
+            ]
+          },
+          "blocks": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "tiptapJson": {
+            "type": "object"
+          },
+          "blockId": {
+            "type": "string"
+          },
+          "index": {
+            "type": "integer"
+          },
+          "position": {
+            "type": "string",
+            "enum": [
+              "after",
+              "before"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "update_blocks",
+      "description": "Update attributes on one or more existing blocks in a local document through the desktop Yjs document CRDT.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graphId",
+          "documentId"
+        ],
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "documentId": {
+            "type": "string"
+          },
+          "edits": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "blockId",
+                "attrs"
+              ]
+            }
+          },
+          "blockId": {
+            "type": "string"
+          },
+          "attrs": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "name": "edit_block_text",
+      "description": "Apply character-level insert/delete operations to a block's text through the desktop Yjs document CRDT. Operations are sorted by offset descending and applied in one transaction.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graphId",
+          "documentId",
+          "blockId",
+          "operations"
+        ],
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "documentId": {
+            "type": "string"
+          },
+          "blockId": {
+            "type": "string"
+          },
+          "operations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "type",
+                "offset"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "insert",
+                    "delete"
+                  ]
+                },
+                "offset": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "text": {
+                  "type": "string"
+                },
+                "length": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "attrs": {
+                  "type": [
+                    "object",
+                    "null"
+                  ]
+                },
+                "inheritFormat": {
+                  "type": "boolean"
+                },
+                "inherit_format": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "edit_comment",
+      "description": "Create, resolve, or delete a comment in a local document Y.Doc comments map, optionally anchoring it to matching block text with a commentMark.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "action",
+          "comment_id",
+          "document_id"
+        ],
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "document_id": {
+            "type": "string"
+          },
+          "documentId": {
+            "type": "string"
+          },
+          "comment_id": {
+            "type": "string"
+          },
+          "commentId": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "set",
+              "resolve",
+              "delete"
+            ]
+          },
+          "text": {
+            "type": "string"
+          },
+          "author": {
+            "type": "string"
+          },
+          "block_id": {
+            "type": "string"
+          },
+          "blockId": {
+            "type": "string"
+          },
+          "find": {
+            "type": "string"
+          },
+          "occurrence": {
+            "type": "integer"
+          },
+          "quoted_text": {
+            "type": "string"
+          },
+          "quotedText": {
+            "type": "string"
+          },
+          "resolved": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "delete_blocks",
+      "description": "Delete one or more blocks from a local document by id through the desktop Yjs document CRDT.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graphId",
+          "documentId"
+        ],
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "documentId": {
+            "type": "string"
+          },
+          "blockIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "blockId": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "search_documents",
+      "description": "Search local document titles and IDs in a graph.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graphId"
+        ],
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "queries": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "exact",
+              "substring"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        }
+      }
+    },
+    {
+      "name": "search_blocks",
+      "description": "Search local document block content. Hybrid mode combines lexical hits with prepared semantic-index hits when available.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graphId"
+        ],
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "queries": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "hybrid",
+              "lexical",
+              "semantic"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "docFilter": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_wire_predicates",
+      "description": "List built-in local wire predicates plus custom predicates found in workspace wire snapshots.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graphId"
+        ],
+        "properties": {
+          "graphId": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_wires",
+      "description": "Return active local workspace wires connected to a document.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graphId",
+          "documentId"
+        ],
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "documentId": {
+            "type": "string"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "outgoing",
+              "incoming",
+              "both"
+            ]
+          },
+          "predicate": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_wires",
+      "description": "Create one or more local semantic wires through the workspace CRDT surface.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "graphIncarnation": { "type": "string", "minLength": 1, "maxLength": 256, "description": "Optional expected source workspace lifetime, carried to every child queue admission/effect. Not a target-graph or batch transaction. Discover source_pull.mutationCapabilities.expectedGraphIncarnation version 1 first." },
+          "graph_incarnation": { "type": "string", "minLength": 1, "maxLength": 256, "description": "Alias of graphIncarnation; aliases and any wire-item carrier must agree." },
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "source_document_id": {
+            "type": "string"
+          },
+          "sourceDocumentId": {
+            "type": "string"
+          },
+          "source_block_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sourceBlockId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source_mark_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sourceMarkId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "target_graph_id": {
+            "type": "string"
+          },
+          "targetGraphId": {
+            "type": "string"
+          },
+          "target_document_id": {
+            "type": "string"
+          },
+          "targetDocumentId": {
+            "type": "string"
+          },
+          "target_block_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "targetBlockId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "target_mark_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "targetMarkId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "predicate": {
+            "type": "string"
+          },
+          "bidirectional": {
+            "type": "boolean"
+          },
+          "wire_id": {
+            "type": "string"
+          },
+          "wireId": {
+            "type": "string"
+          },
+          "wires": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "traverse_wires",
+      "description": "Traverse the local workspace wire graph from a document using bounded BFS.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "document_id"
+        ],
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "document_id": {
+            "type": "string"
+          },
+          "documentId": {
+            "type": "string"
+          },
+          "max_depth": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 6
+          },
+          "maxDepth": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 6
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "outgoing",
+              "incoming",
+              "both"
+            ]
+          },
+          "predicate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "create_document",
+      "description": "Create a local document through the workspace CRDT surface.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graphId",
+          "title"
+        ],
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "documentId": {
+            "type": "string"
+          },
+          "parentId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "order": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "delete_document",
+      "description": "Delete a local document through the workspace CRDT surface.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graphId",
+          "documentId"
+        ],
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "documentId": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_folder",
+      "description": "Create a local sidebar folder through the workspace CRDT surface.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graphId",
+          "name"
+        ],
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "folderId": {
+            "type": "string"
+          },
+          "parentId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "section": {
+            "type": "string",
+            "enum": [
+              "documents",
+              "artifacts"
+            ]
+          },
+          "order": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "move_documents",
+      "description": "Move local documents under a sidebar folder through the workspace CRDT surface.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graphId",
+          "documentIds"
+        ],
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "documentIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "parentId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "order": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "move_folder",
+      "description": "Move a local sidebar folder under another folder, or to root, through the workspace CRDT surface.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graph_id",
+          "folder_id"
+        ],
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "folder_id": {
+            "type": "string"
+          },
+          "folderId": {
+            "type": "string"
+          },
+          "new_parent_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "newParentId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "new_order": {
+            "type": "number"
+          },
+          "newOrder": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "rename",
+      "description": "Rename a local graph, document, or folder without changing its ID.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graph_id",
+          "entity_type",
+          "new_name"
+        ],
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "entity_type": {
+            "type": "string",
+            "enum": [
+              "graph",
+              "document",
+              "folder"
+            ]
+          },
+          "entityType": {
+            "type": "string",
+            "enum": [
+              "graph",
+              "document",
+              "folder"
+            ]
+          },
+          "entity_id": {
+            "type": "string"
+          },
+          "entityId": {
+            "type": "string"
+          },
+          "new_name": {
+            "type": "string"
+          },
+          "newName": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "delete",
+      "description": "Delete local graph, document, folder, block, or wire targets through the provider/CRDT path for each target type.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "documents",
+              "blocks",
+              "folder",
+              "wires",
+              "graph"
+            ]
+          },
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "document_id": {
+            "type": "string"
+          },
+          "documentId": {
+            "type": "string"
+          },
+          "document_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "documentIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "block_id": {
+            "type": "string"
+          },
+          "blockId": {
+            "type": "string"
+          },
+          "block_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "blockIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "folder_id": {
+            "type": "string"
+          },
+          "folderId": {
+            "type": "string"
+          },
+          "wire_id": {
+            "type": "string"
+          },
+          "wireId": {
+            "type": "string"
+          },
+          "wire_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "wireIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "cascade": {
+            "type": "boolean"
+          },
+          "hard": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "make_document_editable",
+      "description": "Clear the local workspace readOnly flag for an uploaded or ingested document.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "document_id"
+        ],
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "document_id": {
+            "type": "string"
+          },
+          "documentId": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "upload_artifact",
+      "description": "Copy a local file into the profile and submit an async local artifact upload/ingestion job. Poll get_job_status and get_job_result for completion.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "file_path"
+        ],
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "file_path": {
+            "type": "string"
+          },
+          "filePath": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "parent_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "parentId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "ingest_artifact",
+      "description": "Submit an async local job to import a stored artifact original-byte record as a document, or update an already auto-ingested upload document.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "artifact_id"
+        ],
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "artifact_id": {
+            "type": "string"
+          },
+          "artifactId": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "ingest",
+              "import"
+            ]
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "flush_crdt",
+      "description": "Flush pending local workspace/document CRDT state to disk.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graphId"
+        ],
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "documentId": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "crdt_operation",
+      "description": "Enqueue a typed local CRDT operation for the desktop runtime to apply.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graphId",
+          "kind"
+        ],
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "documentId": {
+            "type": "string"
+          },
+          "payload": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "name": "sparql_query",
+      "description": "Run a read SPARQL query against a local graph.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graphId",
+          "query"
+        ],
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "timeoutMs": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Requested deadline in milliseconds; clamped by the server."
+          },
+          "maxRows": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Requested materialized row/triple ceiling; clamped by the server."
+          }
+        }
+      }
+    },
+    {
+      "name": "sparql_query_named",
+      "description": "Run one of a class's CANONICAL named queries (T2 query face, item 11) — byId(subject), currentHeads({asOf?}), lineageOf(subject), countBy(attr) — derived from the class's declared SHACL shape + MaterializationSignature (never a hand-maintained per-class query). Scoping comes from the class's declared store_target ONLY (class_dispatch), so the partitioned-store silent zero is structurally impossible. Membrane-ed classes (e.g. sophia-memory-core): no 'observer' → the shared commons only; with 'observer' → commons ∪ that observer's membrane (RATIFIED default). currentHeads is the SAME server-authoritative reader emporium_heads uses — one 'current head' semantics everywhere. Returns {graphId, vocab, class, queryName, variables, rows, warnings?} — a query returning zero rows for a shape reason (wrong scope, undeclared attr, missing subject) always says so in 'warnings' or as a structured rejection, never a bare empty result.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graph_id",
+          "vocab",
+          "class",
+          "query_name"
+        ],
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "vocab": {
+            "type": "string",
+            "description": "The vocab name (e.g. 'sophia-memory-core', 'emporium-bookmark')."
+          },
+          "class": {
+            "type": "string",
+            "description": "The class name declared by the vocab's contract (e.g. 'MemoryRecord')."
+          },
+          "query_name": {
+            "type": "string",
+            "enum": [
+              "byId",
+              "currentHeads",
+              "lineageOf",
+              "countBy"
+            ]
+          },
+          "queryName": {
+            "type": "string",
+            "description": "Alias for 'query_name'."
+          },
+          "params": {
+            "type": "object",
+            "description": "Query-specific arguments: 'subject' (a full subject IRI — byId, lineageOf), 'asOf' (epoch-millis or ISO-8601 datetime — currentHeads; omitted = the live read), 'attr' (a declared predicate CURIE/local-name/URI — countBy)."
+          },
+          "observer": {
+            "type": "string",
+            "description": "A per-agent membrane. Default = the shared commons (RATIFIED: no observer ⇒ commons only). Ignored, with a warning, on a class with no observer membrane."
+          }
+        }
+      }
+    },
+    {
+      "name": "emporium_query",
+      "description": "T2 item 11a — the OBJECT query face: 'objects out, not rows'. Runs a conjunctive criteria filter over one class and returns HYDRATED, SHAPED objects (the class-signature-scoped predicate span per matched subject, provenance fields included), never a bindings table. The criteria grammar is DERIVED from the class's own declared shape: legal 'criteria' keys = its declared properties (CURIE, bare local name, or full URI); legal operators are datatype-derived — 'eq' universally, plus 'contains' for strings and 'before'/'after' for dateTime. A malformed criterion (unknown key, illegal operator, unparseable value) is a loud structured rejection naming the class's legal keys/operators — never a silent empty result. Observer semantics (RATIFIED, generalized from recall): no 'observer' ⇒ commons only; 'observer' ⇒ commons ∪ that witness's membrane; 'perspectives'=\"all\" ⇒ every discovered witness membrane merged, each result tagged 'witnessGraph' (merged testimony is never anonymous). Classes under the ratified 'contested' conflict policy (e.g. sophia-memory-core) return CURRENT heads by default, each flagged 'contested' with 'siblingHeads' — routed through the SAME unified head reader 'sparql_query_named'/'emporium_heads' use; 'as_of' walks history instead (rejected for a class with no lineage convention). Returns {graphId, vocab, class, criteria, scope:{graphs, perspectives}, totalMatched, limit, offset, nextCursor?, objects:[{subject, rdfType, predicates, contested?, siblingHeads?, witnessGraph?}], warnings?} as JSON, or {graphId, vocab, class, face:'markdown', markdown} when 'face'='markdown'.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graph_id",
+          "vocab",
+          "class"
+        ],
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "vocab": {
+            "type": "string",
+            "description": "The vocab name (e.g. 'sophia-memory-core', 'emporium-bookmark')."
+          },
+          "class": {
+            "type": "string",
+            "description": "The class name declared by the vocab's contract (e.g. 'MemoryRecord')."
+          },
+          "criteria": {
+            "type": "object",
+            "description": "{predicateKey: value | {operator: value}} — conjunctive (AND) this wave. Legal keys = the class's own declared properties; legal operators are datatype-derived ('eq' always; 'contains' for strings; 'before'/'after' for dateTime). Omit or pass {} to match every instance in scope."
+          },
+          "observer": {
+            "type": "string",
+            "description": "A per-agent membrane. Default = the shared commons (RATIFIED: no observer ⇒ commons only). Ignored, with a warning, on a class with no observer membrane."
+          },
+          "perspectives": {
+            "type": "string",
+            "enum": [
+              "all"
+            ],
+            "description": "The ONLY legal value is 'all' — merges every discovered witness membrane (cross-witness merge is an explicit, loudly-named act); each result is then tagged 'witnessGraph'. Omit for the default commons/observer scope."
+          },
+          "as_of": {
+            "description": "Epoch-millis integer or ISO-8601 datetime string. Historical heads for a contested class as of this instant; rejected for a class with no ratified lineage/contested convention."
+          },
+          "asOf": {
+            "description": "Alias for 'as_of'."
+          },
+          "face": {
+            "type": "string",
+            "enum": [
+              "json",
+              "markdown",
+              "md"
+            ],
+            "description": "Default 'json' (the structured outcome). 'markdown'/'md' renders the SAME outcome as curl-friendly Markdown text under a 'markdown' key."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500,
+            "description": "Default 50; clamped to 1..=500."
+          },
+          "cursor": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "A stable-order page offset (this wave); omit for the first page. Use the previous response's 'nextCursor'."
+          }
+        }
+      }
+    },
+    {
+      "name": "emporium_write",
+      "description": "T-W item 1 — the MCP write surface over the existing spine (I1 gate, SHACL, minting, journal, contested lineage). 'vocab' names ONE registered vocab; 'records' are flat JSON objects with NO 'subject'/'vocab' field (the client never mints identity — Law 2; use 'clientRef' for correlation). Dispatches on the vocab's resolved write_target: 'sophia-memory-core' (a membrane-ed class) routes through the memory lane — records use the SAME camelCase shape 'remember'/'remember_batch' accept (content/scope/kind/contentOrientation/visibility/status/sourceRefs/…) plus per-record 'supersedes'/'contradicts' (Law 3: change is lineage, passed through to the spine's existing supersession machinery — content-hash identity converges on a byte-identical resubmission, outcome 'converged'). Any OTHER registered vocab routes through the generic lane — records use '{kind: <ClassName>, ...predicate fields, localId|clientRef}' (the existing generic-ingest shape); supersedes/contradicts have no machinery there and are REJECTED loudly (a materialize class's only reappearance is a plain resubmission of the same localId/clientRef — the 'Replace'-strategy upsert already performed by the existing subject-scoped reconcile). Law 1 (witnessed or explicitly commons): for a membrane-ed vocab, an observer-less write WITHOUT 'publish: true' is a loud rejection; with 'observer' (top-level, or per-record 'observerAgentId') and no 'publish', the write lands in the writer's OWN membrane; 'publish: true' forces the shared commons (the given observer, if any, is not used for placement — flagged in 'warnings', never silent). A non-membrane vocab has no observer concept — 'publish'/'observer' are accepted as a no-op, flagged in 'warnings'. Law 5: 'dry_run' runs the SAME structural/SHACL validation preview a real apply would (nothing written) and reports the predicted per-record outcome + any violations. Batches are single-vocab (structural) and ALL-OR-HALT: any SHACL/apply failure marks EVERY record 'halted' and carries the shared 'violations' — never a partial write. Returns {graphId, vocab, dryRun, ok, results:[{subject, outcome:'applied'|'converged'|'halted', flags?}], journalRef?, warnings, violations?}.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graph_id",
+          "vocab",
+          "records"
+        ],
+        "properties": {
+          "graphIncarnation": { "type": "string", "minLength": 1, "maxLength": 256, "description": "Optional expected graph lifetime; supplied non-dry-run fences require active source authority and reach serialized source admission/effects. Discover source_pull.mutationCapabilities.expectedGraphIncarnation version 1 first; do not infer support from the Ludus pack hash." },
+          "graph_incarnation": { "type": "string", "minLength": 1, "maxLength": 256, "description": "Alias of graphIncarnation; both must agree if supplied." },
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "vocab": {
+            "type": "string",
+            "description": "The vocab name (e.g. 'sophia-memory-core', 'emporium-bookmark'). ONE vocab per call — a per-record 'vocab' key is rejected."
+          },
+          "records": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object"
+            },
+            "description": "Memory lane (vocab='sophia-memory-core'): the remember/remember_batch camelCase record shape, plus optional 'supersedes'/'contradicts' (a subject IRI) and 'observerAgentId' (or bare 'observer'). Generic lane (any other vocab): {kind: <ClassName>, ...predicate fields, localId|clientRef}. NEVER include 'subject' (Law 2) or 'vocab' (Law 3 — batches are single-vocab) on any record — both are a loud, whole-batch rejection."
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "Default false. true = the SAME structural/SHACL validation preview a real apply would run — NOTHING is written; the response's per-record outcome and 'violations' are the predicted verdict."
+          },
+          "dryRun": {
+            "type": "boolean"
+          },
+          "publish": {
+            "type": "boolean",
+            "description": "Default false. For a membrane-ed vocab (Law 1): true forces the shared commons (an explicit publication act); false (the default) requires an 'observer' — an observer-less write without publish=true is a loud rejection. No-op (flagged in 'warnings') for a non-membrane vocab."
+          },
+          "observer": {
+            "type": "string",
+            "description": "The writer's own membrane (a per-agent witness id). Default for every record that omits its own 'observerAgentId'. No-op (flagged in 'warnings') for a non-membrane vocab."
+          },
+          "operationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9._:-]+$",
+            "description": "Stable source invocation identity. Batched records derive stable child identities from it."
+          },
+          "operation_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "atMs": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "at_ms": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "emporium_retract",
+      "description": "T-W item 2, Law 4 (retraction is an event, not an erasure) — mints a retraction EVENT on 'subject' (who/when/rationale) direct-on-store, in whichever named graph the subject already lives in (located by a store-wide scan; this tool takes no vocab/class). Heads exclude it: `sweep::current_heads_by_lineage`/`heads_as_of` — and therefore `emporium_heads`, `sparql_query_named`'s 'currentHeads', and `emporium_query`'s contested routing — never return a retracted subject as a current (or, for 'as_of', historical) head again. The generic object faces (`emporium_list`/`emporium_read`/`emporium_query`'s criteria match) hide it too. The log keeps it: NO triple is removed — hard-delete stays a SEPARATE, deferred admin-tier act (the existing HTTP-only `DELETE /emporium/objects/…` route, untouched). Re-retracting an already-retracted subject records an ADDITIONAL event (flagged in 'warnings'), never an error. Returns {graphId, subject, graph, kind, rationale, retractedAt, retractionRef, alreadyRetracted, warnings}.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graph_id",
+          "subject",
+          "rationale"
+        ],
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string",
+            "description": "A full subject IRI — an existing minted subject the caller read back from a prior write/query (referencing an existing identity is not minting a new one)."
+          },
+          "rationale": {
+            "type": "string",
+            "description": "Why this subject is being retracted (Law 4: who/when/rationale) — required, non-empty."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "retract",
+              "archive"
+            ],
+            "description": "Default 'retract'."
+          },
+          "observer": {
+            "type": "string",
+            "description": "The witness recording this retraction (attributed via 'retractedBy') — NOT used to locate the subject."
+          },
+          "operationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9._:-]+$",
+            "description": "Stable source operation identity. Reuse the same value for an at-least-once retry."
+          },
+          "operation_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "retractionEventId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "retraction_event_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "atMs": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "at_ms": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "sparql_update",
+      "description": "Run a SPARQL UPDATE against a local graph.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graphId",
+          "update"
+        ],
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "update": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "rdf_load",
+      "description": "Load RDF data into a local graph.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graphId",
+          "data",
+          "format"
+        ],
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "data": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string"
+          },
+          "baseIri": {
+            "type": "string"
+          },
+          "targetGraphIri": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "rdf_dump",
+      "description": "Dump RDF data from a local graph.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graphId",
+          "format"
+        ],
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string"
+          },
+          "sourceGraphIri": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "workflow_authoring_session",
+      "description": "Drive a workflow-book authoring session. Opens, chooses, composes, validates, watches, awaits stability, backgrounds await/validation loops, manages graph-backed named drafts, prepares execution, executes, or monitors while returning one authoring-state envelope; lower-level book, run, job, and SPARQL tools remain first-class.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graphId"
+        ],
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "graph_id": {
+            "type": "string"
+          },
+          "operation": {
+            "type": "string",
+            "enum": [
+              "status",
+              "choose",
+              "compose",
+              "validate",
+              "watch",
+              "await",
+              "background",
+              "validate_background",
+              "background_validate",
+              "draft",
+              "prepare_execute",
+              "execute",
+              "monitor",
+              "create_workflow",
+              "add_phase",
+              "attach_agent_node",
+              "bind_source_block",
+              "bind_input_block"
+            ]
+          },
+          "op": {
+            "type": "string"
+          },
+          "handoffIntent": {
+            "type": "string",
+            "enum": [
+              "suggested",
+              "analysis-scout",
+              "run-prep"
+            ],
+            "description": "Optional agent intent used to add a contextual intentRecommendation without changing the native suggestedChoiceId."
+          },
+          "handoff_intent": {
+            "type": "string",
+            "enum": [
+              "suggested",
+              "analysis-scout",
+              "run-prep"
+            ]
+          },
+          "intent": {
+            "type": "string",
+            "enum": [
+              "suggested",
+              "analysis-scout",
+              "run-prep"
+            ]
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "await",
+              "validate"
+            ],
+            "description": "For operation=background: await follows run state; validate watches workflow-book/validation signatures and resolves when graph-backed perception changes."
+          },
+          "backgroundMode": {
+            "type": "string",
+            "enum": [
+              "await",
+              "validate"
+            ]
+          },
+          "background_mode": {
+            "type": "string",
+            "enum": [
+              "await",
+              "validate"
+            ]
+          },
+          "resolveOnChange": {
+            "type": "boolean"
+          },
+          "resolve_on_change": {
+            "type": "boolean"
+          },
+          "baselineSignature": {
+            "type": "string"
+          },
+          "baseline_signature": {
+            "type": "string"
+          },
+          "composeOperation": {
+            "type": "string"
+          },
+          "compose_operation": {
+            "type": "string"
+          },
+          "workflowOperation": {
+            "type": "string"
+          },
+          "workflow_operation": {
+            "type": "string"
+          },
+          "move": {
+            "type": "string"
+          },
+          "draftMove": {
+            "type": "string"
+          },
+          "draft_move": {
+            "type": "string"
+          },
+          "moves": {
+            "description": "One draft compose move object or an array of compose move objects. Each move is applied through workflow_book_compose, then validation/book state is refreshed.",
+            "oneOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              }
+            ]
+          },
+          "workflowName": {
+            "type": "string"
+          },
+          "workflow_name": {
+            "type": "string"
+          },
+          "workflowUri": {
+            "type": "string"
+          },
+          "workflow_uri": {
+            "type": "string"
+          },
+          "seededFrom": {
+            "description": "One seed lineage IRI, or an array of seed lineage IRIs, written as wf:seededFrom on authored objects where applicable and on the emitted wf:CompositionEvent.",
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ]
+          },
+          "seeded_from": {
+            "description": "One seed lineage IRI, or an array of seed lineage IRIs, written as wf:seededFrom on authored objects where applicable and on the emitted wf:CompositionEvent.",
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ]
+          },
+          "seedUri": {
+            "type": "string"
+          },
+          "seed_uri": {
+            "type": "string"
+          },
+          "authoringSessionUri": {
+            "type": "string",
+            "description": "Existing wf:AuthoringSession IRI to link the emitted wf:CompositionEvent into. If omitted, compose mints a per-gesture implicit session."
+          },
+          "authoring_session_uri": {
+            "type": "string"
+          },
+          "sessionUri": {
+            "type": "string"
+          },
+          "session_uri": {
+            "type": "string"
+          },
+          "compositionEventUri": {
+            "type": "string",
+            "description": "Optional explicit wf:CompositionEvent IRI. If omitted, compose mints one."
+          },
+          "composition_event_uri": {
+            "type": "string"
+          },
+          "eventUri": {
+            "type": "string"
+          },
+          "event_uri": {
+            "type": "string"
+          },
+          "driverAgent": {
+            "type": "string"
+          },
+          "driver_agent": {
+            "type": "string"
+          },
+          "agentId": {
+            "type": "string"
+          },
+          "agent_id": {
+            "type": "string"
+          },
+          "driverLease": {
+            "type": "string"
+          },
+          "driver_lease": {
+            "type": "string"
+          },
+          "rationale": {
+            "type": "string"
+          },
+          "why": {
+            "type": "string"
+          },
+          "pageId": {
+            "type": "string"
+          },
+          "page_id": {
+            "type": "string"
+          },
+          "choiceId": {
+            "type": "string"
+          },
+          "choice_id": {
+            "type": "string"
+          },
+          "executionChoiceId": {
+            "type": "string"
+          },
+          "execution_choice_id": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "whenToUse": {
+            "type": "string"
+          },
+          "when_to_use": {
+            "type": "string"
+          },
+          "scriptSha256": {
+            "type": "string"
+          },
+          "script_sha256": {
+            "type": "string"
+          },
+          "scriptBlock": {
+            "type": "string"
+          },
+          "script_block": {
+            "type": "string"
+          },
+          "sourceDocumentId": {
+            "type": "string"
+          },
+          "source_document_id": {
+            "type": "string"
+          },
+          "sourceBlockId": {
+            "type": "string"
+          },
+          "source_block_id": {
+            "type": "string"
+          },
+          "inputBlock": {
+            "type": "string"
+          },
+          "input_block": {
+            "type": "string"
+          },
+          "inputDocumentId": {
+            "type": "string"
+          },
+          "input_document_id": {
+            "type": "string"
+          },
+          "inputBlockId": {
+            "type": "string"
+          },
+          "input_block_id": {
+            "type": "string"
+          },
+          "workflowArgs": {
+            "type": "object"
+          },
+          "workflow_args": {
+            "type": "object"
+          },
+          "workflowArgsBlock": {
+            "type": "object"
+          },
+          "workflow_args_block": {
+            "type": "object"
+          },
+          "workflowSource": {
+            "type": "string"
+          },
+          "workflow_source": {
+            "type": "string"
+          },
+          "workflowBinding": {
+            "type": "object"
+          },
+          "workflow_binding": {
+            "type": "object"
+          },
+          "workflowSourceBlock": {
+            "type": "object"
+          },
+          "workflow_source_block": {
+            "type": "object"
+          },
+          "phaseOrder": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "phase_order": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "order": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "phaseTitle": {
+            "type": "string"
+          },
+          "phase_title": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "phaseDescription": {
+            "type": "string"
+          },
+          "phase_description": {
+            "type": "string"
+          },
+          "phaseUri": {
+            "type": "string"
+          },
+          "phase_uri": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "nodeLabel": {
+            "type": "string"
+          },
+          "node_label": {
+            "type": "string"
+          },
+          "phaseIndex": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "phase_index": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "agentType": {
+            "type": "string"
+          },
+          "agent_type": {
+            "type": "string"
+          },
+          "documentId": {
+            "type": "string"
+          },
+          "document_id": {
+            "type": "string"
+          },
+          "nodeUri": {
+            "type": "string"
+          },
+          "node_uri": {
+            "type": "string"
+          },
+          "agentNodeUri": {
+            "type": "string"
+          },
+          "autoStart": {
+            "type": "boolean"
+          },
+          "auto_start": {
+            "type": "boolean"
+          },
+          "allowInvalid": {
+            "type": "boolean"
+          },
+          "allow_invalid": {
+            "type": "boolean"
+          },
+          "runId": {
+            "type": "string"
+          },
+          "run_id": {
+            "type": "string"
+          },
+          "since": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "includeEvents": {
+            "type": "boolean"
+          },
+          "include_events": {
+            "type": "boolean"
+          },
+          "monitorLatest": {
+            "type": "boolean"
+          },
+          "monitor_latest": {
+            "type": "boolean"
+          },
+          "pollMs": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "poll_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "pollAfterMs": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "poll_after_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "timeoutMs": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "timeout_ms": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "maxWaitMs": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "max_wait_ms": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "maxTicks": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "max_ticks": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "maxPolls": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "max_polls": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "workflow_book_open",
+      "description": "Open a graph-native workflow book: a choose-your-own-adventure perceptual/conceptual view over workflow RDF with raw SPARQL preserved as first-class pages and an authoring-state envelope.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graphId"
+        ],
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "graph_id": {
+            "type": "string"
+          },
+          "workflowName": {
+            "type": "string"
+          },
+          "workflow_name": {
+            "type": "string"
+          },
+          "pageId": {
+            "type": "string"
+          },
+          "page_id": {
+            "type": "string"
+          },
+          "handoffIntent": {
+            "type": "string",
+            "enum": [
+              "suggested",
+              "analysis-scout",
+              "run-prep"
+            ],
+            "description": "Optional agent intent used to add a contextual intentRecommendation without changing the native suggestedChoiceId."
+          },
+          "handoff_intent": {
+            "type": "string",
+            "enum": [
+              "suggested",
+              "analysis-scout",
+              "run-prep"
+            ]
+          },
+          "intent": {
+            "type": "string",
+            "enum": [
+              "suggested",
+              "analysis-scout",
+              "run-prep"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "workflow_book_choose",
+      "description": "Resolve a workflow-book choice. Navigation returns the target page; raw SPARQL, MCP-tool, and HTTP-request choices return explicit actions without executing them. Responses include authoring-state feedback.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graphId",
+          "choiceId"
+        ],
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "graph_id": {
+            "type": "string"
+          },
+          "workflowName": {
+            "type": "string"
+          },
+          "workflow_name": {
+            "type": "string"
+          },
+          "pageId": {
+            "type": "string"
+          },
+          "page_id": {
+            "type": "string"
+          },
+          "choiceId": {
+            "type": "string"
+          },
+          "choice_id": {
+            "type": "string"
+          },
+          "handoffIntent": {
+            "type": "string",
+            "enum": [
+              "suggested",
+              "analysis-scout",
+              "run-prep"
+            ],
+            "description": "Optional agent intent used to add a contextual intentRecommendation without changing the native suggestedChoiceId."
+          },
+          "handoff_intent": {
+            "type": "string",
+            "enum": [
+              "suggested",
+              "analysis-scout",
+              "run-prep"
+            ]
+          },
+          "intent": {
+            "type": "string",
+            "enum": [
+              "suggested",
+              "analysis-scout",
+              "run-prep"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "workflow_book_apply",
+      "description": "Apply a workflow RDF edit through SPARQL UPDATE or RDF load, then return the refreshed workflow book, validation report, and post-mutation authoring state. This is the live-validation composition helper; raw RDF/SPARQL remains first-class.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graphId"
+        ],
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "graph_id": {
+            "type": "string"
+          },
+          "workflowName": {
+            "type": "string"
+          },
+          "workflow_name": {
+            "type": "string"
+          },
+          "pageId": {
+            "type": "string"
+          },
+          "page_id": {
+            "type": "string"
+          },
+          "handoffIntent": {
+            "type": "string",
+            "enum": [
+              "suggested",
+              "analysis-scout",
+              "run-prep"
+            ],
+            "description": "Optional agent intent used to add a contextual intentRecommendation on the refreshed book without changing suggestedChoiceId."
+          },
+          "handoff_intent": {
+            "type": "string",
+            "enum": [
+              "suggested",
+              "analysis-scout",
+              "run-prep"
+            ]
+          },
+          "intent": {
+            "type": "string",
+            "enum": [
+              "suggested",
+              "analysis-scout",
+              "run-prep"
+            ]
+          },
+          "operation": {
+            "type": "string",
+            "enum": [
+              "sparql_update",
+              "rdf_load"
+            ]
+          },
+          "update": {
+            "type": "string"
+          },
+          "sparqlUpdate": {
+            "type": "string"
+          },
+          "sparql_update": {
+            "type": "string"
+          },
+          "data": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string"
+          },
+          "baseIri": {
+            "type": "string"
+          },
+          "base_iri": {
+            "type": "string"
+          },
+          "targetGraphIri": {
+            "type": "string"
+          },
+          "target_graph_iri": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "workflow_book_compose",
+      "description": "Compose a named workflow RDF subgraph move, apply it through Garden's RDF authority path, then return the refreshed workflow book, validation report, and post-mutation authoring state. Raw SPARQL remains first-class in the response.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graphId",
+          "operation"
+        ],
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "graph_id": {
+            "type": "string"
+          },
+          "operation": {
+            "type": "string",
+            "enum": [
+              "create_workflow",
+              "add_phase",
+              "attach_agent_node",
+              "bind_source_block",
+              "bind_input_block"
+            ]
+          },
+          "workflowName": {
+            "type": "string"
+          },
+          "workflow_name": {
+            "type": "string"
+          },
+          "workflowUri": {
+            "type": "string"
+          },
+          "workflow_uri": {
+            "type": "string"
+          },
+          "seededFrom": {
+            "description": "One seed lineage IRI, or an array of seed lineage IRIs, written as wf:seededFrom on authored objects where applicable and on the emitted wf:CompositionEvent.",
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ]
+          },
+          "seeded_from": {
+            "description": "One seed lineage IRI, or an array of seed lineage IRIs, written as wf:seededFrom on authored objects where applicable and on the emitted wf:CompositionEvent.",
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ]
+          },
+          "seedUri": {
+            "type": "string"
+          },
+          "seed_uri": {
+            "type": "string"
+          },
+          "authoringSessionUri": {
+            "type": "string",
+            "description": "Existing wf:AuthoringSession IRI to link the emitted wf:CompositionEvent into. If omitted, compose mints a per-gesture implicit session."
+          },
+          "authoring_session_uri": {
+            "type": "string"
+          },
+          "sessionUri": {
+            "type": "string"
+          },
+          "session_uri": {
+            "type": "string"
+          },
+          "compositionEventUri": {
+            "type": "string",
+            "description": "Optional explicit wf:CompositionEvent IRI. If omitted, compose mints one."
+          },
+          "composition_event_uri": {
+            "type": "string"
+          },
+          "eventUri": {
+            "type": "string"
+          },
+          "event_uri": {
+            "type": "string"
+          },
+          "driverAgent": {
+            "type": "string"
+          },
+          "driver_agent": {
+            "type": "string"
+          },
+          "agentId": {
+            "type": "string"
+          },
+          "agent_id": {
+            "type": "string"
+          },
+          "driverLease": {
+            "type": "string"
+          },
+          "driver_lease": {
+            "type": "string"
+          },
+          "rationale": {
+            "type": "string"
+          },
+          "why": {
+            "type": "string"
+          },
+          "pageId": {
+            "type": "string"
+          },
+          "page_id": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "whenToUse": {
+            "type": "string"
+          },
+          "when_to_use": {
+            "type": "string"
+          },
+          "scriptSha256": {
+            "type": "string"
+          },
+          "script_sha256": {
+            "type": "string"
+          },
+          "scriptBlock": {
+            "type": "string"
+          },
+          "script_block": {
+            "type": "string"
+          },
+          "sourceDocumentId": {
+            "type": "string"
+          },
+          "source_document_id": {
+            "type": "string"
+          },
+          "sourceBlockId": {
+            "type": "string"
+          },
+          "source_block_id": {
+            "type": "string"
+          },
+          "inputBlock": {
+            "type": "string"
+          },
+          "input_block": {
+            "type": "string"
+          },
+          "inputDocumentId": {
+            "type": "string"
+          },
+          "input_document_id": {
+            "type": "string"
+          },
+          "inputBlockId": {
+            "type": "string"
+          },
+          "input_block_id": {
+            "type": "string"
+          },
+          "workflowArgsDocumentId": {
+            "type": "string"
+          },
+          "workflowArgsBlockId": {
+            "type": "string"
+          },
+          "workflowArgsBlockUri": {
+            "type": "string"
+          },
+          "phaseOrder": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "phase_order": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "order": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "phaseTitle": {
+            "type": "string"
+          },
+          "phase_title": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "phaseDescription": {
+            "type": "string"
+          },
+          "phase_description": {
+            "type": "string"
+          },
+          "phaseUri": {
+            "type": "string"
+          },
+          "phase_uri": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "nodeLabel": {
+            "type": "string"
+          },
+          "node_label": {
+            "type": "string"
+          },
+          "phaseIndex": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "phase_index": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "agentType": {
+            "type": "string"
+          },
+          "agent_type": {
+            "type": "string"
+          },
+          "documentId": {
+            "type": "string"
+          },
+          "document_id": {
+            "type": "string"
+          },
+          "nodeUri": {
+            "type": "string"
+          },
+          "node_uri": {
+            "type": "string"
+          },
+          "agentNodeUri": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "workflow_book_validate",
+      "description": "Validate graph-native workflow RDF anatomy and return a structured report for one workflow or the workflow catalog. This is read-only and preserves raw SPARQL escape hatches.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graphId"
+        ],
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "graph_id": {
+            "type": "string"
+          },
+          "workflowName": {
+            "type": "string"
+          },
+          "workflow_name": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "workflow_run_start",
+      "description": "Validate a graph-native workflow and submit an async Choreograph run through Garden's local service facade. Returns the run id and monitor actions; can optionally start the local Choreograph service.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graphId",
+          "workflowName"
+        ],
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "graph_id": {
+            "type": "string"
+          },
+          "workflowName": {
+            "type": "string"
+          },
+          "workflow_name": {
+            "type": "string"
+          },
+          "workflowArgs": {
+            "type": "object"
+          },
+          "workflow_args": {
+            "type": "object"
+          },
+          "workflowArgsBlock": {
+            "type": "object",
+            "properties": {
+              "documentId": {
+                "type": "string"
+              },
+              "document_id": {
+                "type": "string"
+              },
+              "blockId": {
+                "type": "string"
+              },
+              "block_id": {
+                "type": "string"
+              }
+            }
+          },
+          "workflow_args_block": {
+            "type": "object"
+          },
+          "workflowSource": {
+            "type": "string"
+          },
+          "workflow_source": {
+            "type": "string"
+          },
+          "workflowBinding": {
+            "type": "object"
+          },
+          "workflow_binding": {
+            "type": "object"
+          },
+          "workflowSourceBlock": {
+            "type": "object",
+            "properties": {
+              "documentId": {
+                "type": "string"
+              },
+              "document_id": {
+                "type": "string"
+              },
+              "blockId": {
+                "type": "string"
+              },
+              "block_id": {
+                "type": "string"
+              }
+            }
+          },
+          "workflow_source_block": {
+            "type": "object"
+          },
+          "sourceDocumentId": {
+            "type": "string"
+          },
+          "source_document_id": {
+            "type": "string"
+          },
+          "sourceBlockId": {
+            "type": "string"
+          },
+          "source_block_id": {
+            "type": "string"
+          },
+          "inputDocumentId": {
+            "type": "string"
+          },
+          "input_document_id": {
+            "type": "string"
+          },
+          "inputBlockId": {
+            "type": "string"
+          },
+          "input_block_id": {
+            "type": "string"
+          },
+          "scriptSha256": {
+            "type": "string"
+          },
+          "script_sha256": {
+            "type": "string"
+          },
+          "autoStart": {
+            "type": "boolean"
+          },
+          "auto_start": {
+            "type": "boolean"
+          },
+          "allowInvalid": {
+            "type": "boolean"
+          },
+          "allow_invalid": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "workflow_run_monitor",
+      "description": "Poll Choreograph run detail and JSON telemetry events through Garden's local service facade. Pass runId directly, or pass graphId + workflowName to monitor the latest recorded run for that workflow.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "graph_id": {
+            "type": "string"
+          },
+          "workflowName": {
+            "type": "string"
+          },
+          "workflow_name": {
+            "type": "string"
+          },
+          "runId": {
+            "type": "string"
+          },
+          "run_id": {
+            "type": "string"
+          },
+          "since": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "includeEvents": {
+            "type": "boolean"
+          },
+          "include_events": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "semantic_search",
+      "description": "Search the prepared local semantic index for a graph.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graphId",
+          "query"
+        ],
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          }
+        }
+      }
+    },
+    {
+      "name": "memory_semantic_recall",
+      "description": "Semantic recall over the graph's memory projection: embeds `query` and ranks the CURRENT (non-superseded), active memory records by cosine similarity — not a substring match. Pass `cutoff` (an ISO 8601 / xsd:dateTime instant, e.g. \"2026-07-01T00:00:00Z\") to recall as-of that point in time; only records with createdAt <= cutoff are candidates. Episode memories (kind=EpisodeMemory) are excluded by default — set includeEpisodes to include them. Returns provider/model/dimensions metadata plus ranked hits; an empty projection returns hits: [] rather than an error.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graphId",
+          "query"
+        ],
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "k": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          },
+          "cutoff": {
+            "type": "string",
+            "description": "ISO 8601 / xsd:dateTime instant (e.g. 2026-07-01T00:00:00Z) with an explicit offset or Z. Only records with createdAt <= cutoff are candidates."
+          },
+          "includeEpisodes": {
+            "type": "boolean"
+          },
+          "minScore": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "semantic_reason",
+      "description": "Resolve a virtual semantic relation query over the prepared local semantic scaffold.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graphId",
+          "relationIri"
+        ],
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "headIri": {
+            "type": "string"
+          },
+          "tailIri": {
+            "type": "string"
+          },
+          "relationIri": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          }
+        }
+      }
+    },
+    {
+      "name": "graph_intuition",
+      "description": "Compile and optionally execute a unified KG-ULTRA graph intuition request, returning an agent-facing storybook with routes for inspection and acceptance.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graphId"
+        ],
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "queryShape": {
+            "type": "string",
+            "enum": [
+              "link",
+              "reverseLink",
+              "path",
+              "intersection",
+              "union",
+              "logicalQuery"
+            ]
+          },
+          "headIri": {
+            "type": "string"
+          },
+          "tailIri": {
+            "type": "string"
+          },
+          "relationIri": {
+            "type": "string"
+          },
+          "queryAst": {
+            "type": "object"
+          },
+          "topK": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "minScore": {
+            "type": "number"
+          },
+          "maxHops": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "execute": {
+            "type": "boolean"
+          },
+          "autoStart": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_restore_points",
+      "description": "List local time-travel restore points for a graph, newest first, with cursor pagination.",
+      "inputSchema": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        }
+      }
+    },
+    {
+      "name": "get_restore_point",
+      "description": "Read the manifest of a single local restore point, including referenced per-document snapshot ids.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "restorePointId"
+        ],
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "restore_point_id": {
+            "type": "string"
+          },
+          "restorePointId": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_restore_point",
+      "description": "Capture a new local restore point bundling the workspace state with a fresh snapshot of every document. Optional label is shown in listings.",
+      "inputSchema": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "trigger": {
+            "type": "string",
+            "enum": [
+              "manual",
+              "interval",
+              "checkpoint"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "diff_restore_points",
+      "description": "Compute aggregate document and char-level deltas between a restore point and another (or the live workspace).",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "restorePointId"
+        ],
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "restore_point_id": {
+            "type": "string"
+          },
+          "restorePointId": {
+            "type": "string"
+          },
+          "against": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "delete_restore_point",
+      "description": "Delete a local restore point and its bundled workspace snapshot. Per-document snapshots referenced by other restore points remain.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "restorePointId"
+        ],
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "restore_point_id": {
+            "type": "string"
+          },
+          "restorePointId": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "restore_to_restore_point",
+      "description": "Apply a local restore point: captures an auto-backup, atomically swaps Y.Doc state, rematerializes RDF, verifies, and on any failure rolls back from the auto-backup. Blocks all CRDT writes for the duration. Returns an operationId for status polling. Pass dryRun=true to validate without applying.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "restorePointId"
+        ],
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "restore_point_id": {
+            "type": "string"
+          },
+          "restorePointId": {
+            "type": "string"
+          },
+          "dry_run": {
+            "type": "boolean"
+          },
+          "dryRun": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_restore_operation",
+      "description": "Read the current state of a restore operation: phase, progress, backup pointer, error if any.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "operationId"
+        ],
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "operation_id": {
+            "type": "string"
+          },
+          "operationId": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "cancel_restore_operation",
+      "description": "Request cancellation of an in-flight restore. Cooperatively checked between phases; if cancelled mid-restore, the auto-backup is rolled back so the graph returns to its pre-restore state.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "operationId"
+        ],
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "operation_id": {
+            "type": "string"
+          },
+          "operationId": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "read_artifact",
+      "description": "Perceive a stored artifact: image kinds return base64 bytes (the agent's vision model can then see it), text returns decoded text, others return metadata.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "artifact_id"
+        ],
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "artifact_id": {
+            "type": "string"
+          },
+          "artifactId": { "type": "string" },
+          "strict_utf8": { "type": "boolean", "description": "Strict text/html or text/plain UTF-8, at most 2 MiB; returns actual current contentHashSha256 and graphIncarnation." }
+        }
+      }
+    },
+    {
+      "name": "create_artifact_text",
+      "description": "Create a new versioned text/html or text/plain artifact, never overwrite. Exact UTF-8 text up to 2 MiB. Bind operation_id to this request for replay; graph_incarnation is required. Original bytes are authority; workspace content identity is a refresh hint.",
+      "inputSchema": { "type": "object", "additionalProperties": false,
+        "required": ["graph_id","graph_incarnation","artifact_id","operation_id","filename","mime_type","text"],
+        "properties": {"graph_id":{"type":"string"},"graph_incarnation":{"type":"string"},"artifact_id":{"type":"string"},"operation_id":{"type":"string"},"filename":{"type":"string"},"mime_type":{"type":"string","enum":["text/html","text/plain"]},"text":{"type":"string"},"parent_id":{"type":"string"}}
+      }
+    },
+    {
+      "name": "write_artifact_text",
+      "description": "Replace exact UTF-8 bytes of a text-owned artifact (2 MiB maximum) only if expected_content_sha256 matches current bytes in graph_incarnation. Retains history and rejects stale writes. Same operation_id/request replays its receipt; changed payload conflicts. Equal content is a no-op.",
+      "inputSchema": { "type":"object", "additionalProperties":false,
+        "required":["graph_id","graph_incarnation","artifact_id","operation_id","expected_content_sha256","text"],
+        "properties":{"graph_id":{"type":"string"},"graph_incarnation":{"type":"string"},"artifact_id":{"type":"string"},"operation_id":{"type":"string"},"expected_content_sha256":{"type":"string","pattern":"^[a-f0-9]{64}$"},"text":{"type":"string"}}
+      }
+    },
+    {
+      "name": "list_artifact_kinds",
+      "description": "List artifact kinds and their capabilities (perceive/render/derive) from the graph-native kind ontology.",
+      "inputSchema": {
+        "type": "object",
+        "required": [],
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_artifact_revisions",
+      "description": "List the version history (revisions) of an artifact, newest first.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "artifact_id"
+        ],
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "artifact_id": {
+            "type": "string"
+          },
+          "artifactId": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "restore_artifact_revision",
+      "description": "Restore an artifact to a prior revision (checkpoints the current state first, so it is reversible).",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "artifact_id",
+          "revision_id"
+        ],
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "artifact_id": {
+            "type": "string"
+          },
+          "artifactId": {
+            "type": "string"
+          },
+          "revision_id": {
+            "type": "string"
+          },
+          "revisionId": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "edit_artifact_image",
+      "description": "Edit or generate an image artifact from a natural-language instruction via an image model, saving the result as a new revision.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "artifact_id",
+          "prompt"
+        ],
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "artifact_id": {
+            "type": "string"
+          },
+          "artifactId": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "instruction": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "source_pull",
+      "description": "Pull one identity-fenced, complete source bundle for a graph. The bundle includes workspace and document Y.Docs, Meaningful Object current-state and event sources, memory, valuations, retractions, conflicts, receipts, and the source contract registry. Persist the whole bundle and its complete manifest atomically before claiming offline completeness.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graphId"
+        ],
+        "properties": {
+          "graphId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "graph_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "graphIncarnation": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Optional on first pull; required on subsequent pulls to reject a replacement graph."
+          },
+          "graph_incarnation": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "source_push",
+      "description": "Atomically accept a batch of stable, identity-fenced offline source intents, return durable idempotency receipts, and materialize their effects. Current-state Meaningful Objects use causal base versions and explicit conflicts; event sources use stable event identity; Y.Doc updates merge; lifecycle effects are resumable.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graphId",
+          "graphIncarnation",
+          "operations"
+        ],
+        "properties": {
+          "graphId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "graph_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "graphIncarnation": {
+            "type": "string",
+            "minLength": 1
+          },
+          "graph_incarnation": {
+            "type": "string",
+            "minLength": 1
+          },
+          "operations": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1000,
+            "items": {
+              "type": "object",
+              "required": [
+                "kind",
+                "operationId"
+              ],
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "currentState",
+                    "resolveCurrent",
+                    "eventLog",
+                    "memory",
+                    "valuation",
+                    "retraction",
+                    "documentLifecycle",
+                    "workspaceUpdate",
+                    "documentUpdate",
+                    "crdtCommand",
+                    "graphMetadata"
+                  ]
+                },
+                "operationId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 160,
+                  "pattern": "^[A-Za-z0-9._:-]+$"
+                },
+                "vocab": {
+                  "type": "string"
+                },
+                "class": {
+                  "type": "string"
+                },
+                "objectId": {
+                  "type": "string"
+                },
+                "baseVersion": {
+                  "type": "string"
+                },
+                "record": {
+                  "type": "object"
+                },
+                "causalOrder": {
+                  "type": "integer"
+                },
+                "clientId": {
+                  "type": "string"
+                },
+                "evidenceWeight": {
+                  "type": "number"
+                },
+                "objectKey": {
+                  "type": "string"
+                },
+                "conflictId": {
+                  "type": "string"
+                },
+                "chosenOperationId": {
+                  "type": "string"
+                },
+                "eventId": {
+                  "type": "string"
+                },
+                "observer": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "publish": {
+                  "type": "boolean"
+                },
+                "atMs": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "records": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object"
+                  }
+                },
+                "valuationEventId": {
+                  "type": "string"
+                },
+                "documentId": {
+                  "type": "string"
+                },
+                "blockId": {
+                  "type": "string"
+                },
+                "importance": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 5
+                },
+                "valence": {
+                  "type": "integer",
+                  "minimum": -5,
+                  "maximum": 5
+                },
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "retractionEventId": {
+                  "type": "string"
+                },
+                "subject": {
+                  "type": "string"
+                },
+                "rationale": {
+                  "type": "string"
+                },
+                "retractionKind": {
+                  "type": "string",
+                  "enum": [
+                    "retract",
+                    "archive"
+                  ]
+                },
+                "action": {
+                  "type": "string",
+                  "enum": [
+                    "create",
+                    "delete",
+                    "recreate"
+                  ]
+                },
+                "title": {
+                  "type": "string"
+                },
+                "newDocumentIncarnation": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "expectedDocumentIncarnation": {
+                  "type": "string"
+                },
+                "initialUpdateBase64": {
+                  "type": "string",
+                  "contentEncoding": "base64"
+                },
+                "documentIncarnation": {
+                  "type": "string"
+                },
+                "updateBase64": {
+                  "type": "string",
+                  "contentEncoding": "base64"
+                },
+                "commandKind": {
+                  "type": "string"
+                },
+                "payload": {
+                  "type": "object"
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "source_rebuild",
+      "description": "Recompute disposable Meaningful Object, memory, valuation, retraction, conflict, and workflow projections from the identity-fenced durable source ledger, reporting source and projection set hashes for rebuild verification.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graphId",
+          "graphIncarnation"
+        ],
+        "properties": {
+          "graphId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "graph_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "graphIncarnation": {
+            "type": "string",
+            "minLength": 1
+          },
+          "graph_incarnation": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  ]
+}

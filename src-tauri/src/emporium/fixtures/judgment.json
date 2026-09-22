@@ -1,0 +1,17 @@
+{
+  "shortId": "wf-demo",
+  "preamble": "Demo.",
+  "rationale": "",
+  "nodeArchetypes": {
+    "a": "NEW:alpha",
+    "b": "NEW:alpha"
+  },
+  "newArchetypes": [
+    {
+      "slug": "alpha",
+      "title": "Alpha",
+      "role": "r",
+      "template": "t"
+    }
+  ]
+}

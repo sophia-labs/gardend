@@ -1,0 +1,720 @@
+{
+  "schemaVersion": 1,
+  "description": "Initial local loopback timing budgets for parity:loopback. Budgets are reported by the harness first; individual entries can be enforced after repeated samples stabilize.",
+  "budgets": [
+    {
+      "name": "graph metadata read",
+      "operation": "graphMetadataReadMs",
+      "maxMs": 150,
+      "enforced": false,
+      "category": "graph-metadata"
+    },
+    {
+      "name": "graph metadata update",
+      "operation": "graphMetadataUpdateMs",
+      "maxMs": 250,
+      "enforced": false,
+      "category": "graph-metadata"
+    },
+    {
+      "name": "graph metadata delete",
+      "operation": "graphMetadataDeleteMs",
+      "maxMs": 250,
+      "enforced": false,
+      "category": "graph-metadata"
+    },
+    {
+      "name": "graph analytics summary",
+      "operation": "graphAnalyticsSummaryMs",
+      "maxMs": 300,
+      "enforced": false,
+      "category": "graph-analytics"
+    },
+    {
+      "name": "graph analytics properties",
+      "operation": "graphAnalyticsPropertiesMs",
+      "maxMs": 300,
+      "enforced": false,
+      "category": "graph-analytics"
+    },
+    {
+      "name": "graph analytics viz",
+      "operation": "graphAnalyticsVizMs",
+      "maxMs": 300,
+      "enforced": false,
+      "category": "graph-analytics"
+    },
+    {
+      "name": "graph RDF export",
+      "operation": "graphExportMs",
+      "maxMs": 500,
+      "enforced": false,
+      "category": "graph-export"
+    },
+    {
+      "name": "graph RDF import",
+      "operation": "graphRdfImportMs",
+      "maxMs": 500,
+      "enforced": false,
+      "category": "graph-import"
+    },
+    {
+      "name": "graph archive import",
+      "operation": "graphArchiveImportMs",
+      "maxMs": 2000,
+      "enforced": false,
+      "category": "graph-import"
+    },
+    {
+      "name": "Obsidian archive import",
+      "operation": "graphObsidianImportMs",
+      "maxMs": 1500,
+      "enforced": false,
+      "category": "graph-import"
+    },
+    {
+      "name": "Notion archive import",
+      "operation": "graphNotionImportMs",
+      "maxMs": 1500,
+      "enforced": false,
+      "category": "graph-import"
+    },
+    {
+      "name": "Roam archive import",
+      "operation": "graphRoamImportMs",
+      "maxMs": 1500,
+      "enforced": false,
+      "category": "graph-import"
+    },
+    {
+      "name": "graph stats",
+      "operation": "graphStatsMs",
+      "maxMs": 300,
+      "enforced": false,
+      "category": "graph-support"
+    },
+    {
+      "name": "graph duplicate route",
+      "operation": "graphDuplicateRouteMs",
+      "maxMs": 1000,
+      "enforced": false,
+      "category": "graph-support"
+    },
+    {
+      "name": "document creation preflight",
+      "operation": "documentPreflightMs",
+      "maxMs": 150,
+      "enforced": false,
+      "category": "graph-support"
+    },
+    {
+      "name": "MCP create_graph",
+      "operation": "mcpCreateGraphMs",
+      "maxMs": 250,
+      "enforced": false,
+      "category": "mcp-graph"
+    },
+    {
+      "name": "MCP duplicate_graph",
+      "operation": "mcpDuplicateGraphMs",
+      "maxMs": 1000,
+      "enforced": false,
+      "category": "mcp-graph"
+    },
+    {
+      "name": "MCP manage_graph read",
+      "operation": "mcpManageGraphReadMs",
+      "maxMs": 250,
+      "enforced": false,
+      "category": "mcp-graph"
+    },
+    {
+      "name": "MCP manage_graph stats",
+      "operation": "mcpManageGraphStatsMs",
+      "maxMs": 350,
+      "enforced": false,
+      "category": "mcp-graph"
+    },
+    {
+      "name": "MCP manage_graph delete",
+      "operation": "mcpManageGraphDeleteMs",
+      "maxMs": 250,
+      "enforced": false,
+      "category": "mcp-graph"
+    },
+    {
+      "name": "MCP update_graph",
+      "operation": "mcpUpdateGraphMs",
+      "maxMs": 250,
+      "enforced": false,
+      "category": "mcp-graph"
+    },
+    {
+      "name": "MCP query_graph",
+      "operation": "mcpQueryGraphMs",
+      "maxMs": 250,
+      "enforced": false,
+      "category": "mcp-graph"
+    },
+    {
+      "name": "MCP reindex_graph",
+      "operation": "mcpReindexGraphMs",
+      "maxMs": 500,
+      "enforced": false,
+      "category": "mcp-graph"
+    },
+    {
+      "name": "MCP cancel_job",
+      "operation": "mcpCancelJobMs",
+      "maxMs": 150,
+      "enforced": false,
+      "category": "mcp-graph"
+    },
+    {
+      "name": "MCP quick_orient",
+      "operation": "mcpQuickOrientMs",
+      "maxMs": 250,
+      "enforced": false,
+      "category": "mcp-orientation"
+    },
+    {
+      "name": "MCP context_bundle",
+      "operation": "mcpContextBundleMs",
+      "maxMs": 350,
+      "enforced": false,
+      "category": "mcp-orientation"
+    },
+    {
+      "name": "MCP remember",
+      "operation": "mcpRememberMs",
+      "maxMs": 150,
+      "enforced": false,
+      "category": "mcp-memory"
+    },
+    {
+      "name": "MCP recall",
+      "operation": "mcpRecallMs",
+      "maxMs": 150,
+      "enforced": false,
+      "category": "mcp-memory"
+    },
+    {
+      "name": "MCP care",
+      "operation": "mcpCareMs",
+      "maxMs": 150,
+      "enforced": false,
+      "category": "mcp-memory"
+    },
+    {
+      "name": "MCP archive_memories",
+      "operation": "mcpArchiveMemoriesMs",
+      "maxMs": 350,
+      "enforced": false,
+      "category": "mcp-memory"
+    },
+    {
+      "name": "MCP music",
+      "operation": "mcpMusicMs",
+      "maxMs": 150,
+      "enforced": false,
+      "category": "mcp-narrative"
+    },
+    {
+      "name": "MCP sing",
+      "operation": "mcpSingMs",
+      "maxMs": 250,
+      "enforced": false,
+      "category": "mcp-narrative"
+    },
+    {
+      "name": "MCP surface",
+      "operation": "mcpSurfaceMs",
+      "maxMs": 150,
+      "enforced": false,
+      "category": "mcp-narrative"
+    },
+    {
+      "name": "MCP get_document_history",
+      "operation": "mcpDocumentHistoryMs",
+      "maxMs": 150,
+      "enforced": false,
+      "category": "mcp-history"
+    },
+    {
+      "name": "MCP read_document_at_snapshot",
+      "operation": "mcpReadSnapshotMs",
+      "maxMs": 150,
+      "enforced": false,
+      "category": "mcp-history"
+    },
+    {
+      "name": "document snapshot list",
+      "operation": "documentSnapshotListMs",
+      "maxMs": 150,
+      "enforced": false,
+      "category": "document-history"
+    },
+    {
+      "name": "document snapshot count",
+      "operation": "documentSnapshotCountMs",
+      "maxMs": 150,
+      "enforced": false,
+      "category": "document-history"
+    },
+    {
+      "name": "document snapshot text",
+      "operation": "documentSnapshotTextMs",
+      "maxMs": 150,
+      "enforced": false,
+      "category": "document-history"
+    },
+    {
+      "name": "document snapshot HTML",
+      "operation": "documentSnapshotHtmlMs",
+      "maxMs": 150,
+      "enforced": false,
+      "category": "document-history"
+    },
+    {
+      "name": "document snapshot manual mutations",
+      "operation": "documentSnapshotManualMutationMs",
+      "maxMs": 250,
+      "enforced": false,
+      "category": "document-history"
+    },
+    {
+      "name": "MCP value",
+      "operation": "mcpValueMs",
+      "maxMs": 250,
+      "enforced": false,
+      "category": "mcp-values"
+    },
+    {
+      "name": "MCP get_values",
+      "operation": "mcpGetValuesMs",
+      "maxMs": 150,
+      "enforced": false,
+      "category": "mcp-values"
+    },
+    {
+      "name": "MCP revaluate",
+      "operation": "mcpRevaluateMs",
+      "maxMs": 250,
+      "enforced": false,
+      "category": "mcp-values"
+    },
+    {
+      "name": "MCP get_block_values",
+      "operation": "mcpGetBlockValuesMs",
+      "maxMs": 150,
+      "enforced": false,
+      "category": "mcp-values"
+    },
+    {
+      "name": "MCP get_important_blocks",
+      "operation": "mcpGetImportantBlocksMs",
+      "maxMs": 150,
+      "enforced": false,
+      "category": "mcp-values"
+    },
+    {
+      "name": "salience values",
+      "operation": "salienceValuesMs",
+      "maxMs": 150,
+      "enforced": false,
+      "category": "salience"
+    },
+    {
+      "name": "salience apply value",
+      "operation": "salienceApplyValueMs",
+      "maxMs": 250,
+      "enforced": false,
+      "category": "salience"
+    },
+    {
+      "name": "salience user value",
+      "operation": "salienceUserValueMs",
+      "maxMs": 250,
+      "enforced": false,
+      "category": "salience"
+    },
+    {
+      "name": "salience config patch",
+      "operation": "salienceConfigPatchMs",
+      "maxMs": 250,
+      "enforced": false,
+      "category": "salience"
+    },
+    {
+      "name": "MCP move_folder",
+      "operation": "mcpMoveFolderMs",
+      "maxMs": 250,
+      "enforced": false,
+      "category": "mcp-workspace"
+    },
+    {
+      "name": "MCP rename",
+      "operation": "mcpRenameMs",
+      "maxMs": 250,
+      "enforced": false,
+      "category": "mcp-workspace"
+    },
+    {
+      "name": "MCP delete",
+      "operation": "mcpDeleteMs",
+      "maxMs": 350,
+      "enforced": false,
+      "category": "mcp-workspace"
+    },
+    {
+      "name": "MCP create_wires",
+      "operation": "mcpCreateWiresMs",
+      "maxMs": 350,
+      "enforced": false,
+      "category": "mcp-wires"
+    },
+    {
+      "name": "MCP traverse_wires",
+      "operation": "mcpTraverseWiresMs",
+      "maxMs": 150,
+      "enforced": false,
+      "category": "mcp-wires"
+    },
+    {
+      "name": "MCP make_document_editable",
+      "operation": "mcpMakeDocumentEditableMs",
+      "maxMs": 250,
+      "enforced": false,
+      "category": "mcp-document"
+    },
+    {
+      "name": "MCP edit_comment",
+      "operation": "mcpEditCommentMs",
+      "maxMs": 250,
+      "enforced": false,
+      "category": "mcp-document"
+    },
+    {
+      "name": "MCP upload_artifact",
+      "operation": "mcpUploadArtifactMs",
+      "maxMs": 600,
+      "enforced": false,
+      "category": "mcp-artifact"
+    },
+    {
+      "name": "MCP ingest_artifact",
+      "operation": "mcpIngestArtifactMs",
+      "maxMs": 1000,
+      "enforced": false,
+      "category": "mcp-artifact"
+    },
+    {
+      "name": "search rematerialize",
+      "operation": "searchRematerializeMs",
+      "maxMs": 350,
+      "enforced": false,
+      "category": "search-rdf"
+    },
+    {
+      "name": "search reindex",
+      "operation": "searchReindexMs",
+      "maxMs": 500,
+      "enforced": false,
+      "category": "search-semantic"
+    },
+    {
+      "name": "navigation folder put",
+      "operation": "navigationFolderPutMs",
+      "maxMs": 250,
+      "enforced": false,
+      "category": "navigation-write"
+    },
+    {
+      "name": "navigation folder delete",
+      "operation": "navigationFolderDeleteMs",
+      "maxMs": 250,
+      "enforced": false,
+      "category": "navigation-write"
+    },
+    {
+      "name": "navigation job result",
+      "operation": "navigationJobResultMs",
+      "maxMs": 150,
+      "enforced": false,
+      "category": "navigation-read"
+    },
+    {
+      "name": "entity type registry",
+      "operation": "entityTypesMs",
+      "maxMs": 150,
+      "enforced": false,
+      "category": "entity-read"
+    },
+    {
+      "name": "entity document list",
+      "operation": "entityDocumentListMs",
+      "maxMs": 150,
+      "enforced": false,
+      "category": "entity-read"
+    },
+    {
+      "name": "entity document get",
+      "operation": "entityDocumentGetMs",
+      "maxMs": 150,
+      "enforced": false,
+      "category": "entity-read"
+    },
+    {
+      "name": "entity folder put",
+      "operation": "entityFolderPutMs",
+      "maxMs": 250,
+      "enforced": false,
+      "category": "entity-write"
+    },
+    {
+      "name": "entity artifact put",
+      "operation": "entityArtifactPutMs",
+      "maxMs": 250,
+      "enforced": false,
+      "category": "entity-write"
+    },
+    {
+      "name": "entity document put",
+      "operation": "entityDocumentPutMs",
+      "maxMs": 250,
+      "enforced": false,
+      "category": "entity-write"
+    },
+    {
+      "name": "entity document revision conflict",
+      "operation": "entityRevisionConflictMs",
+      "maxMs": 150,
+      "enforced": false,
+      "category": "entity-write"
+    },
+    {
+      "name": "entity folder blocked delete",
+      "operation": "entityFolderBlockedDeleteMs",
+      "maxMs": 250,
+      "enforced": false,
+      "category": "entity-write"
+    },
+    {
+      "name": "entity cleanup delete",
+      "operation": "entityDeleteMs",
+      "maxMs": 350,
+      "enforced": false,
+      "category": "entity-write"
+    },
+    {
+      "name": "document export markdown",
+      "operation": "documentExportMarkdownMs",
+      "maxMs": 250,
+      "enforced": false,
+      "category": "document-export"
+    },
+    {
+      "name": "workspace Y.Doc blob",
+      "operation": "workspaceBlobMs",
+      "maxMs": 150,
+      "enforced": false,
+      "category": "document-read"
+    },
+    {
+      "name": "document Y.Doc blob",
+      "operation": "documentBlobMs",
+      "maxMs": 150,
+      "enforced": false,
+      "category": "document-read"
+    },
+    {
+      "name": "document duplicate",
+      "operation": "documentDuplicateMs",
+      "maxMs": 350,
+      "enforced": false,
+      "category": "common-write"
+    },
+    {
+      "name": "document description patch",
+      "operation": "documentDescriptionPatchMs",
+      "maxMs": 250,
+      "enforced": false,
+      "category": "common-write"
+    },
+    {
+      "name": "document flush",
+      "operation": "documentFlushMs",
+      "maxMs": 250,
+      "enforced": false,
+      "category": "common-write"
+    },
+    {
+      "name": "hosted document write",
+      "operation": "documentWriteSmokeMs",
+      "maxMs": 250,
+      "enforced": false,
+      "category": "common-write"
+    },
+    {
+      "name": "MCP write_document",
+      "operation": "mcpWriteDocumentMs",
+      "maxMs": 250,
+      "enforced": false,
+      "category": "common-write"
+    },
+    {
+      "name": "block seed write",
+      "operation": "blockSeedWriteMs",
+      "maxMs": 350,
+      "enforced": false,
+      "category": "common-write"
+    },
+    {
+      "name": "block insert",
+      "operation": "blockInsertMs",
+      "maxMs": 150,
+      "enforced": false,
+      "category": "common-write"
+    },
+    {
+      "name": "block update",
+      "operation": "blockUpdateMs",
+      "maxMs": 150,
+      "enforced": false,
+      "category": "common-write"
+    },
+    {
+      "name": "block edit text",
+      "operation": "blockEditTextMs",
+      "maxMs": 150,
+      "enforced": false,
+      "category": "common-write"
+    },
+    {
+      "name": "block delete",
+      "operation": "blockDeleteMs",
+      "maxMs": 150,
+      "enforced": false,
+      "category": "common-write"
+    },
+    {
+      "name": "Markdown upload",
+      "operation": "artifactUploadMarkdownMs",
+      "maxMs": 250,
+      "enforced": false,
+      "category": "ingestion-fast-path"
+    },
+    {
+      "name": "HTML upload",
+      "operation": "artifactUploadHtmlMs",
+      "maxMs": 300,
+      "enforced": false,
+      "category": "ingestion-fast-path"
+    },
+    {
+      "name": "EPUB upload",
+      "operation": "artifactUploadEpubMs",
+      "maxMs": 600,
+      "enforced": false,
+      "category": "ingestion-fast-path"
+    },
+    {
+      "name": "PDF upload",
+      "operation": "artifactUploadPdfMs",
+      "maxMs": 3500,
+      "enforced": false,
+      "category": "ingestion-heavy"
+    },
+    {
+      "name": "PDF accurate facade",
+      "operation": "artifactPdfAccurateMs",
+      "maxMs": 3500,
+      "enforced": false,
+      "category": "ingestion-heavy"
+    },
+    {
+      "name": "async artifact upload acceptance",
+      "operation": "artifactUploadAsyncMs",
+      "maxMs": 500,
+      "enforced": false,
+      "category": "ingestion-async"
+    },
+    {
+      "name": "web clip private-target guard",
+      "operation": "graphWebClipImportMs",
+      "maxMs": 1500,
+      "enforced": false,
+      "category": "ingestion-network"
+    },
+    {
+      "name": "YouTube validation import",
+      "operation": "graphYoutubeInvalidImportMs",
+      "maxMs": 250,
+      "enforced": false,
+      "category": "ingestion-network"
+    },
+    {
+      "name": "batch upload",
+      "operation": "artifactBatchUploadMs",
+      "maxMs": 250,
+      "enforced": false,
+      "category": "ingestion-fast-path"
+    },
+    {
+      "name": "batch prepare",
+      "operation": "artifactBatchPrepareMs",
+      "maxMs": 250,
+      "enforced": false,
+      "category": "navigation-write"
+    },
+    {
+      "name": "batch register",
+      "operation": "artifactBatchRegisterMs",
+      "maxMs": 350,
+      "enforced": false,
+      "category": "navigation-write"
+    },
+    {
+      "name": "image upload",
+      "operation": "artifactImageUploadMs",
+      "maxMs": 250,
+      "enforced": false,
+      "category": "ingestion-fast-path"
+    },
+    {
+      "name": "artifact metadata PUT",
+      "operation": "artifactMetadataPutMs",
+      "maxMs": 250,
+      "enforced": false,
+      "category": "navigation-write"
+    },
+    {
+      "name": "artifact route import",
+      "operation": "artifactRouteImportMs",
+      "maxMs": 600,
+      "enforced": false,
+      "category": "artifact-import"
+    },
+    {
+      "name": "async artifact route import acceptance",
+      "operation": "artifactRouteImportAsyncMs",
+      "maxMs": 500,
+      "enforced": false,
+      "category": "artifact-import"
+    },
+    {
+      "name": "artifact route ingest",
+      "operation": "artifactRouteIngestMs",
+      "maxMs": 600,
+      "enforced": false,
+      "category": "artifact-import"
+    },
+    {
+      "name": "artifact route convert",
+      "operation": "artifactRouteConvertMs",
+      "maxMs": 350,
+      "enforced": false,
+      "category": "artifact-import"
+    }
+  ]
+}

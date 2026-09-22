@@ -1,0 +1,67 @@
+{
+    "classes": {
+        "Bookmark": {
+            "comment": "A saved web reference. The first product vocab proven end-to-end through the GENERIC publication path (EA-3 spine): registered -> served -> generic-ingested -> B4/B5-materialized into :projection:bookmark -> SHACL-validated -> queried back. One simple class, content-addressed subject via the Template subject-rule grammar.",
+            "predicates": {
+                "bm:url": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "the bookmarked resource (absolute IRI)"
+                },
+                "bm:title": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "human-readable label"
+                },
+                "bm:note": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "optional free-text annotation"
+                },
+                "bm:tag": {
+                    "datatype": "string",
+                    "multi": true,
+                    "required": false,
+                    "source": "zero or more free-text tags"
+                },
+                "bm:createdAt": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": false,
+                    "source": "epoch-ms when the bookmark was filed"
+                }
+            },
+            "rdf_types": [
+                "bm:Bookmark"
+            ],
+            "subject_rule": "{graph_subject}:projection:bookmark:bookmark:{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:bookmark",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        }
+    },
+    "comanaged_forbidden": [
+        "doc:",
+        "mnemo:",
+        "nfo:"
+    ],
+    "comment": "Sophia Emporium example product vocabulary. NOT a memory/workflow/salience pack \u2014 it is a stand-alone, minimal third-party-shaped vocab authored to prove the GENERIC ingest -> materialize -> SHACL-validate path works for an arbitrary registered vocab (the EA-3 hyperbaric-chamber foundation). bm: subjects are URN-space so dcterms:/prov: would be safe; the projection lives ONLY in urn:mnemosyne:local:graph:{id}:projection:bookmark and is DERIVED/regenerable, never source of truth.",
+    "description": "A minimal example vocabulary: the Bookmark \u2014 a saved web reference with a required URL + title, an optional note, optional tags, and an optional created-at. Authored to exercise the engine's generic publication spine on a real, registered, served pack.",
+    "name": "emporium-bookmark",
+    "namespaces": {
+        "bm": "http://mnemosyne.dev/bookmark#",
+        "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+        "xsd": "http://www.w3.org/2001/XMLSchema#"
+    },
+    "primary_prefix": "bm",
+    "title": "Emporium Bookmark Example Vocabulary",
+    "version": "1.0.0",
+    "write_target": "projection:bookmark"
+}

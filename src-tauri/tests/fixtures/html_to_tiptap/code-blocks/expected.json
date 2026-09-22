@@ -1,0 +1,88 @@
+{
+  "tiptapJson": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "codeBlock",
+        "attrs": {
+          "data-source-format": null,
+          "data-source-approach": null,
+          "data-source-page": null,
+          "data-source-role": null,
+          "data-source-id": null,
+          "data-pdf-page": null,
+          "data-pdf-role": null,
+          "language": "python"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "def main():\n    print(\"hi\")"
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "attrs": {
+          "data-source-format": null,
+          "data-source-approach": null,
+          "data-source-page": null,
+          "data-source-role": null,
+          "data-source-id": null,
+          "data-pdf-page": null,
+          "data-pdf-role": null,
+          "textAlign": null,
+          "indent": 0,
+          "collapsed": false
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "Between code blocks."
+          }
+        ]
+      },
+      {
+        "type": "codeBlock",
+        "attrs": {
+          "data-source-format": null,
+          "data-source-approach": null,
+          "data-source-page": null,
+          "data-source-role": null,
+          "data-source-id": null,
+          "data-pdf-page": null,
+          "data-pdf-role": null,
+          "language": null
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "plain code\nno language"
+          }
+        ]
+      },
+      {
+        "type": "codeBlock",
+        "attrs": {
+          "data-source-format": null,
+          "data-source-approach": null,
+          "data-source-page": null,
+          "data-source-role": null,
+          "data-source-id": null,
+          "data-pdf-page": null,
+          "data-pdf-role": null,
+          "language": null
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "bare pre text"
+          }
+        ]
+      }
+    ]
+  },
+  "derivedTitle": null,
+  "sourceFormat": "html",
+  "warnings": []
+}

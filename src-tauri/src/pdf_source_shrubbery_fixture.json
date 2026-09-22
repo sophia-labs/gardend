@@ -1,0 +1,50 @@
+{
+  "evidenceClass": "portable-contract-fixture-not-pdf-truth",
+  "text": "A leaf 🪴\nExact.",
+  "expectedTextSha256": "a77bb498edd83bf16084af939ccf638e8632bc95437c003541d8306608141935",
+  "anchor": {
+    "version": 1,
+    "source": {
+      "sha256": "9518a533f83a3e96b86ab3b7fd14e4c6f56484709284a4b0f62af27aa668a7fb",
+      "byteLength": 1832,
+      "artifactId": "artifact-fixture",
+      "revisionId": "rev-1"
+    },
+    "textSha256": "a77bb498edd83bf16084af939ccf638e8632bc95437c003541d8306608141935",
+    "relation": "derived-from",
+    "precision": "block",
+    "extraction": {
+      "approach": "pdf.fast-text",
+      "version": "fixture-v1"
+    },
+    "targets": [
+      {
+        "pageIndex": 1,
+        "space": "pdf-user-space",
+        "viewBox": [
+          -10,
+          20,
+          590,
+          820
+        ],
+        "userUnit": 2,
+        "rotation": 90,
+        "rects": [
+          [
+            20,
+            30,
+            80,
+            42
+          ],
+          [
+            20,
+            50,
+            90,
+            62
+          ]
+        ]
+      }
+    ]
+  },
+  "wire": "{\"version\":1,\"source\":{\"sha256\":\"9518a533f83a3e96b86ab3b7fd14e4c6f56484709284a4b0f62af27aa668a7fb\",\"byteLength\":1832,\"artifactId\":\"artifact-fixture\",\"revisionId\":\"rev-1\"},\"textSha256\":\"a77bb498edd83bf16084af939ccf638e8632bc95437c003541d8306608141935\",\"relation\":\"derived-from\",\"precision\":\"block\",\"extraction\":{\"approach\":\"pdf.fast-text\",\"version\":\"fixture-v1\"},\"targets\":[{\"pageIndex\":1,\"space\":\"pdf-user-space\",\"viewBox\":[-10,20,590,820],\"userUnit\":2,\"rotation\":90,\"rects\":[[20,30,80,42],[20,50,90,62]]}]}"
+}

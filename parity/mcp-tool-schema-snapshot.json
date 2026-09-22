@@ -1,0 +1,429 @@
+{
+  "schemaVersion": 1,
+  "description": "Compact schema snapshot for the local loopback MCP tools/list response. The live loopback checker compares required fields and property names so tool schemas cannot drift silently.",
+  "tools": {
+    "list_graphs": {
+      "required": [],
+      "properties": []
+    },
+    "quick_orient": {
+      "required": [],
+      "properties": ["graphId", "graph_id", "recallLimit", "recall_limit"]
+    },
+    "context_bundle": {
+      "required": [],
+      "properties": [
+        "agentName",
+        "agent_name",
+        "graphId",
+        "graph_id",
+        "importantLimit",
+        "important_limit",
+        "recallLimit",
+        "recall_limit",
+        "setHome",
+        "set_home",
+        "workspaceDepth",
+        "workspace_depth"
+      ]
+    },
+    "remember": {
+      "required": ["content"],
+      "properties": ["blockIds", "block_ids", "content", "graphId", "graph_id", "predicates"]
+    },
+    "recall": {
+      "required": [],
+      "properties": ["graphId", "graph_id", "limit", "number", "query"]
+    },
+    "care": {
+      "required": [],
+      "properties": ["graphId", "graph_id", "numbers"]
+    },
+    "archive_memories": {
+      "required": [],
+      "properties": ["graphId", "graph_id", "keep"]
+    },
+    "music": {
+      "required": [],
+      "properties": ["graphId", "graph_id"]
+    },
+    "sing": {
+      "required": [],
+      "properties": ["graphId", "graph_id", "mode", "verse", "verseIndex", "verse_index"]
+    },
+    "surface": {
+      "required": [],
+      "properties": ["actions", "graphId", "graph_id"]
+    },
+    "get_document_history": {
+      "required": ["documentId"],
+      "properties": ["documentId", "document_id", "graphId", "graph_id", "limit"]
+    },
+    "read_document_at_snapshot": {
+      "required": ["documentId", "snapshotId"],
+      "properties": ["documentId", "document_id", "graphId", "graph_id", "snapshotId", "snapshot_id"]
+    },
+    "create_graph": {
+      "required": ["graph_id", "title"],
+      "properties": ["description", "graph_id", "title"]
+    },
+    "duplicate_graph": {
+      "required": ["new_graph_id", "source_graph_id"],
+      "properties": ["newGraphId", "newTitle", "new_graph_id", "new_title", "sourceGraphId", "source_graph_id"]
+    },
+    "manage_graph": {
+      "required": ["action", "graph_id"],
+      "properties": ["action", "graphId", "graph_id", "hard"]
+    },
+    "update_graph": {
+      "required": ["graph_id"],
+      "properties": ["description", "graph_id", "title"]
+    },
+    "query_graph": {
+      "required": ["graph_id", "query"],
+      "properties": ["graph_id", "max_rows", "query", "result_format", "timeout_ms"]
+    },
+    "get_job_status": {
+      "required": ["job_id"],
+      "properties": ["jobId", "job_id"]
+    },
+    "get_job_result": {
+      "required": ["job_id"],
+      "properties": ["jobId", "job_id"]
+    },
+    "cancel_job": {
+      "required": ["job_id"],
+      "properties": ["jobId", "job_id"]
+    },
+    "reindex_graph": {
+      "required": ["graph_id"],
+      "properties": ["graph_id"]
+    },
+    "list_documents": {
+      "required": ["graphId"],
+      "properties": ["graphId"]
+    },
+    "get_workspace": {
+      "required": ["graphId"],
+      "properties": ["depth", "foldersOnly", "graphId"]
+    },
+    "read_document": {
+      "required": ["documentId", "graphId"],
+      "properties": ["documentId", "format", "graphId"]
+    },
+    "write_document": {
+      "required": ["content"],
+      "properties": [
+        "awaitDurable",
+        "await_durable",
+        "comments",
+        "content",
+        "documentId",
+        "document_id",
+        "format",
+        "graphId",
+        "graph_id"
+      ]
+    },
+    "read_blocks": {
+      "required": ["documentId", "graphId"],
+      "properties": ["blockId", "documentId", "format", "graphId", "includeIds", "limit", "offset"]
+    },
+    "document_digest": {
+      "required": ["documentId", "graphId"],
+      "properties": ["documentId", "graphId", "topValued"]
+    },
+    "value": {
+      "required": [],
+      "properties": [
+        "blockId",
+        "block_id",
+        "documentId",
+        "document_id",
+        "graphId",
+        "graph_id",
+        "importance",
+        "tags",
+        "valence",
+        "valuations"
+      ]
+    },
+    "get_values": {
+      "required": [],
+      "properties": ["graphId", "graph_id"]
+    },
+    "revaluate": {
+      "required": [],
+      "properties": [
+        "graphId",
+        "graph_id",
+        "importancePrompt",
+        "importance_prompt",
+        "valencePrompt",
+        "valence_prompt",
+        "weights"
+      ]
+    },
+    "get_block_values": {
+      "required": [],
+      "properties": [
+        "blockId",
+        "block_id",
+        "documentId",
+        "document_id",
+        "graphId",
+        "graph_id",
+        "limit",
+        "minScore",
+        "min_score",
+        "valence"
+      ]
+    },
+    "get_important_blocks": {
+      "required": [],
+      "properties": ["documentId", "document_id", "graphId", "graph_id", "limit", "valence"]
+    },
+    "get_block": {
+      "required": ["blockId", "documentId", "graphId"],
+      "properties": ["blockId", "documentId", "format", "graphId"]
+    },
+    "query_blocks": {
+      "required": ["documentId", "graphId"],
+      "properties": ["blockType", "checked", "documentId", "graphId", "headingLevel", "limit", "queries", "textContains"]
+    },
+    "insert_blocks": {
+      "required": ["documentId", "graphId"],
+      "properties": ["blockId", "blocks", "content", "documentId", "format", "graphId", "index", "position", "tiptapJson"]
+    },
+    "update_blocks": {
+      "required": ["documentId", "graphId"],
+      "properties": ["attrs", "blockId", "documentId", "edits", "graphId"]
+    },
+    "edit_block_text": {
+      "required": ["blockId", "documentId", "graphId", "operations"],
+      "properties": ["blockId", "documentId", "graphId", "operations"]
+    },
+    "edit_comment": {
+      "required": ["action", "comment_id", "document_id"],
+      "properties": [
+        "action",
+        "author",
+        "blockId",
+        "block_id",
+        "commentId",
+        "comment_id",
+        "documentId",
+        "document_id",
+        "find",
+        "graphId",
+        "graph_id",
+        "occurrence",
+        "quotedText",
+        "quoted_text",
+        "resolved",
+        "text"
+      ]
+    },
+    "delete_blocks": {
+      "required": ["documentId", "graphId"],
+      "properties": ["blockId", "blockIds", "documentId", "graphId"]
+    },
+    "search_documents": {
+      "required": ["graphId"],
+      "properties": ["graphId", "limit", "mode", "queries", "query"]
+    },
+    "search_blocks": {
+      "required": ["graphId"],
+      "properties": ["docFilter", "graphId", "limit", "mode", "queries", "query"]
+    },
+    "list_wire_predicates": {
+      "required": ["graphId"],
+      "properties": ["graphId"]
+    },
+    "get_wires": {
+      "required": ["documentId", "graphId"],
+      "properties": ["direction", "documentId", "graphId", "predicate"]
+    },
+    "create_wires": {
+      "required": [],
+      "properties": [
+        "bidirectional",
+        "graphId",
+        "graph_id",
+        "predicate",
+        "sourceBlockId",
+        "sourceDocumentId",
+        "sourceMarkId",
+        "source_block_id",
+        "source_document_id",
+        "source_mark_id",
+        "targetBlockId",
+        "targetDocumentId",
+        "targetGraphId",
+        "targetMarkId",
+        "target_block_id",
+        "target_document_id",
+        "target_graph_id",
+        "target_mark_id",
+        "wireId",
+        "wire_id",
+        "wires"
+      ]
+    },
+    "traverse_wires": {
+      "required": ["document_id"],
+      "properties": [
+        "direction",
+        "documentId",
+        "document_id",
+        "graphId",
+        "graph_id",
+        "maxDepth",
+        "max_depth",
+        "predicate"
+      ]
+    },
+    "create_document": {
+      "required": ["graphId", "title"],
+      "properties": ["documentId", "graphId", "order", "parentId", "title"]
+    },
+    "delete_document": {
+      "required": ["documentId", "graphId"],
+      "properties": ["documentId", "graphId"]
+    },
+    "create_folder": {
+      "required": ["graphId", "name"],
+      "properties": ["folderId", "graphId", "name", "order", "parentId", "section"]
+    },
+    "move_documents": {
+      "required": ["documentIds", "graphId"],
+      "properties": ["documentIds", "graphId", "order", "parentId"]
+    },
+    "move_folder": {
+      "required": ["folder_id", "graph_id"],
+      "properties": [
+        "folderId",
+        "folder_id",
+        "graphId",
+        "graph_id",
+        "newOrder",
+        "newParentId",
+        "new_order",
+        "new_parent_id"
+      ]
+    },
+    "rename": {
+      "required": ["entity_type", "graph_id", "new_name"],
+      "properties": [
+        "entityId",
+        "entityType",
+        "entity_id",
+        "entity_type",
+        "graphId",
+        "graph_id",
+        "newName",
+        "new_name"
+      ]
+    },
+    "delete": {
+      "required": ["type"],
+      "properties": [
+        "blockId",
+        "blockIds",
+        "block_id",
+        "block_ids",
+        "cascade",
+        "documentId",
+        "documentIds",
+        "document_id",
+        "document_ids",
+        "folderId",
+        "folder_id",
+        "graphId",
+        "graph_id",
+        "hard",
+        "type",
+        "wireId",
+        "wireIds",
+        "wire_id",
+        "wire_ids"
+      ]
+    },
+    "make_document_editable": {
+      "required": ["document_id"],
+      "properties": ["documentId", "document_id", "graphId", "graph_id"]
+    },
+    "upload_artifact": {
+      "required": ["file_path"],
+      "properties": ["filePath", "file_path", "graphId", "graph_id", "label", "parentId", "parent_id"]
+    },
+    "ingest_artifact": {
+      "required": ["artifact_id"],
+      "properties": ["artifactId", "artifact_id", "graphId", "graph_id", "mode", "title"]
+    },
+    "flush_crdt": {
+      "required": ["graphId"],
+      "properties": ["documentId", "graphId"]
+    },
+    "crdt_operation": {
+      "required": ["graphId", "kind"],
+      "properties": ["documentId", "graphId", "kind", "payload"]
+    },
+    "sparql_query": {
+      "required": ["graphId", "query"],
+      "properties": ["graphId", "maxRows", "query", "timeoutMs"]
+    },
+    "sparql_update": {
+      "required": ["graphId", "update"],
+      "properties": ["graphId", "update"]
+    },
+    "rdf_load": {
+      "required": ["data", "format", "graphId"],
+      "properties": ["baseIri", "data", "format", "graphId", "targetGraphIri"]
+    },
+    "rdf_dump": {
+      "required": ["format", "graphId"],
+      "properties": ["format", "graphId", "sourceGraphIri"]
+    },
+    "semantic_search": {
+      "required": ["graphId", "query"],
+      "properties": ["graphId", "limit", "query"]
+    },
+    "memory_semantic_recall": {
+      "required": ["graphId", "query"],
+      "properties": ["graphId", "query", "k", "cutoff", "includeEpisodes", "minScore"]
+    },
+    "list_restore_points": {
+      "required": [],
+      "properties": ["cursor", "graphId", "graph_id", "limit"]
+    },
+    "get_restore_point": {
+      "required": ["restorePointId"],
+      "properties": ["graphId", "graph_id", "restorePointId", "restore_point_id"]
+    },
+    "create_restore_point": {
+      "required": [],
+      "properties": ["graphId", "graph_id", "label", "trigger"]
+    },
+    "diff_restore_points": {
+      "required": ["restorePointId"],
+      "properties": ["against", "graphId", "graph_id", "restorePointId", "restore_point_id"]
+    },
+    "delete_restore_point": {
+      "required": ["restorePointId"],
+      "properties": ["graphId", "graph_id", "restorePointId", "restore_point_id"]
+    },
+    "restore_to_restore_point": {
+      "required": ["restorePointId"],
+      "properties": ["dryRun", "dry_run", "graphId", "graph_id", "restorePointId", "restore_point_id"]
+    },
+    "get_restore_operation": {
+      "required": ["operationId"],
+      "properties": ["graphId", "graph_id", "operationId", "operation_id"]
+    },
+    "cancel_restore_operation": {
+      "required": ["operationId"],
+      "properties": ["graphId", "graph_id", "operationId", "operation_id"]
+    }
+  }
+}

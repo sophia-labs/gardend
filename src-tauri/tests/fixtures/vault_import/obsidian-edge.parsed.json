@@ -1,0 +1,62 @@
+{
+  "documents": [
+    {
+      "title": "Quoted Title",
+      "markdown": "Body with Display and tag1 plus `#code-tag` inline.\n\n```\nfenced-tag\n```\n\n then Target Note empty display.\n",
+      "folderPath": null,
+      "sourceFilename": "Quoted.md"
+    },
+    {
+      "title": "2026-05-01",
+      "markdown": "Daily body links Quoted Title.\n",
+      "folderPath": "Daily Notes/2026/05-May",
+      "sourceFilename": "Journals/2026-05-01.md"
+    },
+    {
+      "title": "Target Note",
+      "markdown": "# Target Note\n\nPlain body.\n",
+      "folderPath": null,
+      "sourceFilename": "Target Note.md"
+    }
+  ],
+  "wikilinks": [
+    {
+      "sourceTitle": "Quoted Title",
+      "targetTitle": "Target Note",
+      "displayText": "Display",
+      "sourceContext": "Body with [[Target Note#Section|Display]] and #tag1 plus `#code-tag` inline.",
+      "isTag": false
+    },
+    {
+      "sourceTitle": "Quoted Title",
+      "targetTitle": "Target Note",
+      "displayText": null,
+      "sourceContext": "then [[Target Note|]] empty display.",
+      "isTag": false
+    },
+    {
+      "sourceTitle": "Quoted Title",
+      "targetTitle": "- alpha",
+      "displayText": null,
+      "sourceContext": null,
+      "isTag": true
+    },
+    {
+      "sourceTitle": "Quoted Title",
+      "targetTitle": "tag1",
+      "displayText": null,
+      "sourceContext": "Body with [[Target Note#Section|Display]] and #tag1 plus `#code-tag` inline.",
+      "isTag": true
+    },
+    {
+      "sourceTitle": "2026-05-01",
+      "targetTitle": "Quoted Title",
+      "displayText": null,
+      "sourceContext": "Daily body links [[Quoted Title]].",
+      "isTag": false
+    }
+  ],
+  "warnings": [
+    "Skipped unsupported file types: .canvas, .css"
+  ]
+}

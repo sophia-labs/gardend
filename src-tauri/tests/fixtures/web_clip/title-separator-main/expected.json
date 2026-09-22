@@ -1,0 +1,4 @@
+{
+  "title": "Post Title",
+  "markdown": "# Post Title\n\nSource: https://example.com/post\n\n---\n\n## Section\n\nBody text with an [absolute link](https://elsewhere.example/abs)."
+}

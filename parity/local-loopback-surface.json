@@ -1,0 +1,2213 @@
+{
+  "schemaVersion": 4,
+  "description": "Tracked local-native loopback and MCP surface for hosted parity work.",
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/v1/graphs/{graph_id}/legacy-history",
+      "status": "implemented-local-document-history-raw",
+      "scopes": [
+        "documents.history.read"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/v1/documents/{graph_id}/{doc_id}/legacy-history",
+      "status": "implemented-local-document-history-raw",
+      "scopes": [
+        "documents.history.read"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/v1/documents/{graph_id}/{doc_id}/legacy-history/{snapshot_id}",
+      "status": "implemented-local-document-history-raw",
+      "scopes": [
+        "documents.history.read"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/v1/documents/{graph_id}/{doc_id}/legacy-history/{snapshot_id}/{view}",
+      "status": "implemented-local-document-history-raw",
+      "scopes": [
+        "documents.history.read"
+      ]
+    },
+    {"method":"GET","path":"/graphs/{graph_id}/ui/custom-css","status":"implemented","scopes":["workspace.read"]},
+    {"method":"PUT","path":"/graphs/{graph_id}/ui/custom-css","status":"implemented-crdt-queued","scopes":["workspace.write.crdt"]},
+    {"method":"DELETE","path":"/graphs/{graph_id}/ui/custom-css","status":"implemented-crdt-queued","scopes":["workspace.write.crdt"]},
+    {"method":"GET","path":"/artifacts/{graph_id}/{artifact_id}/text","status":"implemented-strict-text-read","scopes":["artifacts.read"]},
+    {"method":"POST","path":"/artifacts/{graph_id}/{artifact_id}/text","status":"implemented-crdt-queued","scopes":["artifacts.write","workspace.write.crdt"]},
+    {"method":"PUT","path":"/artifacts/{graph_id}/{artifact_id}/text","status":"implemented-crdt-queued","scopes":["artifacts.write","workspace.write.crdt"]},
+    {"method":"POST","path":"/artifacts/{graph_id}/{artifact_id}/text/restore","status":"implemented-crdt-queued","scopes":["artifacts.write","workspace.write.crdt"]},
+    {
+      "method": "GET",
+      "path": "/api/capabilities",
+      "status": "implemented",
+      "scopes": [
+        "runtime.capabilities.read"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/crdt/operations",
+      "status": "implemented",
+      "scopes": [
+        "documents.write.crdt",
+        "workspace.write.crdt",
+        "documents.delete.crdt",
+        "workspace.delete.crdt",
+        "artifacts.write",
+        "artifacts.delete",
+        "wires.write",
+        "wires.delete",
+        "artifacts.ingest",
+        "graphs.import",
+        "imports.web.write"
+      ],
+      "scopeMode": "operation-kind"
+    },
+    {
+      "method": "GET",
+      "path": "/api/graphs",
+      "status": "implemented",
+      "scopes": [
+        "graphs.read"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/graphs/catalog",
+      "status": "implemented-hosted-shaped",
+      "scopes": [
+        "graphs.read"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/local/crdt-timings",
+      "status": "local-only-debug",
+      "scopes": [
+        "diagnostics.crdt-timings.read"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/graphs",
+      "status": "implemented",
+      "scopes": [
+        "graphs.write"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/graphs/{graph_id}/documents",
+      "status": "implemented",
+      "scopes": [
+        "documents.read"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/graphs/{graph_id}/documents",
+      "status": "implemented-crdt-queued",
+      "scopes": [
+        "workspace.write.crdt"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/graphs/{graph_id}/documents/move",
+      "status": "implemented-crdt-queued",
+      "scopes": [
+        "workspace.write.crdt"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/graphs/{graph_id}/documents/{document_id}",
+      "status": "implemented",
+      "scopes": [
+        "documents.read"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/graphs/{graph_id}/documents/{document_id}",
+      "status": "implemented-crdt-queued",
+      "scopes": [
+        "documents.delete.crdt",
+        "workspace.delete.crdt"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/graphs/{graph_id}/folders",
+      "status": "implemented-crdt-queued",
+      "scopes": [
+        "workspace.write.crdt"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/graphs/jobs/{job_id}",
+      "status": "implemented",
+      "scopes": [
+        "jobs.read"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/graphs/jobs/{job_id}",
+      "status": "implemented",
+      "scopes": [
+        "jobs.cancel"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/graphs/jobs/{job_id}/result",
+      "status": "implemented",
+      "scopes": [
+        "jobs.read"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/graphs/query",
+      "status": "implemented",
+      "scopes": [
+        "rdf.query"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/graphs/update",
+      "status": "implemented",
+      "scopes": [
+        "rdf.update"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/profile",
+      "status": "implemented",
+      "scopes": [
+        "profile.read"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/rdf/dump",
+      "status": "implemented",
+      "scopes": [
+        "rdf.dump"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/rdf/load",
+      "status": "implemented",
+      "scopes": [
+        "rdf.load"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/semantic/index/status/{graph_id}",
+      "status": "implemented",
+      "scopes": [
+        "semantic.index.read"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/semantic/index/refresh",
+      "status": "implemented-sync-compatibility",
+      "scopes": [
+        "semantic.index.write"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/semantic/index/refresh/jobs",
+      "status": "implemented-async-job",
+      "scopes": [
+        "semantic.index.write"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/semantic/index/refresh/jobs/{job_id}",
+      "status": "implemented-async-job",
+      "scopes": [
+        "semantic.index.read"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/semantic/index/refresh/jobs/{job_id}",
+      "status": "implemented-async-job",
+      "scopes": [
+        "semantic.index.cancel"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/semantic/model/status",
+      "status": "implemented",
+      "scopes": [
+        "semantic.models.read"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/semantic/models",
+      "status": "implemented-catalog",
+      "scopes": [
+        "semantic.models.read"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/semantic/model/config",
+      "status": "implemented-config",
+      "scopes": [
+        "semantic.models.write"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/semantic/model/prepare",
+      "status": "implemented",
+      "scopes": [
+        "semantic.models.write"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/semantic/search",
+      "status": "implemented",
+      "scopes": [
+        "search.semantic.read"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/semantic/reason",
+      "status": "implemented-virtual",
+      "scopes": [
+        "search.semantic.read"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/sparql/query",
+      "status": "implemented",
+      "scopes": [
+        "rdf.query"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/sparql/update",
+      "status": "implemented",
+      "scopes": [
+        "rdf.update"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/health",
+      "status": "implemented",
+      "scopes": [],
+      "scopeMode": "public"
+    },
+    {
+      "method": "GET",
+      "path": "/manifest",
+      "status": "implemented",
+      "scopes": [
+        "loopback.manifest.read"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/openapi.json",
+      "status": "implemented",
+      "scopes": [
+        "loopback.openapi.read"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/graphs",
+      "status": "implemented-hosted-job",
+      "scopes": [
+        "graphs.read"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/graphs/catalog",
+      "status": "implemented-hosted-shaped",
+      "scopes": [
+        "graphs.read"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/graphs",
+      "status": "implemented-hosted-job",
+      "scopes": [
+        "graphs.write"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/graphs/import",
+      "status": "implemented-local-graph-archive-import-job",
+      "scopes": [
+        "graphs.import"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/graphs/query",
+      "status": "implemented",
+      "scopes": [
+        "rdf.query"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/graphs/update",
+      "status": "implemented",
+      "scopes": [
+        "rdf.update"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/graphs/stats",
+      "status": "implemented-hosted-job",
+      "scopes": [
+        "graphs.read"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/graphs/jobs/{job_id}",
+      "status": "implemented",
+      "scopes": [
+        "jobs.read"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/graphs/jobs/{job_id}",
+      "status": "implemented",
+      "scopes": [
+        "jobs.cancel"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/graphs/jobs/{job_id}/result",
+      "status": "implemented",
+      "scopes": [
+        "jobs.read"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/graphs/{graph_id}",
+      "status": "implemented-hosted-job",
+      "scopes": [
+        "graphs.read"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/graphs/{graph_id}",
+      "status": "implemented-hosted-job",
+      "scopes": [
+        "graphs.write"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/graphs/{graph_id}",
+      "status": "implemented-hosted-job",
+      "scopes": [
+        "graphs.delete"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/graphs/{graph_id}/duplicate",
+      "status": "implemented-hosted-job",
+      "scopes": [
+        "graphs.read",
+        "graphs.write"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/graphs/{graph_id}/documents/preflight",
+      "status": "implemented-local-storage-preflight",
+      "scopes": [
+        "documents.write.crdt"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/graphs/{graph_id}/imports/rdf",
+      "status": "implemented-local-rdf-import-job",
+      "scopes": [
+        "rdf.load"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/graphs/{graph_id}/imports/obsidian",
+      "status": "implemented-local-vault-import-job",
+      "scopes": [
+        "graphs.import"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/graphs/{graph_id}/imports/notion",
+      "status": "implemented-local-vault-import-job",
+      "scopes": [
+        "graphs.import"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/graphs/{graph_id}/imports/roam",
+      "status": "implemented-local-vault-import-job",
+      "scopes": [
+        "graphs.import"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/graphs/{graph_id}/imports/clip",
+      "status": "implemented-local-web-clip",
+      "scopes": [
+        "imports.web.write"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/graphs/{graph_id}/imports/youtube",
+      "status": "implemented-local-youtube-transcript-deferred",
+      "scopes": [
+        "imports.web.write"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/graphs/{graph_id}/restore-archive",
+      "status": "implemented-owner-bound-empty-cell-archive-restore",
+      "scopes": [
+        "graphs.restore"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/graphs/{graph_id}/summary",
+      "status": "implemented-hosted-shaped",
+      "scopes": [
+        "graphs.read"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/graphs/{graph_id}/viz",
+      "status": "implemented-hosted-shaped",
+      "scopes": [
+        "graphs.read"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/graphs/{graph_id}/properties",
+      "status": "implemented-hosted-shaped",
+      "scopes": [
+        "graphs.read"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/graphs/{graph_id}/export",
+      "status": "implemented-hosted-job",
+      "scopes": [
+        "graphs.export",
+        "rdf.dump"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/mcp",
+      "status": "implemented",
+      "scopes": [
+        "mcp.tools.read"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/mcp",
+      "status": "implemented",
+      "scopes": [
+        "mcp.tools.read",
+        "mcp.tools.call"
+      ],
+      "scopeMode": "json-rpc-method"
+    },
+    {
+      "method": "GET",
+      "path": "/documents/{graph_id}",
+      "status": "implemented-hosted-shaped",
+      "scopes": [
+        "documents.read"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/documents/{graph_id}/{document_id}",
+      "status": "implemented-hosted-shaped",
+      "scopes": [
+        "documents.read"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/documents/{graph_id}/workspace/blob",
+      "status": "implemented-local-ydoc-bytes",
+      "scopes": [
+        "workspace.read"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/documents/{graph_id}/{document_id}/blob",
+      "status": "implemented-local-ydoc-bytes",
+      "scopes": [
+        "documents.read"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/documents/{graph_id}/{document_id}/export",
+      "status": "implemented-hosted-raw",
+      "scopes": [
+        "documents.read"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/documents/{graph_id}/{document_id}/description",
+      "status": "implemented-crdt-queued-hosted-shaped",
+      "scopes": [
+        "workspace.write.crdt"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/documents/{graph_id}/{document_id}/duplicate",
+      "status": "implemented-crdt-queued-hosted-job",
+      "scopes": [
+        "documents.read",
+        "documents.write.crdt",
+        "workspace.write.crdt"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/documents/{graph_id}/{document_id}",
+      "status": "implemented-crdt-queued-hosted-shaped",
+      "scopes": [
+        "documents.write.crdt"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/documents/{graph_id}/{document_id}",
+      "status": "implemented-crdt-queued-hosted-shaped",
+      "scopes": [
+        "documents.delete.crdt",
+        "workspace.delete.crdt"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/documents/{graph_id}/{document_id}/blocks",
+      "status": "implemented-hosted-shaped",
+      "scopes": [
+        "documents.read"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/documents/{graph_id}/{document_id}/flush",
+      "status": "implemented-crdt-queued-hosted-shaped",
+      "scopes": [
+        "documents.write.crdt",
+        "workspace.write.crdt"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/documents/{graph_id}/{document_id}/block-context",
+      "status": "implemented-hosted-shaped",
+      "scopes": [
+        "documents.read"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/v1/documents/{graph_id}/{doc_id}/snapshots",
+      "status": "implemented-local-document-history",
+      "scopes": [
+        "documents.history.read"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/v1/documents/{graph_id}/{doc_id}/snapshots",
+      "status": "implemented-local-document-history",
+      "scopes": [
+        "documents.snapshots.write"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/v1/documents/{graph_id}/{doc_id}/snapshots/count",
+      "status": "implemented-local-document-history",
+      "scopes": [
+        "documents.history.read"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/v1/documents/{graph_id}/{doc_id}/snapshots/{snapshot_id}/html",
+      "status": "implemented-local-document-history-raw",
+      "scopes": [
+        "documents.history.read"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/v1/documents/{graph_id}/{doc_id}/snapshots/{snapshot_id}/text",
+      "status": "implemented-local-document-history-raw",
+      "scopes": [
+        "documents.history.read"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/v1/documents/{graph_id}/{doc_id}/snapshots/{snapshot_id}/copy",
+      "status": "implemented-local-document-history",
+      "scopes": [
+        "documents.snapshots.write"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/documents/{graph_id}/{doc_id}/snapshots/{snapshot_id}",
+      "status": "implemented-local-document-history",
+      "scopes": [
+        "documents.snapshots.delete"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/v1/time-travel/{graph_id}/restore-points",
+      "status": "implemented-local-time-travel",
+      "scopes": [
+        "time-travel.read"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/v1/time-travel/{graph_id}/restore-points",
+      "status": "implemented-local-time-travel",
+      "scopes": [
+        "time-travel.write"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/v1/time-travel/{graph_id}/restore-points/{restore_point_id}",
+      "status": "implemented-local-time-travel",
+      "scopes": [
+        "time-travel.read"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/time-travel/{graph_id}/restore-points/{restore_point_id}",
+      "status": "implemented-local-time-travel",
+      "scopes": [
+        "time-travel.write"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/v1/time-travel/{graph_id}/restore-points/{restore_point_id}/snapshot",
+      "status": "implemented-local-time-travel",
+      "scopes": [
+        "time-travel.read"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/v1/time-travel/{graph_id}/restore-points/{restore_point_id}/diff",
+      "status": "implemented-local-time-travel",
+      "scopes": [
+        "time-travel.read"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/v1/time-travel/{graph_id}/restores",
+      "status": "implemented-local-time-travel-restore",
+      "scopes": [
+        "time-travel.restore"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/v1/time-travel/{graph_id}/restores/{operation_id}",
+      "status": "implemented-local-time-travel-restore",
+      "scopes": [
+        "time-travel.read"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/v1/time-travel/{graph_id}/restores/{operation_id}/cancel",
+      "status": "implemented-local-time-travel-restore",
+      "scopes": [
+        "time-travel.restore"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/entities/entity-types",
+      "status": "implemented-crdt-queued-hosted-shaped",
+      "scopes": [
+        "entities.read"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/entities/{graph_id}/{entity_type}",
+      "status": "implemented-crdt-queued-hosted-shaped",
+      "scopes": [
+        "entities.read"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/entities/{graph_id}/{entity_type}/{entity_id}",
+      "status": "implemented-crdt-queued-hosted-shaped",
+      "scopes": [
+        "entities.read"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/entities/{graph_id}/{entity_type}/{entity_id}",
+      "status": "implemented-crdt-queued-hosted-shaped",
+      "scopes": [
+        "entities.write"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/entities/{graph_id}/{entity_type}/{entity_id}",
+      "status": "implemented-crdt-queued-hosted-shaped",
+      "scopes": [
+        "entities.delete"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/artifacts/ingestion/approaches",
+      "status": "implemented-catalog",
+      "scopes": [
+        "ingestion.config.read"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/artifacts/ingestion/docling/status",
+      "status": "implemented-local-docling-runtime-status",
+      "scopes": [
+        "ingestion.config.read"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/artifacts/ingestion/pdf/pipeline",
+      "status": "implemented-local-pdf-pipeline-status",
+      "scopes": [
+        "ingestion.config.read"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/artifacts/ingestion/pdf/pipeline",
+      "status": "implemented-local-pdf-pipeline-config",
+      "scopes": [
+        "ingestion.config.write"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/artifacts/ingestion/docling/prepare",
+      "status": "implemented-local-docling-runtime-setup",
+      "scopes": [
+        "ingestion.config.write"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/artifacts/{graph_id}/documents/{document_id}/download-original",
+      "status": "implemented-local-original-bytes",
+      "scopes": [
+        "artifacts.read"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/artifacts/{graph_id}/batch/prepare",
+      "status": "implemented-crdt-queued-hosted-shaped",
+      "scopes": [
+        "documents.write.crdt",
+        "workspace.write.crdt"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/artifacts/{graph_id}/batch/register",
+      "status": "implemented-crdt-queued-hosted-shaped",
+      "scopes": [
+        "documents.write.crdt",
+        "workspace.write.crdt"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/artifacts/{graph_id}/upload",
+      "status": "implemented-crdt-queued-hosted-shaped",
+      "scopes": [
+        "artifacts.write"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/artifacts/{graph_id}/ingest/pdf-accurate",
+      "status": "implemented-local-pdf-fast-path-job",
+      "scopes": [
+        "artifacts.ingest"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/artifacts/{graph_id}/images/upload",
+      "status": "implemented-local-image-bytes",
+      "scopes": [
+        "images.write"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/artifacts/{graph_id}/images/{image_id}",
+      "status": "implemented-local-image-bytes",
+      "scopes": [
+        "images.read"
+      ],
+      "scopeMode": "bearer-or-signed-url"
+    },
+    {
+      "method": "GET",
+      "path": "/artifacts/{graph_id}/{artifact_id}/download",
+      "status": "implemented-local-original-bytes",
+      "scopes": [
+        "artifacts.read"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/artifacts/{graph_id}/{artifact_id}/import",
+      "status": "implemented-crdt-queued-hosted-shaped",
+      "scopes": [
+        "artifacts.ingest"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/artifacts/{graph_id}/{artifact_id}/convert",
+      "status": "implemented-crdt-queued-hosted-shaped",
+      "scopes": [
+        "artifacts.ingest"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/navigation/{graph_id}",
+      "status": "implemented-hosted-shaped",
+      "scopes": [
+        "workspace.read"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/navigation/{graph_id}/job-result/{job_id}",
+      "status": "implemented-hosted-shaped",
+      "scopes": [
+        "jobs.read"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/navigation/{graph_id}/folders",
+      "status": "implemented-hosted-shaped",
+      "scopes": [
+        "workspace.read"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/navigation/{graph_id}/folders/{folder_id}",
+      "status": "implemented-hosted-shaped",
+      "scopes": [
+        "workspace.read"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/navigation/{graph_id}/folders/{folder_id}",
+      "status": "implemented-crdt-queued-hosted-shaped",
+      "scopes": [
+        "workspace.write.crdt"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/navigation/{graph_id}/folders/{folder_id}",
+      "status": "implemented-crdt-queued-hosted-shaped",
+      "scopes": [
+        "workspace.delete.crdt"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/navigation/{graph_id}/artifacts",
+      "status": "implemented-hosted-shaped",
+      "scopes": [
+        "artifacts.read"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/navigation/{graph_id}/artifacts/{artifact_id}",
+      "status": "implemented-hosted-shaped",
+      "scopes": [
+        "artifacts.read"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/navigation/{graph_id}/artifacts/{artifact_id}",
+      "status": "implemented-crdt-queued-hosted-shaped",
+      "scopes": [
+        "workspace.write.crdt",
+        "artifacts.write"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/navigation/{graph_id}/artifacts/{artifact_id}",
+      "status": "implemented-crdt-queued-hosted-shaped",
+      "scopes": [
+        "workspace.delete.crdt",
+        "artifacts.delete"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/search",
+      "status": "implemented-if-indexed",
+      "scopes": [
+        "search.semantic.read"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/search/blocks",
+      "status": "implemented-lexical",
+      "scopes": [
+        "search.lexical.read"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/search/hybrid",
+      "status": "implemented-lexical-semantic-if-indexed",
+      "scopes": [
+        "search.lexical.read",
+        "search.semantic.read"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/search/rematerialize",
+      "status": "implemented-local-rdf",
+      "scopes": [
+        "semantic.index.write"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/search/reindex",
+      "status": "implemented-async-job-if-model-prepared",
+      "scopes": [
+        "semantic.index.write"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/wires/{graph_id}/predicates",
+      "status": "implemented-workspace-snapshot",
+      "scopes": [
+        "wires.read"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/wires/{graph_id}/document/{document_id}",
+      "status": "implemented-crdt-queued-hosted-shaped",
+      "scopes": [
+        "wires.write"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/wires/{graph_id}/document/{document_id}/outgoing",
+      "status": "implemented-workspace-snapshot",
+      "scopes": [
+        "wires.read"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/wires/{graph_id}/document/{document_id}/incoming",
+      "status": "implemented-workspace-snapshot",
+      "scopes": [
+        "wires.read"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/wires/{graph_id}/document/{document_id}/bundle",
+      "status": "implemented-workspace-snapshot",
+      "scopes": [
+        "wires.read"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/wires/{graph_id}/document/{document_id}/wired-blocks",
+      "status": "implemented-workspace-snapshot",
+      "scopes": [
+        "wires.read"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/wires/{graph_id}/document/{document_id}/has-incoming",
+      "status": "implemented-workspace-snapshot",
+      "scopes": [
+        "wires.read"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/wires/{graph_id}/{wire_id}/refresh",
+      "status": "implemented-crdt-queued-hosted-shaped",
+      "scopes": [
+        "wires.write"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/wires/{graph_id}/{wire_id}",
+      "status": "implemented-crdt-queued-hosted-shaped",
+      "scopes": [
+        "wires.delete"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/salience/{graph_id}/blocks/values",
+      "status": "implemented-local-salience",
+      "scopes": [
+        "salience.read"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/salience/{graph_id}/blocks/value",
+      "status": "implemented-local-salience",
+      "scopes": [
+        "salience.write"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/salience/{graph_id}/blocks/user-value",
+      "status": "implemented-local-salience",
+      "scopes": [
+        "salience.write"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/salience/{graph_id}/config",
+      "status": "implemented-local-salience",
+      "scopes": [
+        "salience.write"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/emporium/ingest/{graph_id}",
+      "status": "cell-emporium-not-in-loopback-openapi",
+      "scopes": [
+        "rdf.query",
+        "rdf.update"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/emporium/vocabs",
+      "status": "cell-emporium-not-in-loopback-openapi",
+      "scopes": [],
+      "scopeMode": "public"
+    },
+    {
+      "method": "GET",
+      "path": "/emporium/vocab/{name}/latest",
+      "status": "cell-emporium-not-in-loopback-openapi",
+      "scopes": [],
+      "scopeMode": "public"
+    },
+    {
+      "method": "GET",
+      "path": "/emporium/vocab/{name}/{version}",
+      "status": "cell-emporium-not-in-loopback-openapi",
+      "scopes": [],
+      "scopeMode": "public"
+    },
+    {
+      "method": "GET",
+      "path": "/emporium/vocab/{name}/{class}/query",
+      "status": "cell-emporium-not-in-loopback-openapi",
+      "scopes": [],
+      "scopeMode": "public"
+    },
+    {
+      "method": "GET",
+      "path": "/api/services/{service_id}/status",
+      "status": "implemented-local-service-host",
+      "scopes": ["services.read"]
+    },
+    {
+      "method": "POST",
+      "path": "/api/services/{service_id}/start",
+      "status": "implemented-local-service-host",
+      "scopes": ["services.manage"]
+    },
+    {
+      "method": "POST",
+      "path": "/api/services/{service_id}/stop",
+      "status": "implemented-local-service-host",
+      "scopes": ["services.manage"]
+    },
+    {
+      "method": "GET",
+      "path": "/api/services/{service_id}/logs",
+      "status": "implemented-local-service-host",
+      "scopes": ["services.read"]
+    },
+    {
+      "method": "GET",
+      "path": "/api/choreograph/status",
+      "status": "implemented-local-service-host",
+      "scopes": ["services.read"]
+    },
+    {
+      "method": "POST",
+      "path": "/api/choreograph/start",
+      "status": "implemented-local-service-host",
+      "scopes": ["services.manage"]
+    },
+    {
+      "method": "POST",
+      "path": "/api/choreograph/stop",
+      "status": "implemented-local-service-host",
+      "scopes": ["services.manage"]
+    },
+    {
+      "method": "GET",
+      "path": "/api/choreograph/logs",
+      "status": "implemented-local-service-host",
+      "scopes": ["services.read"]
+    },
+    {
+      "method": "GET",
+      "path": "/api/kg-ultra/status",
+      "status": "implemented-local-service-host",
+      "scopes": ["services.read"]
+    },
+    {
+      "method": "POST",
+      "path": "/api/kg-ultra/start",
+      "status": "implemented-local-service-host",
+      "scopes": ["services.manage"]
+    },
+    {
+      "method": "POST",
+      "path": "/api/kg-ultra/stop",
+      "status": "implemented-local-service-host",
+      "scopes": ["services.manage"]
+    },
+    {
+      "method": "GET",
+      "path": "/api/kg-ultra/logs",
+      "status": "implemented-local-service-host",
+      "scopes": ["services.read"]
+    },
+    {
+      "method": "GET",
+      "path": "/workflows/runs",
+      "status": "implemented-service-proxy",
+      "scopes": ["services.proxy"]
+    },
+    {
+      "method": "POST",
+      "path": "/workflows/runs",
+      "status": "implemented-service-proxy",
+      "scopes": ["services.proxy"]
+    },
+    {
+      "method": "GET",
+      "path": "/workflows/runs/{run_id}",
+      "status": "implemented-service-proxy",
+      "scopes": ["services.proxy"]
+    },
+    {
+      "method": "GET",
+      "path": "/workflows/runs/{run_id}/events",
+      "status": "implemented-service-proxy",
+      "scopes": ["services.proxy"]
+    },
+    {
+      "method": "POST",
+      "path": "/api/kg-ultra/intuition",
+      "status": "implemented-service-proxy",
+      "scopes": ["services.proxy"]
+    },
+    {
+      "method": "POST",
+      "path": "/api/kg-ultra/graph-intuition",
+      "status": "implemented-service-proxy",
+      "scopes": ["services.proxy"]
+    },
+    {
+      "method": "POST",
+      "path": "/api/kg-ultra/link-predictions",
+      "status": "implemented-service-proxy",
+      "scopes": ["services.proxy"]
+    },
+    {
+      "method": "POST",
+      "path": "/api/kg-ultra/graphs/{graph_id}/refresh",
+      "status": "implemented-service-proxy",
+      "scopes": ["services.proxy"]
+    },
+    {
+      "method": "GET",
+      "path": "/api/kg-ultra/graphs/{graph_id}/status",
+      "status": "implemented-service-proxy",
+      "scopes": ["services.proxy"]
+    },
+    {
+      "method": "GET",
+      "path": "/artifacts/{graph_id}/{artifact_id}/revisions",
+      "status": "implemented-local-artifact-revisions",
+      "scopes": ["artifacts.read"]
+    },
+    {
+      "method": "POST",
+      "path": "/artifacts/{graph_id}/{artifact_id}/revisions",
+      "status": "implemented-local-artifact-revisions",
+      "scopes": ["artifacts.write"]
+    },
+    {
+      "method": "GET",
+      "path": "/artifacts/{graph_id}/{artifact_id}/revisions/{revision_id}/download",
+      "status": "implemented-local-artifact-revisions",
+      "scopes": ["artifacts.read"]
+    },
+    {
+      "method": "POST",
+      "path": "/artifacts/{graph_id}/{artifact_id}/revisions/{revision_id}/restore",
+      "status": "implemented-local-artifact-revisions",
+      "scopes": ["artifacts.write"]
+    },
+    {
+      "method": "POST",
+      "path": "/emporium/sweep/{graph_id}",
+      "status": "implemented-local-emporium",
+      "scopes": ["rdf.update"]
+    },
+    {
+      "method": "GET",
+      "path": "/emporium/heads/{graph_id}",
+      "status": "implemented-local-emporium",
+      "scopes": ["rdf.query"]
+    },
+    {
+      "method": "POST",
+      "path": "/emporium/objects/{graph_id}/{vocab}",
+      "status": "implemented-local-emporium",
+      "scopes": ["rdf.update"]
+    },
+    {
+      "method": "GET",
+      "path": "/emporium/objects/{graph_id}/{vocab}/{class}",
+      "status": "implemented-local-emporium",
+      "scopes": ["rdf.query"]
+    },
+    {
+      "method": "GET",
+      "path": "/emporium/objects/{graph_id}/{vocab}/{class}/{address}",
+      "status": "implemented-local-emporium",
+      "scopes": ["rdf.query"]
+    },
+    {
+      "method": "PUT",
+      "path": "/emporium/objects/{graph_id}/{vocab}/{class}/{address}",
+      "status": "implemented-local-emporium",
+      "scopes": ["rdf.update"]
+    },
+    {
+      "method": "DELETE",
+      "path": "/emporium/objects/{graph_id}/{vocab}/{class}/{address}",
+      "status": "implemented-local-emporium",
+      "scopes": ["rdf.update"]
+    },
+    {
+      "method": "GET",
+      "path": "/g/{graph_id}/vocab/sophia-api/openapi",
+      "status": "implemented-local-emporium",
+      "scopes": ["rdf.query"]
+    },
+    {
+      "method": "GET",
+      "path": "/g/{graph_id}/vocab/workflow/openapi",
+      "status": "implemented-local-emporium",
+      "scopes": ["rdf.query"]
+    },
+    {
+      "method": "GET",
+      "path": "/hocuspocus/docs/{graph_id}/{doc_id}",
+      "status": "implemented-websocket",
+      "scopes": [],
+      "scopeMode": "bearer-token"
+    },
+    {
+      "method": "GET",
+      "path": "/hocuspocus/workspace/{graph_id}",
+      "status": "implemented-websocket",
+      "scopes": [],
+      "scopeMode": "bearer-token"
+    }
+  ],
+  "mcpTools": [
+    {"name":"agent_status","status":"implemented","scopes":["rdf.query"]},
+    {"name":"status","status":"implemented","scopes":["rdf.update"]},
+    {"name":"custom_css","status":"implemented-crdt-queued","scopes":["workspace.read","workspace.write.crdt"]},
+    {"name":"read_custom_css","status":"implemented","scopes":["workspace.read"]},
+    {"name":"write_custom_css","status":"implemented-crdt-queued","scopes":["workspace.write.crdt"]},
+    {"name":"create_artifact_text","status":"implemented-crdt-queued","scopes":["artifacts.write","workspace.write.crdt"]},
+    {"name":"write_artifact_text","status":"implemented-crdt-queued","scopes":["artifacts.write","workspace.write.crdt"]},
+    {
+      "name": "list_graphs",
+      "status": "implemented",
+      "scopes": [
+        "graphs.read"
+      ]
+    },
+    {
+      "name": "quick_orient",
+      "status": "implemented-local-orientation",
+      "scopes": [
+        "orientation.read"
+      ]
+    },
+    {
+      "name": "context_bundle",
+      "status": "implemented-local-orientation",
+      "scopes": [
+        "orientation.read"
+      ]
+    },
+    {
+      "name": "remember",
+      "status": "implemented-local-memory-store",
+      "scopes": [
+        "memory.write"
+      ]
+    },
+    {
+      "name": "remember_batch",
+      "status": "implemented-local-memory-store",
+      "scopes": [
+        "memory.write"
+      ]
+    },
+    {
+      "name": "recall",
+      "status": "implemented-local-memory-store",
+      "scopes": [
+        "memory.read"
+      ]
+    },
+    {
+      "name": "propose_domain_ontology",
+      "status": "implemented-chamber-ontology",
+      "scopes": [
+        "rdf.update",
+        "memory.write"
+      ]
+    },
+    {
+      "name": "care",
+      "status": "implemented-local-memory-store",
+      "scopes": [
+        "memory.write"
+      ]
+    },
+    {
+      "name": "archive_memories",
+      "status": "implemented-local-memory-store",
+      "scopes": [
+        "memory.write"
+      ]
+    },
+    {
+      "name": "backfill_memory_projection",
+      "status": "implemented-memory-projection",
+      "scopes": [
+        "memory.write"
+      ]
+    },
+    {
+      "name": "emporium_vocab",
+      "status": "implemented",
+      "scopes": [
+        "rdf.query"
+      ]
+    },
+    {
+      "name": "emporium_list",
+      "status": "implemented",
+      "scopes": [
+        "rdf.query"
+      ]
+    },
+    {
+      "name": "emporium_read",
+      "status": "implemented",
+      "scopes": [
+        "rdf.query"
+      ]
+    },
+    {
+      "name": "emporium_heads",
+      "status": "implemented",
+      "scopes": [
+        "rdf.query"
+      ]
+    },
+    {
+      "name": "emporium_sweep",
+      "status": "implemented",
+      "scopes": [
+        "rdf.update"
+      ]
+    },
+    {
+      "name": "emporium_violations",
+      "status": "implemented",
+      "scopes": [
+        "rdf.query"
+      ]
+    },
+    {
+      "name": "music",
+      "status": "implemented-local-song-store",
+      "scopes": [
+        "memory.read"
+      ]
+    },
+    {
+      "name": "sing",
+      "status": "implemented-local-song-store",
+      "scopes": [
+        "memory.write"
+      ]
+    },
+    {
+      "name": "surface",
+      "status": "implemented-local-surface",
+      "scopes": [
+        "documents.read"
+      ]
+    },
+    {
+      "name": "get_document_history",
+      "status": "implemented-local-document-history",
+      "scopes": [
+        "documents.history.read"
+      ]
+    },
+    {
+      "name": "read_document_at_snapshot",
+      "status": "implemented-local-document-history",
+      "scopes": [
+        "documents.history.read"
+      ]
+    },
+    {
+      "name": "create_graph",
+      "status": "implemented-local-provider",
+      "scopes": [
+        "graphs.write"
+      ]
+    },
+    {
+      "name": "duplicate_graph",
+      "status": "implemented-local-provider",
+      "scopes": [
+        "graphs.read",
+        "graphs.write"
+      ]
+    },
+    {
+      "name": "manage_graph",
+      "status": "implemented-local-provider",
+      "scopes": [
+        "graphs.read",
+        "graphs.delete"
+      ]
+    },
+    {
+      "name": "update_graph",
+      "status": "implemented-local-provider",
+      "scopes": [
+        "graphs.write"
+      ]
+    },
+    {
+      "name": "query_graph",
+      "status": "implemented-local-provider",
+      "scopes": [
+        "rdf.query",
+        "jobs.read"
+      ]
+    },
+    {
+      "name": "get_job_status",
+      "status": "implemented-local-job",
+      "scopes": [
+        "jobs.read"
+      ]
+    },
+    {
+      "name": "get_job_result",
+      "status": "implemented-local-job",
+      "scopes": [
+        "jobs.read"
+      ]
+    },
+    {
+      "name": "cancel_job",
+      "status": "implemented-local-job",
+      "scopes": [
+        "jobs.cancel"
+      ]
+    },
+    {
+      "name": "reindex_graph",
+      "status": "implemented-async-job-if-model-prepared",
+      "scopes": [
+        "semantic.index.write"
+      ]
+    },
+    {
+      "name": "list_documents",
+      "status": "implemented",
+      "scopes": [
+        "documents.read"
+      ]
+    },
+    {
+      "name": "get_workspace",
+      "status": "implemented-flat-workspace",
+      "scopes": [
+        "documents.read"
+      ]
+    },
+    {
+      "name": "read_document",
+      "status": "implemented",
+      "scopes": [
+        "documents.read"
+      ]
+    },
+    {
+      "name": "read_blocks",
+      "status": "implemented",
+      "scopes": [
+        "documents.read"
+      ]
+    },
+    {
+      "name": "document_digest",
+      "status": "implemented-projection-limited",
+      "scopes": [
+        "documents.read"
+      ]
+    },
+    {
+      "name": "value",
+      "status": "implemented-local-value-store",
+      "scopes": [
+        "salience.write"
+      ]
+    },
+    {
+      "name": "get_values",
+      "status": "implemented-local-value-store",
+      "scopes": [
+        "salience.read"
+      ]
+    },
+    {
+      "name": "revaluate",
+      "status": "implemented-local-value-store",
+      "scopes": [
+        "salience.write"
+      ]
+    },
+    {
+      "name": "get_block_values",
+      "status": "implemented-local-value-store",
+      "scopes": [
+        "salience.read"
+      ]
+    },
+    {
+      "name": "get_important_blocks",
+      "status": "implemented-local-value-store",
+      "scopes": [
+        "salience.read"
+      ]
+    },
+    {
+      "name": "get_block",
+      "status": "implemented",
+      "scopes": [
+        "documents.read"
+      ]
+    },
+    {
+      "name": "query_blocks",
+      "status": "implemented-projection-limited",
+      "scopes": [
+        "documents.read"
+      ]
+    },
+    {
+      "name": "search_documents",
+      "status": "implemented",
+      "scopes": [
+        "search.lexical.read"
+      ]
+    },
+    {
+      "name": "search_blocks",
+      "status": "implemented-lexical-semantic-if-indexed",
+      "scopes": [
+        "search.lexical.read"
+      ]
+    },
+    {
+      "name": "create_document",
+      "status": "implemented-crdt-queued",
+      "scopes": [
+        "workspace.write.crdt"
+      ]
+    },
+    {
+      "name": "delete_document",
+      "status": "implemented-crdt-queued",
+      "scopes": [
+        "documents.delete.crdt",
+        "workspace.delete.crdt"
+      ]
+    },
+    {
+      "name": "create_folder",
+      "status": "implemented-crdt-queued",
+      "scopes": [
+        "workspace.write.crdt"
+      ]
+    },
+    {
+      "name": "move_documents",
+      "status": "implemented-crdt-queued",
+      "scopes": [
+        "workspace.write.crdt"
+      ]
+    },
+    {
+      "name": "move_folder",
+      "status": "implemented-crdt-queued",
+      "scopes": [
+        "workspace.write.crdt"
+      ]
+    },
+    {
+      "name": "rename",
+      "status": "implemented-local-provider-or-crdt-queued",
+      "scopes": [
+        "workspace.write.crdt"
+      ]
+    },
+    {
+      "name": "delete",
+      "status": "implemented-local-provider-or-crdt-queued",
+      "scopes": [
+        "documents.delete.crdt",
+        "workspace.delete.crdt",
+        "wires.delete",
+        "graphs.delete"
+      ]
+    },
+    {
+      "name": "make_document_editable",
+      "status": "implemented-crdt-queued",
+      "scopes": [
+        "documents.write.crdt"
+      ]
+    },
+    {
+      "name": "upload_artifact",
+      "status": "implemented-async-job",
+      "scopes": [
+        "artifacts.write",
+        "artifacts.ingest",
+        "documents.write.crdt",
+        "workspace.write.crdt"
+      ]
+    },
+    {
+      "name": "ingest_artifact",
+      "status": "implemented-async-job",
+      "scopes": [
+        "artifacts.ingest",
+        "artifacts.write",
+        "documents.write.crdt",
+        "workspace.write.crdt"
+      ]
+    },
+    {
+      "name": "create_wires",
+      "status": "implemented-crdt-queued",
+      "scopes": [
+        "wires.write"
+      ]
+    },
+    {
+      "name": "get_wires",
+      "status": "implemented-workspace-snapshot",
+      "scopes": [
+        "wires.read"
+      ]
+    },
+    {
+      "name": "list_wire_predicates",
+      "status": "implemented-workspace-snapshot",
+      "scopes": [
+        "wires.read"
+      ]
+    },
+    {
+      "name": "traverse_wires",
+      "status": "implemented-workspace-snapshot",
+      "scopes": [
+        "wires.read"
+      ]
+    },
+    {
+      "name": "flush_crdt",
+      "status": "implemented-crdt-queued",
+      "scopes": [
+        "documents.write.crdt",
+        "workspace.write.crdt"
+      ]
+    },
+    {
+      "name": "crdt_operation",
+      "status": "implemented-crdt-queued",
+      "scopes": [
+        "documents.write.crdt",
+        "workspace.write.crdt",
+        "documents.delete.crdt",
+        "workspace.delete.crdt",
+        "artifacts.write",
+        "artifacts.delete",
+        "wires.write",
+        "wires.delete",
+        "artifacts.ingest",
+        "graphs.import",
+        "imports.web.write"
+      ],
+      "requiredScopeMode": "operation-kind"
+    },
+    {
+      "name": "sparql_query",
+      "status": "implemented",
+      "scopes": [
+        "rdf.query"
+      ]
+    },
+    {
+      "name": "sparql_query_named",
+      "status": "implemented",
+      "scopes": [
+        "rdf.query"
+      ]
+    },
+    {
+      "name": "emporium_query",
+      "status": "implemented",
+      "scopes": [
+        "rdf.query"
+      ]
+    },
+    {
+      "name": "emporium_write",
+      "status": "implemented",
+      "scopes": [
+        "rdf.update"
+      ]
+    },
+    {
+      "name": "emporium_retract",
+      "status": "implemented",
+      "scopes": [
+        "rdf.update"
+      ]
+    },
+    {
+      "name": "sparql_update",
+      "status": "implemented",
+      "scopes": [
+        "rdf.update"
+      ]
+    },
+    {
+      "name": "rdf_load",
+      "status": "implemented",
+      "scopes": [
+        "rdf.load"
+      ]
+    },
+    {
+      "name": "rdf_dump",
+      "status": "implemented",
+      "scopes": [
+        "rdf.dump"
+      ]
+    },
+    {
+      "name": "workflow_book_open",
+      "status": "implemented-workflow-book-read",
+      "scopes": [
+        "rdf.query"
+      ]
+    },
+    {
+      "name": "workflow_book_choose",
+      "status": "implemented-workflow-book-read",
+      "scopes": [
+        "rdf.query"
+      ]
+    },
+    {
+      "name": "workflow_book_apply",
+      "status": "implemented-workflow-book-compose",
+      "scopes": [
+        "rdf.query",
+        "rdf.update",
+        "rdf.load"
+      ]
+    },
+    {
+      "name": "workflow_book_compose",
+      "status": "implemented-workflow-book-compose",
+      "scopes": [
+        "rdf.query",
+        "rdf.update"
+      ]
+    },
+    {
+      "name": "workflow_book_validate",
+      "status": "implemented-workflow-book-read",
+      "scopes": [
+        "rdf.query"
+      ]
+    },
+    {
+      "name": "workflow_authoring_session",
+      "status": "implemented-workflow-authoring-session",
+      "scopes": [
+        "rdf.query",
+        "rdf.update",
+        "services.manage",
+        "services.proxy"
+      ]
+    },
+    {
+      "name": "workflow_run_start",
+      "status": "implemented-workflow-run-service-facade",
+      "scopes": [
+        "rdf.query",
+        "services.manage",
+        "services.proxy"
+      ]
+    },
+    {
+      "name": "workflow_run_monitor",
+      "status": "implemented-workflow-run-service-facade",
+      "scopes": [
+        "services.proxy"
+      ]
+    },
+    {
+      "name": "semantic_search",
+      "status": "implemented-if-indexed",
+      "scopes": [
+        "search.semantic.read"
+      ]
+    },
+    {
+      "name": "memory_semantic_recall",
+      "status": "implemented-memory-projection",
+      "scopes": [
+        "memory.read",
+        "search.semantic.read"
+      ]
+    },
+    {
+      "name": "semantic_reason",
+      "status": "implemented-virtual-if-indexed",
+      "scopes": [
+        "search.semantic.read"
+      ]
+    },
+    {
+      "name": "graph_intuition",
+      "status": "implemented-kg-ultra-storybook-broker",
+      "scopes": [
+        "search.semantic.read",
+        "services.proxy",
+        "services.manage"
+      ]
+    },
+    {
+      "name": "write_document",
+      "status": "implemented-crdt-queued-content",
+      "scopes": [
+        "documents.write.crdt"
+      ]
+    },
+    {
+      "name": "create_document_once",
+      "status": "implemented-crdt-queued-content",
+      "scopes": [
+        "documents.write.crdt",
+        "workspace.write.crdt"
+      ]
+    },
+    {
+      "name": "insert_blocks",
+      "status": "implemented-crdt-queued",
+      "scopes": [
+        "documents.write.crdt"
+      ]
+    },
+    {
+      "name": "update_blocks",
+      "status": "implemented-crdt-queued",
+      "scopes": [
+        "documents.write.crdt"
+      ]
+    },
+    {
+      "name": "edit_block_text",
+      "status": "implemented-crdt-queued",
+      "scopes": [
+        "documents.write.crdt"
+      ]
+    },
+    {
+      "name": "edit_comment",
+      "status": "implemented-crdt-queued",
+      "scopes": [
+        "documents.write.crdt"
+      ]
+    },
+    {
+      "name": "delete_blocks",
+      "status": "implemented-crdt-queued",
+      "scopes": [
+        "documents.delete.crdt"
+      ]
+    },
+    {
+      "name": "list_restore_points",
+      "status": "implemented-local-time-travel",
+      "scopes": [
+        "time-travel.read"
+      ]
+    },
+    {
+      "name": "get_restore_point",
+      "status": "implemented-local-time-travel",
+      "scopes": [
+        "time-travel.read"
+      ]
+    },
+    {
+      "name": "create_restore_point",
+      "status": "implemented-local-time-travel",
+      "scopes": [
+        "time-travel.write"
+      ]
+    },
+    {
+      "name": "diff_restore_points",
+      "status": "implemented-local-time-travel",
+      "scopes": [
+        "time-travel.read"
+      ]
+    },
+    {
+      "name": "delete_restore_point",
+      "status": "implemented-local-time-travel",
+      "scopes": [
+        "time-travel.write"
+      ]
+    },
+    {
+      "name": "restore_to_restore_point",
+      "status": "implemented-local-time-travel-restore",
+      "scopes": [
+        "time-travel.restore"
+      ]
+    },
+    {
+      "name": "get_restore_operation",
+      "status": "implemented-local-time-travel-restore",
+      "scopes": [
+        "time-travel.read"
+      ]
+    },
+    {
+      "name": "cancel_restore_operation",
+      "status": "implemented-local-time-travel-restore",
+      "scopes": [
+        "time-travel.restore"
+      ]
+    },
+    {
+      "name": "read_artifact",
+      "status": "implemented",
+      "scopes": [
+        "artifacts.read"
+      ]
+    },
+    {
+      "name": "list_artifact_kinds",
+      "status": "implemented",
+      "scopes": [
+        "artifacts.read"
+      ]
+    },
+    {
+      "name": "list_artifact_revisions",
+      "status": "implemented",
+      "scopes": [
+        "artifacts.read"
+      ]
+    },
+    {
+      "name": "restore_artifact_revision",
+      "status": "implemented",
+      "scopes": [
+        "artifacts.write"
+      ]
+    },
+    {
+      "name": "edit_artifact_image",
+      "status": "implemented",
+      "scopes": [
+        "artifacts.write"
+      ]
+    },
+    {
+      "name": "source_pull",
+      "status": "implemented-identity-fenced-complete-source-bundle",
+      "scopes": [
+        "sources.read"
+      ]
+    },
+    {
+      "name": "source_push",
+      "status": "implemented-durable-offline-intent-ledger",
+      "scopes": [
+        "sources.write"
+      ]
+    },
+    {
+      "name": "source_rebuild",
+      "status": "implemented-source-projection-rebuild",
+      "scopes": [
+        "sources.rebuild"
+      ]
+    }
+  ]
+}

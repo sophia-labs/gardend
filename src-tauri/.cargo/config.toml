@@ -1,0 +1,9 @@
+# Cargo aliases for the garden crate.
+#
+# `cargo gardend` / `cargo gardend-check` build the lightweight HEADLESS cell
+# binary (no Tauri webview/wry, no desktop plugins, no GUI). This is both the
+# per-graph platform-next cell AND the batteries-included local store that
+# `sophia-mcp` spawns. See docs/headless-gardend.md.
+[alias]
+gardend = "build --release --no-default-features --features headless --example gardend"
+gardend-check = "check --no-default-features --features headless --example gardend"

@@ -1,0 +1,209 @@
+# syntax=docker/dockerfile:1
+# gardend — headless garden cell for platform-next.
+# Build context: the garden repo root.
+#   docker build -f Dockerfile.gardend -t gardend:dev .
+#
+# Ships LICENSE, NOTICE.md, and THIRD-PARTY-RUST.md at
+# /usr/local/share/gardend/ in the runtime image (source-available boundary:
+# see EXPORT-MANIFEST.md; regenerate THIRD-PARTY-RUST.md with
+# scripts/gen-third-party-rust.py when Cargo.lock changes).
+
+# Cargo.lock pins deps (e.g. roaring 0.11) newer than the crate's declared
+# MSRV of 1.88 — build with the same stable the desktop builds use.
+FROM rust:1.95-bookworm AS build-base
+# clang/cmake for oxigraph's rocksdb (oxrocksdb-sys).
+# Gardend's headless feature has no Tauri dependency, so no GTK/WebKit build
+# or runtime packages belong in this image.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates cmake clang libclang-dev libssl-dev pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+# Keep the recipe generator pinned alongside the Rust toolchain. The compiled
+# dependency tree below is a normal image layer (not a cache mount), so a
+# registry-backed BuildKit cache can carry RocksDB across disposable builders.
+ARG CARGO_CHEF_VERSION=0.1.77
+RUN cargo install --locked --version "$CARGO_CHEF_VERSION" cargo-chef
+WORKDIR /build/src-tauri
+
+FROM build-base AS planner
+COPY src-tauri/ /build/src-tauri/
+# The garden crate include_str!s these parity contracts at compile time.
+COPY parity/local-loopback-surface.json parity/local-openapi.json /build/parity/
+RUN cargo chef prepare --recipe-path /build/recipe.json
+
+FROM build-base AS dependency-cache
+ARG CARGO_JOBS=4
+COPY --from=planner /build/recipe.json /build/recipe.json
+# cargo-chef 0.1.77 knows only `--examples` (plural); the singular `--example gardend` only ever passed because the registry cache kept this layer warm (2026-08-25 native run).
+RUN cargo chef cook --release -j "$CARGO_JOBS" \
+    --no-default-features --features headless --examples \
+    --recipe-path /build/recipe.json
+
+FROM dependency-cache AS builder
+COPY src-tauri/ /build/src-tauri/
+COPY parity/local-loopback-surface.json parity/local-openapi.json /build/parity/
+# -j4: heavy crates (candle, oxigraph/rocksdb) at full parallelism have
+# OOM-frozen the Docker Desktop VM; bounded jobs keep peak memory sane.
+# Remove the chef placeholder output before compiling real source, then make
+# non-empty output a hard gate against interrupted or corrupt links.
+ARG CARGO_JOBS=4
+RUN rm -f target/release/examples/gardend \
+    && cargo build --release -j "$CARGO_JOBS" \
+        --no-default-features --features headless --example gardend \
+    && test -s target/release/examples/gardend \
+    && cp target/release/examples/gardend /usr/local/bin/gardend \
+    && test -s /usr/local/bin/gardend
+
+# Self-contained regression suite. Private captured-population fixtures run in the
+# separate exact-image import/read/reopen qualification, not in the public image context.
+RUN cargo test --release -j "$CARGO_JOBS" --no-default-features --features headless \
+    --lib -- \
+    crdt_engine::import_archive_ops::preservation_v2::tests::historical_identifier_mapping_keeps_raw_metadata_and_rejects_unrelated_drift \
+    crdt_engine::import_archive_ops::preservation_v2::tests::original_rdf_index_preserves_scope_multiplicity_and_rejects_malformed_tail \
+    crdt_engine::import_archive_ops::preservation_v2::tests::indexed_legacy_history_preserves_large_document_and_rejects_ambiguous_ids \
+    crdt_engine::import_archive_ops::preservation_v2::tests::mapped_history_custody_preserves_original_records_and_exact_recovery_join \
+    crdt_engine::import_archive_ops::preservation_v2::tests::historical_projection_shares_identical_versions_with_exact_payload_fidelity \
+    crdt_engine::import_archive_ops::preservation_v2::tests::bounded_gnu_long_names_preserve_compliant_ids_and_reject_ambiguous_headers \
+    crdt_engine::import_archive_ops::preservation_v2::tests::captured_numeric_epoch_conversion_is_exact_decimal_not_float_equality \
+    crdt_engine::import_archive_ops::preservation_v2::tests::closed_tar_and_json_refusals \
+    crdt_engine::import_archive_ops::preservation_v2::tests::derived_dataset_is_exactly_declared_scoped_identifiers_and_metadata \
+    crdt_engine::import_archive_ops::preservation_v2::tests::exclusive_custody_write_keeps_prior_bytes \
+    crdt_engine::import_archive_ops::preservation_v2::tests::legacy_absent_access_is_historical_only_and_requires_exact_absence \
+    crdt_engine::import_archive_ops::preservation_v2::tests::legacy_ampersand_repair_preserves_valid_entities_and_unicode \
+    crdt_engine::import_archive_ops::preservation_v2::tests::legacy_history_export_interpretation_preserves_literal_angles_entities_and_mark_policy \
+    crdt_engine::import_archive_ops::preservation_v2::tests::legacy_history_inline_text_requires_exact_content_and_mark_spans \
+    crdt_engine::import_archive_ops::preservation_v2::tests::legacy_history_list_wrapper_projection_is_checked_against_native_tree \
+    crdt_engine::import_archive_ops::preservation_v2::tests::legacy_integral_size_lexical_is_exact_and_bounded \
+    crdt_engine::import_archive_ops::preservation_v2::tests::legacy_inverse_wires_remain_scoped_source_evidence \
+    crdt_engine::import_archive_ops::preservation_v2::tests::legacy_projection_rules_match_python_emitter_and_declared_float_value_space \
+    crdt_engine::import_archive_ops::preservation_v2::tests::legacy_timestamp_datatype_repair_requires_exact_native_lexical_projection \
+    crdt_engine::import_archive_ops::preservation_v2::tests::legacy_workflow_types_are_finite_authored_assertions_and_wire_emitter_requires_wire \
+    crdt_engine::import_archive_ops::preservation_v2::tests::migration_inline_atoms_exact_frames_and_source_text \
+    crdt_engine::import_archive_ops::preservation_v2::tests::migration_inline_atoms_full_link_attributes_are_independently_checked \
+    crdt_engine::import_archive_ops::preservation_v2::tests::migration_inline_atoms_refuse_ambiguous_or_changed_frames \
+    crdt_engine::import_archive_ops::preservation_v2::tests::migration_legacy_fidelity_never_conceals_unavailable_or_empty_history \
+    crdt_engine::import_archive_ops::preservation_v2::tests::migration_wire_endpoints_require_saved_fields_scope_and_exact_native_projection \
+    crdt_engine::import_archive_ops::preservation_v2::tests::original_artifact_namespace_rewrite_requires_exact_owned_and_native_keys \
+    crdt_engine::import_archive_ops::preservation_v2::tests::original_document_and_artifact_size_evidence_uses_actual_ymap_field \
+    crdt_engine::import_archive_ops::preservation_v2::tests::original_opaque_filename_reopens_exact_bytes_and_source_name_testimony \
+    crdt_engine::import_archive_ops::preservation_v2::tests::original_size_absence_evidence_is_exact_not_a_numeric_waiver \
+    crdt_engine::import_archive_ops::preservation_v2::tests::original_unsafe_names_are_inert_data_not_storage_paths \
+    crdt_engine::import_archive_ops::preservation_v2::tests::rdf_original_absent_size_still_requires_exact_other_ownership_fields \
+    crdt_engine::import_archive_ops::preservation_v2::tests::remediation_a_cached_preview_and_access_dispositions_are_finite \
+    crdt_engine::import_archive_ops::preservation_v2::tests::remediation_a_numeric_string_timestamp_and_explicit_null_are_source_qualified \
+    crdt_engine::import_archive_ops::preservation_v2::tests::remediation_a_saved_titles_require_exact_saved_and_native_authority \
+    crdt_engine::import_archive_ops::preservation_v2::tests::remediation_a_source_only_graph_mapping_is_context_qualified_and_queryable_after_reopen \
+    crdt_engine::import_archive_ops::preservation_v2::tests::remediation_a_source_only_wires_require_complete_anatomy_scope_and_no_incoming_refs \
+    crdt_engine::import_archive_ops::preservation_v2::tests::retained_dataset_concessions_apply_only_to_main_authority \
+    crdt_engine::import_archive_ops::preservation_v2::tests::retained_dataset_quoted_triples_are_explicitly_held \
+    crdt_engine::import_archive_ops::preservation_v2::tests::retained_dataset_rejects_forged_partition_witnesses \
+    crdt_engine::import_archive_ops::preservation_v2::tests::retained_dataset_typed_mapping_and_exact_side_terms \
+    crdt_engine::import_archive_ops::preservation_v2::tests::retained_owner_catalogue_partition_has_no_native_catalogue_authority \
+    crdt_engine::import_archive_ops::preservation_v2::tests::saved_boolean_emitter_never_infers_permission_or_direction_from_defaults \
+    crdt_engine::import_archive_ops::preservation_v2::tests::saved_scalar_disposition_keeps_null_absent_and_unequal_values_distinct \
+    crdt_engine::import_archive_ops::preservation_v2::tests::source_timestamp_adapter_preserves_native_milliseconds \
+    crdt_engine::import_archive_ops::preservation_v2::tests::unavailable_original_reference_is_inert_and_requires_saved_and_native_absence \
+    crdt_engine::import_archive_ops::preservation_v2::tests::unequal_derived_order_requires_actual_field_and_native_projection_not_equivalence \
+    && cargo test --release -j "$CARGO_JOBS" --no-default-features --features headless \
+    --lib document_legacy_history
+
+# Assemble an auditable runtime closure instead of carrying a general-purpose
+# distribution. Build against Bookworm's older glibc, then resolve the runtime
+# against current Debian stable (Trixie): its newer ABI remains backward
+# compatible while its security packages are independently upgradable.
+FROM debian:trixie-slim AS runtime-closure
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates libssl3t64 libstdc++6 \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /usr/local/bin/gardend /usr/local/bin/gardend
+# Public source-available notices for this exact image: the PolyForm NC
+# license text, the required-notice + third-party-attribution promise, and
+# the generated Rust crate license inventory for the headless engine's
+# dependency closure. Copied from build context (garden repo root) so they
+# ship with every gardend image instead of only living in the source tree.
+COPY LICENSE NOTICE.md THIRD-PARTY-RUST.md /notices-src/
+# `ldd` supplies the ELF closure; NSS and CA files are explicit dynamically
+# loaded/data dependencies. Retain the owning Debian package records and
+# content hashes so a scratch rootfs does not erase provenance.
+# Package ownership is queried through canonical paths first: merged-/usr
+# loader aliases can make dpkg-query emit "diversion by ..." records before
+# the real owning package.
+RUN set -eux; \
+    binary=/usr/local/bin/gardend; \
+    root=/runtime-root; \
+    share="$root/usr/local/share/gardend"; \
+    mkdir -p "$share"; \
+    install -D -m 0644 /notices-src/LICENSE "$share/LICENSE"; \
+    install -D -m 0644 /notices-src/NOTICE.md "$share/NOTICE.md"; \
+    install -D -m 0644 /notices-src/THIRD-PARTY-RUST.md "$share/THIRD-PARTY-RUST.md"; \
+    ldd "$binary" >/tmp/gardend-runtime-ldd.txt; \
+    ! grep -Fq 'not found' /tmp/gardend-runtime-ldd.txt; \
+    ! grep -Eiq 'gtk|gdk|glib|gobject|javascriptcore|webkit' \
+        /tmp/gardend-runtime-ldd.txt; \
+    install -D -m 0755 "$binary" "$root/usr/local/bin/gardend"; \
+    install -D -m 0644 /tmp/gardend-runtime-ldd.txt "$share/runtime-ldd.txt"; \
+    awk '/=> \// { print $3 } /^[[:space:]]*\// { print $1 }' \
+        /tmp/gardend-runtime-ldd.txt | sort -u >/tmp/gardend-runtime-libraries.txt; \
+    test -s /tmp/gardend-runtime-libraries.txt; \
+    while IFS= read -r library; do \
+        case "$library" in /*) ;; *) exit 1 ;; esac; \
+        test -f "$library"; \
+        install -D -m 0755 "$library" "$root$library"; \
+    done </tmp/gardend-runtime-libraries.txt; \
+    for library in \
+        /lib/x86_64-linux-gnu/libnss_dns.so.2 \
+        /lib/x86_64-linux-gnu/libnss_files.so.2; do \
+        test -f "$library"; \
+        install -D -m 0755 "$library" "$root$library"; \
+        printf '%s\n' "$library" >>/tmp/gardend-runtime-libraries.txt; \
+    done; \
+    sort -u /tmp/gardend-runtime-libraries.txt -o /tmp/gardend-runtime-libraries.txt; \
+    install -D -m 0644 /tmp/gardend-runtime-libraries.txt "$share/runtime-libraries.txt"; \
+    install -D -m 0644 /etc/ssl/certs/ca-certificates.crt \
+        "$root/etc/ssl/certs/ca-certificates.crt"; \
+    install -D -m 0644 /etc/nsswitch.conf "$root/etc/nsswitch.conf"; \
+    install -D -m 0644 /etc/os-release "$root/etc/os-release"; \
+    { printf '%s\n' base-files ca-certificates; \
+      while IFS= read -r library; do \
+          resolved="$(readlink -f "$library")"; \
+          package="$(dpkg-query -S "$resolved" 2>/dev/null \
+              | sed -n '/^[^ ]*: / { s/: .*//; p; }' | tail -n 1)"; \
+          if test -z "$package"; then \
+              package="$(dpkg-query -S "$library" 2>/dev/null \
+                  | sed -n '/^[^ ]*: / { s/: .*//; p; }' | tail -n 1)"; \
+          fi; \
+          test -n "$package"; \
+          printf '%s\n' "$package"; \
+      done </tmp/gardend-runtime-libraries.txt; \
+    } | sort -u >/tmp/gardend-runtime-packages.txt; \
+    mkdir -p "$root/var/lib/dpkg"; \
+    while IFS= read -r package; do \
+        dpkg-query -s "$package"; \
+        printf '\n'; \
+    done </tmp/gardend-runtime-packages.txt >"$root/var/lib/dpkg/status"; \
+    while IFS= read -r package; do \
+        dpkg-query -W -f='${binary:Package}\t${Version}\n' "$package"; \
+    done </tmp/gardend-runtime-packages.txt >"$share/runtime-packages.tsv"; \
+    (cd "$root" && find . -type f \
+        ! -path './usr/local/share/gardend/runtime-files.sha256' \
+        -print0 | sort -z | xargs -0 sha256sum) >"$share/runtime-files.sha256"
+
+FROM scratch
+ARG SOURCE_REVISION
+LABEL dev.sophia.source-revision="${SOURCE_REVISION}" \
+      dev.sophia.security-gate="latest-upstream.v1"
+# NOTE: fastembed uses ort-load-dynamic; libonnxruntime.so is NOT bundled in
+# the M1 image. The cell boots and serves the non-semantic surface without it;
+# semantic endpoints will error until the onnxruntime layer is added.
+COPY --from=runtime-closure /runtime-root/ /
+ENV GARDEN_PROFILE_DIR=/data/profile \
+    GARDEN_LOOPBACK_HOST=0.0.0.0 \
+    GARDEN_LOOPBACK_PORT=8086 \
+    GARDEN_LOCAL_CRDT_OPERATION_TIMEOUT_SECS=1800 \
+    HOME=/tmp \
+    SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+    RUST_LOG=info
+EXPOSE 8086
+VOLUME /data
+USER 65532:65532
+ENTRYPOINT ["/usr/local/bin/gardend"]

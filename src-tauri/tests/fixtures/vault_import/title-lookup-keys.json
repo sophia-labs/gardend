@@ -1,0 +1,92 @@
+[
+  {
+    "title": "Hello World",
+    "keys": [
+      "hello world"
+    ]
+  },
+  {
+    "title": "  Mixed CASE   Title ",
+    "keys": [
+      "mixed case title"
+    ]
+  },
+  {
+    "title": "Don’t Panic",
+    "keys": [
+      "don’t panic",
+      "don't panic"
+    ]
+  },
+  {
+    "title": "don't panic",
+    "keys": [
+      "don't panic",
+      "don’t panic"
+    ]
+  },
+  {
+    "title": "en – dash",
+    "keys": [
+      "en – dash",
+      "en - dash"
+    ]
+  },
+  {
+    "title": "em — dash",
+    "keys": [
+      "em — dash",
+      "em - dash"
+    ]
+  },
+  {
+    "title": "hyphen-name",
+    "keys": [
+      "hyphen-name",
+      "hyphen–name",
+      "hyphen—name"
+    ]
+  },
+  {
+    "title": "[[Wrapped Title]]",
+    "keys": [
+      "wrapped title"
+    ]
+  },
+  {
+    "title": "emoji 🌱 garden",
+    "keys": [
+      "emoji 🌱 garden"
+    ]
+  },
+  {
+    "title": "soft­hyphen and zero​width",
+    "keys": [
+      "softhyphen and zerowidth"
+    ]
+  },
+  {
+    "title": "tab\tand\nnewline",
+    "keys": [
+      "tab and newline"
+    ]
+  },
+  {
+    "title": "ligature ﬁle",
+    "keys": [
+      "ligature file"
+    ]
+  },
+  {
+    "title": "fullｗidth！",
+    "keys": [
+      "fullwidth!"
+    ]
+  },
+  {
+    "title": "nbsp space",
+    "keys": [
+      "nbsp space"
+    ]
+  }
+]

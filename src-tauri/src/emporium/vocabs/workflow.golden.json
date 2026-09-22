@@ -1,0 +1,2042 @@
+{
+  "block_types": {
+    "campaign-record": {
+      "description": "Native optimization-campaign record: iterations, candidates with per-task outcomes, matrix tasks, gate verdict.",
+      "fence_language": "json"
+    },
+    "run-record": {
+      "description": "Workflow run telemetry: workflowProgress phase and agent entries.",
+      "fence_language": "json"
+    }
+  },
+  "classes": {
+    "ActionArgument": {
+      "comment": "One typed argument on a workflow route action. Queryable replacement for JSON cargo in retained workflow-book faces.",
+      "identity_kind": "urn-template",
+      "predicates": {
+        "wf:argumentName": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "wf:argumentValue": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "wf:partOfAction": {
+          "datatype": "uri",
+          "multi": false,
+          "required": true
+        }
+      },
+      "public_jurisdiction": "workflow",
+      "rdf_types": [
+        "wf:ActionArgument",
+        "prov:Entity"
+      ],
+      "source_kind": "current-state",
+      "store_mode": "materialize",
+      "store_target": "user:rdf",
+      "subject_rule": "urn:sophia:wf:{page-view|page-turn-decision}:{...}:route:{routeId}:action:arg:{name}",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize"
+    },
+    "AuthorizationFlag": {
+      "comment": "A retained record that an explicit authorization boundary applied to a visible workflow-book route or choice.",
+      "identity_kind": "urn-template",
+      "predicates": {
+        "wf:authorizationReason": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:choiceId": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "wf:pageId": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        }
+      },
+      "public_jurisdiction": "workflow",
+      "rdf_types": [
+        "wf:AuthorizationFlag",
+        "prov:Entity"
+      ],
+      "source_kind": "current-state",
+      "store_mode": "materialize",
+      "store_target": "user:rdf",
+      "subject_rule": "urn:sophia:wf:{page-view|page-turn-decision}:{...}:authorization:{n}",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize"
+    },
+    "AuthoringSession": {
+      "comment": "An event-log backed workflow authoring session. Mutating compose/apply gestures append wf:CompositionEvent records and fold them into the authored workflow definition subject.",
+      "identity_kind": "event-id",
+      "predicates": {
+        "wf:boundToAgent": {
+          "datatype": "uri",
+          "multi": false,
+          "required": false,
+          "source": "wf:AuthoringSession -> agt:Session projection edge; inverse agt:realizedBy is materialized on the Agent side"
+        },
+        "wf:definitionSubject": {
+          "datatype": "uri",
+          "multi": false,
+          "required": true,
+          "source": "the workflow definition subject this session folds into"
+        },
+        "wf:driverAgent": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:driverLease": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:hasCompositionEvent": {
+          "datatype": "uri",
+          "multi": true,
+          "required": false
+        },
+        "wf:openedAt": {
+          "datatype": "dateTime",
+          "multi": false,
+          "required": true
+        },
+        "wf:sessionStatus": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "wf:workflowName": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        }
+      },
+      "public_jurisdiction": "workflow",
+      "rdf_types": [
+        "wf:AuthoringSession",
+        "prov:Activity"
+      ],
+      "source_kind": "event-log",
+      "store_mode": "materialize",
+      "store_target": "user:rdf",
+      "subject_rule": "urn:sophia:wf:authoring-session:{graphId}:{workflowName}:{sessionId}",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "event-log-fold",
+      "authoring_grain": {
+        "emits": "wf:CompositionEvent",
+        "folds_definition_subject": "wf:Workflow",
+        "role": "authoring-session"
+      }
+    },
+    "CompletenessGap": {
+      "comment": "A derived authoring gap for an incomplete workflow draft. It is query-time guidance, not authoritative stored workflow RDF.",
+      "identity_kind": "resolve-by-query",
+      "source_kind": "derived",
+      "store_mode": "virtual",
+      "store_target": "none",
+      "enforcement": "warning",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "derived-virtual",
+      "derived_from_query": "workflow_authoring_session.draft.completenessGaps(definition subject, composition events, workflow contract)",
+      "projection_faces": [
+        "workflow-authoring-json"
+      ],
+      "public_jurisdiction": "workflow",
+      "rdf_types": [
+        "wf:CompletenessGap"
+      ],
+      "subject_rule": "virtual:resolve-by-query:workflow_authoring_session.draft.completenessGap",
+      "predicates": {
+        "wf:gapBlocking": {
+          "datatype": "boolean",
+          "multi": false,
+          "required": true
+        },
+        "wf:gapKind": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "wf:gapTarget": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "wf:rationale": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        }
+      }
+    },
+    "CompositionEvent": {
+      "comment": "One durable authoring gesture from workflow_book_compose/workflow_book_apply. Events are the write path; derived drafts are read projections over these records and the current workflow definition.",
+      "identity_kind": "event-id",
+      "predicates": {
+        "prov:generatedAtTime": {
+          "datatype": "dateTime",
+          "multi": false,
+          "required": true
+        },
+        "wf:boundToAgent": {
+          "datatype": "uri",
+          "multi": false,
+          "required": false,
+          "source": "wf:CompositionEvent -> agt:Turn projection edge; inverse agt:realizedBy is materialized on the Agent side"
+        },
+        "wf:definitionSubject": {
+          "datatype": "uri",
+          "multi": false,
+          "required": true,
+          "source": "the workflow, phase, or agent-node subject this event folds into"
+        },
+        "wf:deltaJson": {
+          "datatype": "string",
+          "multi": false,
+          "required": false,
+          "source": "machine-readable patch or normalized compose plan delta"
+        },
+        "wf:driverAgent": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:eventOrder": {
+          "datatype": "integer",
+          "multi": false,
+          "required": true
+        },
+        "wf:gestureKind": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "wf:insertTriple": {
+          "datatype": "string",
+          "multi": true,
+          "required": false,
+          "source": "canonical RDF triple inserted into the folded workflow definition cache"
+        },
+        "wf:partOfAuthoringSession": {
+          "datatype": "uri",
+          "multi": false,
+          "required": true
+        },
+        "wf:rationale": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:seededFrom": {
+          "datatype": "uri",
+          "multi": true,
+          "required": false
+        },
+        "wf:targetSubject": {
+          "datatype": "uri",
+          "multi": false,
+          "required": false
+        },
+        "wf:deleteTriple": {
+          "datatype": "string",
+          "multi": true,
+          "required": false,
+          "source": "canonical RDF triple deleted from the folded workflow definition cache"
+        }
+      },
+      "public_jurisdiction": "workflow",
+      "rdf_types": [
+        "wf:CompositionEvent",
+        "prov:Activity"
+      ],
+      "source_kind": "event-log",
+      "store_mode": "materialize",
+      "store_target": "user:rdf",
+      "subject_rule": "urn:sophia:wf:composition-event:{graphId}:{workflowName}:{sessionId}:{eventOrder}",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "event-log-fold",
+      "authoring_grain": {
+        "event_class": "wf:CompositionEvent",
+        "folds_definition_subject": "wf:Workflow",
+        "role": "composition-event"
+      }
+    },
+    "Draft": {
+      "comment": "The read-derived authoring perception of a workflow under construction, folded from the definition subject plus CompositionEvent records.",
+      "identity_kind": "resolve-by-query",
+      "source_kind": "derived",
+      "store_mode": "virtual",
+      "store_target": "none",
+      "enforcement": "warning",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "derived-virtual",
+      "derived_from_query": "workflow_authoring_session.draft(definition subject, composition events, workflow contract)",
+      "projection_faces": [
+        "workflow-authoring-json"
+      ],
+      "public_jurisdiction": "workflow",
+      "rdf_types": [
+        "wf:Draft"
+      ],
+      "subject_rule": "virtual:resolve-by-query:workflow_authoring_session.draft",
+      "predicates": {
+        "wf:definitionSubject": {
+          "datatype": "uri",
+          "multi": false,
+          "required": true
+        },
+        "wf:hasCompletenessGap": {
+          "datatype": "uri",
+          "multi": true,
+          "required": false
+        },
+        "wf:hasDraftWarning": {
+          "datatype": "uri",
+          "multi": true,
+          "required": false
+        },
+        "wf:runnable": {
+          "datatype": "boolean",
+          "multi": false,
+          "required": true
+        },
+        "wf:workflowName": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        }
+      }
+    },
+    "DraftWarning": {
+      "comment": "A derived non-blocking authoring warning for a workflow draft.",
+      "identity_kind": "resolve-by-query",
+      "source_kind": "derived",
+      "store_mode": "virtual",
+      "store_target": "none",
+      "enforcement": "warning",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "derived-virtual",
+      "derived_from_query": "workflow_authoring_session.draft.warnings(definition subject, composition events, workflow contract)",
+      "projection_faces": [
+        "workflow-authoring-json"
+      ],
+      "public_jurisdiction": "workflow",
+      "rdf_types": [
+        "wf:DraftWarning"
+      ],
+      "subject_rule": "virtual:resolve-by-query:workflow_authoring_session.draft.warning",
+      "predicates": {
+        "wf:rationale": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:warningKind": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "wf:warningTarget": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        }
+      }
+    },
+    "EvidenceArtifact": {
+      "comment": "A retained sidecar artifact that grounded a workflow-book page-turn decision: handoff, transcript, preflight, page audit, or another externally inspectable evidence file.",
+      "identity_kind": "urn-template",
+      "predicates": {
+        "dcterms:identifier": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "wf:path": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        }
+      },
+      "public_jurisdiction": "workflow",
+      "rdf_types": [
+        "wf:EvidenceArtifact",
+        "prov:Entity"
+      ],
+      "source_kind": "current-state",
+      "store_mode": "materialize",
+      "store_target": "user:rdf",
+      "subject_rule": "urn:sophia:workflow-page-turn-decision:{...}:evidence:{role}",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize"
+    },
+    "NavigationRoute": {
+      "comment": "A named workflow-book route over one exact page choice, retained either with a PageView or a PageTurnDecision.",
+      "identity_kind": "urn-template",
+      "predicates": {
+        "wf:choiceId": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "wf:choiceLabel": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:fromPage": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:graphId": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:intent": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:rationale": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:routeAction": {
+          "datatype": "uri",
+          "multi": false,
+          "required": false
+        },
+        "wf:routeId": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "wf:routeKind": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:routeLabel": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:source": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:workflowName": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        }
+      },
+      "public_jurisdiction": "workflow",
+      "rdf_types": [
+        "wf:NavigationRoute",
+        "prov:Entity"
+      ],
+      "source_kind": "current-state",
+      "store_mode": "materialize",
+      "store_target": "user:rdf",
+      "subject_rule": "urn:sophia:wf:{page-view|page-turn-decision}:{...}:route:{routeId}",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize"
+    },
+    "Operation": {
+      "comment": "One published workflow-facing API operation. Materializes to an OpenAPI paths/{path}/{method} PathItem through the OpenAPI face; legacy api:Operation remains a compatibility alias.",
+      "identity_kind": "logical-id",
+      "predicates": {
+        "wf:deprecated": {
+          "datatype": "boolean",
+          "multi": false,
+          "required": false
+        },
+        "wf:description": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:hasBinding": {
+          "datatype": "uri",
+          "multi": false,
+          "required": false
+        },
+        "wf:method": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "wf:operationId": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "wf:path": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "wf:summary": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        }
+      },
+      "projection_faces": [
+        "turtle",
+        "shacl",
+        "openapi"
+      ],
+      "public_jurisdiction": "workflow",
+      "rdf_types": [
+        "wf:Operation"
+      ],
+      "source_kind": "current-state",
+      "store_mode": "materialize",
+      "store_target": "projection:api",
+      "subject_rule": "{graph_subject}:projection:api:operation:{operationId}",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize",
+      "faces_oracle": "workflow_invocation_openapi_faces_agree"
+    },
+    "Parameter": {
+      "comment": "One input parameter on a workflow-facing API operation. Materializes to an OpenAPI operation parameter entry.",
+      "identity_kind": "logical-id",
+      "predicates": {
+        "wf:datatype": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:description": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:in": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "wf:name": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "wf:ofOperation": {
+          "datatype": "uri",
+          "multi": false,
+          "required": false
+        },
+        "wf:required": {
+          "datatype": "boolean",
+          "multi": false,
+          "required": false
+        }
+      },
+      "projection_faces": [
+        "turtle",
+        "shacl",
+        "openapi"
+      ],
+      "public_jurisdiction": "workflow",
+      "rdf_types": [
+        "wf:Parameter"
+      ],
+      "source_kind": "current-state",
+      "store_mode": "materialize",
+      "store_target": "projection:api",
+      "subject_rule": "{graph_subject}:projection:api:parameter:{operationId}:{name}",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize",
+      "faces_oracle": "workflow_invocation_openapi_faces_agree"
+    },
+    "Response": {
+      "comment": "One response variant from a workflow-facing API operation. Materializes to an OpenAPI operation responses map entry.",
+      "identity_kind": "logical-id",
+      "predicates": {
+        "wf:description": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "wf:errorCode": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:ofOperation": {
+          "datatype": "uri",
+          "multi": false,
+          "required": false
+        },
+        "wf:statusCode": {
+          "datatype": "integer",
+          "multi": false,
+          "required": true
+        }
+      },
+      "projection_faces": [
+        "turtle",
+        "shacl",
+        "openapi"
+      ],
+      "public_jurisdiction": "workflow",
+      "rdf_types": [
+        "wf:Response"
+      ],
+      "source_kind": "current-state",
+      "store_mode": "materialize",
+      "store_target": "projection:api",
+      "subject_rule": "{graph_subject}:projection:api:response:{operationId}:{statusCode}",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize",
+      "faces_oracle": "workflow_invocation_openapi_faces_agree"
+    },
+    "Server": {
+      "comment": "A server hosting the workflow-facing API. Materializes to an OpenAPI top-level servers entry.",
+      "identity_kind": "logical-id",
+      "predicates": {
+        "wf:description": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:environment": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:url": {
+          "datatype": "uri",
+          "multi": false,
+          "required": true
+        }
+      },
+      "projection_faces": [
+        "turtle",
+        "shacl",
+        "openapi"
+      ],
+      "public_jurisdiction": "workflow",
+      "rdf_types": [
+        "wf:Server"
+      ],
+      "source_kind": "current-state",
+      "store_mode": "materialize",
+      "store_target": "projection:api",
+      "subject_rule": "{graph_subject}:projection:api:server:{environment}",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize",
+      "faces_oracle": "workflow_invocation_openapi_faces_agree"
+    },
+    "WorkflowBinding": {
+      "comment": "The workflow invocation seam. Links a wf:Operation to a Choreograph workflow and carries verbatim JSON Schema literals for the OpenAPI face; legacy api:WorkflowBinding remains a compatibility alias.",
+      "identity_kind": "logical-id",
+      "predicates": {
+        "wf:bindsOperation": {
+          "datatype": "uri",
+          "multi": false,
+          "required": true
+        },
+        "wf:bindsWorkflow": {
+          "datatype": "uri",
+          "multi": false,
+          "required": false,
+          "source": "Canonical executable workflow subject; required by the live invocation face, optional only for legacy publication records."
+        },
+        "wf:capability": {
+          "datatype": "string",
+          "multi": true,
+          "required": false,
+          "source": "Named host-mediated capabilities; credentials never enter the execution sandbox."
+        },
+        "wf:controller": {
+          "datatype": "string",
+          "multi": false,
+          "required": false,
+          "source": "Canonical execution controller: program, agent, or composite."
+        },
+        "wf:dangerousOps": {
+          "datatype": "boolean",
+          "multi": false,
+          "required": false
+        },
+        "wf:definitionDigest": {
+          "datatype": "string",
+          "multi": false,
+          "required": false,
+          "source": "Pinned sha256 of the executable workflow definition; required by the live invocation face."
+        },
+        "wf:description": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:effects": {
+          "datatype": "string",
+          "multi": false,
+          "required": false,
+          "source": "pure or capability-bound; independent of controller and model use."
+        },
+        "wf:executor": {
+          "datatype": "string",
+          "multi": false,
+          "required": true,
+          "source": "Compatibility projection only: gated or dumb. Canonical execution posture is carried by the orthogonal facets."
+        },
+        "wf:inputSchema": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:isolation": {
+          "datatype": "string",
+          "multi": false,
+          "required": false,
+          "source": "sandbox or host-adapter."
+        },
+        "wf:mayInvokeChildren": {
+          "datatype": "boolean",
+          "multi": false,
+          "required": false
+        },
+        "wf:minimumRole": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:modelUse": {
+          "datatype": "string",
+          "multi": false,
+          "required": false,
+          "source": "none, inference, or agentic; an agentless transcription operation may still use inference."
+        },
+        "wf:outputSchema": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:reproducibility": {
+          "datatype": "string",
+          "multi": false,
+          "required": false,
+          "source": "pure, recorded-external, or nondeterministic."
+        },
+        "wf:requiresAuth": {
+          "datatype": "boolean",
+          "multi": false,
+          "required": false
+        },
+        "wf:runtimeKind": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:workflowName": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        }
+      },
+      "projection_faces": [
+        "turtle",
+        "shacl",
+        "openapi"
+      ],
+      "public_jurisdiction": "workflow",
+      "rdf_types": [
+        "wf:WorkflowBinding"
+      ],
+      "source_kind": "current-state",
+      "store_mode": "materialize",
+      "store_target": "projection:api",
+      "subject_rule": "{graph_subject}:projection:api:binding:{operationId}",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize",
+      "faces_oracle": "workflow_invocation_openapi_faces_agree"
+    },
+    "PageView": {
+      "comment": "A retained workflow-book page view: source-side page perception, visible routes, exact raw SPARQL, retained recommendation snapshot, and authorization boundary.",
+      "identity_fields": [
+        "graphId",
+        "workflowName",
+        "pageId",
+        "intent",
+        "sourceWorkflowHash",
+        "argsHash",
+        "routeId",
+        "rawQueryHash",
+        "visibleRouteActionHash"
+      ],
+      "identity_kind": "content-hash",
+      "predicates": {
+        "dcterms:identifier": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "prov:generatedAtTime": {
+          "datatype": "dateTime",
+          "multi": false,
+          "required": true
+        },
+        "wf:argsPath": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:authorizationFlagCount": {
+          "datatype": "integer",
+          "multi": false,
+          "required": true
+        },
+        "wf:followedRouteId": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:fromPage": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:graphId": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:hasAuthorizationFlag": {
+          "datatype": "uri",
+          "multi": true,
+          "required": false
+        },
+        "wf:hasNavigationRoute": {
+          "datatype": "uri",
+          "multi": true,
+          "required": false
+        },
+        "wf:hasRawSparqlQuery": {
+          "datatype": "uri",
+          "multi": true,
+          "required": false
+        },
+        "wf:intent": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "wf:pageId": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "wf:pageScene": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "wf:pageTitle": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "wf:recommendedAction": {
+          "datatype": "uri",
+          "multi": false,
+          "required": false
+        },
+        "wf:schemaVersion": {
+          "datatype": "integer",
+          "multi": false,
+          "required": true
+        },
+        "wf:supersedesPageView": {
+          "datatype": "uri",
+          "multi": false,
+          "required": false
+        },
+        "wf:visibleObjectCount": {
+          "datatype": "integer",
+          "multi": false,
+          "required": true
+        },
+        "wf:warningCount": {
+          "datatype": "integer",
+          "multi": false,
+          "required": true
+        },
+        "wf:workflowName": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "wf:workflowPath": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        }
+      },
+      "projection_faces": [
+        "turtle",
+        "workflow-book-json",
+        "markdown",
+        "raw-sparql"
+      ],
+      "public_jurisdiction": "workflow",
+      "rdf_types": [
+        "wf:PageView",
+        "prov:Entity"
+      ],
+      "source_kind": "current-state",
+      "store_mode": "materialize",
+      "store_target": "user:rdf",
+      "subject_rule": "urn:sophia:wf:page-view:{graphId}:{workflowName}:{pageId}:{intent}:{contentHash}",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize",
+      "faces_oracle": "workflow_book_page_view_faces_agree"
+    },
+    "PageTurnDecision": {
+      "comment": "A retained workflow-book page-turn Meaningful Object: what Garden suggested, which named route/choice was recommended or followed, why, which artifacts grounded it, and whether execution was explicitly authorized.",
+      "identity_kind": "event-id",
+      "predicates": {
+        "dcterms:identifier": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "prov:generatedAtTime": {
+          "datatype": "dateTime",
+          "multi": false,
+          "required": true
+        },
+        "prov:value": {
+          "datatype": "string",
+          "multi": false,
+          "required": false,
+          "source": "short rationale safe to show; not chain-of-thought"
+        },
+        "prov:wasDerivedFrom": {
+          "datatype": "uri",
+          "multi": true,
+          "required": false
+        },
+        "wf:authorizationFlagCount": {
+          "datatype": "integer",
+          "multi": false,
+          "required": true
+        },
+        "wf:executionAuthorized": {
+          "datatype": "boolean",
+          "multi": false,
+          "required": true
+        },
+        "wf:followedChoiceId": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:followedChoiceLabel": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:followedRouteId": {
+          "datatype": "string",
+          "multi": false,
+          "required": false,
+          "source": "the named route the agent actually followed when this decision records an accepted turn"
+        },
+        "wf:followedRouteLabel": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:fromPage": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:graphId": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:hasAuthorizationFlag": {
+          "datatype": "uri",
+          "multi": true,
+          "required": false
+        },
+        "wf:hasNavigationRoute": {
+          "datatype": "uri",
+          "multi": true,
+          "required": false,
+          "source": "links to retained wf:NavigationRoute nodes that were visible on the origin page"
+        },
+        "wf:intent": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "wf:nativeSuggestedChoiceId": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:readiness": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:recommendedChoiceId": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:recommendedRouteId": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:recommendedRouteLabel": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:schemaVersion": {
+          "datatype": "integer",
+          "multi": false,
+          "required": true
+        },
+        "wf:shardId": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "wf:workflowName": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        }
+      },
+      "projection_faces": [
+        "turtle",
+        "workflow-book-json",
+        "markdown",
+        "raw-sparql"
+      ],
+      "public_jurisdiction": "workflow",
+      "rdf_types": [
+        "wf:PageTurnDecision",
+        "prov:Entity"
+      ],
+      "source_kind": "current-state",
+      "store_mode": "materialize",
+      "store_target": "user:rdf",
+      "subject_rule": "urn:sophia:workflow-page-turn-decision:{graphId}:{workflowName}:{fromPage}:{recommendedChoice}:{intent}:{shardId}",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize",
+      "faces_oracle": "workflow_book_page_turn_decision_faces_agree"
+    },
+    "RawSparqlQuery": {
+      "comment": "One exact raw SPARQL query retained with a workflow-book PageView.",
+      "identity_kind": "urn-template",
+      "predicates": {
+        "wf:partOfPageView": {
+          "datatype": "uri",
+          "multi": false,
+          "required": true
+        },
+        "wf:queryGraph": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:queryOrder": {
+          "datatype": "integer",
+          "multi": false,
+          "required": true
+        },
+        "wf:queryText": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "wf:queryTitle": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        }
+      },
+      "public_jurisdiction": "workflow",
+      "rdf_types": [
+        "wf:RawSparqlQuery",
+        "prov:Entity"
+      ],
+      "source_kind": "current-state",
+      "store_mode": "materialize",
+      "store_target": "user:rdf",
+      "subject_rule": "urn:sophia:wf:page-view:{...}:raw-sparql:{n}",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize"
+    },
+    "RecommendedAction": {
+      "comment": "A retained recommendation snapshot inside an immutable PageView. Live workflow_book_open recommendations are virtual resolve-by-query opinions, not authoritative stored facts.",
+      "identity_kind": "urn-template",
+      "predicates": {
+        "wf:actionTool": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:choiceLabel": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:commandTemplate": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:rationale": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:recommendationSource": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "wf:recommendedChoice": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "wf:recommendedRoute": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:routeLabel": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        }
+      },
+      "public_jurisdiction": "workflow",
+      "rdf_types": [
+        "wf:RecommendedAction",
+        "prov:Entity"
+      ],
+      "source_kind": "current-state",
+      "store_mode": "materialize",
+      "store_target": "user:rdf",
+      "subject_rule": "urn:sophia:wf:page-view:{...}:recommended-action",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize"
+    },
+    "RouteAction": {
+      "comment": "The typed, queryable action behind a retained workflow-book route. This replaces wfui:actionJson as the semantic representation.",
+      "identity_kind": "urn-template",
+      "predicates": {
+        "wf:actionKind": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "wf:actionTool": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "wf:argument": {
+          "datatype": "uri",
+          "multi": true,
+          "required": false
+        },
+        "wf:argumentHash": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "wf:commandTemplate": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        }
+      },
+      "public_jurisdiction": "workflow",
+      "rdf_types": [
+        "wf:RouteAction",
+        "prov:Entity"
+      ],
+      "source_kind": "current-state",
+      "store_mode": "materialize",
+      "store_target": "user:rdf",
+      "subject_rule": "urn:sophia:wf:{page-view|page-turn-decision}:{...}:route:{routeId}:action",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize"
+    },
+    "AgentNode": {
+      "predicates": {
+        "wf:agentType": {
+          "datatype": "string",
+          "multi": false,
+          "required": false,
+          "source": "opts.agentType"
+        },
+        "wf:label": {
+          "datatype": "string",
+          "multi": false,
+          "required": true,
+          "source": "trace node label"
+        },
+        "wf:partOfWorkflow": {
+          "datatype": "uri",
+          "multi": false,
+          "required": true,
+          "source": "workflow doc URI"
+        },
+        "wf:phaseIndex": {
+          "datatype": "integer",
+          "multi": false,
+          "required": true,
+          "source": "1-based index of the node's phase"
+        },
+        "wf:seededFrom": {
+          "datatype": "uri",
+          "multi": true,
+          "required": false,
+          "source": "archetype, template, or prior workflow element used to seed this agent node"
+        }
+      },
+      "rdf_types": [
+        "wf:AgentNode"
+      ],
+      "subject_rule": "node doc URI",
+      "source_kind": "current-state",
+      "identity_kind": "doc-uri",
+      "store_mode": "materialize",
+      "store_target": "user:rdf",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize"
+    },
+    "AgentRun": {
+      "comment": "EXACT names \u2014 the frontend joins on these. wf:partOfRun, never wf:run (the v0.1 drift the emitter made unrepresentable).",
+      "predicates": {
+        "wf:agentType": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:archetype": {
+          "datatype": "uri",
+          "multi": false,
+          "required": false,
+          "source": "archetype doc URI (judgment)"
+        },
+        "wf:boundToAgent": {
+          "datatype": "uri",
+          "multi": false,
+          "required": false,
+          "source": "wf:AgentRun -> agt:Turn binding edge; inverse agt:realizedBy is derived"
+        },
+        "wf:cached": {
+          "datatype": "boolean",
+          "multi": false,
+          "required": true
+        },
+        "wf:durationMs": {
+          "datatype": "integer",
+          "multi": false,
+          "required": true
+        },
+        "wf:label": {
+          "datatype": "string",
+          "multi": false,
+          "required": true,
+          "source": "workflowProgress entry label"
+        },
+        "wf:model": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "wf:node": {
+          "datatype": "uri",
+          "multi": false,
+          "required": false,
+          "source": "AgentNode doc URI when the label maps to a node"
+        },
+        "wf:partOfRun": {
+          "datatype": "uri",
+          "multi": false,
+          "required": true,
+          "source": "the Run subject"
+        },
+        "wf:phaseIndex": {
+          "datatype": "integer",
+          "multi": false,
+          "required": true
+        },
+        "wf:queuedAt": {
+          "datatype": "long",
+          "multi": false,
+          "required": true,
+          "source": "epoch ms"
+        },
+        "wf:startedAt": {
+          "datatype": "long",
+          "multi": false,
+          "required": true,
+          "source": "epoch ms"
+        },
+        "wf:state": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "wf:tokens": {
+          "datatype": "integer",
+          "multi": false,
+          "required": true
+        },
+        "wf:toolCalls": {
+          "datatype": "integer",
+          "multi": false,
+          "required": true
+        }
+      },
+      "rdf_types": [
+        "wf:AgentRun"
+      ],
+      "subject_rule": "uri_rules.agentRun",
+      "source_kind": "current-state",
+      "identity_kind": "logical-id",
+      "store_mode": "materialize",
+      "store_target": "user:rdf",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize"
+    },
+    "Archetype": {
+      "predicates": {
+        "wf:name": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        }
+      },
+      "rdf_types": [
+        "wf:Archetype"
+      ],
+      "subject_rule": "archetype doc URI",
+      "source_kind": "current-state",
+      "identity_kind": "doc-uri",
+      "store_mode": "materialize",
+      "store_target": "user:rdf",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize"
+    },
+    "Contract": {
+      "predicates": {
+        "wf:name": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        }
+      },
+      "rdf_types": [
+        "wf:Contract"
+      ],
+      "subject_rule": "contract doc URI",
+      "source_kind": "current-state",
+      "identity_kind": "doc-uri",
+      "store_mode": "materialize",
+      "store_target": "user:rdf",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize"
+    },
+    "Phase": {
+      "predicates": {
+        "dcterms:description": {
+          "datatype": "string",
+          "multi": false,
+          "required": false,
+          "source": "meta phase.detail"
+        },
+        "dcterms:title": {
+          "comment": "safe: urn subject, not a doc",
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "wf:order": {
+          "datatype": "integer",
+          "multi": false,
+          "required": true
+        },
+        "wf:seededFrom": {
+          "datatype": "uri",
+          "multi": true,
+          "required": false,
+          "source": "template or prior phase used to seed this phase"
+        }
+      },
+      "rdf_types": [
+        "wf:Phase"
+      ],
+      "subject_rule": "uri_rules.phase (urn space \u2014 fragment subjects are forbidden)",
+      "source_kind": "current-state",
+      "identity_kind": "urn-template",
+      "store_mode": "materialize",
+      "store_target": "user:rdf",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize"
+    },
+    "Protocol": {
+      "comment": "The pinning subject of a distributed commons seed: protocol version plus the vocab version/sha/registry-URL anchor. Offline resolution: trust the seed's snapshot, verified against wf:vocabSha256.",
+      "predicates": {
+        "wf:description": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:name": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "wf:protocolVersion": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "wf:vocabRegistry": {
+          "datatype": "string",
+          "multi": false,
+          "required": false,
+          "source": "URL of the registry serving the live contract"
+        },
+        "wf:vocabSha256": {
+          "datatype": "string",
+          "multi": false,
+          "required": false,
+          "source": "sha256 of the canonical vocab JSON bytes at that version"
+        },
+        "wf:vocabVersion": {
+          "datatype": "string",
+          "multi": false,
+          "required": false,
+          "source": "version of the vocabulary contract the seed pins"
+        }
+      },
+      "rdf_types": [],
+      "subject_rule": "urn:sophia:wf:protocol",
+      "source_kind": "current-state",
+      "identity_kind": "urn-template",
+      "store_mode": "materialize",
+      "store_target": "user:rdf",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize"
+    },
+    "Run": {
+      "predicates": {
+        "prov:endedAtTime": {
+          "datatype": "dateTime",
+          "multi": false,
+          "required": true,
+          "source": "ISO from record timestamp"
+        },
+        "prov:generated": {
+          "datatype": "uri",
+          "multi": true,
+          "required": false,
+          "source": "uploaded output doc URIs"
+        },
+        "prov:startedAtTime": {
+          "datatype": "dateTime",
+          "multi": false,
+          "required": true,
+          "source": "ISO from record startTime (epoch ms)"
+        },
+        "prov:used": {
+          "datatype": "uri",
+          "multi": false,
+          "required": true,
+          "source": "workflow doc URI"
+        },
+        "wf:agentCount": {
+          "datatype": "integer",
+          "multi": false,
+          "required": true
+        },
+        "wf:bestHoldout": {
+          "datatype": "double",
+          "multi": false,
+          "required": false
+        },
+        "wf:bestScore": {
+          "datatype": "double",
+          "multi": false,
+          "required": false
+        },
+        "wf:boundToAgent": {
+          "datatype": "uri",
+          "multi": false,
+          "required": false,
+          "source": "wf:Run -> agt:Session binding edge; inverse agt:realizedBy is derived"
+        },
+        "wf:budgetSpent": {
+          "datatype": "integer",
+          "multi": false,
+          "required": false,
+          "source": "metric/rollout calls spent"
+        },
+        "wf:campaignKind": {
+          "comment": "set (e.g. 'gepa') when this Run is an optimization campaign \u2014 the lens discriminator",
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:candidateCount": {
+          "datatype": "integer",
+          "multi": false,
+          "required": false
+        },
+        "wf:durationMs": {
+          "datatype": "integer",
+          "multi": false,
+          "required": true
+        },
+        "wf:gateVerdict": {
+          "datatype": "string",
+          "multi": false,
+          "required": false,
+          "source": "pass | fail | hold \u2014 the pre-registered holdout gate"
+        },
+        "wf:generatedFile": {
+          "datatype": "string",
+          "multi": true,
+          "required": false
+        },
+        "wf:journalDocument": {
+          "datatype": "uri",
+          "multi": false,
+          "required": false,
+          "source": "doc URI of the uploaded journal artifact"
+        },
+        "wf:note": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:reflectionModel": {
+          "datatype": "string",
+          "multi": false,
+          "required": false,
+          "source": "the model that proposed mutations"
+        },
+        "wf:replayOf": {
+          "datatype": "uri",
+          "multi": false,
+          "required": false
+        },
+        "wf:runId": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "wf:runRecordDocument": {
+          "datatype": "uri",
+          "multi": false,
+          "required": false,
+          "source": "doc URI of the stored run record"
+        },
+        "wf:scriptSource": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:seedHoldout": {
+          "datatype": "double",
+          "multi": false,
+          "required": false
+        },
+        "wf:seedScore": {
+          "datatype": "double",
+          "multi": false,
+          "required": false
+        },
+        "wf:sessionRecord": {
+          "datatype": "string",
+          "multi": false,
+          "required": false,
+          "source": "machine path of the runId.json"
+        },
+        "wf:status": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "wf:targetArchetype": {
+          "datatype": "uri",
+          "multi": false,
+          "required": false,
+          "source": "archetype doc URI the campaign optimized"
+        },
+        "wf:taskModel": {
+          "datatype": "string",
+          "multi": false,
+          "required": false,
+          "source": "the model all candidate scores were measured ON \u2014 scores do not transfer across models"
+        },
+        "wf:totalTokens": {
+          "datatype": "integer",
+          "multi": false,
+          "required": true
+        },
+        "wf:workflowName": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        }
+      },
+      "rdf_types": [
+        "wf:Run",
+        "prov:Activity"
+      ],
+      "subject_rule": "uri_rules.run",
+      "source_kind": "current-state",
+      "identity_kind": "logical-id",
+      "store_mode": "materialize",
+      "store_target": "user:rdf",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize"
+    },
+    "RunStatistics": {
+      "comment": "A read-derived workflow statistics face over retained runs, agent runs, and page-turn decision history.",
+      "identity_kind": "resolve-by-query",
+      "source_kind": "derived",
+      "store_mode": "virtual",
+      "store_target": "none",
+      "enforcement": "warning",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "derived-virtual",
+      "derived_from_query": "workflow_book.runStatistics(wf:Run, wf:AgentRun, wf:PageTurnDecision history for workflow)",
+      "projection_faces": [
+        "workflow-book-json"
+      ],
+      "public_jurisdiction": "workflow",
+      "rdf_types": [
+        "wf:RunStatistics"
+      ],
+      "subject_rule": "virtual:resolve-by-query:workflow_book.runStatistics",
+      "predicates": {
+        "wf:branchFrequency": {
+          "datatype": "string",
+          "multi": true,
+          "required": false
+        },
+        "wf:definitionSubject": {
+          "datatype": "uri",
+          "multi": false,
+          "required": true
+        },
+        "wf:lastRunAt": {
+          "datatype": "dateTime",
+          "multi": false,
+          "required": false
+        },
+        "wf:latestRunStatus": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:medianDurationMs": {
+          "datatype": "integer",
+          "multi": false,
+          "required": false
+        },
+        "wf:medianRunTokens": {
+          "datatype": "integer",
+          "multi": false,
+          "required": false
+        },
+        "wf:nodeReliability": {
+          "datatype": "string",
+          "multi": true,
+          "required": false
+        },
+        "wf:nodeReliabilityStatus": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:runCount": {
+          "datatype": "integer",
+          "multi": false,
+          "required": true
+        },
+        "wf:workflowName": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        }
+      }
+    },
+    "Variant": {
+      "comment": "One candidate in an optimization campaign's population. wf:variantText carries the full text as a literal so the frontend can diff against a parent WITHOUT a doc-content fetch path (cap ~8KB).",
+      "predicates": {
+        "prov:wasDerivedFrom": {
+          "datatype": "uri",
+          "multi": false,
+          "required": false,
+          "source": "parent variant doc URI (absent on seed)"
+        },
+        "wf:generation": {
+          "datatype": "integer",
+          "multi": false,
+          "required": true,
+          "source": "depth from seed (0 = seed)"
+        },
+        "wf:holdoutScore": {
+          "datatype": "double",
+          "multi": false,
+          "required": false,
+          "source": "holdout score \u2014 typically only seed + best are measured"
+        },
+        "wf:isBest": {
+          "datatype": "boolean",
+          "multi": false,
+          "required": true
+        },
+        "wf:isFrontier": {
+          "datatype": "boolean",
+          "multi": false,
+          "required": true
+        },
+        "wf:isSeed": {
+          "datatype": "boolean",
+          "multi": false,
+          "required": true
+        },
+        "wf:optimizesArchetype": {
+          "datatype": "uri",
+          "multi": false,
+          "required": true,
+          "source": "archetype doc URI"
+        },
+        "wf:partOfCampaign": {
+          "datatype": "uri",
+          "multi": false,
+          "required": true,
+          "source": "the campaign Run subject"
+        },
+        "wf:textBlock": {
+          "datatype": "uri",
+          "multi": false,
+          "required": true,
+          "source": "<docUri>#<blockId> of the sealed block (mirrors wf:scriptBlock)"
+        },
+        "wf:textSha256": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "wf:valScore": {
+          "datatype": "double",
+          "multi": false,
+          "required": true,
+          "source": "aggregate valset score"
+        },
+        "wf:variantText": {
+          "datatype": "string",
+          "multi": false,
+          "required": true,
+          "source": "the candidate prompt text (also the sealed block bytes)"
+        }
+      },
+      "rdf_types": [
+        "wf:Variant"
+      ],
+      "subject_rule": "variant doc URI (the doc holds the candidate text in a sealed code block)",
+      "source_kind": "current-state",
+      "identity_kind": "doc-uri",
+      "store_mode": "materialize",
+      "store_target": "user:rdf",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize"
+    },
+    "Workflow": {
+      "predicates": {
+        "wf:description": {
+          "datatype": "string",
+          "multi": false,
+          "required": true,
+          "source": "meta.description \u2014 wf:description, NOT dcterms (doc subjects are materializer co-managed)"
+        },
+        "wf:name": {
+          "datatype": "string",
+          "multi": false,
+          "required": true,
+          "source": "meta.name"
+        },
+        "wf:phase": {
+          "datatype": "uri",
+          "multi": true,
+          "required": true,
+          "source": "phase URIs per uri_rules.phase"
+        },
+        "wf:scriptBlock": {
+          "datatype": "uri",
+          "multi": false,
+          "required": true,
+          "source": "code-block URI <docUri>#<blockId> from write_document block ids"
+        },
+        "wf:scriptSha256": {
+          "datatype": "string",
+          "multi": false,
+          "required": true,
+          "source": "sha256 of the fenced script bytes"
+        },
+        "wf:seededFrom": {
+          "datatype": "uri",
+          "multi": true,
+          "required": false,
+          "source": "template, archetype, or prior workflow used to seed this workflow"
+        },
+        "wf:whenToUse": {
+          "datatype": "string",
+          "multi": false,
+          "required": false,
+          "source": "meta.whenToUse"
+        }
+      },
+      "rdf_types": [
+        "wf:Workflow"
+      ],
+      "subject_rule": "workflow doc URI",
+      "source_kind": "current-state",
+      "identity_kind": "doc-uri",
+      "store_mode": "materialize",
+      "store_target": "user:rdf",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize"
+    },
+    "LiveRecommendedAction": {
+      "comment": "A live workflow_book_open recommendation derived from the current page choices and retained PageView query basis. It is never authoritative stored RDF; retained snapshots use wf:RecommendedAction.",
+      "identity_kind": "resolve-by-query",
+      "source_kind": "derived",
+      "store_mode": "virtual",
+      "store_target": "none",
+      "enforcement": "warning",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "derived-virtual",
+      "derived_from_query": "workflow_book_open.intentRecommendation(current page choices, navigation routes, retained PageView recommendation rows)",
+      "projection_faces": [
+        "workflow-book-json"
+      ],
+      "public_jurisdiction": "workflow",
+      "rdf_types": [
+        "wf:LiveRecommendedAction"
+      ],
+      "subject_rule": "virtual:resolve-by-query:workflow_book_open.intentRecommendation",
+      "predicates": {
+        "wf:intent": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "wf:recommendedChoice": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "wf:choiceLabel": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "wf:recommendationSource": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "wf:rationale": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "wf:recommendedRoute": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "wf:routeLabel": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        }
+      }
+    }
+  },
+  "comanaged_forbidden": [
+    "dcterms:",
+    "doc:",
+    "nfo:",
+    "mnemo:"
+  ],
+  "comment": "NEVER write comanaged-prefix predicates on doc subjects \u2014 the materializer owns them and re-materialization clobbers (exception: mnemo: via create_wires; dcterms: on urn-space subjects like Phase is safe). rdf:type on doc subjects: adding wf classes is tolerated, but discovery must key on wf:name presence, not type alone.",
+  "description": "Graph-stored agent workflow definitions, anatomy, run provenance, archetype registry, and optimization campaigns. Aligned with PROV-O.",
+  "doc_id_rules": {
+    "archetype": "agent-{slug(name)}",
+    "contract": "contract-{slug(name)}",
+    "node": "{shortId}-n-{slug(label)}",
+    "runRecord": "{shortId}-run-{slug(runId)}",
+    "variant": "{campaignId}-v{idx}",
+    "workflow": "{shortId}"
+  },
+  "folders": {
+    "agentLibrary": {
+      "folder_id": "agent-library",
+      "label": "Agent Library"
+    },
+    "campaign": {
+      "folder_id": "{campaignId}-folder",
+      "label": "{campaignLabel}",
+      "only_if": "optimization campaign filed",
+      "parent": "{shortId}-folder"
+    },
+    "contracts": {
+      "folder_id": "agent-library-contracts",
+      "label": "Contracts",
+      "parent": "agent-library"
+    },
+    "outputs": {
+      "folder_id": "{shortId}-outputs",
+      "label": "Outputs",
+      "only_if": "output artifacts exist",
+      "parent": "{shortId}-folder"
+    },
+    "phase": {
+      "folder_id": "{shortId}-p{order}",
+      "label": "{order} \u00b7 {phaseTitle}",
+      "parent": "{shortId}-folder"
+    },
+    "provenance": {
+      "folder_id": "{shortId}-prov",
+      "label": "Provenance",
+      "only_if": "run record or journal exists",
+      "parent": "{shortId}-folder"
+    },
+    "workflow": {
+      "folder_id": "{shortId}-folder",
+      "label": "{workflowName}",
+      "parent": "workflows"
+    },
+    "workflowsRoot": {
+      "folder_id": "workflows",
+      "label": "Workflows"
+    }
+  },
+  "name": "workflow",
+  "namespaces": {
+    "agt": "http://mnemosyne.dev/agent#",
+    "dcterms": "http://purl.org/dc/terms/",
+    "mnemo": "http://mnemosyne.ai/vocab#",
+    "prov": "http://www.w3.org/ns/prov#",
+    "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+    "wf": "http://mnemosyne.dev/workflow#",
+    "xsd": "http://www.w3.org/2001/XMLSchema#"
+  },
+  "primary_prefix": "wf",
+  "protocol_subject": "urn:sophia:wf:protocol",
+  "raw_shacl_shapes": "@prefix sh: <http://www.w3.org/ns/shacl#> .\n@prefix wf: <http://mnemosyne.dev/workflow#> .\n@prefix agt: <http://mnemosyne.dev/agent#> .\n\nwf:RunBoundToSessionShape a sh:NodeShape ;\n    sh:targetClass wf:Run ;\n    sh:sparql [\n        sh:severity sh:Violation ;\n        sh:message \"WF-3: wf:Run wf:boundToAgent target must be typed agt:Session.\" ;\n        sh:select \"\"\"\n            PREFIX wf: <http://mnemosyne.dev/workflow#>\n            PREFIX agt: <http://mnemosyne.dev/agent#>\n            SELECT $this WHERE {\n              $this wf:boundToAgent ?session .\n              FILTER NOT EXISTS { ?session a agt:Session . }\n            }\n        \"\"\" ;\n    ] .\n\nwf:AgentRunBoundToTurnShape a sh:NodeShape ;\n    sh:targetClass wf:AgentRun ;\n    sh:sparql [\n        sh:severity sh:Violation ;\n        sh:message \"WF-3: wf:AgentRun wf:boundToAgent target must be typed agt:Turn.\" ;\n        sh:select \"\"\"\n            PREFIX wf: <http://mnemosyne.dev/workflow#>\n            PREFIX agt: <http://mnemosyne.dev/agent#>\n            SELECT $this WHERE {\n              $this wf:boundToAgent ?turn .\n              FILTER NOT EXISTS { ?turn a agt:Turn . }\n            }\n        \"\"\" ;\n    ] .\n",
+  "slug_rule": {
+    "lowercase": false,
+    "pattern": "[^A-Za-z0-9_-]+",
+    "replacement": "-",
+    "strip": "-"
+  },
+  "title": "Mnemosyne Workflow Vocabulary",
+  "uri_rules": {
+    "agentRun": "urn:sophia:wf-run:{runId}:agent:{slug(label)}",
+    "forbidden": "NEVER mint subjects in document-fragment space (<docUri>#\u2026) \u2014 the content materializer wipes #-subjects on re-materialization. Block URIs may appear as OBJECTS only (wf:scriptBlock, wf:textBlock).",
+    "phase": "urn:sophia:wf:{slug(workflowName)}:phase:{order}",
+    "replay": "urn:sophia:wf-run:{runId}:replay-{YYYYMMDD}",
+    "run": "urn:sophia:wf-run:{runId}",
+    "workflowDoc": "resolved from the graph (SELECT doc URI by doc id) \u2014 NEVER constructed by hand"
+  },
+  "version": "1.0.0",
+  "wires": {
+    "derivedFrom": {
+      "comment": "custom predicate URI \u2014 create_wires accepts non-builtin URIs; the 3D panel renders any wire",
+      "from_kind": "variant doc",
+      "predicate_uri": "http://mnemosyne.dev/workflow#derivedFrom",
+      "source": "campaign lineage",
+      "to_kind": "parent variant doc"
+    },
+    "exemplifies": {
+      "from_kind": "node doc",
+      "source": "judgment archetype assignment; ALSO best variant doc -> target archetype doc (campaign winner)",
+      "to_kind": "archetype doc"
+    },
+    "flowsInto": {
+      "from_kind": "node doc",
+      "source": "trace edges",
+      "to_kind": "node doc"
+    },
+    "produces": {
+      "from_kind": "terminal node doc",
+      "source": "trace outputs/returnReaches + uploads",
+      "to_kind": "output doc"
+    },
+    "requires": {
+      "from_kind": "archetype doc",
+      "source": "judgment, optional",
+      "to_kind": "contract doc"
+    }
+  }
+}

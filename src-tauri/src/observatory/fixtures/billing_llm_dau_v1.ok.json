@@ -1,0 +1,57 @@
+{
+  "object_type": "MetricEvaluation",
+  "schema_version": 1,
+  "metric_definition": "urn:sophia:observatory:metric:billing_llm_dau_v1",
+  "requested_window": {
+    "start": "2026-07-11T00:00:00Z",
+    "end": "2026-07-12T00:00:00Z",
+    "boundary": "[start,end)"
+  },
+  "evaluated_at": "2026-07-12T00:06:00Z",
+  "outcome": "ok",
+  "engine": {
+    "name": "duckdb",
+    "version": "1.5.4"
+  },
+  "source_snapshot": {
+    "object_type": "SourceSnapshot",
+    "schema_version": 1,
+    "subject": "urn:sophia:observatory:snapshot:sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "source_system": "choreograph",
+    "source_authority": "billing.sqlite VACUUM snapshot",
+    "source_ref": "fixture://billing/billing.sqlite",
+    "captured_at": "2026-07-12T00:05:00Z",
+    "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "bytes": 40960
+  },
+  "observation": {
+    "object_type": "MetricObservation",
+    "schema_version": 1,
+    "subject": "urn:sophia:observatory:observation:sha256:982f35bbe8afe6f832f5e6368efbf1ba854bf375f235e53918f771afaf1ea325",
+    "logical_id": "urn:sophia:observatory:observation:billing_llm_dau_v1:2026-07-11",
+    "metric_definition": "urn:sophia:observatory:metric:billing_llm_dau_v1",
+    "lifecycle_status": "active",
+    "computation_status": "ok",
+    "value": 2,
+    "unit": "users",
+    "window": {
+      "start": "2026-07-11T00:00:00Z",
+      "end": "2026-07-12T00:00:00Z",
+      "boundary": "[start,end)"
+    },
+    "computed_at": "2026-07-12T00:06:00Z",
+    "observed_through": "2026-07-11T18:00:00Z",
+    "source_snapshot": "urn:sophia:observatory:snapshot:sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "source_event_count": 3,
+    "query_sha256": "e013eaa01eaceb95b70cffa84b86285d81e5be5ba35196c092b423fba2438e0a",
+    "engine": {
+      "name": "duckdb",
+      "version": "1.5.4"
+    },
+    "coverage": "Choreograph-mediated LLM requests only; this is not Garden activity, platform-wide activity, or anonymous activity.",
+    "derived_from": [
+      "urn:sophia:observatory:metric:billing_llm_dau_v1",
+      "urn:sophia:observatory:snapshot:sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    ]
+  }
+}

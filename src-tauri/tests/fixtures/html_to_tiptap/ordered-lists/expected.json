@@ -1,0 +1,202 @@
+{
+  "tiptapJson": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "listItem",
+        "attrs": {
+          "data-source-format": null,
+          "data-source-approach": null,
+          "data-source-page": null,
+          "data-source-role": null,
+          "data-source-id": null,
+          "data-pdf-page": null,
+          "data-pdf-role": null,
+          "indent": 0,
+          "collapsed": false,
+          "listType": "ordered",
+          "checked": false
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "attrs": {
+              "data-source-format": null,
+              "data-source-approach": null,
+              "data-source-page": null,
+              "data-source-role": null,
+              "data-source-id": null,
+              "data-pdf-page": null,
+              "data-pdf-role": null,
+              "textAlign": null,
+              "indent": 0,
+              "collapsed": false
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "first"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "listItem",
+        "attrs": {
+          "data-source-format": null,
+          "data-source-approach": null,
+          "data-source-page": null,
+          "data-source-role": null,
+          "data-source-id": null,
+          "data-pdf-page": null,
+          "data-pdf-role": null,
+          "indent": 0,
+          "collapsed": false,
+          "listType": "ordered",
+          "checked": false
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "attrs": {
+              "data-source-format": null,
+              "data-source-approach": null,
+              "data-source-page": null,
+              "data-source-role": null,
+              "data-source-id": null,
+              "data-pdf-page": null,
+              "data-pdf-role": null,
+              "textAlign": null,
+              "indent": 0,
+              "collapsed": false
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "second in paragraph"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "listItem",
+        "attrs": {
+          "data-source-format": null,
+          "data-source-approach": null,
+          "data-source-page": null,
+          "data-source-role": null,
+          "data-source-id": null,
+          "data-pdf-page": null,
+          "data-pdf-role": null,
+          "indent": 0,
+          "collapsed": false,
+          "listType": "ordered",
+          "checked": false
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "attrs": {
+              "data-source-format": null,
+              "data-source-approach": null,
+              "data-source-page": null,
+              "data-source-role": null,
+              "data-source-id": null,
+              "data-pdf-page": null,
+              "data-pdf-role": null,
+              "textAlign": null,
+              "indent": 0,
+              "collapsed": false
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "third with "
+              },
+              {
+                "type": "text",
+                "marks": [
+                  {
+                    "type": "link",
+                    "attrs": {
+                      "href": "https://example.com",
+                      "target": "_blank",
+                      "rel": "noopener noreferrer nofollow",
+                      "class": "editor-link"
+                    }
+                  }
+                ],
+                "text": "a link"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "attrs": {
+          "data-source-format": null,
+          "data-source-approach": null,
+          "data-source-page": null,
+          "data-source-role": null,
+          "data-source-id": null,
+          "data-pdf-page": null,
+          "data-pdf-role": null,
+          "textAlign": null,
+          "indent": 0,
+          "collapsed": false
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "Between lists."
+          }
+        ]
+      },
+      {
+        "type": "listItem",
+        "attrs": {
+          "data-source-format": null,
+          "data-source-approach": null,
+          "data-source-page": null,
+          "data-source-role": null,
+          "data-source-id": null,
+          "data-pdf-page": null,
+          "data-pdf-role": null,
+          "indent": 0,
+          "collapsed": false,
+          "listType": "ordered",
+          "checked": false
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "attrs": {
+              "data-source-format": null,
+              "data-source-approach": null,
+              "data-source-page": null,
+              "data-source-role": null,
+              "data-source-id": null,
+              "data-pdf-page": null,
+              "data-pdf-role": null,
+              "textAlign": null,
+              "indent": 0,
+              "collapsed": false
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "continues"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "derivedTitle": null,
+  "sourceFormat": "html",
+  "warnings": []
+}

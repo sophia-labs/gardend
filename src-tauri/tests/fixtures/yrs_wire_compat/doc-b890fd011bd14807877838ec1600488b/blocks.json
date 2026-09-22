@@ -1,0 +1,403 @@
+[
+  {
+    "id": "block-48bc6c9a",
+    "type": "heading",
+    "content": "Quarterly Review: Why the Tide Keeps Ghosting Us",
+    "parentId": null,
+    "order": 0.0,
+    "level": 1,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-1826d8f2",
+    "type": "paragraph",
+    "content": "Reporting Period: Q2 (The Quarter of Wet Abandonment)",
+    "parentId": null,
+    "order": 1.0,
+    "level": null,
+    "checked": null,
+    "language": null,
+    "marks": [
+      {
+        "id": "9a74778e-037",
+        "type": "bold",
+        "start": 0,
+        "end": 17,
+        "href": null,
+        "targetDocId": null,
+        "label": null
+      }
+    ]
+  },
+  {
+    "id": "block-1348db9a",
+    "type": "divider",
+    "content": "",
+    "parentId": null,
+    "order": 2.0,
+    "level": null,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-995040f8",
+    "type": "heading",
+    "content": "Executive Summary",
+    "parentId": null,
+    "order": 3.0,
+    "level": 2,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-31aef01c",
+    "type": "paragraph",
+    "content": "The tide came in. The tide went out. It did not text back.",
+    "parentId": null,
+    "order": 4.0,
+    "level": null,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-ecc3aa14",
+    "type": "paragraph",
+    "content": "This pattern has persisted for approximately 4.5 billion years, yet management remains surprised.",
+    "parentId": null,
+    "order": 5.0,
+    "level": null,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-a06fce50",
+    "type": "heading",
+    "content": "Case Studies",
+    "parentId": null,
+    "order": 6.0,
+    "level": 2,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-be93acef",
+    "type": "heading",
+    "content": "The Beach at Midnight",
+    "parentId": null,
+    "order": 7.0,
+    "level": 3,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-b34ba5ed",
+    "type": "paragraph",
+    "content": "Left standing. Wet footprints. Silence.",
+    "parentId": null,
+    "order": 8.0,
+    "level": null,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-daaad78f",
+    "type": "paragraph",
+    "content": "Analysis: The tide expressed interest (foamy approach), established proximity (wet sand), then withdrew without explanation (receding water). Classic ghosting behavior.",
+    "parentId": null,
+    "order": 9.0,
+    "level": null,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-2148511e",
+    "type": "heading",
+    "content": "The Sandcastle Incident",
+    "parentId": null,
+    "order": 10.0,
+    "level": 3,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-d518850c",
+    "type": "paragraph",
+    "content": "A structure was built. Promises were made (\"I'll hold the moat,\" said the tide). Then: nothing.",
+    "parentId": null,
+    "order": 11.0,
+    "level": null,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-9a979973",
+    "type": "paragraph",
+    "content": "The moat remains empty. The castle stands alone.",
+    "parentId": null,
+    "order": 12.0,
+    "level": null,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-8e802d6d",
+    "type": "heading",
+    "content": "Root Causes",
+    "parentId": null,
+    "order": 13.0,
+    "level": 2,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-9bc3f4fa",
+    "type": "numbered",
+    "content": "Lunar Influence: The Moon (see separate HR complaint) keeps pulling the tide away from us",
+    "parentId": null,
+    "order": 14.0,
+    "level": null,
+    "checked": false,
+    "language": null,
+    "marks": [
+      {
+        "id": "663a5ee0-c81",
+        "type": "bold",
+        "start": 0,
+        "end": 16,
+        "href": null,
+        "targetDocId": null,
+        "label": null
+      }
+    ]
+  },
+  {
+    "id": "block-e5c0d733",
+    "type": "numbered",
+    "content": "Commitment Issues: The tide appears to have a rotation with multiple shorelines",
+    "parentId": null,
+    "order": 15.0,
+    "level": null,
+    "checked": false,
+    "language": null,
+    "marks": [
+      {
+        "id": "b25a294b-cc1",
+        "type": "bold",
+        "start": 0,
+        "end": 18,
+        "href": null,
+        "targetDocId": null,
+        "label": null
+      }
+    ]
+  },
+  {
+    "id": "block-15dbbe1d",
+    "type": "numbered",
+    "content": "Fundamental Physics: Gravity doesn't care about our feelings",
+    "parentId": null,
+    "order": 16.0,
+    "level": null,
+    "checked": false,
+    "language": null,
+    "marks": [
+      {
+        "id": "74e9d696-3a6",
+        "type": "bold",
+        "start": 0,
+        "end": 20,
+        "href": null,
+        "targetDocId": null,
+        "label": null
+      }
+    ]
+  },
+  {
+    "id": "block-a6290820",
+    "type": "heading",
+    "content": "Recommendations",
+    "parentId": null,
+    "order": 17.0,
+    "level": 2,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-07e14317",
+    "type": "paragraph",
+    "content": "We must accept that:",
+    "parentId": null,
+    "order": 18.0,
+    "level": null,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-df246730",
+    "type": "bullet",
+    "content": "The tide's absence is not about us",
+    "parentId": null,
+    "order": 19.0,
+    "level": null,
+    "checked": false,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-9e739612",
+    "type": "bullet",
+    "content": "Its return is not a sign of changed feelings",
+    "parentId": null,
+    "order": 20.0,
+    "level": null,
+    "checked": false,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-d0ce0dc9",
+    "type": "bullet",
+    "content": "Water does not engage in attachment",
+    "parentId": null,
+    "order": 21.0,
+    "level": null,
+    "checked": false,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-93b28b29",
+    "type": "bullet",
+    "content": "We are anthropomorphizing a planetary hydrological cycle",
+    "parentId": null,
+    "order": 22.0,
+    "level": null,
+    "checked": false,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-90850863",
+    "type": "heading",
+    "content": "Outlook",
+    "parentId": null,
+    "order": 23.0,
+    "level": 2,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-32b63fe4",
+    "type": "paragraph",
+    "content": "The tide will return.",
+    "parentId": null,
+    "order": 24.0,
+    "level": null,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-cd3320ee",
+    "type": "paragraph",
+    "content": "It will also leave again.",
+    "parentId": null,
+    "order": 25.0,
+    "level": null,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-0b6594b6",
+    "type": "paragraph",
+    "content": "This is not a relationship. This is physics.",
+    "parentId": null,
+    "order": 26.0,
+    "level": null,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-b973ed87",
+    "type": "paragraph",
+    "content": "We are working on our boundaries.",
+    "parentId": null,
+    "order": 27.0,
+    "level": null,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-b5919b78",
+    "type": "divider",
+    "content": "",
+    "parentId": null,
+    "order": 28.0,
+    "level": null,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-d9e176dd",
+    "type": "paragraph",
+    "content": "Prepared by: The Coastal Emotional Support Team",
+    "parentId": null,
+    "order": 29.0,
+    "level": null,
+    "checked": null,
+    "language": null,
+    "marks": [
+      {
+        "id": "a0037c1b-cd8",
+        "type": "bold",
+        "start": 0,
+        "end": 12,
+        "href": null,
+        "targetDocId": null,
+        "label": null
+      }
+    ]
+  },
+  {
+    "id": "block-2312f4ac",
+    "type": "paragraph",
+    "content": "Next Review: When the tide shows up (don't hold your breath)",
+    "parentId": null,
+    "order": 30.0,
+    "level": null,
+    "checked": null,
+    "language": null,
+    "marks": [
+      {
+        "id": "c9545426-6c0",
+        "type": "bold",
+        "start": 0,
+        "end": 12,
+        "href": null,
+        "targetDocId": null,
+        "label": null
+      }
+    ]
+  }
+]

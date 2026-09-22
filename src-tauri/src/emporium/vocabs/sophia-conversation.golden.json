@@ -1,0 +1,57 @@
+{
+  "name": "sophia-conversation",
+  "version": "0.1.0",
+  "title": "Sophia Conversation",
+  "description": "Conversation identity and source testimony, independent of whether an Agent is executing. The archive interchange is an inert owner-only profile of this domain. This initial shape is NOT registered for generic ingestion: native audience-aware storage/read admission must precede any publication.",
+  "primary_prefix": "conv",
+  "namespaces": {"conv":"http://mnemosyne.dev/conversation#","agt":"http://mnemosyne.dev/agent#","prov":"http://www.w3.org/ns/prov#","rdf":"http://www.w3.org/1999/02/22-rdf-syntax-ns#","xsd":"http://www.w3.org/2001/XMLSchema#"},
+  "write_target": "projection:conversation",
+  "comanaged_forbidden": ["agt:","doc:","mnemo:"],
+  "classes": {
+    "Conversation": {
+      "rdf_types": ["conv:Conversation"], "subject_rule":"{localId}",
+      "source_kind":"current-state", "identity_kind":"logical-id", "store_mode":"materialize", "store_target":"projection:conversation", "enforcement":"halt", "reconciliation_strategy":"codeBacked", "dispatch_mode":"current-state-materialize",
+      "comment":"An independently addressable conversation, not an Agent, Session, Run or command. An eventual execution link is testimony about a real execution, never a grant.",
+      "predicates": {
+        "conv:sourceInstance":{"datatype":"string","multi":false,"required":true},
+        "conv:sourceNativeId":{"datatype":"string","multi":false,"required":true},
+        "conv:parentConversation":{"datatype":"uri","multi":false,"required":false},
+        "conv:relatedAgent":{"datatype":"uri","multi":true,"required":false},
+        "conv:continuedBySession":{"datatype":"uri","multi":true,"required":false},
+        "conv:revisionDigest":{"datatype":"string","multi":false,"required":true}
+      }
+    },
+    "Message": {
+      "rdf_types":["conv:Message"], "subject_rule":"{localId}",
+      "source_kind":"current-state", "identity_kind":"logical-id", "store_mode":"materialize", "store_target":"projection:conversation", "enforcement":"halt", "reconciliation_strategy":"codeBacked", "dispatch_mode":"current-state-materialize",
+      "comment":"A source message and its ordering/reply relations. No equivalence with an executed agt:Turn. Even metadata must pass native audience admission before projection.",
+      "predicates": {
+        "conv:inConversation":{"datatype":"uri","multi":false,"required":true},
+        "conv:ordinal":{"datatype":"integer","multi":false,"required":true},
+        "conv:replyTo":{"datatype":"uri","multi":false,"required":false},
+        "conv:authorRef":{"datatype":"uri","multi":false,"required":false},
+        "conv:sourceRecord":{"datatype":"uri","multi":false,"required":true}
+      }
+    },
+    "Part": {
+      "rdf_types":["conv:Part"], "subject_rule":"{localId}",
+      "source_kind":"current-state", "identity_kind":"logical-id", "store_mode":"materialize", "store_target":"projection:conversation", "enforcement":"halt", "reconciliation_strategy":"codeBacked", "dispatch_mode":"current-state-materialize",
+      "comment":"Ordered inert content or opaque source extension. No body/tool arguments are declared as graph-visible literals in this first shape; body access remains archive-authorized.",
+      "predicates": {
+        "conv:inMessage":{"datatype":"uri","multi":false,"required":true},
+        "conv:ordinal":{"datatype":"integer","multi":false,"required":true},
+        "conv:partKind":{"datatype":"string","multi":false,"required":true},
+        "conv:sourceRecord":{"datatype":"uri","multi":false,"required":true}
+      }
+    },
+    "SourceRecord": {
+      "rdf_types":["conv:SourceRecord","prov:Entity"], "subject_rule":"{localId}",
+      "source_kind":"current-state", "identity_kind":"logical-id", "store_mode":"materialize", "store_target":"projection:conversation", "enforcement":"halt", "reconciliation_strategy":"codeBacked", "dispatch_mode":"current-state-materialize",
+      "comment":"Exact source-byte identity, not permission to fetch or disclose private custody. No credential-bearing locator is projected.",
+      "predicates": {
+        "conv:artifactDigest":{"datatype":"string","multi":false,"required":true},
+        "conv:recordDigest":{"datatype":"string","multi":false,"required":true}
+      }
+    }
+  }
+}

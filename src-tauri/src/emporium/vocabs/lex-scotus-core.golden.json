@@ -1,0 +1,193 @@
+{
+  "name": "lex-scotus-core",
+  "version": "1.0.0",
+  "title": "lex — United States Supreme Court doctrine (Confrontation Clause corpus)",
+  "description": "Legal doctrine as witnessed testimony: cases, attributed opinions, holdings, reasoning paths, and doctrine heads with supersession lineage. Concordance policy: every class definition cites the controlling opinion that minted its concept (the ontology obeys I1 — no class without provenance). External concordances (skos:exactMatch/closeMatch to LKIF-Core, LegalRuleML, Akoma Ntoso, CiTO, PROV-O, SCDB coding scheme) are recorded in the lex-concordance document in the graph; the Court's own terms are the class labels.",
+  "primary_prefix": "lex",
+  "namespaces": {
+    "lex": "http://mnemosyne.dev/lex#",
+    "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+    "xsd": "http://www.w3.org/2001/XMLSchema#",
+    "prov": "http://www.w3.org/ns/prov#",
+    "dcterms": "http://purl.org/dc/terms/"
+  },
+  "protocol_subject": "urn:sophia:protocol:lex-scotus-core",
+  "slug_rule": { "lowercase": true, "pattern": "[^a-z0-9._-]+", "replacement": "-", "strip": "-" },
+  "comanaged_forbidden": ["doc:", "mnemo:", "nfo:"],
+  "write_target": "projection:lex",
+  "conflict_policies": [
+    { "class": "DoctrineHead", "conflictStrategy": "contested" }
+  ],
+  "status_transitions": [],
+  "wires": {},
+  "classes": {
+    "Case": {
+      "comment": "The judgment — the disposition that binds (the FRBR work; opinions are its attributed expressions). 'It is the judgment, not the opinion, that settles the controversy.' Skeleton fields mirror SCDB's coding scheme losslessly (scdbId is the join key). Treatment edges carry the Court's own citator vocabulary: overrules per the formal alteration of precedent (SCDB precedentAlteration; e.g. Crawford v. Washington, 541 U.S. 36, 60-69 (2004), overruling Ohio v. Roberts, 448 U.S. 56 (1980)); abrogates for statutory/derivative displacement; distinguishes, limits, questions, follows per standard citator treatment. These are plain typed edges between Cases — the head machinery lives on DoctrineHead.",
+      "predicates": {
+        "lex:caseName": { "datatype": "string", "multi": false, "required": true },
+        "lex:usCite": { "datatype": "string", "multi": false, "required": true },
+        "lex:scdbId": { "datatype": "string", "multi": false, "required": false },
+        "lex:dateDecision": { "datatype": "dateTime", "multi": false, "required": true },
+        "lex:dateArgument": { "datatype": "dateTime", "multi": false, "required": false },
+        "lex:term": { "datatype": "integer", "multi": false, "required": false },
+        "lex:chief": { "datatype": "string", "multi": false, "required": false },
+        "lex:majVotes": { "datatype": "integer", "multi": false, "required": false },
+        "lex:minVotes": { "datatype": "integer", "multi": false, "required": false },
+        "lex:disposition": { "datatype": "string", "multi": false, "required": false },
+        "lex:precedentAlteration": { "datatype": "boolean", "multi": false, "required": false },
+        "lex:overrules": { "datatype": "uri", "multi": true, "required": false },
+        "lex:abrogates": { "datatype": "uri", "multi": true, "required": false },
+        "lex:distinguishes": { "datatype": "uri", "multi": true, "required": false },
+        "lex:limits": { "datatype": "uri", "multi": true, "required": false },
+        "lex:questions": { "datatype": "uri", "multi": true, "required": false },
+        "lex:follows": { "datatype": "uri", "multi": true, "required": false },
+        "lex:inCorpus": { "datatype": "boolean", "multi": false, "required": false }
+      },
+      "rdf_types": ["lex:Case"],
+      "subject_rule": "{graph_subject}:projection:lex:case:{localId}",
+      "source_kind": "current-state",
+      "identity_kind": "logical-id",
+      "store_mode": "materialize",
+      "store_target": "projection:lex",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize"
+    },
+    "Justice": {
+      "comment": "A Justice of the Supreme Court of the United States, as witness: opinions are testimony attributed to their authors (prov:wasAttributedTo concordance). scdbJusticeId joins the SCDB justice-centered tables.",
+      "predicates": {
+        "lex:justiceName": { "datatype": "string", "multi": false, "required": true },
+        "lex:scdbJusticeId": { "datatype": "string", "multi": false, "required": false }
+      },
+      "rdf_types": ["lex:Justice"],
+      "subject_rule": "{graph_subject}:projection:lex:justice:{localId}",
+      "source_kind": "current-state",
+      "identity_kind": "logical-id",
+      "store_mode": "materialize",
+      "store_target": "projection:lex",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize"
+    },
+    "Opinion": {
+      "comment": "Attributed judicial testimony (the FRBR expression of a Case). role uses the Court's own taxonomy: majority | plurality | concurrence | concurrenceInJudgment | dissent | perCuriam. A dissent is contested testimony preserved in the record, never erased; a plurality signals that no single rationale commanded five votes, engaging the Marks rule (Marks v. United States, 430 U.S. 188, 193 (1977): the holding is 'that position taken by those Members who concurred in the judgments on the narrowest grounds'). joinedBy records the joining Justices; partial joins are recorded by the reader in joinNote pending a reified join model (successor brief).",
+      "predicates": {
+        "lex:ofCase": { "datatype": "uri", "multi": false, "required": true },
+        "lex:role": { "datatype": "string", "multi": false, "required": true },
+        "lex:author": { "datatype": "uri", "multi": false, "required": false },
+        "lex:joinedBy": { "datatype": "uri", "multi": true, "required": false },
+        "lex:joinNote": { "datatype": "string", "multi": false, "required": false }
+      },
+      "rdf_types": ["lex:Opinion"],
+      "subject_rule": "{graph_subject}:projection:lex:opinion:{localId}",
+      "source_kind": "current-state",
+      "identity_kind": "logical-id",
+      "store_mode": "materialize",
+      "store_target": "projection:lex",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize"
+    },
+    "LegalQuestion": {
+      "comment": "A doctrinal question the Court has answered over time — the unit whose answer has a lineage (e.g. 'Under what conditions does admission of an out-of-court statement against a criminal defendant violate the Confrontation Clause?'). Questions are stable; their governing answers (DoctrineHead) supersede one another. clause names the constitutional provision in the Court's own words (e.g. 'Confrontation Clause, U.S. Const. amend. VI').",
+      "predicates": {
+        "lex:questionText": { "datatype": "string", "multi": false, "required": true },
+        "lex:clause": { "datatype": "string", "multi": false, "required": false }
+      },
+      "rdf_types": ["lex:LegalQuestion"],
+      "subject_rule": "{graph_subject}:projection:lex:question:{localId}",
+      "source_kind": "current-state",
+      "identity_kind": "logical-id",
+      "store_mode": "materialize",
+      "store_target": "projection:lex",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize"
+    },
+    "DoctrineHead": {
+      "comment": "The governing answer to a LegalQuestion at a point in time — 'good law' as a head with lineage. Supersession IS overruling at the doctrine level: the Roberts head (reliability / particularized guarantees of trustworthiness, Ohio v. Roberts, 448 U.S. 56, 66 (1980)) is superseded by the Crawford head (testimonial statements require unavailability and a prior opportunity for cross-examination, Crawford v. Washington, 541 U.S. 36, 53-54, 68 (2004)); the old head remains in the log — asOf 1990 truthfully answers Roberts. isCurrent marks the live head; contested siblings represent genuinely unresolved doctrine (Williams v. Illinois, 567 U.S. 50 (2012): no rationale commanded five votes, the Marks rule yields no controlling holding, and an honest system reports the 4-1-4 split rather than minting a false head). marksResolution records the narrowest-grounds analysis where one exists. Lineage predicate names (lineage/isCurrent/createdAt/supersedes) follow the estate's head-machinery convention; the legal relation they encode at this level is formal alteration of precedent.",
+      "predicates": {
+        "lex:question": { "datatype": "uri", "multi": false, "required": true },
+        "lex:statement": { "datatype": "string", "multi": false, "required": true },
+        "lex:establishedBy": { "datatype": "uri", "multi": false, "required": true },
+        "lex:marksResolution": { "datatype": "string", "multi": false, "required": false },
+        "lex:lineage": { "datatype": "uri", "multi": false, "required": true },
+        "lex:isCurrent": { "datatype": "boolean", "multi": false, "required": true },
+        "lex:createdAt": { "datatype": "dateTime", "multi": false, "required": true },
+        "lex:supersedes": { "datatype": "uri", "multi": true, "required": false }
+      },
+      "rdf_types": ["lex:DoctrineHead"],
+      "subject_rule": "{graph_subject}:projection:lex:head:{localId} - content-hash",
+      "source_kind": "current-state",
+      "identity_kind": "content-hash",
+      "identity_fields": ["lex:question", "lex:statement", "lex:establishedBy"],
+      "store_mode": "materialize",
+      "store_target": "projection:lex",
+      "enforcement": "halt",
+      "reconciliation_strategy": "contested",
+      "dispatch_mode": "current-state-materialize"
+    },
+    "Holding": {
+      "comment": "What a Case held — the ratio decidendi, as distinct from dictum (obiter). Extracted by readers with passage anchors (pin cites in 'VOL U.S. PAGE, pincite' form, e.g. '557 U.S. 305, 311'); isDictum marks persuasive-only statements honestly rather than omitting them. answersQuestion links holdings to the LegalQuestions they answer. Content-hash identity: re-extraction of the same holding converges instead of duplicating.",
+      "predicates": {
+        "lex:ofCase": { "datatype": "uri", "multi": false, "required": true },
+        "lex:holdingText": { "datatype": "string", "multi": false, "required": true },
+        "lex:answersQuestion": { "datatype": "uri", "multi": true, "required": false },
+        "lex:isDictum": { "datatype": "boolean", "multi": false, "required": false },
+        "lex:passageAnchor": { "datatype": "string", "multi": true, "required": true }
+      },
+      "rdf_types": ["lex:Holding"],
+      "subject_rule": "{graph_subject}:projection:lex:holding:{localId} - content-hash",
+      "source_kind": "current-state",
+      "identity_kind": "content-hash",
+      "identity_fields": ["lex:ofCase", "lex:holdingText"],
+      "store_mode": "materialize",
+      "store_target": "projection:lex",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize"
+    },
+    "ReasoningStep": {
+      "comment": "One step of an opinion's legal reasoning path, per the fact-to-norm decomposition validated by Kondo et al. (arXiv:2508.17340): stepKind ∈ fact | questionPresented | rule | application | holding. rule steps cite the legal norm applied (citesNorm → the Case or provision that supplies it); application steps connect facts to norms — the paper's finding is that this explicit path structure retrieves the right law from facts better than flat text. order sequences steps within their Opinion; every step carries its passage anchor.",
+      "predicates": {
+        "lex:ofOpinion": { "datatype": "uri", "multi": false, "required": true },
+        "lex:stepKind": { "datatype": "string", "multi": false, "required": true },
+        "lex:stepText": { "datatype": "string", "multi": false, "required": true },
+        "lex:order": { "datatype": "integer", "multi": false, "required": true },
+        "lex:citesNorm": { "datatype": "uri", "multi": true, "required": false },
+        "lex:passageAnchor": { "datatype": "string", "multi": false, "required": true }
+      },
+      "rdf_types": ["lex:ReasoningStep"],
+      "subject_rule": "{graph_subject}:projection:lex:step:{localId} - content-hash",
+      "source_kind": "current-state",
+      "identity_kind": "content-hash",
+      "identity_fields": ["lex:ofOpinion", "lex:stepKind", "lex:stepText", "lex:order"],
+      "store_mode": "materialize",
+      "store_target": "projection:lex",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize"
+    },
+    "DoctrinalTest": {
+      "comment": "A named test the Court applies within a doctrine, in the Court's own words: e.g. the primary-purpose test (Davis v. Washington, 547 U.S. 813, 822 (2006): statements are testimonial when circumstances objectively indicate the primary purpose of the interrogation is to establish or prove past events potentially relevant to later criminal prosecution; refined by Michigan v. Bryant, 562 U.S. 344, 359-361 (2011) as an objective, ongoing-emergency-sensitive inquiry); the forfeiture-by-wrongdoing exception (Giles v. California, 554 U.S. 353, 359-368 (2008): forfeiture requires conduct designed to prevent the witness from testifying); the narrowest-grounds rule (Marks, 430 U.S. at 193). Tests are articulated by cases (articulatedBy) and applied by others — the reader records applications as ReasoningStep rule/application pairs citing the test.",
+      "predicates": {
+        "lex:testName": { "datatype": "string", "multi": false, "required": true },
+        "lex:formulation": { "datatype": "string", "multi": false, "required": true },
+        "lex:articulatedBy": { "datatype": "uri", "multi": false, "required": true },
+        "lex:refinedBy": { "datatype": "uri", "multi": true, "required": false },
+        "lex:withinQuestion": { "datatype": "uri", "multi": false, "required": false },
+        "lex:passageAnchor": { "datatype": "string", "multi": true, "required": true }
+      },
+      "rdf_types": ["lex:DoctrinalTest"],
+      "subject_rule": "{graph_subject}:projection:lex:test:{localId} - content-hash",
+      "source_kind": "current-state",
+      "identity_kind": "content-hash",
+      "identity_fields": ["lex:testName", "lex:articulatedBy"],
+      "store_mode": "materialize",
+      "store_target": "projection:lex",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize"
+    }
+  }
+}

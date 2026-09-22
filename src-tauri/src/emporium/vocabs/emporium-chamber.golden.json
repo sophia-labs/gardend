@@ -1,0 +1,103 @@
+{
+    "classes": {
+        "DomainOntology": {
+            "comment": "An agent's runtime-proposed domain ontology (EA-3 \u00a74, the hyperbaric knowledge chamber). Born-RDF testimony: the in-graph record of a VocabularyContract the agent PROPOSED mid-benchmark as its provisional, defeasible model of THIS benchmark's implicit domain logic. The CORE world-model meta-ontology (Entity/Event/State/Relation/Disposition) is frozen/embedded and never touched here; this is the agent's DOMAIN layer, scoped to its chamber graph, revisable (propose v2 supersedes v1). The full contract JSON is carried as a chm:contractJson literal (round-trippable via serde_json); the ontology's SHACL shapes are derived on-read via vocab_to_shacl(). Subject is a VERSIONED LOGICAL id (identity_kind=logical-id): {name}-v{version}, NOT a content hash. Re-proposing the same name+version with IDENTICAL content converges to zero ops (idempotent); with DIFFERENT content it is REJECTED (published versions are immutable testimony — bump the version or supersede). A NEW version mints a NEW subject and supersedes the old.",
+            "predicates": {
+                "chm:ontologyName": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "the proposed vocab's name (e.g. 'bench-domain'); the identity key across versions"
+                },
+                "chm:ontologyVersion": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "semantic version of the proposed ontology (e.g. '1.0.0')"
+                },
+                "chm:namespace": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "the proposed ontology's primary namespace URI"
+                },
+                "chm:rationale": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "the agent's reasoning for this domain model (benchmark context)"
+                },
+                "chm:contractJson": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "the full proposed VocabularyContract as a JSON literal (round-trippable; the source of truth for the derived SHACL shapes)"
+                },
+                "chm:observer": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "the agent id that proposed this ontology (observer-relative testimony)"
+                },
+                "chm:status": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "lifecycle: active | superseded"
+                },
+                "chm:supersedes": {
+                    "datatype": "uri",
+                    "multi": true,
+                    "required": false,
+                    "source": "older DomainOntology subject(s) this proposal replaces (v2 -> v1 edge)"
+                },
+                "chm:supersededBy": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "the newer ontology that supersedes this one (the demote back-pointer)"
+                },
+                "chm:proposedAt": {
+                    "datatype": "long",
+                    "multi": false,
+                    "required": false,
+                    "source": "epoch-ms when this ontology was proposed"
+                }
+            },
+            "rdf_types": [
+                "chm:DomainOntology"
+            ],
+            "subject_rule": "{graph_subject}:projection:chamber:ontology:{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:chamber",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        }
+    },
+    "comanaged_forbidden": [
+        "doc:",
+        "mnemo:",
+        "nfo:"
+    ],
+    "comment": "The Emporium CHAMBER vocab (EA-3 \u00a74). A built-in pack \u2014 NOT a memory/workflow/salience pack \u2014 whose single DomainOntology class stores the agent's RUNTIME-PROPOSED domain ontologies as born-RDF (Vera's 'one gardend for all RDF'; the proposal is IN-GRAPH testimony, not a SQL row). The agent proposes a domain ontology via the propose_domain_ontology MCP tool; Emporium validates it (parse -> vocab_to_shacl -> rudof compile-check), stores it here, and thereafter validates the agent's INSTANCES of that ontology against its OWN derived shapes. chm: subjects are URN-space; the projection lives ONLY in urn:mnemosyne:local:graph:{id}:projection:chamber and is DERIVED/regenerable, never source of truth.",
+    "description": "The hyperbaric knowledge chamber: agent-as-ontology-author. Stores runtime-proposed domain ontologies (mem:DomainOntology / chm:DomainOntology) as born-RDF, the foundation the memory benchmark stands on.",
+    "name": "emporium-chamber",
+    "namespaces": {
+        "chm": "http://mnemosyne.dev/chamber#",
+        "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+        "xsd": "http://www.w3.org/2001/XMLSchema#"
+    },
+    "primary_prefix": "chm",
+    "status_transitions": [
+        [
+            "active",
+            "superseded"
+        ]
+    ],
+    "title": "Emporium Chamber Vocabulary",
+    "version": "1.1.0",
+    "write_target": "projection:chamber"
+}

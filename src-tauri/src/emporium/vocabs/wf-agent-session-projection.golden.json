@@ -1,0 +1,416 @@
+{
+    "classes": {
+        "Agent": {
+            "comment": "The ur-agent witness carried with a run projection so monovocal voicing can be validated in the same projection batch.",
+            "predicates": {
+                "agt:agentId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "canonical agent-<hex16> witness key"
+                },
+                "agt:hasVoice": {
+                    "datatype": "uri",
+                    "multi": true,
+                    "required": true,
+                    "source": "the single monovocal voice for the WS-7 run path"
+                },
+                "agt:model": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:voicing": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "agt:Monovocal for the WS-7 flavor-a run path"
+                }
+            },
+            "rdf_types": [
+                "agt:Agent",
+                "prov:Agent"
+            ],
+            "subject_rule": "{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:session",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "Run": {
+            "comment": "\u00a7WS1 RELEVEL - one execution within a session (was the run-grain agt:Session). Carries agt:realizedBy -> the wf:Run anchor and the inference binding actually used. Field names match the generic-record builder (agt:provider/agt:model); the serializer face uses agt:inferenceProvider/Model.",
+            "predicates": {
+                "agt:graphId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:model": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "generic-record field 'model' (the inference model)"
+                },
+                "agt:ofAgent": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:ofSession": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "REQUIRED_RUN_PREDICATES (agent-ontology.ts:122)"
+                },
+                "agt:ownerUserId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:provider": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "generic-record field 'provider' (the inference provider)"
+                },
+                "agt:realizedBy": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "inverse reading of wf:Run wf:boundToAgent agt:Run"
+                },
+                "agt:runId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:supersedesLegacyRunSession": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "\u00a7WS1 migration bridge to the pre-relevel run-grain agt:Session"
+                },
+                "agt:turnCount": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true
+                }
+            },
+            "rdf_types": [
+                "agt:Run"
+            ],
+            "subject_rule": "{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:session",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "Session": {
+            "comment": "\u00a7WS1 RELEVEL - the prompt-bearing EPISODE keyed on the libsql session id; pins one model + one prompt snapshot; spans its runs (NO realizedBy).",
+            "predicates": {
+                "agt:graphId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:ofAgent": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "session owner, the ur-agent witness"
+                },
+                "agt:ownerUserId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:sessionId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "the operational wfr-* run id"
+                },
+                "agt:turnCount": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:model": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "the inference model the session pins"
+                },
+                "agt:systemPromptDocument": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:systemPromptDocumentId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:systemPromptSnapshot": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:systemPromptDigest": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:systemPromptBinding": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:systemPromptIdentityAlgorithm": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:systemPromptDirty": {
+                    "datatype": "boolean",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:systemPromptRevision": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:systemPromptChangeId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:systemPromptCurrentSnapshot": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:systemPromptCurrentDigest": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:systemPromptCompatibilitySeeded": {
+                    "datatype": "boolean",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:systemPromptBlock": {
+                    "datatype": "uri",
+                    "multi": true,
+                    "required": false
+                }
+            },
+            "rdf_types": [
+                "agt:Session"
+            ],
+            "subject_rule": "{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:session",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "Tool": {
+            "comment": "A tool referenced by a node-grain run turn.",
+            "predicates": {
+                "agt:ofAgent": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:toolAccess": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:toolName": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:toolStatus": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                }
+            },
+            "rdf_types": [
+                "agt:Tool"
+            ],
+            "subject_rule": "{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:session",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "Turn": {
+            "comment": "Node-grain agt:Turn for one workflow node invocation. Message-grain chat turns remain on the older chat session path.",
+            "predicates": {
+                "agt:inRun": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "\u00a7WS1 RELEVEL - the agt:Run this turn nests under (projection.ts:786)"
+                },
+                "agt:inSession": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:nodeLabel": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:ordinal": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:phaseIndex": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:realizedBy": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "inverse reading of wf:AgentRun wf:boundToAgent agt:Turn"
+                },
+                "agt:role": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:state": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:turnGrain": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "node for workflow run turns; message is reserved for chat/message-grain turns"
+                },
+                "agt:turnTime": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:usedTool": {
+                    "datatype": "uri",
+                    "multi": true,
+                    "required": false
+                }
+            },
+            "rdf_types": [
+                "agt:Turn"
+            ],
+            "subject_rule": "{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:session",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "Voice": {
+            "comment": "The single elided monovocal voice required to satisfy agt:I3 cardinality while keeping materialized subjects in URN space.",
+            "predicates": {
+                "agt:voiceId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:voiceOf": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true
+                }
+            },
+            "rdf_types": [
+                "agt:Voice"
+            ],
+            "subject_rule": "{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:session",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "WorkflowAgentRunAnchor": {
+            "comment": "A projection-local anchor that carries the wf:AgentRun type inside projection:session so agt:Turn agt:realizedBy can be SHACL-validated without cross-graph lookups.",
+            "predicates": {},
+            "rdf_types": [
+                "agt:WorkflowAgentRunAnchor",
+                "wf:AgentRun"
+            ],
+            "subject_rule": "{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:session",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "WorkflowRunAnchor": {
+            "comment": "A projection-local anchor that carries the wf:Run type inside projection:session so agt:Session agt:realizedBy can be SHACL-validated without cross-graph lookups.",
+            "predicates": {},
+            "rdf_types": [
+                "agt:WorkflowRunAnchor",
+                "wf:Run"
+            ],
+            "subject_rule": "{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:session",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        }
+    },
+    "comment": "WS-7 run-session projection vocabulary. It is the direct-on-store projection companion to wf-agent-binding: a generic simple-projection pack with write_target projection:session. It validates run-grain agt:Session and node-grain agt:Turn subjects, plus the monovocal Agent/Voice witness needed by the agt contract.",
+    "description": "Projection contract for WS-7 run-grain agent sessions and node-grain turns.",
+    "imports": [
+        "http://mnemosyne.dev/workflow#"
+    ],
+    "name": "wf-agent-session-projection",
+    "namespaces": {
+        "agt": "http://mnemosyne.dev/agent#",
+        "prov": "http://www.w3.org/ns/prov#",
+        "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+        "sh": "http://www.w3.org/ns/shacl#",
+        "wf": "http://mnemosyne.dev/workflow#",
+        "xsd": "http://www.w3.org/2001/XMLSchema#"
+    },
+    "primary_prefix": "agt",
+    "raw_shacl_shapes": "@prefix sh: <http://www.w3.org/ns/shacl#> .\n@prefix agt: <http://mnemosyne.dev/agent#> .\n@prefix wf: <http://mnemosyne.dev/workflow#> .\n\nagt:RunSessionIriShape a sh:NodeShape ;\n    sh:targetClass agt:Session ;\n    sh:sparql [\n        sh:severity sh:Violation ;\n        sh:message \"WS1: agt:Session IRI must be urn:sophia:agent:{agentId}:session:{sessionId}.\" ;\n        sh:select \"\"\"\n            PREFIX agt: <http://mnemosyne.dev/agent#>\n            SELECT $this WHERE {\n              $this agt:ofAgent ?agent ; agt:sessionId ?sessionId .\n              ?agent agt:agentId ?agentId .\n              FILTER(STR($this) != CONCAT('urn:sophia:agent:', ?agentId, ':session:', ?sessionId))\n            }\n        \"\"\" ;\n    ] .\n\nagt:RunIriShape a sh:NodeShape ;\n    sh:targetClass agt:Run ;\n    sh:sparql [\n        sh:severity sh:Violation ;\n        sh:message \"WS1: agt:Run IRI must be {ofSessionIri}:run:{runId}.\" ;\n        sh:select \"\"\"\n            PREFIX agt: <http://mnemosyne.dev/agent#>\n            SELECT $this WHERE {\n              $this agt:ofSession ?session ; agt:runId ?runId .\n              FILTER(STR($this) != CONCAT(STR(?session), ':run:', STR(?runId)))\n            }\n        \"\"\" ;\n    ] .\n\nagt:RunRealizationShape a sh:NodeShape ;\n    sh:targetClass agt:Run ;\n    sh:sparql [\n        sh:severity sh:Violation ;\n        sh:message \"WS1: agt:Run must agt:realizedBy a wf:Run.\" ;\n        sh:select \"\"\"\n            PREFIX agt: <http://mnemosyne.dev/agent#>\n            PREFIX wf: <http://mnemosyne.dev/workflow#>\n            SELECT $this WHERE {\n              $this a agt:Run .\n              FILTER NOT EXISTS { $this agt:realizedBy ?run . ?run a wf:Run . }\n            }\n        \"\"\" ;\n    ] .\n\nagt:RunTurnIriShape a sh:NodeShape ;\n    sh:targetClass agt:Turn ;\n    sh:sparql [\n        sh:severity sh:Violation ;\n        sh:message \"WS1: node-grain agt:Turn IRI must be {runIri}:turn:{ordinal}.\" ;\n        sh:select \"\"\"\n            PREFIX agt: <http://mnemosyne.dev/agent#>\n            SELECT $this WHERE {\n              $this agt:inRun ?run ; agt:ordinal ?ordinal .\n              FILTER(STR($this) != CONCAT(STR(?run), ':turn:', STR(?ordinal)))\n            }\n        \"\"\" ;\n    ] .\n\nagt:RunTurnRealizationShape a sh:NodeShape ;\n    sh:targetClass agt:Turn ;\n    sh:sparql [\n        sh:severity sh:Violation ;\n        sh:message \"WF-3b: agt:Turn must agt:realizedBy a wf:AgentRun.\" ;\n        sh:select \"\"\"\n            PREFIX agt: <http://mnemosyne.dev/agent#>\n            PREFIX wf: <http://mnemosyne.dev/workflow#>\n            SELECT $this WHERE {\n              $this a agt:Turn .\n              FILTER NOT EXISTS { $this agt:realizedBy ?agentRun . ?agentRun a wf:AgentRun . }\n            }\n        \"\"\" ;\n    ] .\n\nagt:RunTurnGrainShape a sh:NodeShape ;\n    sh:targetClass agt:Turn ;\n    sh:sparql [\n        sh:severity sh:Violation ;\n        sh:message \"WF-3b: agt:Turn agt:turnGrain must be either node or message.\" ;\n        sh:select \"\"\"\n            PREFIX agt: <http://mnemosyne.dev/agent#>\n            SELECT $this WHERE {\n              $this a agt:Turn .\n              FILTER NOT EXISTS { $this agt:turnGrain ?grain . FILTER(?grain = 'node' || ?grain = 'message') }\n            }\n        \"\"\" ;\n    ] .\n\nagt:ProjectionIdentityUnificationShape a sh:NodeShape ;\n    sh:targetClass agt:Agent ;\n    sh:sparql [\n        sh:severity sh:Violation ;\n        sh:message \"WF-3b: agt:Agent subject IRI must equal urn:sophia:agent:{agentId}.\" ;\n        sh:select \"\"\"\n            PREFIX agt: <http://mnemosyne.dev/agent#>\n            SELECT $this WHERE {\n              $this agt:agentId ?id .\n              FILTER(STR($this) != CONCAT('urn:sophia:agent:', ?id))\n            }\n        \"\"\" ;\n    ] .\n\nagt:ProjectionMonovocalCardinalityShape a sh:NodeShape ;\n    sh:targetClass agt:Agent ;\n    sh:sparql [\n        sh:severity sh:Violation ;\n        sh:message \"WF-3b: a Monovocal projected agent must have exactly one agt:Voice.\" ;\n        sh:select \"\"\"\n            PREFIX agt: <http://mnemosyne.dev/agent#>\n            SELECT $this WHERE {\n              $this agt:voicing agt:Monovocal .\n              { SELECT $this (COUNT(?v) AS ?n) WHERE { ?v agt:voiceOf $this } GROUP BY $this }\n              FILTER(?n != 1)\n            }\n        \"\"\" ;\n    ] .\n",
+    "title": "Workflow-Agent Session Projection Vocabulary",
+    "version": "1.1.0",
+    "write_target": "projection:session"
+}

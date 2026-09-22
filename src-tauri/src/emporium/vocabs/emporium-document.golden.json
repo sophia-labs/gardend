@@ -1,0 +1,59 @@
+{
+    "classes": {
+        "XmlFragment": {
+            "comment": "The ROOT fragment subject <{subject}#frag> — rdf:type mdoc:XmlFragment, carries mnemo:documentId + one mdoc:childNode per top-level block (mdoc:childNode is multi). The tree ROOT; has NO mdoc:siblingOrder (only children get one, set by the parent loop). Code-defined span (rdf_document_tree::document_tree_triples). DERIVED flat.",
+            "predicates": {
+                "mnemo:documentId": { "datatype": "string", "multi": false, "required": true },
+                "mdoc:childNode": { "datatype": "uri", "multi": true, "required": false, "comment": "RECURSIVE TREE EDGE — sh:node recursion is SHACL-INEXPRESSIBLE in rudof 0.2.12; childNode-target existence is reconcile-guaranteed + oracle-checked" }
+            },
+            "rdf_types": [ "mdoc:XmlFragment" ],
+            "subject_rule": "<{document.rdf_subject}#frag> — the tree root"
+        },
+        "Paragraph": {
+            "comment": "A block node <{subject}#block-{id}> or <{subject}#node-{n}> — rdf:type mdoc:Paragraph. Carries mnemo:documentId, mdoc:nodeId (block_id), optional mdoc:textContent, the recursive mdoc:childNode edges, and mdoc:siblingOrder (set by its parent's enumerate loop). The optional attribute predicates (level/href/target/...) are declared so the closed shape permits the full block attribute span. DERIVED flat.",
+            "predicates": {
+                "mnemo:documentId": { "datatype": "string", "multi": false, "required": true },
+                "mdoc:nodeId": { "datatype": "string", "multi": false, "required": false },
+                "mdoc:textContent": { "datatype": "string", "multi": false, "required": false },
+                "mdoc:siblingOrder": { "datatype": "integer", "multi": false, "required": false, "comment": "set on the CHILD by the parent loop; absent on the root fragment" },
+                "mdoc:childNode": { "datatype": "uri", "multi": true, "required": false },
+                "mdoc:level": { "datatype": "integer", "multi": false, "required": false },
+                "mdoc:href": { "datatype": "string", "multi": false, "required": false },
+                "mdoc:target": { "datatype": "string", "multi": false, "required": false },
+                "mdoc:language": { "datatype": "string", "multi": false, "required": false },
+                "mdoc:checked": { "datatype": "boolean", "multi": false, "required": false },
+                "mdoc:footnoteContent": { "datatype": "string", "multi": false, "required": false },
+                "mdoc:annotationId": { "datatype": "string", "multi": false, "required": false },
+                "mdoc:wireId": { "datatype": "string", "multi": false, "required": false },
+                "mdoc:imageSrc": { "datatype": "string", "multi": false, "required": false },
+                "mdoc:mathSource": { "datatype": "string", "multi": false, "required": false },
+                "mdoc:src": { "datatype": "string", "multi": false, "required": false },
+                "mdoc:altText": { "datatype": "string", "multi": false, "required": false }
+            },
+            "rdf_types": [ "mdoc:Paragraph" ],
+            "subject_rule": "<{subject}#block-{id}> or <{subject}#node-{n}>"
+        },
+        "TextNode": {
+            "comment": "A leaf text node <{subject}#node-{n}> — rdf:type mdoc:TextNode. Carries mnemo:documentId, mdoc:content (the text), and mdoc:siblingOrder (set by its parent loop). A leaf: NO mdoc:childNode. Code-defined span (serialize_tree_node text branch). DERIVED flat.",
+            "predicates": {
+                "mnemo:documentId": { "datatype": "string", "multi": false, "required": true },
+                "mdoc:content": { "datatype": "string", "multi": false, "required": false },
+                "mdoc:siblingOrder": { "datatype": "integer", "multi": false, "required": false }
+            },
+            "rdf_types": [ "mdoc:TextNode" ],
+            "subject_rule": "<{subject}#node-{n}> — anonymous text leaf"
+        }
+    },
+    "comment": "EA-2b+ SHACL retrofit contract for the DOCUMENT-TREE Meaningful Object (structural fork: a RECURSIVE TREE via mdoc:childNode, and the bare doc subject has NO rdf:type). NOT a served emporium pack — an AUTHORED mirror of the code-defined document_tree_triples span, whose sole consumer is vocab_to_shacl. SCOPE: the projection emits TYPED node subjects (each child carries rdf:type mdoc:{TagName}); this contract declares the node classes a representative tree exercises (XmlFragment + Paragraph + TextNode), each as an independent flat closed sh:NodeShape. The full mdoc:{TagName} class space (Heading/CodeBlock/Link/...) shares the SAME flat derivation. TWO things are SHACL-INEXPRESSIBLE here and stay reconcile-guaranteed + oracle-checked, NOT silently skipped: (1) the RECURSIVE tree (sh:node) — rudof 0.2.12 has no recursive node shapes; childNode-target existence is checked by a SPARQL read-back in the oracle; (2) the BARE doc subject <{subject}> (no rdf:type) is NOT emitted by document_tree_triples (other faces write it), so no node-shape targets it — out of scope for the tree-face oracle. mnemo: is MNEMO_NS, mdoc: is MDOC_NS.",
+    "description": "A document tree: a typed-node DAG rooted at mdoc:XmlFragment, with mdoc:childNode edges, sibling ordering, and per-node-type attribute predicates.",
+    "name": "emporium-document",
+    "namespaces": {
+        "mdoc": "http://mnemosyne.dev/doc#",
+        "mnemo": "https://mnemosyne.local/ns#",
+        "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+        "xsd": "http://www.w3.org/2001/XMLSchema#"
+    },
+    "primary_prefix": "mdoc",
+    "title": "Emporium Document-Tree Vocabulary",
+    "version": "1.0.0"
+}

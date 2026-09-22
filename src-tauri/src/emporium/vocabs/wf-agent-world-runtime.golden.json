@@ -1,0 +1,346 @@
+{
+    "name": "wf-agent-world-runtime",
+    "version": "1.0.0",
+    "title": "Workflow-Agent World Runtime Projection Vocabulary",
+    "description": "\u00a7WS3 projection contract for the LIVE runtime/world state of an agent session: session head, conversation messages, codex comments, control approvals, and the active prompt binding. Reconciled ON MUTATION into the SHACL-gated projection:agent-world face; libsql stays the runtime cache + CAS arbiter. Distinct lane from wf-agent-session-projection (run-journal anatomy).",
+    "primary_prefix": "agt",
+    "namespaces": {
+        "agt": "http://mnemosyne.dev/agent#",
+        "prov": "http://www.w3.org/ns/prov#",
+        "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+        "sh": "http://www.w3.org/ns/shacl#",
+        "xsd": "http://www.w3.org/2001/XMLSchema#"
+    },
+    "classes": {
+        "SessionState": {
+            "comment": "\u00a7WS3 - the live session head (lifecycle/status/counts/control state). Class KEY 'SessionState' = wire kind; rdf_type agt:SessionState.",
+            "predicates": {
+                "agt:ofAgent": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:sessionId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:ownerUserId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:graphId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:model": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:lifecycle": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:sessionStatus": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:workflowName": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:runId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "generic-record field 'runId' (active run); serializer face uses agt:activeRunId"
+                },
+                "agt:sandboxId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:messageCount": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:commentCount": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:approvalCount": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:driver": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "projected driver-lease holder (CAS stays in libsql)"
+                },
+                "agt:steeringDepth": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:updatedAt": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:conformsTo": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:contractVersion": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                }
+            },
+            "rdf_types": [
+                "agt:SessionState"
+            ],
+            "subject_rule": "{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:agent-world",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "SessionMessage": {
+            "comment": "\u00a7WS3 - one conversation message. Class KEY 'SessionMessage' = wire kind; rdf_type agt:Message.",
+            "predicates": {
+                "agt:inSession": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:messageId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:role": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:authorId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:visibility": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:text": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "generic-record field 'text'; serializer face uses agt:messageText"
+                },
+                "agt:createdAt": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": true
+                }
+            },
+            "rdf_types": [
+                "agt:Message"
+            ],
+            "subject_rule": "{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:agent-world",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "SessionComment": {
+            "comment": "\u00a7WS3 - one codex comment. Class KEY 'SessionComment' = wire kind; rdf_type agt:Comment.",
+            "predicates": {
+                "agt:inSession": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:commentId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:commentKind": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:authorId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:visibility": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:text": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "generic-record field 'text'; serializer face uses agt:commentText"
+                },
+                "agt:createdAt": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": true
+                }
+            },
+            "rdf_types": [
+                "agt:Comment"
+            ],
+            "subject_rule": "{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:agent-world",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "SessionApproval": {
+            "comment": "\u00a7WS3 - one control approval. Class KEY 'SessionApproval' = wire kind; rdf_type agt:Approval.",
+            "predicates": {
+                "agt:inSession": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:approvalId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:approvalStatus": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:requestedBy": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:decidedBy": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:ts": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": false,
+                    "source": "generic-record field 'ts'; serializer face uses agt:approvalTime"
+                }
+            },
+            "rdf_types": [
+                "agt:Approval"
+            ],
+            "subject_rule": "{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:agent-world",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "PromptBinding": {
+            "comment": "\u00a7WS3 - the active system-prompt binding. Class KEY 'PromptBinding' = wire kind; rdf_type agt:PromptBinding.",
+            "predicates": {
+                "agt:ofAgent": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:ofSession": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:bindingId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:handle": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:bindingStatus": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:documentId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "generic-record field 'documentId'; serializer face uses agt:systemPromptDocumentId"
+                },
+                "agt:snapshotId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "generic-record field 'snapshotId'; serializer face uses agt:systemPromptSnapshot"
+                },
+                "agt:renderedDigest": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "generic-record field 'renderedDigest'; serializer face uses agt:systemPromptDigest"
+                },
+                "agt:activeFrom": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": false
+                },
+                "agt:activeUntil": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": false
+                }
+            },
+            "rdf_types": [
+                "agt:PromptBinding"
+            ],
+            "subject_rule": "{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:agent-world",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        }
+    },
+    "write_target": "projection:agent-world",
+    "comment": "CRITICAL asymmetry: each class KEY equals the wire 'kind' (schemas.rs:572 contract.classes.contains_key(&r.kind)) but the rdf_type differs (SessionMessage->agt:Message, SessionComment->agt:Comment, SessionApproval->agt:Approval). Predicate local names match the generic-record field names (buildSessionRuntimeProjectionRecords), NOT the serializer predicate names, so the no-silent-drop planner guard accepts the real records."
+}

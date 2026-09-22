@@ -1,0 +1,41 @@
+{
+  "documents": [
+    {
+      "title": "Page One",
+      "markdown": "# Page One\n\nSee [Page Two](Page%20Two%20abcdefabcdefabcdefabcdefabcdef34.md).\nExternal [docs](https://example.com/docs.md) are ignored.\nMalformed [bad](bad%zz.md) keeps the raw path.\n",
+      "folderPath": null,
+      "sourceFilename": "Page One abcdefabcdefabcdefabcdefabcdef12.md"
+    },
+    {
+      "title": "Page Two",
+      "markdown": "# Page Two\n\nBody.\n",
+      "folderPath": null,
+      "sourceFilename": "Page Two abcdefabcdefabcdefabcdefabcdef34.md"
+    },
+    {
+      "title": "db",
+      "markdown": "# db\n\n| Name | Notes |\n| --- | --- |\n| Smith, John | Has \\| pipe |\n| Quote \"x\" |  |\n\n- Name: Smith, John; Notes: Has | pipe\n- Name: Quote \"x\"; Notes: \n",
+      "folderPath": null,
+      "sourceFilename": "db cccccccccccccccccccccccccccccccc.csv"
+    }
+  ],
+  "wikilinks": [
+    {
+      "sourceTitle": "Page One",
+      "targetTitle": "Page Two",
+      "displayText": null,
+      "sourceContext": "See [Page Two](Page%20Two%20abcdefabcdefabcdefabcdefabcdef34.md).",
+      "isTag": false
+    },
+    {
+      "sourceTitle": "Page One",
+      "targetTitle": "bad%zz",
+      "displayText": "bad",
+      "sourceContext": "Malformed [bad](bad%zz.md) keeps the raw path.",
+      "isTag": false
+    }
+  ],
+  "warnings": [
+    "Skipped 1 non-importable files (images, etc.)"
+  ]
+}

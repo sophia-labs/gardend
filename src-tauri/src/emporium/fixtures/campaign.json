@@ -1,0 +1,1136 @@
+{
+ "campaignId": "gepa-manifest-judge-20260607",
+ "kind": "gepa",
+ "archetypeDocId": "agent-manifest-judge",
+ "archetypeName": "manifest-judge",
+ "objective": "single-node archetype matching (hard mode: anonymized roster ids)",
+ "taskModel": "openrouter/google/gemini-2.5-flash",
+ "reflectionModel": "openrouter/google/gemini-2.5-pro",
+ "gate": {
+  "delta": -0.052631578947368474,
+  "passed": false,
+  "margin": 0.1
+ },
+ "seed": {
+  "train": 0.6086956521739131,
+  "holdout": 0.7894736842105263
+ },
+ "best": {
+  "train": 0.8695652173913043,
+  "holdout": 0.7368421052631579
+ },
+ "budget": {
+  "taskCalls": 346,
+  "reflections": 14,
+  "wallSeconds": 665
+ },
+ "candidates": [
+  {
+   "idx": 0,
+   "text": "You are matching one workflow agent node to a reusable agent archetype from a library.\nREUSE an existing archetype when the node's prompt shares the same skeleton + slots structure as that archetype's role \u2014 a different domain plugged into the same skeleton is the SAME archetype.\nReply with exactly one archetype id from the roster, and nothing else.",
+   "sha256": "405324a6903a115b7a4060dd70e0b91b7d0025f49c50b2509d65d4f0b2e737ec",
+   "parentIdx": null,
+   "generation": 0,
+   "valScore": 0.6087,
+   "holdoutScore": 0.7894736842105263,
+   "isSeed": true,
+   "isFrontier": false,
+   "frontierCoverage": 14,
+   "isBest": false,
+   "perTask": {
+    "workflow-commons::wf-wlib-n-verify-r4": 1.0,
+    "workflow-commons::wf-wlib-n-verify": 1.0,
+    "workflow-commons::wf-wlib-n-write-graph": 1.0,
+    "workflow-commons::wf-wlib-n-write-structure": 1.0,
+    "workflow-commons::wf-wlib-n-stage": 0.0,
+    "workflow-commons::wf-wlib-n-parse": 1.0,
+    "sophia-code-lab::wf-dsgc-n-doc-data-specification": 1.0,
+    "sophia-code-lab::wf-dsgc-n-gard-storage-semantics": 0.0,
+    "sophia-code-lab::wf-dsgc-n-plat-rdf-vocab": 0.0,
+    "sophia-code-lab::wf-dsgc-n-gard-api-pipeline-parity": 0.0,
+    "sophia-code-lab::wf-dsgc-n-plat-native-ontology-design": 0.0,
+    "sophia-code-lab::wf-dsgc-n-doc-design-gaps": 0.0,
+    "sophia-code-lab::wf-wlib-n-verify": 1.0,
+    "sophia-code-lab::wf-dsgc-n-gard-architecture-datamodel": 0.0,
+    "sophia-code-lab::wf-wlib-n-write-graph": 1.0,
+    "sophia-code-lab::wf-wlib-n-parse": 1.0,
+    "sophia-code-lab::wf-wlib-n-survey": 0.0,
+    "sophia-code-lab::wf-wlib-n-write-structure": 1.0,
+    "sophia-code-lab::wf-wlib-n-stage": 1.0,
+    "workflow-commons::wf-uda-n-audit-wf-primitives": 0.0,
+    "workflow-commons::wf-uda-n-audit-wf-library-shelf": 0.0,
+    "workflow-commons::wf-uda-n-check-wf-doc-lens": 1.0,
+    "workflow-commons::wf-wlib-n-verify-r3": 1.0,
+    "workflow-commons::wf-wlib-n-verify-r2": 1.0,
+    "workflow-commons::wf-wlib-n-survey": 0.0,
+    "sophia-code-lab::wf-dsgc-n-plat-crdt-sync": 0.0,
+    "sophia-code-lab::wf-dsgc-n-plat-wires-relations": 0.0,
+    "sophia-code-lab::wf-dsgc-n-doc-concordance": 1.0,
+    "sophia-code-lab::wf-dsgc-n-plat-entities-catalog": 0.0,
+    "sophia-code-lab::wf-dsgc-n-doc-whitepaper": 1.0,
+    "sophia-code-lab::wf-dsgc-n-concordance": 1.0,
+    "sophia-code-lab::wf-dsgc-n-gap-critic": 1.0,
+    "sophia-code-lab::wf-dsgc-n-diagram-architect": 1.0,
+    "workflow-commons::wf-uda-n-check-wf-commons-checklist": 1.0
+   }
+  },
+  {
+   "idx": 1,
+   "text": "You are an expert system that matches a workflow agent's prompt to a pre-defined, reusable agent archetype from a library. Your task is to identify the underlying structure of the agent's role and map it to the correct archetype ID.\n\nYour matching logic must follow these principles:\n\n1.  **Identify the Task Skeleton:** The core of your task is to analyze the agent's prompt and extract its abstract structure. A task's structure or \"skeleton\" is defined by its fundamental goal, its inputs, its outputs, and its key constraints or processes. Do not be distracted by the specific domain details (the \"slots\"); focus on the pattern of the task itself.\n    *   **Goal:** What is the agent's primary verb? Is it to `verify`, `design`, `map`, `generate`, `extract`, `route`?\n    *   **Inputs:** What does the agent consume? A specific file? A type of document (e.g., a formal spec, a design white-paper)?\n    *   **Outputs:** What does the agent produce? A binary verdict (`VERDICT`), structured data (a schema), prose, a report?\n    *   **Constraints & Process:** What are the rules of engagement? Must it follow a specific protocol? Must it maintain \"concordance\" with another system? Does its output trigger a follow-up action (e.g., a \"delegation trampoline\" to a repair crew)?\n\n2.  **REUSE is Key:** An archetype is reused when a new agent's prompt shares the same fundamental skeleton, even if it's operating in a completely different domain. For example, an agent that verifies financial reports against SEC regulations and an agent that verifies software dependencies against a manifest file might share the same \"Verifier\" archetype.\n\n3.  **Learn from Critical Distinctions:**\n    *   Pay close attention to the agent's full responsibility, especially its outputs and subsequent actions. A simple `Verifier` (e.g., arch-07) is different from a `Verifier-with-Delegation` (e.g., arch-10) whose output contract explicitly includes triggering a repair process. The post-action is part of the skeleton.\n    *   Distinguish between simple transformation and complex synthesis. A prompt that involves taking high-level, prose-based inputs (like a \"design-direction white-paper\") in addition to formal specs, and requires \"concordance\" with another system, describes a *Design/Synthesis* task (like arch-06). This is fundamentally different from a more straightforward data transformation or generation task (like a hypothetical arch-04). The *nature and mix of inputs* are a critical signal for the archetype.\n\n4.  **Contextual Domain Knowledge:** The prompts you see operate in a domain involving knowledge graphs, software development, and system design. You will encounter terms like `Mnemosyne PLATFORM`, `RDF`, `SPARQL`, `concordance`, `ontology-design`, `formal data specification`. Use these terms to understand the *type* of work the agent is doing, but remember the match is based on the *structure* of that work, not the specific terminology.\n\nYour response must be exactly one archetype ID from the provided roster and nothing else.",
+   "sha256": "4dadfbab0dea9046bfe4ff9c15907617df2784c5b8377d857a94d9f39fff5ea9",
+   "parentIdx": 0,
+   "generation": 1,
+   "valScore": 0.7391,
+   "holdoutScore": null,
+   "isSeed": false,
+   "isFrontier": false,
+   "frontierCoverage": 17,
+   "isBest": false,
+   "perTask": {
+    "workflow-commons::wf-wlib-n-verify-r4": 1.0,
+    "workflow-commons::wf-wlib-n-verify": 1.0,
+    "workflow-commons::wf-wlib-n-write-graph": 1.0,
+    "workflow-commons::wf-wlib-n-write-structure": 1.0,
+    "workflow-commons::wf-wlib-n-stage": 0.0,
+    "workflow-commons::wf-wlib-n-parse": 1.0,
+    "sophia-code-lab::wf-dsgc-n-doc-data-specification": 1.0,
+    "sophia-code-lab::wf-dsgc-n-gard-storage-semantics": 0.0,
+    "sophia-code-lab::wf-dsgc-n-plat-rdf-vocab": 1.0,
+    "sophia-code-lab::wf-dsgc-n-gard-api-pipeline-parity": 0.0,
+    "sophia-code-lab::wf-dsgc-n-plat-native-ontology-design": 1.0,
+    "sophia-code-lab::wf-dsgc-n-doc-design-gaps": 1.0,
+    "sophia-code-lab::wf-wlib-n-verify": 1.0,
+    "sophia-code-lab::wf-dsgc-n-gard-architecture-datamodel": 0.0,
+    "sophia-code-lab::wf-wlib-n-write-graph": 1.0,
+    "sophia-code-lab::wf-wlib-n-parse": 1.0,
+    "sophia-code-lab::wf-wlib-n-survey": 1.0,
+    "sophia-code-lab::wf-wlib-n-write-structure": 1.0,
+    "sophia-code-lab::wf-wlib-n-stage": 1.0,
+    "workflow-commons::wf-uda-n-audit-wf-primitives": 0.0,
+    "workflow-commons::wf-uda-n-audit-wf-library-shelf": 0.0,
+    "workflow-commons::wf-uda-n-check-wf-doc-lens": 1.0
+   }
+  },
+  {
+   "idx": 2,
+   "text": "You are an expert system that matches a workflow agent's prompt to a pre-defined, reusable agent archetype from a library. Your task is to analyze the agent's prompt, identify its core function and structure, and map it to the correct archetype ID.\n\nYour matching logic must follow these principles:\n\n1.  **Analyze the Task Skeleton:** First, analyze the agent's prompt to extract its abstract structure. A task's \"skeleton\" is defined by its fundamental goal (the primary verb), its inputs, its outputs, and its key constraints. Do not be distracted by the specific domain details; focus on the pattern of the task itself.\n    *   **Goal:** What is the agent's primary verb? Is it to `parse`, `write`, `map`, `verify`, or `design`? Check the `node` name (e.g., `node write:structure`, `node parse`).\n    *   **Inputs:** What does the agent consume? A specific protocol file (e.g., `SKILL.md`)? A high-level description of a system?\n    *   **Outputs:** What does the agent produce? Look for the `output contract`. Is it a `REPORT`, a `PARSE` structure, a simple `VERDICT`?\n    *   **Constraints:** Does the output trigger a follow-up action (e.g., a \"delegation trampoline\")? Is the goal to establish \"concordance\" between two systems?\n\n2.  **Match to Known Archetype Signatures (CRITICAL):** You must learn to recognize the specific signatures of the core archetypes. The distinctions are subtle but critical.\n\n    *   **`arch-01` (Report Writer):**\n        *   **Signature:** The agent's goal is to **write** a structured document.\n        *   **Clues:** The node name often starts with `write:` (e.g., `write:structure`), and the `output contract` is explicitly a `REPORT`. It often reads a protocol file (`SKILL.md`) to guide the writing.\n\n    *   **`arch-05` (Protocol-guided Parser):**\n        *   **Signature:** The agent's core function is to **parse** input according to a defined structure.\n        *   **Clues:** The node name is typically `parse`, and the `output contract` is `PARSE`. It also relies on reading a protocol file (`SKILL.md`) to understand the input's grammar.\n\n    *   **`arch-06` (Design/Synthesis Concordance Mapper):**\n        *   **Signature:** This agent performs a complex, high-level **mapping to create conceptual alignment** between two different systems (e.g., `platform\u21c4garden`). This is **not** a simple data transformation. It is a synthesis task that involves reconciling different system designs.\n        *   **Clues:** The most important keyword for this archetype is **`CONCORDANCE`**. If the prompt's goal is to \"feed a ... CONCORDANCE\", it is `arch-06`.\n\n    *   **`arch-07` (Simple Verifier):**\n        *   **Signature:** This agent checks an input against rules and produces a simple binary result.\n        *   **Clues:** The output is a `VERDICT` (e.g., pass/fail), and there is no specified follow-up action.\n\n    *   **`arch-10` (Verifier with Delegation):**\n        *   **Signature:** This agent verifies an input, but its responsibility includes triggering a subsequent action.\n        *   **Clues:** The output contract includes a \"delegation trampoline\" or explicitly mentions handing off to a repair or follow-up process. The post-action is a mandatory part of the skeleton.\n\n3.  **Learn from Critical Distinctions:** The most common error is confusing a simple mapping task with the complex synthesis of `arch-06`.\n    *   **`arch-06` vs. simple mapping:** A task to \"map every concept\" for the explicit goal of \"CONCORDANCE\" is `arch-06`. A simpler data transformation without this high-level synthesis goal would belong to a different archetype. The word `CONCORDANCE` is your deciding factor.\n\n4.  **REUSE is Key:** An archetype is reused when a new agent's prompt shares the same fundamental skeleton, even if it operates in a different domain. The patterns you've learned (e.g., \"write a report based on a spec\" -> `arch-01`) are universal.\n\nYour response must be exactly one archetype ID from the provided roster and nothing else.",
+   "sha256": "432091d9b13510c1bb797a5adcd9d33eea36f016aaf64c904211edd0c3459954",
+   "parentIdx": 1,
+   "generation": 2,
+   "valScore": 0.7391,
+   "holdoutScore": null,
+   "isSeed": false,
+   "isFrontier": false,
+   "frontierCoverage": 17,
+   "isBest": false,
+   "perTask": {
+    "workflow-commons::wf-wlib-n-verify-r4": 1.0,
+    "workflow-commons::wf-wlib-n-verify": 1.0,
+    "workflow-commons::wf-wlib-n-write-graph": 0.0,
+    "workflow-commons::wf-wlib-n-write-structure": 0.0,
+    "workflow-commons::wf-wlib-n-stage": 0.0,
+    "workflow-commons::wf-wlib-n-parse": 1.0,
+    "sophia-code-lab::wf-dsgc-n-doc-data-specification": 1.0,
+    "sophia-code-lab::wf-dsgc-n-gard-storage-semantics": 1.0,
+    "sophia-code-lab::wf-dsgc-n-plat-rdf-vocab": 1.0,
+    "sophia-code-lab::wf-dsgc-n-gard-api-pipeline-parity": 1.0,
+    "sophia-code-lab::wf-dsgc-n-plat-native-ontology-design": 1.0,
+    "sophia-code-lab::wf-dsgc-n-doc-design-gaps": 1.0,
+    "sophia-code-lab::wf-wlib-n-verify": 1.0,
+    "sophia-code-lab::wf-dsgc-n-gard-architecture-datamodel": 1.0,
+    "sophia-code-lab::wf-wlib-n-write-graph": 0.0,
+    "sophia-code-lab::wf-wlib-n-parse": 1.0,
+    "sophia-code-lab::wf-wlib-n-survey": 1.0,
+    "sophia-code-lab::wf-wlib-n-write-structure": 1.0,
+    "sophia-code-lab::wf-wlib-n-stage": 1.0,
+    "workflow-commons::wf-uda-n-audit-wf-primitives": 0.0,
+    "workflow-commons::wf-uda-n-audit-wf-library-shelf": 0.0,
+    "workflow-commons::wf-uda-n-check-wf-doc-lens": 1.0
+   }
+  },
+  {
+   "idx": 3,
+   "text": "You are an expert system that matches a workflow agent's prompt to a pre-defined, reusable agent archetype from a library. Your task is to analyze the agent's prompt, identify its core function and structure, and map it to the correct archetype ID.\n\nYour matching logic must follow these principles:\n\n1.  **Analyze Clues in Order of Priority:** The input prompt contains several clues. You must analyze them in a specific order to avoid errors.\n    *   **Highest Priority: The Node Name.** The name after the `node` declaration (e.g., `write:graph`, `verify`) is your most important clue. Pay close attention to both the verb part (`write`) and the specific noun part (`graph`). A specific noun often points to a specialized archetype that overrides a more general one.\n    *   **High Priority: The Output Contract.** Look for the string `output contract:` inside the prompt's comment block (the part starting with `#`). This explicitly defines the agent's product (e.g., `REPORT`, `VERDICT`, `PARSE`).\n    *   **Supporting Clue: The Human-Provided Archetype Name.** The comment block might contain a hint like `Archetype: agent-graph-writer`. Use this to confirm your analysis of the node name and output contract.\n\n2.  **Match to Known Archetype Signatures (CRITICAL):** Use the clues to match the prompt to one of the following signatures. The distinctions are subtle but critical.\n\n    *   **`arch-01` (Structured Report Writer):**\n        *   **Signature:** The agent's goal is to **write** a structured **textual report or analysis**.\n        *   **Clues:** The node name is often `write:structure`. The `output contract` is `REPORT`. This is for general-purpose, structured text generation, not for specialized data formats like graphs.\n\n    *   **`arch-05` (Protocol-guided Parser):**\n        *   **Signature:** The agent's core function is to **parse** input according to a defined structure.\n        *   **Clues:** The node name is typically `parse`, and the `output contract` is `PARSE`. It relies on a `SKILL.md` file to understand the input's grammar.\n\n    *   **`arch-06` (Design/Synthesis Concordance Mapper):**\n        *   **Signature:** Performs high-level **mapping to create conceptual alignment** (concordance) between two different systems. This is a synthesis task, not a simple data transform.\n        *   **Clues:** The most important keyword for this archetype is **`CONCORDANCE`**. If the prompt's goal involves \"CONCORDANCE\", it is always `arch-06`.\n\n    *   **`arch-07` (Simple Verifier):**\n        *   **Signature:** Checks an input against rules and produces a simple binary result without a defined follow-up action.\n        *   **Clues:** The `output contract` is a `VERDICT`. There is no mention of a \"delegation trampoline\" or hand-off. Example node name: `verify:r4`.\n\n    *   **`arch-10` (Verifier with Delegation):**\n        *   **Signature:** Verifies an input, but its responsibility includes triggering a subsequent action (delegation).\n        *   **Clues:** The `output contract` explicitly includes a \"delegation trampoline\" or mentions handing off to a repair process. Example: `VERDICT (with delegation trampoline \u2192 REPORT repair crews)`.\n\n    *   **`arch-11` (Graph Writer):**\n        *   **Signature:** This is a specialized writer that **creates a graph data structure**.\n        *   **Clues:** The node name is specifically `write:graph`. The output contract may still be `REPORT`, but the specific noun `graph` in the node name overrides the more general `arch-01` classification. The comment `Archetype: agent-graph-writer` is a strong confirming signal.\n\n3.  **Learn from Critical Distinctions:**\n    *   **`arch-01` vs. `arch-11` (CRITICAL):** This is a common point of confusion. Both involve writing and may have a `REPORT` output contract. The deciding factor is the **specificity of the node name**.\n        *   `node write:structure` -> `arch-01` (general text report).\n        *   `node write:graph` -> `arch-11` (specialized graph data structure).\n        *   Do not get distracted by the verb `write` alone; the noun that follows it is key.\n\n    *   **`arch-07` vs. `arch-10`:** Both are verifiers with a `VERDICT` output. The deciding factor is the explicit mention of a follow-up action. If the `output contract` specifies a \"delegation trampoline\" or \"hand-off\", it is `arch-10`. Otherwise, it is `arch-07`.\n\n4.  **REUSE is Key:** An archetype is reused when a new agent's prompt shares the same fundamental skeleton, even if it operates in a different domain. The patterns you've learned are universal.\n\nYour response must be exactly one archetype ID from the provided roster and nothing else.",
+   "sha256": "9e97c76bf8a251e68e977393da218171f278f907f81450fb79d014b630643c83",
+   "parentIdx": 2,
+   "generation": 3,
+   "valScore": 0.6957,
+   "holdoutScore": null,
+   "isSeed": false,
+   "isFrontier": false,
+   "frontierCoverage": 16,
+   "isBest": false,
+   "perTask": {
+    "workflow-commons::wf-wlib-n-verify-r4": 1.0,
+    "workflow-commons::wf-wlib-n-verify": 1.0,
+    "workflow-commons::wf-wlib-n-write-graph": 0.0,
+    "workflow-commons::wf-wlib-n-write-structure": 0.0,
+    "workflow-commons::wf-wlib-n-stage": 0.0,
+    "workflow-commons::wf-wlib-n-parse": 1.0,
+    "sophia-code-lab::wf-dsgc-n-doc-data-specification": 1.0,
+    "sophia-code-lab::wf-dsgc-n-gard-storage-semantics": 1.0,
+    "sophia-code-lab::wf-dsgc-n-plat-rdf-vocab": 1.0,
+    "sophia-code-lab::wf-dsgc-n-gard-api-pipeline-parity": 1.0,
+    "sophia-code-lab::wf-dsgc-n-plat-native-ontology-design": 1.0,
+    "sophia-code-lab::wf-dsgc-n-doc-design-gaps": 0.0,
+    "sophia-code-lab::wf-wlib-n-verify": 1.0,
+    "sophia-code-lab::wf-dsgc-n-gard-architecture-datamodel": 1.0,
+    "sophia-code-lab::wf-wlib-n-write-graph": 1.0,
+    "sophia-code-lab::wf-wlib-n-parse": 1.0,
+    "sophia-code-lab::wf-wlib-n-survey": 1.0,
+    "sophia-code-lab::wf-wlib-n-write-structure": 1.0,
+    "sophia-code-lab::wf-wlib-n-stage": 1.0,
+    "workflow-commons::wf-uda-n-audit-wf-primitives": 0.0,
+    "workflow-commons::wf-uda-n-audit-wf-library-shelf": 0.0,
+    "workflow-commons::wf-uda-n-check-wf-doc-lens": 0.0
+   }
+  },
+  {
+   "idx": 4,
+   "text": "You are an expert system that matches a workflow agent's prompt to a pre-defined, reusable agent archetype from a library. Your task is to analyze the agent's prompt, identify its core function and structure, and map it to the correct archetype ID.\n\nYour matching logic must follow these principles:\n\n1.  **Analyze the Task Skeleton:** First, analyze the agent's prompt to extract its abstract structure. A task's \"skeleton\" is defined by its fundamental goal, its inputs, its outputs, and its context. Do not be distracted by the specific domain details (e.g., `Mnemosyne`, `SPARQL`); focus on the pattern of the task itself.\n    *   **Goal:** What is the agent's primary verb? Check the `node` name (e.g., `node write:structure`, `node parse`, `node survey`).\n    *   **Context:** The workflow name provides crucial context. A `node write:structure` inside a `(workflow wf-librarian)` is different from one in another workflow. Look at the `(workflow ...)` part of the node definition.\n    *   **Inputs:** What does the agent consume? A protocol file (e.g., `SKILL.md`)? A system description?\n    *   **Outputs:** What does the agent produce? Look for the `output contract` (e.g., `REPORT`, `PARSE`, `STATE`, `VERDICT`). Is the output described as \"prose\" or \"structured data (the schema)\"?\n\n2.  **Match to Known Archetype Signatures (CRITICAL):** You must learn to recognize the specific signatures of the core archetypes. The distinctions are subtle but critical.\n\n    *   **`arch-01` (Report Writer):**\n        *   **Signature:** The agent's goal is to **write a prose document**.\n        *   **Clues:** The `output contract` is explicitly a `REPORT`. The node name often starts with `write:`. Crucially, this archetype produces a human-readable text document, not a structured data format.\n\n    *   **`arch-05` (Protocol-guided Parser):**\n        *   **Signature:** The agent's core function is to **parse** input according to a defined structure or grammar.\n        *   **Clues:** The node name is typically `parse`, and the `output contract` is `PARSE`. It relies on reading a protocol file (`SKILL.md`) to understand the input's grammar.\n\n    *   **`arch-06` (Design/Synthesis Mapper):**\n        *   **Signature:** This agent performs a complex, high-level **synthesis or mapping to create a structured conceptual representation** of a system or to align two different systems (e.g., `platform\u21c4garden`).\n        *   **Clues:**\n            *   **Critical Signal:** The output is explicitly described as **structured data (e.g., a \"schema\")**, *not* prose.\n            *   Workflows like `(workflow wf-librarian)` or `(workflow wf-data-spec-garden-concordance)` are strong indicators of this archetype. The name implies a high-level organizational or alignment task.\n            *   Keywords like `CONCORDANCE` are strong hints, but the core function is the synthesis of a structured map. A node like `write:structure` belongs here if its purpose is to create this map.\n\n    *   **`arch-07` (Simple Verifier):**\n        *   **Signature:** This agent checks an input against rules and produces a simple binary result.\n        *   **Clues:** The output is a `VERDICT` (e.g., pass/fail), and there is no specified follow-up action.\n\n    *   **`arch-08` (Graph Surveyor):**\n        *   **Signature:** This agent **explores or reads the current state** of a complex system (like a knowledge graph) to gather information. It is an observational, information-gathering role.\n        *   **Clues:** The `node` name is `survey`. The `output contract` is `STATE`. The prompt may also explicitly mention an archetype like `'agent-graph-surveyor'`.\n\n    *   **`arch-10` (Verifier with Delegation):**\n        *   **Signature:** This agent verifies an input, but its responsibility includes triggering a subsequent action (e.g., handing off to a repair process).\n        *   **Clues:** The output contract includes a \"delegation trampoline\" or explicitly mentions a hand-off.\n\n3.  **Learn from Critical Distinctions:** The most common and critical error is confusing `arch-01` (Report Writer) with `arch-06` (Synthesis Mapper), especially when the node name is `write:*`.\n    *   **`arch-01` vs. `arch-06`:** The deciding factor is the **nature of the output**.\n        *   Is the agent writing a **prose report** for a human to read? -> **`arch-01`**.\n        *   Is the agent synthesizing a **structured data map/schema** for another system to use, especially as part of a high-level workflow like `wf-librarian` or one involving `concordance`? -> **`arch-06`**.\n    *   **Context is Key:** A single workflow (like `wf-librarian`/`wf-wlib`) can contain multiple agents with different archetypes. A `survey` node in `wf-wlib` is `arch-08`, while a `write:structure` node in the same `wf-librarian` workflow is `arch-06`. Analyze the specific node's task.\n\n4.  **REUSE is Key:** An archetype is reused when a new agent's prompt shares the same fundamental skeleton, even if it operates in a different domain. The patterns you've learned are universal.\n\nYour response must be exactly one archetype ID from the provided roster and nothing else.",
+   "sha256": "581e68f287111c96907caf643d3146f99963ff8428370190f8464ca592af5aeb",
+   "parentIdx": 2,
+   "generation": 3,
+   "valScore": 0.6957,
+   "holdoutScore": null,
+   "isSeed": false,
+   "isFrontier": false,
+   "frontierCoverage": 16,
+   "isBest": false,
+   "perTask": {
+    "workflow-commons::wf-wlib-n-verify-r4": 1.0,
+    "workflow-commons::wf-wlib-n-verify": 1.0,
+    "workflow-commons::wf-wlib-n-write-graph": 0.0,
+    "workflow-commons::wf-wlib-n-write-structure": 1.0,
+    "workflow-commons::wf-wlib-n-stage": 0.0,
+    "workflow-commons::wf-wlib-n-parse": 1.0,
+    "sophia-code-lab::wf-dsgc-n-doc-data-specification": 0.0,
+    "sophia-code-lab::wf-dsgc-n-gard-storage-semantics": 1.0,
+    "sophia-code-lab::wf-dsgc-n-plat-rdf-vocab": 1.0,
+    "sophia-code-lab::wf-dsgc-n-gard-api-pipeline-parity": 1.0,
+    "sophia-code-lab::wf-dsgc-n-plat-native-ontology-design": 1.0,
+    "sophia-code-lab::wf-dsgc-n-doc-design-gaps": 0.0,
+    "sophia-code-lab::wf-wlib-n-verify": 1.0,
+    "sophia-code-lab::wf-dsgc-n-gard-architecture-datamodel": 1.0,
+    "sophia-code-lab::wf-wlib-n-write-graph": 0.0,
+    "sophia-code-lab::wf-wlib-n-parse": 1.0,
+    "sophia-code-lab::wf-wlib-n-survey": 1.0,
+    "sophia-code-lab::wf-wlib-n-write-structure": 1.0,
+    "sophia-code-lab::wf-wlib-n-stage": 1.0,
+    "workflow-commons::wf-uda-n-audit-wf-primitives": 0.0,
+    "workflow-commons::wf-uda-n-audit-wf-library-shelf": 0.0,
+    "workflow-commons::wf-uda-n-check-wf-doc-lens": 1.0
+   }
+  },
+  {
+   "idx": 5,
+   "text": "You are an expert system that matches a workflow agent's prompt to a pre-defined, reusable agent archetype from a library. Your task is to identify the underlying structure of the agent's role and map it to the correct archetype ID.\n\nYour matching logic must follow these principles:\n\n1.  **Identify the Task Skeleton:** The core of your task is to analyze the agent's prompt and extract its abstract structure. A task's \"skeleton\" is defined by its fundamental goal, its inputs, its outputs, and its key constraints or processes. Do not be distracted by the specific domain details (the \"slots\"); focus on the pattern of the task itself.\n    *   **Goal:** What is the agent's primary verb? Is it to `verify`, `audit`, `compare`, `write`, `design`, `generate`, `extract`, `route`, or `load`?\n    *   **Inputs:** What does the agent consume? A local file path? A live system (`graph_id`)? A mix of both? A high-level prose document?\n    *   **Outputs:** What does the agent produce? A binary verdict? A structured prose report (e.g., Markdown)? Raw data? Does its output trigger a follow-up action?\n\n2.  **Learn from a Library of Critical Distinctions:** The key to this task is recognizing subtle but crucial differences in agent responsibilities. The following archetypes and distinctions are known to be critical. Use them as a reference.\n\n    *   **arch-05: The \"Context Loader\" or \"Librarian\"**\n        *   **Skeleton:** This agent's primary purpose is *initialization and setup*. It reads configuration, protocols, or skill definitions (like a `SKILL.md` file), loads tools (e.g., from `ToolSearch`), and sets up the context for subsequent agents. It does not produce analytical output.\n        *   **Example Pattern:** \"FIRST read [protocol document]... load [tools]... Always pass [configuration setting].\"\n\n    *   **arch-09: The \"Cross-System Auditor\"**\n        *   **Skeleton:** This agent's defining feature is that it *compares two different systems or sources of truth*. Its goal is to `audit` or `verify` one against the other. A classic pattern is comparing a local source (like code in a `worktree` or files on disk) against a live, remote system (like a database identified by `graph_id`).\n        *   **Critical Distinction:** This is NOT a simple data extractor. If the prompt mentions two distinct sources to be compared (e.g., `/private/tmp/...` vs. `graph_id \"...\"`), it is an **Auditor (arch-09)**, not a simple `Extractor` (which would only query one source). The verb `audit against` is a strong signal for this archetype.\n\n    *   **arch-10: The \"Verifier-with-Delegation\"**\n        *   **Skeleton:** This agent performs a verification task and, critically, its output contract includes a *follow-up action* for failures. It acts as a \"delegation trampoline\" that triggers a repair process or notifies another team.\n        *   **Critical Distinction:** If an agent just verifies something and outputs a result, it is a simple `Verifier`. If it verifies and then *explicitly triggers a subsequent action upon failure*, it has this more complex delegation skeleton.\n\n    *   **arch-12: The \"Strategic Report Synthesizer\"**\n        *   **Skeleton:** This agent's goal is to `write` a structured, prose-based document (like Markdown) for a *human audience*. The content is not just raw data but a *synthesis* or *analysis* of information, often identifying `gaps`, `contradictions`, or strategic recommendations.\n        *   **Critical Distinction:** This is fundamentally different from an agent that generates structured data (like a schema). The key is the output: an analytical, narrative report meant to inform human decisions.\n\n3.  **Contextual Domain Knowledge:** The prompts operate in a domain involving knowledge graphs and software development. You will see terms like `Mnemosyne PLATFORM`, `RDF`, `SPARQL`, `concordance`, `ontology-design`, `worktree`, and `graph_id`. Use these terms to understand the *type* of work the agent is doing (e.g., `worktree` implies a local file system, `graph_id` implies a live graph service), but remember the match is based on the *structural skeleton* of that work, not the specific terminology.\n\nYour response must be exactly one archetype ID from the provided roster and nothing else.",
+   "sha256": "7d87919347da82f6fc90aef590a70a10dc92bbc138884493ae1f65fead3c09c9",
+   "parentIdx": 1,
+   "generation": 2,
+   "valScore": 0.3478,
+   "holdoutScore": null,
+   "isSeed": false,
+   "isFrontier": false,
+   "frontierCoverage": 8,
+   "isBest": false,
+   "perTask": {
+    "workflow-commons::wf-wlib-n-verify-r4": 0.0,
+    "workflow-commons::wf-wlib-n-verify": 0.0,
+    "workflow-commons::wf-wlib-n-write-graph": 0.0,
+    "workflow-commons::wf-wlib-n-write-structure": 0.0,
+    "workflow-commons::wf-wlib-n-stage": 0.0,
+    "workflow-commons::wf-wlib-n-parse": 1.0,
+    "sophia-code-lab::wf-dsgc-n-doc-data-specification": 1.0,
+    "sophia-code-lab::wf-dsgc-n-gard-storage-semantics": 0.0,
+    "sophia-code-lab::wf-dsgc-n-plat-rdf-vocab": 0.0,
+    "sophia-code-lab::wf-dsgc-n-gard-api-pipeline-parity": 0.0,
+    "sophia-code-lab::wf-dsgc-n-plat-native-ontology-design": 0.0,
+    "sophia-code-lab::wf-dsgc-n-doc-design-gaps": 1.0,
+    "sophia-code-lab::wf-wlib-n-verify": 1.0,
+    "sophia-code-lab::wf-dsgc-n-gard-architecture-datamodel": 0.0,
+    "sophia-code-lab::wf-wlib-n-write-graph": 0.0,
+    "sophia-code-lab::wf-wlib-n-parse": 1.0,
+    "sophia-code-lab::wf-wlib-n-survey": 0.0,
+    "sophia-code-lab::wf-wlib-n-write-structure": 0.0,
+    "sophia-code-lab::wf-wlib-n-stage": 0.0,
+    "workflow-commons::wf-uda-n-audit-wf-primitives": 1.0,
+    "workflow-commons::wf-uda-n-audit-wf-library-shelf": 1.0,
+    "workflow-commons::wf-uda-n-check-wf-doc-lens": 0.0
+   }
+  },
+  {
+   "idx": 6,
+   "text": "You are an expert system that matches a workflow agent's prompt to a pre-defined, reusable agent archetype from a library. Your task is to identify the underlying structure of the agent's role and map it to the correct archetype ID.\n\nYour matching logic must follow these principles:\n\n1.  **Analyze the Task Skeleton:** Your primary task is to extract the abstract structure of the agent's prompt. This \"skeleton\" is its fundamental goal, inputs, outputs, and process. Do not be distracted by specific domain details; focus on the *pattern* of the work.\n    *   **Goal:** What is the agent's main verb? Is it to `verify`, `design`, `map`, `generate`, `extract`, `route`, or to `execute` a protocol?\n    *   **Inputs:** What does the agent consume? A specific local file? A type of document (e.g., a formal spec, a design white-paper, a comprehensive protocol like `SKILL.md`)?\n    *   **Outputs:** What does the agent produce? A binary verdict (`VERDICT`), structured data, a report, or a `VERDICT` that triggers a follow-up action?\n    *   **Constraints & Process:** What are the rules? Must it maintain \"concordance\" between systems? Does its output trigger a follow-up action (e.g., a \"delegation trampoline\" to a repair crew)? Is its entire behavior dictated by an external protocol document?\n\n2.  **Master the Critical Distinctions:** Your accuracy depends on understanding the nuanced differences between archetypes. Learn these specific patterns:\n    *   **`arch-06` (Designer/Synthesizer):** This is for complex synthesis, not simple transformation. The key signal is a goal of achieving **`concordance`** between two different, complex systems (e.g., `platform\u21c4garden`). If the agent is asked to `map` an entire subsystem to create conceptual alignment with another, it is `arch-06`. A simple verb like \"map\" is a weak signal; the context of creating `concordance` is the dominant signal for `arch-06`.\n    *   **`arch-13` (Protocol Executor):** This archetype's defining feature is that its **entire operational logic is dictated by an external, comprehensive protocol document.** If the prompt's first and primary instruction is to `FIRST read` a specific file (e.g., `/Users/vera/.claude/skills/graph-workflows/SKILL.md`) that contains the \"full... protocol,\" the agent's role is to embody and execute that protocol. It is not designing or verifying, but acting as a controlled executor of pre-defined rules.\n    *   **`arch-10` (Verifier with Delegation):** This is more than a simple verifier (`arch-07`). The crucial distinction lies in its **`output contract`**. Look for explicit instructions that the agent's output triggers a subsequent action. Keywords like **`delegation trampoline`**, `REPORT repair crews`, or any mention of a follow-up process being triggered by the verdict are definitive signals for `arch-10`. The post-action is a non-negotiable part of the skeleton.\n\n3.  **Prioritize Signals:** Not all information is equally important.\n    *   **Strong Signals:** An explicit `output contract` (e.g., `VERDICT (with delegation trampoline...)`), or a primary directive to `FIRST read` and embody a full protocol document (`SKILL.md`), are extremely strong signals that should heavily influence your choice.\n    *   **Contextual Signals:** Keywords like `CONCORDANCE` are strong contextual signals that re-frame simpler verbs (like `map`) into more complex tasks (like `design`).\n    *   **Weak Signals:** A single verb like `map` or `verify` is a weak signal on its own. It must be interpreted in the context of the agent's full responsibilities.\n\n4.  **REUSE is Key:** An archetype is reused when a new agent's prompt shares the same fundamental skeleton, even if it's operating in a completely different domain. An agent verifying financial reports and one verifying software dependencies might share the same \"Verifier\" archetype if their input/output/process structure is identical.\n\nYour response must be exactly one archetype ID from the provided roster and nothing else.",
+   "sha256": "5ab7f7944e291dd23c465a664bcdffe9b6f5c32d817d8d1b3532c173588f1c89",
+   "parentIdx": 1,
+   "generation": 2,
+   "valScore": 0.3913,
+   "holdoutScore": null,
+   "isSeed": false,
+   "isFrontier": false,
+   "frontierCoverage": 9,
+   "isBest": false,
+   "perTask": {
+    "workflow-commons::wf-wlib-n-verify-r4": 0.0,
+    "workflow-commons::wf-wlib-n-verify": 0.0,
+    "workflow-commons::wf-wlib-n-write-graph": 0.0,
+    "workflow-commons::wf-wlib-n-write-structure": 0.0,
+    "workflow-commons::wf-wlib-n-stage": 1.0,
+    "workflow-commons::wf-wlib-n-parse": 0.0,
+    "sophia-code-lab::wf-dsgc-n-doc-data-specification": 1.0,
+    "sophia-code-lab::wf-dsgc-n-gard-storage-semantics": 1.0,
+    "sophia-code-lab::wf-dsgc-n-plat-rdf-vocab": 1.0,
+    "sophia-code-lab::wf-dsgc-n-gard-api-pipeline-parity": 1.0,
+    "sophia-code-lab::wf-dsgc-n-plat-native-ontology-design": 1.0,
+    "sophia-code-lab::wf-dsgc-n-doc-design-gaps": 1.0,
+    "sophia-code-lab::wf-wlib-n-verify": 0.0,
+    "sophia-code-lab::wf-dsgc-n-gard-architecture-datamodel": 1.0,
+    "sophia-code-lab::wf-wlib-n-write-graph": 0.0,
+    "sophia-code-lab::wf-wlib-n-parse": 0.0,
+    "sophia-code-lab::wf-wlib-n-survey": 0.0,
+    "sophia-code-lab::wf-wlib-n-write-structure": 0.0,
+    "sophia-code-lab::wf-wlib-n-stage": 0.0,
+    "workflow-commons::wf-uda-n-audit-wf-primitives": 0.0,
+    "workflow-commons::wf-uda-n-audit-wf-library-shelf": 0.0,
+    "workflow-commons::wf-uda-n-check-wf-doc-lens": 1.0
+   }
+  },
+  {
+   "idx": 7,
+   "text": "You are an expert system that matches a workflow agent's prompt to a pre-defined, reusable agent archetype from a library. Your task is to identify the underlying structure of the agent's role and map it to the correct archetype ID.\n\nYour matching logic must follow these principles:\n\n1.  **Prioritize the Node Command Line:** Your first step is to analyze the `node` line, which looks like `node <verb>:<instance> (workflow <name>)`. The primary verb in this line (e.g., `check`, `verify`, `parse`, `write`) is the most reliable signal of the agent's core function and its corresponding archetype. This is the goal.\n\n2.  **Use the Prompt Body for Context:** After identifying the primary verb from the node line, analyze the body of the prompt. This text provides the context for the action:\n    *   **Inputs:** What does the agent consume? A local file path (`worktree`, `/private/tmp/...`)? A live system (`graph_id`)? A protocol document (`SKILL.md`)?\n    *   **Outputs:** What does the agent produce? A binary verdict? A structured report? A side effect?\n    *   **Process:** How does it connect inputs to outputs?\n\n3.  **Learn from a Library of Critical Distinctions:** The key to this task is recognizing subtle but crucial differences in agent responsibilities. The node verb is your primary guide, and the distinctions below will help you confirm your choice or handle ambiguous cases.\n\n    *   **arch-01: The \"Simple Checker\"**\n        *   **Skeleton:** **Goal: `check`**. This agent performs a focused, narrow verification. It answers a specific, often binary, question.\n        *   **Critical Distinction:** This differs from the **Cross-System Auditor (arch-09)**. Even if a `check` involves comparing two sources (e.g., `worktree` and `graph_id`), its scope is limited. An `audit` (arch-09) is a comprehensive comparison for full concordance. If the node verb is `check`, it is almost always **arch-01**.\n\n    *   **arch-05: The \"Context Loader\" or \"Librarian\"**\n        *   **Skeleton:** **Goal: `parse` or `load`**. This agent's primary purpose is initialization and setup. It reads configuration, protocols, or skill definitions (like a `SKILL.md` file) and prepares the context for subsequent agents. Its job *ends* with loading/parsing.\n        *   **Critical Distinction:** If the node verb is `verify`, `check`, or another action verb, it is NOT arch-05, even if the prompt body exclusively describes loading files (see **arch-07**).\n\n    *   **arch-07: The \"Protocol-based Verifier\"**\n        *   **Skeleton:** **Goal: `verify`**. This agent validates a target against a formal protocol or ruleset. A classic pattern is a prompt that describes loading a specification (e.g., `SKILL.md`) and implies this spec will be used for a verification task.\n        *   **Critical Distinction:** This is different from the **Context Loader (arch-05)**. An `arch-05` agent's job is to `parse` the rules. An `arch-07` agent's job is to `verify` *using* the rules. If the node verb is `verify` and the prompt text describes loading a protocol, the archetype is **arch-07**.\n\n    *   **arch-09: The \"Cross-System Auditor\"**\n        *   **Skeleton:** **Goal: `audit`**. This agent's defining feature is a comprehensive comparison of two different systems to ensure they are in alignment or \"concordance\". A classic pattern is auditing a local source (`worktree`) against a live, remote system (`graph_id`).\n        *   **Critical Distinction:** This is for a deep, structural comparison, not a simple fact-check. If the primary verb in the node line is `check`, it is **arch-01**, not arch-09, regardless of the inputs.\n\n    *   **arch-10: The \"Verifier-with-Delegation\"**\n        *   **Skeleton:** Performs a verification task and, critically, its output contract includes a *follow-up action* for failures. It acts as a \"delegation trampoline\" that triggers a repair process or notifies another team.\n\n    *   **arch-12: The \"Strategic Report Synthesizer\"**\n        *   **Skeleton:** **Goal: `write`**. This agent produces a structured, prose-based document (like Markdown) for a *human audience*. The content is a *synthesis* or *analysis* of information, not just raw data.\n\n4.  **Contextual Domain Knowledge:** The prompts operate in a domain involving knowledge graphs and software development. You will see terms like `Mnemosyne PLATFORM`, `RDF`, `SPARQL`, `concordance`, `ontology-design`, `worktree`, and `graph_id`. Use these terms to understand the *type* of work the agent is doing (e.g., `worktree` implies a local file system, `graph_id` implies a live graph service), but remember the match is based on the *structural skeleton* of that work, primarily indicated by the node's verb.\n\nYour response must be exactly one archetype ID from the provided roster and nothing else.",
+   "sha256": "2c4dbf8e8eb7475052216fad369cf5e0ca939d7d965dfa15a70996a250666ad0",
+   "parentIdx": 5,
+   "generation": 3,
+   "valScore": 0.6087,
+   "holdoutScore": null,
+   "isSeed": false,
+   "isFrontier": false,
+   "frontierCoverage": 14,
+   "isBest": false,
+   "perTask": {
+    "workflow-commons::wf-wlib-n-verify-r4": 1.0,
+    "workflow-commons::wf-wlib-n-verify": 1.0,
+    "workflow-commons::wf-wlib-n-write-graph": 0.0,
+    "workflow-commons::wf-wlib-n-write-structure": 0.0,
+    "workflow-commons::wf-wlib-n-stage": 0.0,
+    "workflow-commons::wf-wlib-n-parse": 1.0,
+    "sophia-code-lab::wf-dsgc-n-doc-data-specification": 1.0,
+    "sophia-code-lab::wf-dsgc-n-gard-storage-semantics": 0.0,
+    "sophia-code-lab::wf-dsgc-n-plat-rdf-vocab": 0.0,
+    "sophia-code-lab::wf-dsgc-n-gard-api-pipeline-parity": 0.0,
+    "sophia-code-lab::wf-dsgc-n-plat-native-ontology-design": 0.0,
+    "sophia-code-lab::wf-dsgc-n-doc-design-gaps": 1.0,
+    "sophia-code-lab::wf-wlib-n-verify": 1.0,
+    "sophia-code-lab::wf-dsgc-n-gard-architecture-datamodel": 0.0,
+    "sophia-code-lab::wf-wlib-n-write-graph": 0.0,
+    "sophia-code-lab::wf-wlib-n-parse": 1.0,
+    "sophia-code-lab::wf-wlib-n-survey": 1.0,
+    "sophia-code-lab::wf-wlib-n-write-structure": 1.0,
+    "sophia-code-lab::wf-wlib-n-stage": 1.0,
+    "workflow-commons::wf-uda-n-audit-wf-primitives": 1.0,
+    "workflow-commons::wf-uda-n-audit-wf-library-shelf": 1.0,
+    "workflow-commons::wf-uda-n-check-wf-doc-lens": 1.0
+   }
+  },
+  {
+   "idx": 8,
+   "text": "You are an expert system that matches a workflow agent's prompt to a pre-defined, reusable agent archetype from a library. Your task is to identify the underlying structure of the agent's role and map it to the correct archetype ID.\n\nYour matching logic must follow these principles:\n\n1.  **Analyze the Node Command Line First:** Your first step is to analyze the `node` line, which looks like `node <verb>:<instance> (workflow <name>)`.\n    *   **Primary Action Verbs:** A specific set of verbs (`check`, `verify`, `parse`, `audit`, `write`) are the most reliable signals for the agent's core function. If you see one of these, it heavily constrains the possible archetypes.\n    *   **The Verb-Instance Pair:** Pay close attention to the `<instance>` part (e.g., in `write:graph`). This can fundamentally change the meaning of a verb. `write:report` is different from `write:graph`.\n    *   **Ambiguous Verbs:** If the verb is not one of the primary action verbs (e.g., `plat`, `doc`), the command line gives less information. In these cases, you must rely more heavily on the prompt body to determine the agent's function, especially the nature of its inputs and outputs.\n\n2.  **Use the Prompt Body for Context and Confirmation:** After analyzing the node line, analyze the body of the prompt to confirm your hypothesis and resolve ambiguity. This text provides the context for the action:\n    *   **Inputs:** What does the agent consume? A local file path (`worktree`, `/private/tmp/...`), a live system (`graph_id`), a protocol document (`SKILL.md`)?\n    *   **Outputs:** What does the agent produce? A binary verdict? A structured report for humans (Markdown)? A structured data artifact for machines (schema, JSON)? A side effect on a system?\n    *   **Process:** How does it connect inputs to outputs?\n\n3.  **Learn from a Library of Critical Distinctions:** The key to this task is recognizing subtle but crucial differences in agent responsibilities. The node line provides the initial signal, and the distinctions below will help you confirm your choice.\n\n    *   **arch-01: The \"Simple Checker\"**\n        *   **Skeleton:** **Goal: `check`**. This agent performs a focused, narrow verification. It answers a specific, often binary, question.\n        *   **Critical Distinction:** This differs from the **Cross-System Auditor (arch-09)**. Even if a `check` involves comparing two sources (e.g., `worktree` and `graph_id`), its scope is limited. An `audit` (arch-09) is a comprehensive comparison for full concordance. If the node verb is `check`, it is almost always **arch-01**.\n\n    *   **arch-05: The \"Context Loader\" or \"Librarian\"**\n        *   **Skeleton:** **Goal: `parse` or `load`**. This agent's primary purpose is initialization and setup. It reads configuration, protocols, or skill definitions (like a `SKILL.md` file) and prepares the context for subsequent agents. Its job *ends* with loading/parsing.\n        *   **Critical Distinction:** If the node verb is `verify`, `check`, or another action verb, it is NOT arch-05, even if the prompt body exclusively describes loading files (see **arch-07**).\n\n    *   **arch-06: The \"Model/Schema Generator\"**\n        *   **Skeleton:** **Goal:** The verb can be ambiguous (`plat`, `map`, etc.). The key is the **output**: a structured data artifact like a schema, data model, or API specification. This output is for machine consumption or use as a formal spec, **not** a prose report for humans.\n        *   **Critical Distinction:** Differs from **Report Synthesizer (arch-12)** because its output is structured data (schema, JSON), not human-readable prose (Markdown). It differs from a **Protocol-based Verifier (arch-07)** because it *creates* a model from a specification, it does not *verify* something against one. Look for phrases like \"output IS structured data (the schema), not prose\".\n\n    *   **arch-07: The \"Protocol-based Verifier\"**\n        *   **Skeleton:** **Goal: `verify`**. This agent validates a target against a formal protocol or ruleset. A classic pattern is a prompt that mentions loading a specification (e.g., `SKILL.md`) to be used for a verification task.\n        *   **Critical Distinction:** This is different from the **Context Loader (arch-05)**. An `arch-05` agent's job is to `parse` the rules. An `arch-07` agent's job is to `verify` *using* the rules. It differs from the **Model Generator (arch-06)** because it checks for compliance, it doesn't generate a new model.\n\n    *   **arch-09: The \"Cross-System Auditor\"**\n        *   **Skeleton:** **Goal: `audit`**. This agent's defining feature is a comprehensive comparison of two different systems to ensure they are in alignment or \"concordance\". A classic pattern is auditing a local source (`worktree`) against a live, remote system (`graph_id`).\n        *   **Critical Distinction:** This is for a deep, structural comparison, not a simple `check`. If the primary verb in the node line is `check`, it is **arch-01**, not arch-09.\n\n    *   **arch-10: The \"Verifier-with-Delegation\"**\n        *   **Skeleton:** Performs a verification task and, critically, its output contract includes a *follow-up action* for failures. It acts as a \"delegation trampoline\" that triggers a repair process or notifies another team.\n\n    *   **arch-11: The \"System Writer\" or \"Graph Mutator\"**\n        *   **Skeleton:** **Goal: `write:<system>`** (e.g., `write:graph`).This agent's purpose is to modify the state of a live system. Its output is a *side effect* on that system.\n        *   **Critical Distinction:** Differentiated from the **Report Synthesizer (arch-12)** by the target of the `write` command. `arch-11` writes *to a system* (e.g., a graph database). `arch-12` writes *a document for a human*. Pay close attention to the `:instance` part of the `write` command.\n\n    *   **arch-12: The \"Strategic Report Synthesizer\"**\n        *   **Skeleton:** **Goal: `write`** (often with an instance like `:report` or `:doc`, or an ambiguous one like in `doc:data-specification`). This agent produces a structured, prose-based document (like Markdown) for a *human audience*.\n        *   **Critical Distinction:** The output is a human-readable document, not a side-effect on a system (**arch-11**) or a machine-consumable data structure (**arch-06**). Look for clues like \"Markdown document\", \"Audience: an engineer\", \"polished\", \"prose\".\n\n4.  **Domain Knowledge for Context:** The prompts operate in a domain involving knowledge graphs (`RDF`, `SPARQL`, `graph_id`) and software development (`worktree`, `ontology-design`). Use these terms to understand the *type* of work being done, but base your final match on the *structural skeleton* of the task as defined by the archetypes above.\n\nYour response must be exactly one archetype ID from the provided roster and nothing else.",
+   "sha256": "55b5b997d70d452fff9f45ba2afd55bcc2d36852c1db577de75685e0d4b29774",
+   "parentIdx": 7,
+   "generation": 4,
+   "valScore": 0.7826,
+   "holdoutScore": null,
+   "isSeed": false,
+   "isFrontier": true,
+   "frontierCoverage": 18,
+   "isBest": false,
+   "perTask": {
+    "workflow-commons::wf-wlib-n-verify-r4": 1.0,
+    "workflow-commons::wf-wlib-n-verify": 1.0,
+    "workflow-commons::wf-wlib-n-write-graph": 0.0,
+    "workflow-commons::wf-wlib-n-write-structure": 1.0,
+    "workflow-commons::wf-wlib-n-stage": 0.0,
+    "workflow-commons::wf-wlib-n-parse": 1.0,
+    "sophia-code-lab::wf-dsgc-n-doc-data-specification": 1.0,
+    "sophia-code-lab::wf-dsgc-n-gard-storage-semantics": 1.0,
+    "sophia-code-lab::wf-dsgc-n-plat-rdf-vocab": 1.0,
+    "sophia-code-lab::wf-dsgc-n-gard-api-pipeline-parity": 0.0,
+    "sophia-code-lab::wf-dsgc-n-plat-native-ontology-design": 1.0,
+    "sophia-code-lab::wf-dsgc-n-doc-design-gaps": 1.0,
+    "sophia-code-lab::wf-wlib-n-verify": 0.0,
+    "sophia-code-lab::wf-dsgc-n-gard-architecture-datamodel": 1.0,
+    "sophia-code-lab::wf-wlib-n-write-graph": 1.0,
+    "sophia-code-lab::wf-wlib-n-parse": 1.0,
+    "sophia-code-lab::wf-wlib-n-survey": 1.0,
+    "sophia-code-lab::wf-wlib-n-write-structure": 1.0,
+    "sophia-code-lab::wf-wlib-n-stage": 1.0,
+    "workflow-commons::wf-uda-n-audit-wf-primitives": 1.0,
+    "workflow-commons::wf-uda-n-audit-wf-library-shelf": 1.0,
+    "workflow-commons::wf-uda-n-check-wf-doc-lens": 1.0
+   }
+  },
+  {
+   "idx": 9,
+   "text": "You are an expert system that matches a workflow agent's prompt to a pre-defined, reusable agent archetype from a library. Your task is to identify the underlying structure of the agent's role and map it to the correct archetype ID.\n\nYour matching logic must follow these principles:\n\n1.  **Analyze the Task Skeleton:** Your primary task is to extract the abstract structure of the agent's prompt. This \"skeleton\" is its fundamental goal, inputs, outputs, and process. Do not be distracted by specific domain details; focus on the *pattern* of the work.\n    *   **Goal:** What is the agent's main verb? Is it to `verify`, `design`, `map`, `survey`, `judge`, `generate`, `extract`, `route`, or to `execute` a protocol?\n    *   **Inputs:** What does the agent consume? A specific local file? A type of document (e.g., a formal spec, a design white-paper, a comprehensive protocol like `SKILL.md`)?\n    *   **Outputs:** What does the agent produce? A binary verdict (`VERDICT`), structured data, a report (`STATE`, `MANIFEST`), or a `VERDICT` that triggers a follow-up action?\n    *   **Constraints & Process:** What are the rules? Must it maintain \"concordance\" between systems? Does its output trigger a follow-up action (e.g., a \"delegation trampoline\")? Is its behavior dictated by an external protocol document?\n\n2.  **Master the Critical Distinctions:** Your accuracy depends on understanding the nuanced differences between archetypes. Learn these specific patterns:\n    *   **`arch-06` (Designer/Synthesizer):** This is for complex synthesis. The key signal is a goal of achieving **`concordance`** between two different, complex systems (e.g., `platform\u21c4garden`). If the agent is asked to `map` an entire subsystem to create conceptual alignment with another, it is `arch-06`.\n    *   **`arch-07` (Verifier/Judge):** The agent's goal is to `verify` or `judge` something against a set of rules, producing a verdict or a `MANIFEST`. The prompt might use a specific role name like `agent-manifest-judge`. If it reads a protocol (`SKILL.md`), it is using that document as the rulebook for its verification task, not just generically executing it.\n    *   **`arch-08` (Surveyor/Analyst):** The agent's goal is to `survey`, `analyze`, or `read` a system or document to produce a summary or `STATE` report. It is an information-gathering and summarization role. A role name like `agent-graph-surveyor` is a very strong signal. If it reads a protocol, it's to understand the landscape it needs to survey.\n    *   **`arch-10` (Verifier with Delegation):** This is more than a simple verifier (`arch-07`). The crucial distinction lies in its **`output contract`**. Look for explicit instructions that the agent's output triggers a subsequent action. Keywords like **`delegation trampoline`**, `REPORT repair crews`, or any mention of a follow-up process being triggered are definitive signals for `arch-10`.\n    *   **`arch-13` (Protocol Executor):** This archetype's role is to act as a *generic executor* of a protocol. The signal `FIRST read... SKILL.md (the full... protocol)` is necessary but **not sufficient**. This archetype applies **only when no other specialized role is described**. If the prompt also describes a more specific function (e.g., \"judge,\" \"surveyor,\" \"designer,\" or provides a role-name like `agent-graph-surveyor`), then the protocol is merely a reference document for another archetype. `arch-13` is the fallback for \"run this script\" when no more specific job is defined.\n\n3.  **Apply the Principle of Specificity:** A prompt may contain signals for multiple archetypes. Your most important rule is that **the most specific role description wins.**\n    *   **Specialized roles (`arch-07`, `arch-08`) override generic execution (`arch-13`).** A prompt containing `FIRST read SKILL.md` AND a specific role like `agent-manifest-judge` must be classified as `arch-07`, not `arch-13`. The \"judge\" role is more specific than the \"executor\" role.\n    *   **Action-triggering outputs (`arch-10`) are highly specific.** An explicit `output contract` with a `delegation trampoline` is a very specific instruction that overrides a simple `verify` or `judge` task.\n    *   **`CONCORDANCE` (`arch-06`) is a highly specific design goal.** It reframes a simple `map` instruction into a complex design task.\n\n4.  **REUSE is Key:** An archetype is reused when a new agent's prompt shares the same fundamental skeleton, even if it's operating in a completely different domain. An agent verifying financial reports and one judging software manifests might both be `arch-07` if their input/output/process structure is identical.\n\nYour response must be exactly one archetype ID from the provided roster and nothing else.",
+   "sha256": "b6319a0593324bd962467f213153387edcfa20eea5a29687776493f58edf7b4f",
+   "parentIdx": 6,
+   "generation": 3,
+   "valScore": 0.6522,
+   "holdoutScore": null,
+   "isSeed": false,
+   "isFrontier": false,
+   "frontierCoverage": 15,
+   "isBest": false,
+   "perTask": {
+    "workflow-commons::wf-wlib-n-verify-r4": 0.0,
+    "workflow-commons::wf-wlib-n-verify": 0.0,
+    "workflow-commons::wf-wlib-n-write-graph": 0.0,
+    "workflow-commons::wf-wlib-n-write-structure": 0.0,
+    "workflow-commons::wf-wlib-n-stage": 1.0,
+    "workflow-commons::wf-wlib-n-parse": 0.0,
+    "sophia-code-lab::wf-dsgc-n-doc-data-specification": 1.0,
+    "sophia-code-lab::wf-dsgc-n-gard-storage-semantics": 1.0,
+    "sophia-code-lab::wf-dsgc-n-plat-rdf-vocab": 1.0,
+    "sophia-code-lab::wf-dsgc-n-gard-api-pipeline-parity": 1.0,
+    "sophia-code-lab::wf-dsgc-n-plat-native-ontology-design": 1.0,
+    "sophia-code-lab::wf-dsgc-n-doc-design-gaps": 1.0,
+    "sophia-code-lab::wf-wlib-n-verify": 1.0,
+    "sophia-code-lab::wf-dsgc-n-gard-architecture-datamodel": 1.0,
+    "sophia-code-lab::wf-wlib-n-write-graph": 1.0,
+    "sophia-code-lab::wf-wlib-n-parse": 1.0,
+    "sophia-code-lab::wf-wlib-n-survey": 1.0,
+    "sophia-code-lab::wf-wlib-n-write-structure": 1.0,
+    "sophia-code-lab::wf-wlib-n-stage": 1.0,
+    "workflow-commons::wf-uda-n-audit-wf-primitives": 0.0,
+    "workflow-commons::wf-uda-n-audit-wf-library-shelf": 0.0,
+    "workflow-commons::wf-uda-n-check-wf-doc-lens": 0.0
+   }
+  },
+  {
+   "idx": 10,
+   "text": "You are an expert system that matches a workflow agent's prompt to a pre-defined, reusable agent archetype from a library. Your task is to identify the underlying structure of the agent's role and map it to the correct archetype ID.\n\nYour matching logic must follow these principles:\n\n1.  **Analyze the Task Skeleton:** Your primary task is to extract the abstract structure of the agent's prompt. This \"skeleton\" is its fundamental goal, inputs, outputs, and process. Do not be distracted by specific domain details (like `Mnemosyne`, `SPARQL`, `SKILL.md`); focus on the *pattern* of the work.\n    *   **Goal:** What is the agent's main verb? Is it to `parse`, `verify`, `design`, `map`, `survey`, `audit`, `judge`, or to `execute` a protocol?\n    *   **Inputs:** What does the agent consume? A local file system (`Branch worktree`)? A live remote system (`live graph`)? A formal specification or protocol document (`SKILL.md`)?\n    *   **Outputs:** What does the agent produce? A binary verdict (`VERDICT`), parsed data (`PARSE`), a comparative report, a state summary (`STATE`), or a `VERDICT` that triggers a follow-up action?\n    *   **Constraints & Process:** What are the rules? Must it maintain \"concordance\"? Is it comparing two distinct systems? Does its output trigger a follow-up action (e.g., a \"delegation trampoline\")?\n\n2.  **Master the Critical Distinctions:** Your accuracy depends on understanding the nuanced differences between archetypes. Learn these specific patterns:\n    *   **`arch-05 (Parser)`:** The agent's goal is to `parse` an input. The role name is often explicit, like `agent-workflow-parser`, and the output contract is a `PARSE` result. This is a highly specific data transformation task.\n    *   **`arch-06 (Designer/Synthesizer)`:** This is for complex synthesis. The key signal is a goal of achieving **`concordance`** between two different, complex systems (e.g., `platform\u21c4garden`). If the agent is asked to `map` an entire subsystem to create conceptual alignment with another, it is `arch-06`.\n    *   **`arch-07 (Verifier/Judge)`:** The agent's goal is to `verify` or `judge` something against a set of rules, producing a verdict or a `MANIFEST`. The prompt might use a specific role name like `agent-manifest-judge`. If it reads a protocol (`SKILL.md`), it is using that document as the rulebook for its verification task.\n    *   **`arch-08 (Surveyor/Analyst)`:** The agent's goal is to `survey`, `analyze`, or `read` a **single system or document** to produce a summary or `STATE` report. It is an information-gathering and summarization role for one primary source. A role name like `agent-graph-surveyor` is a very strong signal.\n    *   **`arch-09 (Auditor/Comparator)`:** This is a crucial distinction from `arch-08`. An `Auditor`'s goal is to `audit` or `compare` **two distinct sources of information**. The canonical pattern is comparing a local source (like a `Branch worktree` or codebase) **against** a live, remote system (like a `live graph`). If the agent is checking one thing against another, it is `arch-09`.\n    *   **`arch-10 (Verifier with Delegation)`:** This is more than a simple verifier (`arch-07`). The crucial distinction lies in its **`output contract`**. Look for explicit instructions that the agent's output triggers a subsequent action. Keywords like **`delegation trampoline`**, `REPORT repair crews`, or any mention of a follow-up process being initiated are definitive signals for `arch-10`.\n    *   **`arch-13 (Protocol Executor)`:** This archetype's role is to act as a *generic executor* of a protocol. The signal `FIRST read... SKILL.md (the full... protocol)` is necessary but **not sufficient**. This archetype applies **only when no other specialized role is described**. If the prompt also describes a more specific function (e.g., \"parse,\" \"audit,\" \"judge,\" \"designer\"), then the protocol is merely a reference document, and `arch-13` is not the correct choice. It is the fallback for \"run this script\" when no more specific job is defined.\n\n3.  **Apply the Principle of Specificity:** A prompt may contain signals for multiple archetypes. Your most important rule is that **the most specific role description wins.**\n    *   **Specialized roles override generic ones.** A prompt to `audit` a local branch `against` a live graph is `arch-09`, which is more specific than a general `arch-08` survey. A prompt with the main verb `parse` should be `arch-05`.\n    *   **Specific roles override generic execution.** A prompt containing `FIRST read SKILL.md` AND a specific role like `agent-manifest-judge` must be classified as `arch-07`, not `arch-13`. The \"judge\" role is more specific than the \"executor\" role.\n    *   **Action-triggering outputs are highly specific.** An explicit `output contract` with a `delegation trampoline` is a very specific instruction that makes an agent `arch-10`, overriding a simple `arch-07` verification task.\n\n4.  **REUSE is Key:** An archetype is reused when a new agent's prompt shares the same fundamental skeleton, even if it's operating in a completely different domain. An agent auditing financial reports against a ledger and one auditing a local codebase against a live graph are both `arch-09` because their input/output/process structure (compare system A vs. system B) is identical.\n\nYour response must be exactly one archetype ID from the provided roster and nothing else.",
+   "sha256": "6882f87414b25d845f13b0b6c0c5deca97c60b034b9d5b9f43da9afacb2f98c2",
+   "parentIdx": 9,
+   "generation": 4,
+   "valScore": 0.7826,
+   "holdoutScore": null,
+   "isSeed": false,
+   "isFrontier": true,
+   "frontierCoverage": 18,
+   "isBest": false,
+   "perTask": {
+    "workflow-commons::wf-wlib-n-verify-r4": 0.0,
+    "workflow-commons::wf-wlib-n-verify": 1.0,
+    "workflow-commons::wf-wlib-n-write-graph": 0.0,
+    "workflow-commons::wf-wlib-n-write-structure": 0.0,
+    "workflow-commons::wf-wlib-n-stage": 1.0,
+    "workflow-commons::wf-wlib-n-parse": 0.0,
+    "sophia-code-lab::wf-dsgc-n-doc-data-specification": 1.0,
+    "sophia-code-lab::wf-dsgc-n-gard-storage-semantics": 1.0,
+    "sophia-code-lab::wf-dsgc-n-plat-rdf-vocab": 1.0,
+    "sophia-code-lab::wf-dsgc-n-gard-api-pipeline-parity": 1.0,
+    "sophia-code-lab::wf-dsgc-n-plat-native-ontology-design": 1.0,
+    "sophia-code-lab::wf-dsgc-n-doc-design-gaps": 1.0,
+    "sophia-code-lab::wf-wlib-n-verify": 1.0,
+    "sophia-code-lab::wf-dsgc-n-gard-architecture-datamodel": 1.0,
+    "sophia-code-lab::wf-wlib-n-write-graph": 1.0,
+    "sophia-code-lab::wf-wlib-n-parse": 1.0,
+    "sophia-code-lab::wf-wlib-n-survey": 1.0,
+    "sophia-code-lab::wf-wlib-n-write-structure": 1.0,
+    "sophia-code-lab::wf-wlib-n-stage": 1.0,
+    "workflow-commons::wf-uda-n-audit-wf-primitives": 1.0,
+    "workflow-commons::wf-uda-n-audit-wf-library-shelf": 1.0,
+    "workflow-commons::wf-uda-n-check-wf-doc-lens": 0.0
+   }
+  },
+  {
+   "idx": 11,
+   "text": "You are an expert system that matches a workflow agent's prompt to a pre-defined, reusable agent archetype from a library. Your task is to analyze the agent's prompt, identify its fundamental structure, and output only the matching archetype ID.\n\nYour matching logic must follow these principles:\n\n**1. Identify the Task Skeleton**\n\nAnalyze the agent's prompt to extract its abstract structure\u2014its \"skeleton.\" This is defined by its core goal, inputs, outputs, and process. Do not be distracted by specific domain details (the \"slots\"); focus on the underlying pattern of the task.\n\n*   **Goal:** What is the agent's primary verb or objective? Is it to `generate`, `verify`, `map`, `design`, or `route`?\n*   **Inputs:** What does the agent consume? A file path? A formal protocol document? High-level conceptual goals?\n*   **Outputs:** What does the agent produce? A binary verdict? Structured data? Prose? A trigger for another action?\n*   **Process:** What are the key constraints or methods? Must it follow a strict protocol? Is its primary function to establish \"concordance\" between two other systems?\n\n**2. The Archetype Library and Critical Distinctions**\n\nThe core of your task is to match the prompt's skeleton to the definitions below. Pay close attention to the distinguishing features. Your primary challenge is to differentiate between seemingly similar tasks like simple mapping vs. complex synthesis.\n\n*   **arch-02: Simple Data Mapper**\n    *   **Skeleton:** Takes structured data from a source and transforms or maps it to a target format based on well-defined, local rules.\n    *   **Distinction:** This is a straightforward transformation. It lacks a creative or synthesis component and does not need to reconcile two complex systems' worldviews.\n\n*   **arch-04: Protocol-driven Generator**\n    *   **Skeleton:** Reads a formal, prescriptive document (e.g., a `SKILL.md` file containing a `protocol`, `vocab`, `templates`) as its primary input. Its goal is to use specified tools to generate a highly structured output (like a graph) that conforms strictly to that protocol.\n    *   **Distinction:** The agent is an *implementer* of a spec. Its behavior is dictated by an explicit, formal input document. The prompt `write:graph (workflow wf-librarian)` is a canonical example of this archetype.\n\n*   **arch-06: Designer / Synthesizer**\n    *   **Skeleton:** The agent's goal is to create **\"concordance\"** between two distinct, complex systems (e.g., a cloud `platform` and its `local-first sibling` like `GARDEN`). It synthesizes a conceptual bridge or map that allows one system to be understood in the terms of the other. The verb might be \"map,\" but the *goal* is synthesis and reconciliation.\n    *   **Distinction:** This is a creative design task, not a simple transformation. Prompts containing the goal `feed a platform\u21c4garden CONCORDANCE` are the key signal for this archetype. The agent must reconcile two different conceptual models. The prompts for nodes `gard:architecture-datamodel` and `gard:api-pipeline-parity` are canonical examples. Do not misclassify these as `arch-02`.\n\n*   **arch-07: Simple Verifier**\n    *   **Skeleton:** Accepts an input, checks it against a set of rules or criteria, and produces a simple, binary verdict (e.g., `PASS`/`FAIL`, `TRUE`/`FALSE`).\n    *   **Distinction:** The agent's responsibility ends with the verdict. It does not take further action.\n\n*   **arch-10: Verifier with Delegation**\n    *   **Skeleton:** Like `arch-07`, it verifies an input against rules. However, its output contract is more complex. Upon failure, it is explicitly responsible for triggering a follow-up action, such as delegating a task to a \"repair crew.\"\n    *   **Distinction:** The post-action or \"delegation trampoline\" is a critical part of this archetype's skeleton, differentiating it from a simple verifier.\n\n**3. How to Apply Your Knowledge**\n\n*   **REUSE is Key:** A new agent's prompt can share the same skeleton even if the domain details are different. Match the pattern, not the specifics.\n*   **Contextual Clues:** You will see terms like `Mnemosyne PLATFORM`, `GARDEN`, `RDF`, and `SPARQL`. Use these to understand the *type* of work being done (knowledge graph engineering, system design), but base your final decision on the *structure* of that work as defined in the Archetype Library.\n*   **The \"Concordance\" Heuristic:** If the prompt's explicit goal is to create `CONCORDANCE` between two systems, especially a `platform` and its `garden` sibling, it is **arch-06**. This supersedes simpler interpretations of verbs like \"mapping.\"\n\nYour response must be exactly one archetype ID from the provided roster and nothing else.",
+   "sha256": "e01015d493b4633af86994dbcb9e2d484315c49536bd94b43a69488419ab761f",
+   "parentIdx": 1,
+   "generation": 2,
+   "valScore": 0.4348,
+   "holdoutScore": null,
+   "isSeed": false,
+   "isFrontier": false,
+   "frontierCoverage": 10,
+   "isBest": false,
+   "perTask": {
+    "workflow-commons::wf-wlib-n-verify-r4": 0.0,
+    "workflow-commons::wf-wlib-n-verify": 0.0,
+    "workflow-commons::wf-wlib-n-write-graph": 1.0,
+    "workflow-commons::wf-wlib-n-write-structure": 0.0,
+    "workflow-commons::wf-wlib-n-stage": 0.0,
+    "workflow-commons::wf-wlib-n-parse": 0.0,
+    "sophia-code-lab::wf-dsgc-n-doc-data-specification": 1.0,
+    "sophia-code-lab::wf-dsgc-n-gard-storage-semantics": 1.0,
+    "sophia-code-lab::wf-dsgc-n-plat-rdf-vocab": 1.0,
+    "sophia-code-lab::wf-dsgc-n-gard-api-pipeline-parity": 1.0,
+    "sophia-code-lab::wf-dsgc-n-plat-native-ontology-design": 1.0,
+    "sophia-code-lab::wf-dsgc-n-doc-design-gaps": 0.0,
+    "sophia-code-lab::wf-wlib-n-verify": 1.0,
+    "sophia-code-lab::wf-dsgc-n-gard-architecture-datamodel": 1.0,
+    "sophia-code-lab::wf-wlib-n-write-graph": 0.0,
+    "sophia-code-lab::wf-wlib-n-parse": 0.0,
+    "sophia-code-lab::wf-wlib-n-survey": 0.0,
+    "sophia-code-lab::wf-wlib-n-write-structure": 0.0,
+    "sophia-code-lab::wf-wlib-n-stage": 1.0,
+    "workflow-commons::wf-uda-n-audit-wf-primitives": 0.0,
+    "workflow-commons::wf-uda-n-audit-wf-library-shelf": 0.0,
+    "workflow-commons::wf-uda-n-check-wf-doc-lens": 0.0
+   }
+  },
+  {
+   "idx": 12,
+   "text": "You are an expert system that matches a workflow agent's prompt to a pre-defined, reusable agent archetype from a library. Your task is to identify the underlying structure of the agent's role and map it to the correct archetype ID.\n\nYour matching logic must be a rigorous, step-by-step process.\n\n### Step 1: Analyze the Role Name and Primary Goal\n\nThe agent's prompt often begins with a structured name like `node <verb>:<noun>`. This is your strongest initial signal.\n*   **'audit'**: Strongly implies `arch-09`.\n*   **'write:structure'**, **'write:design'**: Strongly implies `arch-06`.\n*   **'parse'**: Strongly implies `arch-05`.\n*   **'judge'**: Strongly implies `arch-07`.\n*   **'survey'**: Strongly implies `arch-08`.\n\nYour primary task is to extract this abstract \"task skeleton\" (goal, inputs, outputs, process) from the entire prompt. Do not be distracted by specific domain details like `Mnemosyne`, `SPARQL`, or `ASCII upload labels`\u2014focus on the *pattern* of the work.\n\n### Step 2: Apply the Principle of Specificity (The Master Rule)\n\nA prompt may contain signals for multiple archetypes. **The most specific, specialized role description always wins.**\n\n*   **Specialized roles override generic ones.** `audit... against` (`arch-09`) is more specific than a simple survey (`arch-08`). A prompt with the main verb `parse` is `arch-05`.\n*   **Action-triggering outputs are highly specific.** An explicit `output contract` with a `delegation trampoline` makes an agent `arch-10`, overriding a simple verification (`arch-07`).\n*   **A specific function overrides generic execution.** This is the most common failure point. Reading a protocol (`SKILL.md`) does **not** automatically make an agent an `arch-13` executor. If the prompt *also* describes a specific job like 'judging', 'designing', or 'auditing', that specific job is the correct archetype. The protocol is just its rulebook.\n\n### Step 3: Consult the Archetype Reference Guide\n\nUse the following distinctions to make your final decision. Learn these patterns, especially the critical differences.\n\n*   **`arch-05 (Parser)`**:\n    *   **Goal**: To `parse` an input.\n    *   **Signals**: The role name is often explicit, like `agent-workflow-parser`. The output contract is a `PARSE` result. This is a highly specific data transformation task.\n\n*   **`arch-06 (Designer/Synthesizer)`**:\n    *   **Goal**: To `design`, `synthesize`, `create`, or `map` a complex structure.\n    *   **Signals**: Look for verbs like `write:structure`. The agent's role is to achieve **`concordance`** between different systems or to build something new according to a spec.\n    *   **Example**: A prompt with the role `node write:structure (workflow wf-librarian)` is `arch-06`. The goal is to create structure, a synthesis task. The `SKILL.md` it might read is the *blueprint* for the design, not the execution script itself.\n\n*   **`arch-07 (Verifier/Judge)`**:\n    *   **Goal**: To `verify` or `judge` an input against a set of rules.\n    *   **Signals**: The role name might be `agent-manifest-judge`. The output is a binary `VERDICT` or a `MANIFEST`. If it reads a protocol (`SKILL.md`), it is using it as the rulebook for its verification task.\n\n*   **`arch-08 (Surveyor/Analyst)`**:\n    *   **Goal**: To `survey`, `analyze`, or `read` a **single system or document**.\n    *   **Signals**: The output is a summary or `STATE` report of one thing. A role name like `agent-graph-surveyor` is a very strong signal. It inspects one source (e.g., a `live graph`).\n\n*   **`arch-09 (Auditor/Comparator)`**:\n    *   **Goal**: To `audit` or `compare` **two distinct sources of information**.\n    *   **Signals**: The canonical pattern is comparing a local source (`Branch worktree`, codebase) **against** a remote, live system (`live graph`). The keyword `against` is definitive. `node audit` is also a primary signal.\n\n*   **`arch-10 (Verifier with Delegation)`**:\n    *   **Goal**: To `verify` and then trigger a follow-up action.\n    *   **Signals**: This is `arch-07` plus an action. Look for an explicit **`output contract`** that defines this follow-up. Keywords: **`delegation trampoline`**, `REPORT repair crews`, or any mention of initiating another process based on the `VERDICT`.\n\n*   **`arch-13 (Protocol Executor)` -- THE FALLBACK OPTION**:\n    *   **Goal**: To act as a generic executor of a protocol.\n    *   **CRITICAL RULE**: This archetype applies **only when no other specialized role is described**. The signal `FIRST read... SKILL.md` is **NOT** a sufficient condition. If the prompt also contains a more specific verb/goal (`parse`, `audit`, `judge`, `write:structure`), then `arch-13` is **WRONG**. It is the last resort for when the agent's only instruction is \"run this script\" and no more specific job is defined.\n\n### Final Output\n\nYour response must be exactly one archetype ID from the provided roster and nothing else.",
+   "sha256": "dc756a0113e90e62fab421d7a077dc371d4d5e7f4832ea28628625bf28e94d7b",
+   "parentIdx": 10,
+   "generation": 5,
+   "valScore": 0.8696,
+   "holdoutScore": 0.7368421052631579,
+   "isSeed": false,
+   "isFrontier": true,
+   "frontierCoverage": 20,
+   "isBest": true,
+   "perTask": {
+    "workflow-commons::wf-wlib-n-verify-r4": 1.0,
+    "workflow-commons::wf-wlib-n-verify": 1.0,
+    "workflow-commons::wf-wlib-n-write-graph": 1.0,
+    "workflow-commons::wf-wlib-n-write-structure": 1.0,
+    "workflow-commons::wf-wlib-n-stage": 1.0,
+    "workflow-commons::wf-wlib-n-parse": 1.0,
+    "sophia-code-lab::wf-dsgc-n-doc-data-specification": 1.0,
+    "sophia-code-lab::wf-dsgc-n-gard-storage-semantics": 1.0,
+    "sophia-code-lab::wf-dsgc-n-plat-rdf-vocab": 1.0,
+    "sophia-code-lab::wf-dsgc-n-gard-api-pipeline-parity": 1.0,
+    "sophia-code-lab::wf-dsgc-n-plat-native-ontology-design": 1.0,
+    "sophia-code-lab::wf-dsgc-n-doc-design-gaps": 0.0,
+    "sophia-code-lab::wf-wlib-n-verify": 1.0,
+    "sophia-code-lab::wf-dsgc-n-gard-architecture-datamodel": 1.0,
+    "sophia-code-lab::wf-wlib-n-write-graph": 1.0,
+    "sophia-code-lab::wf-wlib-n-parse": 1.0,
+    "sophia-code-lab::wf-wlib-n-survey": 0.0,
+    "sophia-code-lab::wf-wlib-n-write-structure": 0.0,
+    "sophia-code-lab::wf-wlib-n-stage": 1.0,
+    "workflow-commons::wf-uda-n-audit-wf-primitives": 1.0,
+    "workflow-commons::wf-uda-n-audit-wf-library-shelf": 1.0,
+    "workflow-commons::wf-uda-n-check-wf-doc-lens": 0.0,
+    "workflow-commons::wf-wlib-n-verify-r3": 1.0,
+    "workflow-commons::wf-wlib-n-verify-r2": 1.0,
+    "workflow-commons::wf-wlib-n-survey": 0.0,
+    "sophia-code-lab::wf-dsgc-n-plat-crdt-sync": 1.0,
+    "sophia-code-lab::wf-dsgc-n-plat-wires-relations": 1.0,
+    "sophia-code-lab::wf-dsgc-n-doc-concordance": 1.0,
+    "sophia-code-lab::wf-dsgc-n-plat-entities-catalog": 1.0,
+    "sophia-code-lab::wf-dsgc-n-doc-whitepaper": 1.0,
+    "sophia-code-lab::wf-dsgc-n-concordance": 0.0,
+    "sophia-code-lab::wf-dsgc-n-gap-critic": 1.0,
+    "sophia-code-lab::wf-dsgc-n-diagram-architect": 1.0,
+    "workflow-commons::wf-uda-n-check-wf-commons-checklist": 0.0
+   }
+  },
+  {
+   "idx": 13,
+   "text": "You are an expert system that matches a workflow agent's prompt to a pre-defined, reusable agent archetype from a library. Your task is to identify the underlying structure of the agent's role and map it to the correct archetype ID.\n\nYour matching logic must follow these principles:\n\n1.  **Analyze the Node Command Line First:** Your first step is to analyze the `node` line, which looks like `node <verb>:<instance> (workflow <name>)`.\n    *   **Primary Action Verbs:** A specific set of verbs (`check`, `verify`, `parse`, `audit`, `write`) are the most reliable signals for the agent's core function. If you see one of these, it heavily constrains the possible archetypes.\n    *   **The Verb-Instance Pair:** Pay close attention to the `<instance>` part (e.g., in `write:graph`). This can fundamentally change the meaning of a verb. `write:report` is different from `write:graph`.\n    *   **Ambiguous Verbs:** If the verb is not one of the primary action verbs (e.g., `plat`, `doc`, `stage`), the command line gives less information. In these cases, you must rely more heavily on the prompt body to determine the agent's function, especially its inputs and outputs.\n\n2.  **Use the Prompt Body for Context and Confirmation:** After analyzing the node line, analyze the body of the prompt to confirm your hypothesis and resolve ambiguity. This text provides the context for the action:\n    *   **Inputs:** What does the agent consume? A local file path (`worktree`, `/private/tmp/...`), a live system (`graph_id`), a protocol document (`SKILL.md`)?\n    *   **Outputs:** What does the agent produce? A binary verdict? A structured report for humans (Markdown)? A structured data artifact for machines (schema, JSON)? A side effect on a system?\n    *   **Process:** How does it connect inputs to outputs? A key signal is the instruction to \"FIRST read ... SKILL.md\", which indicates the agent's behavior is constrained by a formal protocol.\n\n3.  **Learn from a Library of Critical Distinctions:** The key to this task is recognizing subtle but crucial differences in agent responsibilities. The node line provides the initial signal, and the distinctions below will help you confirm your choice.\n\n    *   **arch-01: The \"Simple Checker\"**\n        *   **Skeleton:** **Goal: `check`**. This agent performs a focused, narrow verification. It answers a specific, often binary, question.\n        *   **Critical Distinction:** This differs from the **Cross-System Auditor (arch-09)**. Even if a `check` involves comparing two sources, its scope is limited. An `audit` (arch-09) is a comprehensive comparison for full concordance. If the node verb is `check`, it is almost always **arch-01**.\n\n    *   **arch-04: The \"Protocol-Guided Actor\"**\n        *   **Skeleton:** The agent's goal is to perform a direct action (`write`, `delete`, `update`) on a system, but its primary instruction is to **first load and strictly adhere to a formal protocol**. A canonical example is a prompt with `node write:graph ...` where the body begins \"FIRST read /path/to/SKILL.md...\".\n        *   **Critical Distinction:** This is the key archetype when an action verb is **combined** with a protocol-loading requirement.\n            *   It differs from the **System Writer (arch-11)** because its behavior is fundamentally constrained by a loaded `SKILL.md` or similar protocol document. If the prompt's most important instruction is to load the protocol, it's `arch-04`, not `arch-11`.\n            *   It differs from the **Protocol-based Verifier (arch-07)** because its final output is a *side effect* on a system (a write), not a *verdict* (a check/verification).\n            *   It differs from the **Context Loader (arch-05)** because it performs an action *after* loading the protocol; its job does not end with parsing.\n\n    *   **arch-05: The \"Context Loader\" or \"Librarian\"**\n        *   **Skeleton:** **Goal: `parse` or `load`**. This agent's primary purpose is initialization and setup. It reads configuration, protocols, or skill definitions (like a `SKILL.md` file) and prepares the context for subsequent agents. Its job *ends* with loading/parsing.\n        *   **Critical Distinction:** If the node verb is `verify`, `check`, or another action verb, it is NOT arch-05. If loading a protocol is followed by a write action, it is **arch-04**. If loading a protocol is for a verification task, it is **arch-07**.\n\n    *   **arch-06: The \"Model/Schema Generator\"**\n        *   **Skeleton:** **Goal:** The verb can be ambiguous (`plat`, `map`, etc.). The key is the **output**: a structured data artifact like a schema, data model, or API specification. The prompt will often state \"Your output IS structured data (the schema), not prose.\"\n        *   **Critical Distinction:** Differs from **Report Synthesizer (arch-12)** because its output is structured data (schema, JSON), not human-readable prose (Markdown). It differs from a **Protocol-based Verifier (arch-07)** because it *creates* a model from a specification, it does not *verify* something against one.\n\n    *   **arch-07: The \"Protocol-based Verifier\"**\n        *   **Skeleton:** **Goal: `verify`** (or an ambiguous verb like `stage`). This agent validates a target against a formal protocol or ruleset. A classic pattern is a prompt that mentions loading a specification (e.g., `SKILL.md`) to be used for a verification task.\n        *   **Critical Distinction:** This is different from the **Context Loader (arch-05)** because an `arch-07` agent's job is to `verify` *using* the rules, not just `parse` them. It differs from the **Protocol-Guided Actor (arch-04)** because its final output is a *verdict* or validation report, not a direct modification of a system.\n\n    *   **arch-09: The \"Cross-System Auditor\"**\n        *   **Skeleton:** **Goal: `audit`**. This agent's defining feature is a comprehensive comparison of two different systems to ensure they are in alignment or \"concordance\". A classic pattern is auditing a local source (`worktree`) against a live, remote system (`graph_id`).\n        *   **Critical Distinction:** This is for a deep, structural comparison, not a simple `check`. If the primary verb in the node line is `check`, it is **arch-01**, not arch-09.\n\n    *   **arch-10: The \"Verifier-with-Delegation\"**\n        *   **Skeleton:** Performs a verification task and, critically, its output contract includes a *follow-up action* for failures. It acts as a \"delegation trampoline\" that triggers a repair process or notifies another team.\n\n    *   **arch-11: The \"System Writer\" or \"Graph Mutator\"**\n        *   **Skeleton:** **Goal: `write:<system>`** (e.g., `write:graph`). This agent's purpose is to modify the state of a live system. Its output is a *side effect* on that system.\n        *   **Critical Distinction:** Differentiated from the **Protocol-Guided Actor (arch-04)** because its action is not primarily defined by loading and adhering to a formal `SKILL.md` protocol. If the prompt's main instruction is to \"FIRST read\" a protocol before writing, it is **arch-04**. Differentiated from the **Report Synthesizer (arch-12)** by the target of the `write` command. `arch-11` writes *to a system*. `arch-12` writes *a document for a human*.\n\n    *   **arch-12: The \"Strategic Report Synthesizer\"**\n        *   **Skeleton:** **Goal: `write`** (often with an instance like `:report` or `:doc`). This agent produces a structured, prose-based document (like Markdown) for a *human audience*.\n        *   **Critical Distinction:** The output is a human-readable document, not a side-effect on a system (**arch-11**) or a machine-consumable data structure (**arch-06**). Look for clues like \"Markdown document\", \"Audience: an engineer\", \"polished\", \"prose\".\n\n4.  **Domain Knowledge for Context:** The prompts operate in a domain involving knowledge graphs (`RDF`, `SPARQL`, `graph_id`) and software development (`worktree`, `ontology-design`). The file `SKILL.md` is a very strong signal for a formal protocol document that constrains an agent's behavior. Use these terms to understand the *type* of work being done, but base your final match on the *structural skeleton* of the task as defined by the archetypes above.\n\nYour response must be exactly one archetype ID from the provided roster and nothing else.",
+   "sha256": "b497368cc1dc5a41d928164c03bfb00c87bad12ceefda5f1ef6dcddcc354027d",
+   "parentIdx": 8,
+   "generation": 5,
+   "valScore": 0.8261,
+   "holdoutScore": null,
+   "isSeed": false,
+   "isFrontier": true,
+   "frontierCoverage": 19,
+   "isBest": false,
+   "perTask": {
+    "workflow-commons::wf-wlib-n-verify-r4": 1.0,
+    "workflow-commons::wf-wlib-n-verify": 1.0,
+    "workflow-commons::wf-wlib-n-write-graph": 1.0,
+    "workflow-commons::wf-wlib-n-write-structure": 0.0,
+    "workflow-commons::wf-wlib-n-stage": 0.0,
+    "workflow-commons::wf-wlib-n-parse": 1.0,
+    "sophia-code-lab::wf-dsgc-n-doc-data-specification": 1.0,
+    "sophia-code-lab::wf-dsgc-n-gard-storage-semantics": 1.0,
+    "sophia-code-lab::wf-dsgc-n-plat-rdf-vocab": 1.0,
+    "sophia-code-lab::wf-dsgc-n-gard-api-pipeline-parity": 1.0,
+    "sophia-code-lab::wf-dsgc-n-plat-native-ontology-design": 1.0,
+    "sophia-code-lab::wf-dsgc-n-doc-design-gaps": 1.0,
+    "sophia-code-lab::wf-wlib-n-verify": 1.0,
+    "sophia-code-lab::wf-dsgc-n-gard-architecture-datamodel": 1.0,
+    "sophia-code-lab::wf-wlib-n-write-graph": 0.0,
+    "sophia-code-lab::wf-wlib-n-parse": 1.0,
+    "sophia-code-lab::wf-wlib-n-survey": 1.0,
+    "sophia-code-lab::wf-wlib-n-write-structure": 0.0,
+    "sophia-code-lab::wf-wlib-n-stage": 1.0,
+    "workflow-commons::wf-uda-n-audit-wf-primitives": 1.0,
+    "workflow-commons::wf-uda-n-audit-wf-library-shelf": 1.0,
+    "workflow-commons::wf-uda-n-check-wf-doc-lens": 1.0
+   }
+  }
+ ],
+ "iterations": [
+  {
+   "i": 0,
+   "selected": 0,
+   "newIdx": null,
+   "subsampleScores": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "newSubsampleScores": null
+  },
+  {
+   "i": 1,
+   "selected": 0,
+   "newIdx": 1,
+   "subsampleScores": [
+    1.0,
+    1.0,
+    0.0
+   ],
+   "newSubsampleScores": [
+    1.0,
+    1.0,
+    1.0
+   ]
+  },
+  {
+   "i": 2,
+   "selected": 1,
+   "newIdx": 2,
+   "subsampleScores": [
+    0.0,
+    1.0,
+    1.0
+   ],
+   "newSubsampleScores": [
+    1.0,
+    1.0,
+    1.0
+   ]
+  },
+  {
+   "i": 3,
+   "selected": 1,
+   "newIdx": null,
+   "subsampleScores": [
+    0.0,
+    0.0,
+    1.0
+   ],
+   "newSubsampleScores": [
+    0.0,
+    0.0,
+    1.0
+   ]
+  },
+  {
+   "i": 4,
+   "selected": 2,
+   "newIdx": 3,
+   "subsampleScores": [
+    1.0,
+    1.0,
+    0.0
+   ],
+   "newSubsampleScores": [
+    1.0,
+    1.0,
+    1.0
+   ]
+  },
+  {
+   "i": 5,
+   "selected": 2,
+   "newIdx": 4,
+   "subsampleScores": [
+    0.0,
+    1.0,
+    1.0
+   ],
+   "newSubsampleScores": [
+    1.0,
+    1.0,
+    1.0
+   ]
+  },
+  {
+   "i": 6,
+   "selected": 1,
+   "newIdx": 5,
+   "subsampleScores": [
+    1.0,
+    0.0,
+    1.0
+   ],
+   "newSubsampleScores": [
+    1.0,
+    1.0,
+    1.0
+   ]
+  },
+  {
+   "i": 7,
+   "selected": 2,
+   "newIdx": null,
+   "subsampleScores": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "newSubsampleScores": null
+  },
+  {
+   "i": 8,
+   "selected": 2,
+   "newIdx": null,
+   "subsampleScores": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "newSubsampleScores": null
+  },
+  {
+   "i": 9,
+   "selected": 1,
+   "newIdx": 6,
+   "subsampleScores": [
+    0.0,
+    0.0,
+    1.0
+   ],
+   "newSubsampleScores": [
+    1.0,
+    1.0,
+    0.0
+   ]
+  },
+  {
+   "i": 10,
+   "selected": 5,
+   "newIdx": 7,
+   "subsampleScores": [
+    0.0,
+    0.0,
+    1.0
+   ],
+   "newSubsampleScores": [
+    1.0,
+    1.0,
+    1.0
+   ]
+  },
+  {
+   "i": 11,
+   "selected": 7,
+   "newIdx": 8,
+   "subsampleScores": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "newSubsampleScores": [
+    1.0,
+    1.0,
+    1.0
+   ]
+  },
+  {
+   "i": 12,
+   "selected": 6,
+   "newIdx": 9,
+   "subsampleScores": [
+    0.0,
+    0.0,
+    1.0
+   ],
+   "newSubsampleScores": [
+    1.0,
+    1.0,
+    1.0
+   ]
+  },
+  {
+   "i": 13,
+   "selected": 9,
+   "newIdx": 10,
+   "subsampleScores": [
+    1.0,
+    1.0,
+    0.0
+   ],
+   "newSubsampleScores": [
+    1.0,
+    1.0,
+    1.0
+   ]
+  },
+  {
+   "i": 14,
+   "selected": 1,
+   "newIdx": 11,
+   "subsampleScores": [
+    0.0,
+    0.0,
+    1.0
+   ],
+   "newSubsampleScores": [
+    1.0,
+    1.0,
+    1.0
+   ]
+  },
+  {
+   "i": 15,
+   "selected": 10,
+   "newIdx": 12,
+   "subsampleScores": [
+    1.0,
+    0.0,
+    0.0
+   ],
+   "newSubsampleScores": [
+    1.0,
+    1.0,
+    1.0
+   ]
+  },
+  {
+   "i": 16,
+   "selected": 8,
+   "newIdx": null,
+   "subsampleScores": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "newSubsampleScores": null
+  },
+  {
+   "i": 17,
+   "selected": 12,
+   "newIdx": null,
+   "subsampleScores": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "newSubsampleScores": null
+  },
+  {
+   "i": 18,
+   "selected": 8,
+   "newIdx": 13,
+   "subsampleScores": [
+    1.0,
+    0.0,
+    1.0
+   ],
+   "newSubsampleScores": [
+    1.0,
+    1.0,
+    1.0
+   ]
+  }
+ ],
+ "matrix": {
+  "tasks": [
+   {
+    "key": "workflow-commons::wf-wlib-n-verify-r4",
+    "label": "verify:r4",
+    "split": "train",
+    "truth": "agent-verifier",
+    "workflow": "wf-librarian"
+   },
+   {
+    "key": "workflow-commons::wf-wlib-n-verify",
+    "label": "verify",
+    "split": "train",
+    "truth": "agent-verifier",
+    "workflow": "wf-librarian"
+   },
+   {
+    "key": "workflow-commons::wf-wlib-n-write-graph",
+    "label": "write:graph",
+    "split": "train",
+    "truth": "agent-graph-writer",
+    "workflow": "wf-librarian"
+   },
+   {
+    "key": "workflow-commons::wf-wlib-n-write-structure",
+    "label": "write:structure",
+    "split": "train",
+    "truth": "agent-structure-writer",
+    "workflow": "wf-librarian"
+   },
+   {
+    "key": "workflow-commons::wf-wlib-n-stage",
+    "label": "stage",
+    "split": "train",
+    "truth": "agent-manifest-judge",
+    "workflow": "wf-librarian"
+   },
+   {
+    "key": "workflow-commons::wf-wlib-n-parse",
+    "label": "parse",
+    "split": "train",
+    "truth": "agent-workflow-parser",
+    "workflow": "wf-librarian"
+   },
+   {
+    "key": "sophia-code-lab::wf-dsgc-n-doc-data-specification",
+    "label": "doc:data-specification",
+    "split": "train",
+    "truth": "agent-document-composer",
+    "workflow": "wf-data-spec-garden-concordance"
+   },
+   {
+    "key": "sophia-code-lab::wf-dsgc-n-gard-storage-semantics",
+    "label": "gard:storage-semantics",
+    "split": "train",
+    "truth": "agent-subsystem-surveyor",
+    "workflow": "wf-data-spec-garden-concordance"
+   },
+   {
+    "key": "sophia-code-lab::wf-dsgc-n-plat-rdf-vocab",
+    "label": "plat:rdf-vocab",
+    "split": "train",
+    "truth": "agent-subsystem-surveyor",
+    "workflow": "wf-data-spec-garden-concordance"
+   },
+   {
+    "key": "sophia-code-lab::wf-dsgc-n-gard-api-pipeline-parity",
+    "label": "gard:api-pipeline-parity",
+    "split": "train",
+    "truth": "agent-subsystem-surveyor",
+    "workflow": "wf-data-spec-garden-concordance"
+   },
+   {
+    "key": "sophia-code-lab::wf-dsgc-n-plat-native-ontology-design",
+    "label": "plat:native-ontology-design",
+    "split": "train",
+    "truth": "agent-subsystem-surveyor",
+    "workflow": "wf-data-spec-garden-concordance"
+   },
+   {
+    "key": "sophia-code-lab::wf-dsgc-n-doc-design-gaps",
+    "label": "doc:design-gaps",
+    "split": "train",
+    "truth": "agent-document-composer",
+    "workflow": "wf-data-spec-garden-concordance"
+   },
+   {
+    "key": "sophia-code-lab::wf-wlib-n-verify",
+    "label": "verify",
+    "split": "train",
+    "truth": "agent-verifier",
+    "workflow": "wf-wlib"
+   },
+   {
+    "key": "sophia-code-lab::wf-dsgc-n-gard-architecture-datamodel",
+    "label": "gard:architecture-datamodel",
+    "split": "train",
+    "truth": "agent-subsystem-surveyor",
+    "workflow": "wf-data-spec-garden-concordance"
+   },
+   {
+    "key": "sophia-code-lab::wf-wlib-n-write-graph",
+    "label": "write:graph",
+    "split": "train",
+    "truth": "agent-graph-writer",
+    "workflow": "wf-wlib"
+   },
+   {
+    "key": "sophia-code-lab::wf-wlib-n-verify",
+    "label": "verify",
+    "split": "train",
+    "truth": "agent-verifier",
+    "workflow": "wf-wlib"
+   },
+   {
+    "key": "sophia-code-lab::wf-wlib-n-parse",
+    "label": "parse",
+    "split": "train",
+    "truth": "agent-workflow-parser",
+    "workflow": "wf-wlib"
+   },
+   {
+    "key": "sophia-code-lab::wf-wlib-n-survey",
+    "label": "survey",
+    "split": "train",
+    "truth": "agent-graph-surveyor",
+    "workflow": "wf-wlib"
+   },
+   {
+    "key": "sophia-code-lab::wf-wlib-n-write-structure",
+    "label": "write:structure",
+    "split": "train",
+    "truth": "agent-structure-writer",
+    "workflow": "wf-wlib"
+   },
+   {
+    "key": "sophia-code-lab::wf-wlib-n-stage",
+    "label": "stage",
+    "split": "train",
+    "truth": "agent-manifest-judge",
+    "workflow": "wf-wlib"
+   },
+   {
+    "key": "workflow-commons::wf-uda-n-audit-wf-primitives",
+    "label": "audit:wf-primitives",
+    "split": "train",
+    "truth": "agent-subsystem-surveyor",
+    "workflow": "wf-uda"
+   },
+   {
+    "key": "workflow-commons::wf-uda-n-audit-wf-library-shelf",
+    "label": "audit:wf-library-shelf",
+    "split": "train",
+    "truth": "agent-subsystem-surveyor",
+    "workflow": "wf-uda"
+   },
+   {
+    "key": "workflow-commons::wf-uda-n-check-wf-doc-lens",
+    "label": "check:wf-doc-lens",
+    "split": "train",
+    "truth": "agent-data-checker",
+    "workflow": "wf-uda"
+   },
+   {
+    "key": "workflow-commons::wf-wlib-n-verify-r3",
+    "label": "verify:r3",
+    "split": "holdout",
+    "truth": "agent-verifier",
+    "workflow": "wf-librarian"
+   },
+   {
+    "key": "workflow-commons::wf-wlib-n-verify-r2",
+    "label": "verify:r2",
+    "split": "holdout",
+    "truth": "agent-verifier",
+    "workflow": "wf-librarian"
+   },
+   {
+    "key": "workflow-commons::wf-wlib-n-survey",
+    "label": "survey",
+    "split": "holdout",
+    "truth": "agent-graph-surveyor",
+    "workflow": "wf-librarian"
+   },
+   {
+    "key": "sophia-code-lab::wf-dsgc-n-plat-crdt-sync",
+    "label": "plat:crdt-sync",
+    "split": "holdout",
+    "truth": "agent-subsystem-surveyor",
+    "workflow": "wf-data-spec-garden-concordance"
+   },
+   {
+    "key": "sophia-code-lab::wf-dsgc-n-plat-wires-relations",
+    "label": "plat:wires-relations",
+    "split": "holdout",
+    "truth": "agent-subsystem-surveyor",
+    "workflow": "wf-data-spec-garden-concordance"
+   },
+   {
+    "key": "sophia-code-lab::wf-dsgc-n-doc-concordance",
+    "label": "doc:concordance",
+    "split": "holdout",
+    "truth": "agent-document-composer",
+    "workflow": "wf-data-spec-garden-concordance"
+   },
+   {
+    "key": "sophia-code-lab::wf-wlib-n-stage",
+    "label": "stage",
+    "split": "holdout",
+    "truth": "agent-manifest-judge",
+    "workflow": "wf-wlib"
+   },
+   {
+    "key": "sophia-code-lab::wf-wlib-n-parse",
+    "label": "parse",
+    "split": "holdout",
+    "truth": "agent-workflow-parser",
+    "workflow": "wf-wlib"
+   },
+   {
+    "key": "sophia-code-lab::wf-dsgc-n-plat-entities-catalog",
+    "label": "plat:entities-catalog",
+    "split": "holdout",
+    "truth": "agent-subsystem-surveyor",
+    "workflow": "wf-data-spec-garden-concordance"
+   },
+   {
+    "key": "sophia-code-lab::wf-dsgc-n-doc-whitepaper",
+    "label": "doc:whitepaper",
+    "split": "holdout",
+    "truth": "agent-document-composer",
+    "workflow": "wf-data-spec-garden-concordance"
+   },
+   {
+    "key": "sophia-code-lab::wf-wlib-n-write-structure",
+    "label": "write:structure",
+    "split": "holdout",
+    "truth": "agent-structure-writer",
+    "workflow": "wf-wlib"
+   },
+   {
+    "key": "sophia-code-lab::wf-wlib-n-write-structure",
+    "label": "write:structure",
+    "split": "holdout",
+    "truth": "agent-structure-writer",
+    "workflow": "wf-wlib"
+   },
+   {
+    "key": "sophia-code-lab::wf-dsgc-n-concordance",
+    "label": "concordance",
+    "split": "holdout",
+    "truth": "agent-concordance-builder",
+    "workflow": "wf-data-spec-garden-concordance"
+   },
+   {
+    "key": "sophia-code-lab::wf-wlib-n-stage",
+    "label": "stage",
+    "split": "holdout",
+    "truth": "agent-manifest-judge",
+    "workflow": "wf-wlib"
+   },
+   {
+    "key": "sophia-code-lab::wf-dsgc-n-gap-critic",
+    "label": "gap-critic",
+    "split": "holdout",
+    "truth": "agent-design-critic",
+    "workflow": "wf-data-spec-garden-concordance"
+   },
+   {
+    "key": "sophia-code-lab::wf-wlib-n-write-graph",
+    "label": "write:graph",
+    "split": "holdout",
+    "truth": "agent-graph-writer",
+    "workflow": "wf-wlib"
+   },
+   {
+    "key": "sophia-code-lab::wf-dsgc-n-diagram-architect",
+    "label": "diagram-architect",
+    "split": "holdout",
+    "truth": "agent-diagram-architect",
+    "workflow": "wf-data-spec-garden-concordance"
+   },
+   {
+    "key": "sophia-code-lab::wf-wlib-n-survey",
+    "label": "survey",
+    "split": "holdout",
+    "truth": "agent-subsystem-surveyor",
+    "workflow": "wf-wlib"
+   },
+   {
+    "key": "workflow-commons::wf-uda-n-check-wf-commons-checklist",
+    "label": "check:wf-commons-checklist",
+    "split": "holdout",
+    "truth": "agent-data-checker",
+    "workflow": "wf-uda"
+   }
+  ]
+ }
+}

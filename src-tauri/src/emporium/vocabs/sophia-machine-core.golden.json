@@ -1,0 +1,318 @@
+{
+    "classes": {
+        "MachineDefinition": {
+            "comment": "A versioned design for a class of operational machine. Definitions describe intended execution and authority; they are not live deployments or process incarnations.",
+            "predicates": {
+                "mach:definitionId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "stable definition key"
+                },
+                "mach:version": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "definition version"
+                },
+                "mach:machineKind": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "open URI-valued kind, such as mach:Gateway or mach:GardenCell"
+                },
+                "mach:executionMode": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "open URI-valued execution mode, such as mach:KubernetesPod or mach:BareProcess"
+                },
+                "mach:cardinality": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "open URI-valued cardinality policy"
+                },
+                "mach:authorityDomain": {
+                    "datatype": "uri",
+                    "multi": true,
+                    "required": false,
+                    "source": "state or decisions for which this definition is authoritative"
+                },
+                "mach:lifecycleStatus": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "definition lifecycle, such as mach:Proposed, mach:Active, or mach:Retired"
+                },
+                "mach:artifactDigest": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "content digest of the executable artifact when pinned"
+                },
+                "rdfs:label": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "rdfs:comment": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                }
+            },
+            "rdf_types": [
+                "mach:MachineDefinition"
+            ],
+            "subject_rule": "urn:sophia:machine-definition:{definitionId}:{version}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:machines",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "Machine": {
+            "comment": "A stable logical operational identity. A Machine survives restarts and placements; each concrete incarnation is represented by a MachineRun.",
+            "predicates": {
+                "mach:machineId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "stable logical identifier within an environment"
+                },
+                "mach:conformsTo": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "the MachineDefinition this logical machine implements"
+                },
+                "mach:environment": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "deployment environment containing the logical machine"
+                },
+                "mach:scope": {
+                    "datatype": "uri",
+                    "multi": true,
+                    "required": false,
+                    "source": "logical scopes owned or served, such as a graph"
+                },
+                "mach:lifecycleStatus": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "logical lifecycle, distinct from a run state"
+                },
+                "mach:hasPort": {
+                    "datatype": "uri",
+                    "multi": true,
+                    "required": false,
+                    "source": "stable logical interfaces exposed or consumed by this machine"
+                },
+                "rdfs:label": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                }
+            },
+            "rdf_types": [
+                "mach:Machine"
+            ],
+            "subject_rule": "urn:sophia:machine:{environmentId}:{machineId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:machines",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "MachineRun": {
+            "comment": "One concrete incarnation of a logical Machine. It is both a mach:MachineRun and a prov:Activity; termination never erases its testimony.",
+            "predicates": {
+                "mach:runId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "unique event or incarnation identifier"
+                },
+                "mach:actualizes": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "the stable logical Machine incarnated by this run"
+                },
+                "mach:runState": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "open URI-valued run state"
+                },
+                "prov:startedAtTime": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": true
+                },
+                "prov:endedAtTime": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": false
+                },
+                "mach:artifactDigest": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "mach:placement": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "scheduler placement or execution substrate"
+                },
+                "mach:host": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "physical or virtual host when meaningful"
+                }
+            },
+            "rdf_types": [
+                "mach:MachineRun",
+                "prov:Activity"
+            ],
+            "subject_rule": "urn:sophia:machine-run:{environmentId}:{runId}",
+            "source_kind": "event-log",
+            "identity_kind": "event-id",
+            "store_mode": "materialize",
+            "store_target": "projection:machines",
+            "enforcement": "halt",
+            "reconciliation_strategy": "producerDirected",
+            "dispatch_mode": "event-log-fold"
+        },
+        "Port": {
+            "comment": "A stable logical interface on a Machine. Protocol, direction, schema, and authority requirements belong to the port rather than to a transient run.",
+            "predicates": {
+                "mach:portId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "mach:portOf": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true
+                },
+                "mach:portName": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "mach:direction": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true
+                },
+                "mach:protocol": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true
+                },
+                "mach:schema": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false
+                },
+                "mach:requiresAuthority": {
+                    "datatype": "uri",
+                    "multi": true,
+                    "required": false
+                }
+            },
+            "rdf_types": [
+                "mach:Port"
+            ],
+            "subject_rule": "urn:sophia:machine:{environmentId}:{machineId}:port:{portName}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:machines",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "Binding": {
+            "comment": "A configured connection from one logical Port to another. A binding records delivery and failure semantics; observed traffic belongs in Observatory testimony, not here.",
+            "predicates": {
+                "mach:bindingId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "mach:sourcePort": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true
+                },
+                "mach:destinationPort": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true
+                },
+                "mach:authenticationPolicy": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false
+                },
+                "mach:deliverySemantics": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true
+                },
+                "mach:failureBehavior": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true
+                },
+                "mach:lifecycleStatus": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true
+                }
+            },
+            "rdf_types": [
+                "mach:Binding"
+            ],
+            "subject_rule": "urn:sophia:machine-binding:{bindingId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:machines",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        }
+    },
+    "comanaged_forbidden": [
+        "agt:",
+        "mem:",
+        "wf:"
+    ],
+    "comment": "Lightweight technics ontology for Sophia's operational machines. It distinguishes versioned design, stable logical identity, concrete run, interface, and configured connection. Kind/state/protocol values are open URIs so deployment-specific vocabularies can extend the core without changing these five classes.",
+    "description": "The internal substrate vocabulary used to describe Sophia machines and their incarnations without conflating logical services, Kubernetes pods, processes, ports, or observations.",
+    "name": "sophia-machine-core",
+    "namespaces": {
+        "mach": "http://mnemosyne.dev/machine#",
+        "prov": "http://www.w3.org/ns/prov#",
+        "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+        "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
+        "xsd": "http://www.w3.org/2001/XMLSchema#"
+    },
+    "primary_prefix": "mach",
+    "title": "Sophia Machine Core Vocabulary",
+    "version": "0.1.0",
+    "write_target": "projection:machines"
+}

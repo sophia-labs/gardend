@@ -1,0 +1,33 @@
+{
+  "documents": [
+    {
+      "title": "May 1st, 2026",
+      "markdown": "# May 1st, 2026\n\n- [ ] Work on Roam Project fixture roam-tag-fixture\n  - Nested note",
+      "folderPath": "Daily Notes/2026/05-May",
+      "sourceFilename": "May 1st, 2026.json"
+    },
+    {
+      "title": "Roam Project fixture",
+      "markdown": "# Roam Project fixture\n\n- **Status:**  active",
+      "folderPath": null,
+      "sourceFilename": "Roam Project fixture.json"
+    }
+  ],
+  "wikilinks": [
+    {
+      "sourceTitle": "May 1st, 2026",
+      "targetTitle": "Roam Project fixture",
+      "displayText": null,
+      "sourceContext": "{{[[TODO]]}} Work on [[Roam Project fixture]] #roam-tag-fixture",
+      "isTag": false
+    },
+    {
+      "sourceTitle": "May 1st, 2026",
+      "targetTitle": "roam-tag-fixture",
+      "displayText": null,
+      "sourceContext": "{{[[TODO]]}} Work on [[Roam Project fixture]] #roam-tag-fixture",
+      "isTag": true
+    }
+  ],
+  "warnings": []
+}

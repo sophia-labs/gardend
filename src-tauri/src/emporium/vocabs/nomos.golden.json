@@ -1,0 +1,345 @@
+{
+  "name": "nomos",
+  "version": "0.2.0",
+  "title": "Nomos Constitution Vocabulary",
+  "description": "Deployment constitution vocabulary for the omphalos store. This is an internal SHACL-retrofit contract, not a served vocabulary pack: it validates the authored world constitution before it is reconciled into the deployment-level omphalos graph.",
+  "namespaces": {
+    "nomos": "http://mnemosyne.dev/nomos#"
+  },
+  "primary_prefix": "nomos",
+  "classes": {
+    "World": {
+      "rdf_types": ["nomos:World"],
+      "subject_rule": "urn:mnemosyne:local:world",
+      "source_kind": "current-state",
+      "identity_kind": "logical-id",
+      "identity_fields": ["singletonWorld"],
+      "store_mode": "materialize",
+      "store_target": "omphalos:default",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize",
+      "projection_faces": ["omphalos-default-rdf"],
+      "public_jurisdiction": "omphalos",
+      "predicates": {
+        "nomos:schemaVersion": {
+          "datatype": "integer",
+          "required": true,
+          "comment": "Constitution schema version."
+        },
+        "nomos:identityAnchor": {
+          "datatype": "string",
+          "required": true,
+          "comment": "Identity anchor strategy; v0 uses rdf-iri."
+        },
+        "nomos:usesEmbedder": {
+          "datatype": "uri",
+          "required": true,
+          "comment": "The active deployment embedder selection."
+        },
+        "nomos:hostsGraph": {
+          "datatype": "uri",
+          "required": false,
+          "multi": true,
+          "comment": "Graph entries hosted by this deployment."
+        },
+        "nomos:usesOracle": {
+          "datatype": "uri",
+          "required": false,
+          "multi": true,
+          "comment": "Optional local oracle capability exposed to agents through Garden-owned tool facades."
+        },
+        "nomos:hasOracleBinding": {
+          "datatype": "uri",
+          "required": false,
+          "multi": true,
+          "comment": "Graph-level oracle policy binding; exact graphId bindings override wildcard bindings."
+        }
+      },
+      "comment": "The singleton deployment world."
+    },
+    "Embedder": {
+      "rdf_types": ["nomos:Embedder"],
+      "subject_rule": "urn:mnemosyne:local:embedder:{localId}",
+      "source_kind": "current-state",
+      "identity_kind": "urn-template",
+      "identity_fields": ["localId"],
+      "store_mode": "materialize",
+      "store_target": "omphalos:default",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize",
+      "projection_faces": ["omphalos-default-rdf"],
+      "public_jurisdiction": "omphalos",
+      "predicates": {
+        "nomos:providerId": {
+          "datatype": "string",
+          "required": true,
+          "comment": "Embedding provider identifier."
+        },
+        "nomos:modelId": {
+          "datatype": "string",
+          "required": true,
+          "comment": "Embedding model identifier, resolved against the code catalog."
+        },
+        "nomos:dimensions": {
+          "datatype": "integer",
+          "required": true,
+          "comment": "Vector dimensionality for the selected model."
+        }
+      },
+      "comment": "A deployment-level embedding model selection."
+    },
+    "Graph": {
+      "rdf_types": ["nomos:Graph"],
+      "subject_rule": "urn:mnemosyne:local:graph:{graphId}",
+      "source_kind": "current-state",
+      "identity_kind": "urn-template",
+      "identity_fields": ["graphId"],
+      "store_mode": "materialize",
+      "store_target": "omphalos:default",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize",
+      "projection_faces": ["omphalos-default-rdf"],
+      "public_jurisdiction": "omphalos",
+      "predicates": {
+        "nomos:graphId": {
+          "datatype": "string",
+          "required": true,
+          "comment": "Local graph identifier."
+        }
+      },
+      "comment": "A graph entry hosted by the deployment."
+    },
+    "Oracle": {
+      "rdf_types": ["nomos:Oracle"],
+      "subject_rule": "urn:mnemosyne:local:oracle:{oracleKind}",
+      "source_kind": "current-state",
+      "identity_kind": "urn-template",
+      "identity_fields": ["oracleKind"],
+      "store_mode": "materialize",
+      "store_target": "omphalos:default",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize",
+      "projection_faces": ["omphalos-default-rdf"],
+      "public_jurisdiction": "omphalos",
+      "predicates": {
+        "nomos:oracleKind": {
+          "datatype": "string",
+          "required": true,
+          "comment": "Stable oracle family identifier, for example kg-ultra."
+        },
+        "nomos:serviceId": {
+          "datatype": "string",
+          "required": true,
+          "comment": "Local service host id used by loopback routes."
+        },
+        "nomos:enabled": {
+          "datatype": "boolean",
+          "required": true,
+          "comment": "Whether this oracle is available in the local constitution."
+        },
+        "nomos:inputLayer": {
+          "datatype": "string",
+          "required": true,
+          "comment": "Garden-owned input layer consumed by the oracle facade."
+        },
+        "nomos:outputVocab": {
+          "datatype": "string",
+          "required": true,
+          "comment": "Durable Garden vocabulary pack receiving oracle testimony."
+        },
+        "nomos:outputVocabVersion": {
+          "datatype": "string",
+          "required": false,
+          "comment": "Expected output vocabulary version."
+        },
+        "nomos:projectionTarget": {
+          "datatype": "string",
+          "required": true,
+          "comment": "Garden projection target for accepted oracle testimony."
+        },
+        "nomos:supportsTask": {
+          "datatype": "uri",
+          "required": false,
+          "multi": true,
+          "comment": "Task descriptor supported by this oracle."
+        }
+      },
+      "comment": "A local oracle capability such as the unified KG-ULTRA / UltraQuery surface."
+    },
+    "OracleTask": {
+      "rdf_types": ["nomos:OracleTask"],
+      "subject_rule": "urn:mnemosyne:local:oracle-task:{oracleKind}:{taskId}",
+      "source_kind": "current-state",
+      "identity_kind": "urn-template",
+      "identity_fields": ["oracleKind", "taskId"],
+      "store_mode": "materialize",
+      "store_target": "omphalos:default",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize",
+      "projection_faces": ["omphalos-default-rdf"],
+      "public_jurisdiction": "omphalos",
+      "predicates": {
+        "nomos:taskId": {
+          "datatype": "string",
+          "required": true,
+          "comment": "Stable task id selected by the Garden broker."
+        },
+        "nomos:taskKind": {
+          "datatype": "string",
+          "required": true,
+          "comment": "Task family, for example link-prediction or logical-query-answering."
+        },
+        "nomos:modelId": {
+          "datatype": "string",
+          "required": true,
+          "comment": "Underlying model identifier. Agents see the unified oracle surface, not this selector."
+        },
+        "nomos:modelVersion": {
+          "datatype": "string",
+          "required": false,
+          "comment": "Underlying model or checkpoint version."
+        },
+        "nomos:supportsPath": {
+          "datatype": "boolean",
+          "required": false,
+          "comment": "Whether this task supports path-shaped logical queries."
+        },
+        "nomos:supportsIntersection": {
+          "datatype": "boolean",
+          "required": false,
+          "comment": "Whether this task supports conjunction/intersection query shapes."
+        },
+        "nomos:supportsUnion": {
+          "datatype": "boolean",
+          "required": false,
+          "comment": "Whether this task supports union query shapes."
+        },
+        "nomos:supportsNegation": {
+          "datatype": "boolean",
+          "required": false,
+          "comment": "Whether this task supports negated query clauses."
+        },
+        "nomos:defaultTopK": {
+          "datatype": "integer",
+          "required": false,
+          "comment": "Default candidate count for this task."
+        },
+        "nomos:defaultMinScore": {
+          "datatype": "double",
+          "required": false,
+          "comment": "Default minimum oracle score for this task."
+        }
+      },
+      "comment": "A broker-selectable task behind an oracle."
+    },
+    "OracleBinding": {
+      "rdf_types": ["nomos:OracleBinding"],
+      "subject_rule": "urn:mnemosyne:local:oracle-binding:{oracleKind}:{graphId}",
+      "source_kind": "current-state",
+      "identity_kind": "urn-template",
+      "identity_fields": ["oracleKind", "graphId"],
+      "store_mode": "materialize",
+      "store_target": "omphalos:default",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize",
+      "projection_faces": ["omphalos-default-rdf"],
+      "public_jurisdiction": "omphalos",
+      "predicates": {
+        "nomos:usesOracle": {
+          "datatype": "uri",
+          "required": true,
+          "comment": "Oracle governed by this graph binding."
+        },
+        "nomos:graphId": {
+          "datatype": "string",
+          "required": true,
+          "comment": "Graph id this policy applies to, or * for the wildcard binding."
+        },
+        "nomos:mode": {
+          "datatype": "string",
+          "required": false,
+          "comment": "Binding mode; active is the default."
+        },
+        "nomos:allowedTask": {
+          "datatype": "string",
+          "required": false,
+          "multi": true,
+          "comment": "Task ids available for this graph."
+        },
+        "nomos:topK": {
+          "datatype": "integer",
+          "required": false,
+          "comment": "Maximum candidates requested from the oracle."
+        },
+        "nomos:minScore": {
+          "datatype": "double",
+          "required": false,
+          "comment": "Minimum score retained in the Garden-facing storybook."
+        },
+        "nomos:maxHops": {
+          "datatype": "integer",
+          "required": false,
+          "comment": "Maximum logical path length exposed to the query broker."
+        },
+        "nomos:allowPath": {
+          "datatype": "boolean",
+          "required": false,
+          "comment": "Whether agents may submit path-shaped queries through the unified surface."
+        },
+        "nomos:allowIntersection": {
+          "datatype": "boolean",
+          "required": false,
+          "comment": "Whether agents may submit intersection-shaped queries through the unified surface."
+        },
+        "nomos:allowUnion": {
+          "datatype": "boolean",
+          "required": false,
+          "comment": "Whether agents may submit union-shaped queries through the unified surface."
+        },
+        "nomos:allowNegation": {
+          "datatype": "boolean",
+          "required": false,
+          "comment": "Whether agents may submit negated clauses; defaults false."
+        },
+        "nomos:structuralWeight": {
+          "datatype": "double",
+          "required": false,
+          "comment": "Structural candidate score weight."
+        },
+        "nomos:embeddingWeight": {
+          "datatype": "double",
+          "required": false,
+          "comment": "Embedding candidate score weight."
+        },
+        "nomos:lexicalWeight": {
+          "datatype": "double",
+          "required": false,
+          "comment": "Lexical candidate score weight."
+        },
+        "nomos:persistPolicy": {
+          "datatype": "string",
+          "required": false,
+          "comment": "Persistence policy for oracle testimony; on-request is the default."
+        },
+        "nomos:requiresAcceptance": {
+          "datatype": "boolean",
+          "required": false,
+          "comment": "Whether candidate acceptance must pass through Garden wire authority."
+        },
+        "nomos:maxPersistedCandidates": {
+          "datatype": "integer",
+          "required": false,
+          "comment": "Maximum candidates persisted as oracle testimony for one request."
+        }
+      },
+      "comment": "Graph policy for how a Garden cell exposes an oracle to agents."
+    }
+  },
+  "comment": "Internal omphalos constitution contract. Embedded and sha-pinned for validation, deliberately absent from VOCAB_REGISTRY."
+}

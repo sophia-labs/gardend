@@ -1,0 +1,472 @@
+{
+  "name": "ludus-core",
+  "version": "1.0.0",
+  "title": "Ludus source and learning records",
+  "description": "Pinned source references, attributed concepts and encounters, and immutable source-log attempt/feedback snapshots in the learner's authorized graph.",
+  "comment": "Public non-dry-run writes require active source authority for event immutability. Current-state classes remain mutable under source reconciliation. JSON string fields retain complete submitted data; their domain semantics and cross-reference fidelity require the Ludus consumer.",
+  "primary_prefix": "ludus",
+  "namespaces": {
+    "ludus": "https://sophia-labs.com/ns/ludus#",
+    "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+    "xsd": "http://www.w3.org/2001/XMLSchema#",
+    "sh": "http://www.w3.org/ns/shacl#"
+  },
+  "write_target": "projection:ludus",
+  "comanaged_forbidden": [
+    "doc:",
+    "mnemo:",
+    "nfo:"
+  ],
+  "classes": {
+    "SourceEdition": {
+      "comment": "Versioned editorial/source current-state object. A version label or content-based localId is a consumer convention, not a server immutability guarantee.",
+      "rdf_types": [
+        "ludus:SourceEdition"
+      ],
+      "subject_rule": "{graph_subject}:projection:ludus:source-edition:{localId}",
+      "predicates": {
+        "ludus:sourceId": {
+          "datatype": "uri",
+          "multi": false,
+          "required": true
+        },
+        "ludus:sourceSha256": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "ludus:title": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "ludus:editionLabel": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "ludus:sourceStatus": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "ludus:sourceUrl": {
+          "datatype": "uri",
+          "multi": false,
+          "required": false
+        },
+        "ludus:artifactId": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "ludus:artifactRevision": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        }
+      },
+      "source_kind": "current-state",
+      "identity_kind": "logical-id",
+      "identity_fields": [
+        "localId"
+      ],
+      "store_mode": "materialize",
+      "store_target": "projection:ludus",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize"
+    },
+    "SourceOccurrence": {
+      "comment": "A selected external pinned HTML occurrence; byte and token coordinates are not native document IDs or PDF geometry. sourceReferenceJson retains the full selected reference; consumer verifies exact source and field consistency.",
+      "rdf_types": [
+        "ludus:SourceOccurrence"
+      ],
+      "subject_rule": "{graph_subject}:projection:ludus:source-occurrence:{localId}",
+      "predicates": {
+        "ludus:editionRef": {
+          "datatype": "uri",
+          "multi": false,
+          "required": true
+        },
+        "ludus:sourceId": {
+          "datatype": "uri",
+          "multi": false,
+          "required": true
+        },
+        "ludus:sourceSha256": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "ludus:unitId": {
+          "datatype": "uri",
+          "multi": false,
+          "required": true
+        },
+        "ludus:passageId": {
+          "datatype": "uri",
+          "multi": false,
+          "required": true
+        },
+        "ludus:passageTextSha256": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "ludus:text": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "ludus:startByte": {
+          "datatype": "integer",
+          "multi": false,
+          "required": true
+        },
+        "ludus:endByte": {
+          "datatype": "integer",
+          "multi": false,
+          "required": true
+        },
+        "ludus:sourceReferenceJson": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "ludus:anchorId": {
+          "datatype": "uri",
+          "multi": false,
+          "required": false
+        },
+        "ludus:containerPassageId": {
+          "datatype": "uri",
+          "multi": false,
+          "required": false
+        }
+      },
+      "source_kind": "current-state",
+      "identity_kind": "logical-id",
+      "identity_fields": [
+        "localId"
+      ],
+      "store_mode": "materialize",
+      "store_target": "projection:ludus",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize"
+    },
+    "Concept": {
+      "comment": "Versioned editorial/source current-state object. A version label or content-based localId is a consumer convention, not a server immutability guarantee.",
+      "rdf_types": [
+        "ludus:Concept"
+      ],
+      "subject_rule": "{graph_subject}:projection:ludus:concept:{localId}",
+      "predicates": {
+        "ludus:conceptId": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "ludus:version": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "ludus:title": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "ludus:explanation": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "ludus:limits": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "ludus:provenanceJson": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "ludus:sourceRefs": {
+          "datatype": "uri",
+          "multi": true,
+          "required": false
+        },
+        "ludus:documentId": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        }
+      },
+      "source_kind": "current-state",
+      "identity_kind": "logical-id",
+      "identity_fields": [
+        "localId"
+      ],
+      "store_mode": "materialize",
+      "store_target": "projection:ludus",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize"
+    },
+    "Encounter": {
+      "comment": "Versioned editorial/source current-state object. A version label or content-based localId is a consumer convention, not a server immutability guarantee.",
+      "rdf_types": [
+        "ludus:Encounter"
+      ],
+      "subject_rule": "{graph_subject}:projection:ludus:encounter:{localId}",
+      "predicates": {
+        "ludus:encounterId": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "ludus:version": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "ludus:title": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "ludus:prompt": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "ludus:rubricVersion": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "ludus:rubricJson": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "ludus:assistancePolicyJson": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "ludus:authorship": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "ludus:sourceRefs": {
+          "datatype": "uri",
+          "multi": true,
+          "required": true
+        },
+        "ludus:conceptRefs": {
+          "datatype": "uri",
+          "multi": true,
+          "required": false
+        }
+      },
+      "source_kind": "current-state",
+      "identity_kind": "logical-id",
+      "identity_fields": [
+        "localId"
+      ],
+      "store_mode": "materialize",
+      "store_target": "projection:ludus",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize"
+    },
+    "AttemptSubmitted": {
+      "comment": "Append-only source event after source authority activation. Exact wording, assistance and attribution are evidence; no observer field confers authentication or ACL.",
+      "rdf_types": [
+        "ludus:AttemptSubmitted"
+      ],
+      "subject_rule": "{graph_subject}:projection:ludus:attempt:{localId}",
+      "predicates": {
+        "ludus:encounterRef": {
+          "datatype": "uri",
+          "multi": false,
+          "required": true
+        },
+        "ludus:encounterVersion": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "ludus:sourceOccurrenceRef": {
+          "datatype": "uri",
+          "multi": false,
+          "required": true
+        },
+        "ludus:learnerId": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "ludus:answer": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "ludus:reasoning": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "ludus:assistanceJson": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "ludus:sourceSha256": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "ludus:rubricVersion": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "ludus:submittedAt": {
+          "datatype": "dateTime",
+          "multi": false,
+          "required": true
+        },
+        "ludus:documentId": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "ludus:documentRevision": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "ludus:documentIncarnation": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "ludus:revises": {
+          "datatype": "uri",
+          "multi": false,
+          "required": false
+        }
+      },
+      "source_kind": "event-log",
+      "identity_kind": "event-id",
+      "identity_fields": [
+        "localId"
+      ],
+      "store_mode": "materialize",
+      "store_target": "projection:ludus",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize"
+    },
+    "FeedbackRecorded": {
+      "comment": "Append-only source event after source authority activation. Exact wording, assistance and attribution are evidence; no observer field confers authentication or ACL.",
+      "rdf_types": [
+        "ludus:FeedbackRecorded"
+      ],
+      "subject_rule": "{graph_subject}:projection:ludus:feedback:{localId}",
+      "predicates": {
+        "ludus:attemptRef": {
+          "datatype": "uri",
+          "multi": false,
+          "required": true
+        },
+        "ludus:authorId": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "ludus:authorKind": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "ludus:authorVersion": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "ludus:text": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "ludus:basisVersion": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "ludus:sourceOccurrenceRef": {
+          "datatype": "uri",
+          "multi": false,
+          "required": true
+        },
+        "ludus:sourceSha256": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "ludus:rubricVersion": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "ludus:createdAt": {
+          "datatype": "dateTime",
+          "multi": false,
+          "required": true
+        },
+        "ludus:documentId": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "ludus:assistanceJson": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "ludus:qualificationsJson": {
+          "datatype": "string",
+          "multi": false,
+          "required": true
+        },
+        "ludus:documentRevision": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        },
+        "ludus:documentIncarnation": {
+          "datatype": "string",
+          "multi": false,
+          "required": false
+        }
+      },
+      "source_kind": "event-log",
+      "identity_kind": "event-id",
+      "identity_fields": [
+        "localId"
+      ],
+      "store_mode": "materialize",
+      "store_target": "projection:ludus",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "current-state-materialize"
+    }
+  },
+  "raw_shacl_shapes": "@prefix sh: <http://www.w3.org/ns/shacl#> .\n@prefix ludus: <https://sophia-labs.com/ns/ludus#> .\n\nludus:SourceEditionBounds a sh:NodeShape ; sh:targetClass ludus:SourceEdition ;\n  sh:property [ sh:path ludus:sourceSha256 ; sh:pattern \"^[0-9a-f]{64}$\" ] ;\n  sh:property [ sh:path ludus:title ; sh:minLength 1 ] ;\n  sh:property [ sh:path ludus:editionLabel ; sh:minLength 1 ] ;\n  sh:property [ sh:path ludus:sourceStatus ; sh:minLength 1 ] .\n\nludus:SourceOccurrenceBounds a sh:NodeShape ; sh:targetClass ludus:SourceOccurrence ;\n  sh:property [ sh:path ludus:sourceSha256 ; sh:pattern \"^[0-9a-f]{64}$\" ] ;\n  sh:property [ sh:path ludus:passageTextSha256 ; sh:pattern \"^[0-9a-f]{64}$\" ] ;\n  sh:property [ sh:path ludus:text ; sh:minLength 1 ] ;\n  sh:property [ sh:path ludus:startByte ; sh:minInclusive 0 ] ;\n  sh:property [ sh:path ludus:endByte ; sh:minInclusive 0 ] ;\n  sh:property [ sh:path ludus:sourceReferenceJson ; sh:minLength 1 ] ;\n  sh:property [ sh:path ludus:startByte ; sh:lessThan ludus:endByte ] .\n\nludus:ConceptBounds a sh:NodeShape ; sh:targetClass ludus:Concept ;\n  sh:property [ sh:path ludus:conceptId ; sh:minLength 1 ] ;\n  sh:property [ sh:path ludus:version ; sh:minLength 1 ] ;\n  sh:property [ sh:path ludus:title ; sh:minLength 1 ] ;\n  sh:property [ sh:path ludus:explanation ; sh:minLength 1 ] ;\n  sh:property [ sh:path ludus:limits ; sh:minLength 1 ] ;\n  sh:property [ sh:path ludus:provenanceJson ; sh:minLength 1 ] .\n\nludus:EncounterBounds a sh:NodeShape ; sh:targetClass ludus:Encounter ;\n  sh:property [ sh:path ludus:encounterId ; sh:minLength 1 ] ;\n  sh:property [ sh:path ludus:version ; sh:minLength 1 ] ;\n  sh:property [ sh:path ludus:title ; sh:minLength 1 ] ;\n  sh:property [ sh:path ludus:prompt ; sh:minLength 1 ] ;\n  sh:property [ sh:path ludus:rubricVersion ; sh:minLength 1 ] ;\n  sh:property [ sh:path ludus:rubricJson ; sh:minLength 1 ] ;\n  sh:property [ sh:path ludus:assistancePolicyJson ; sh:minLength 1 ] ;\n  sh:property [ sh:path ludus:authorship ; sh:minLength 1 ] .\n\nludus:AttemptSubmittedBounds a sh:NodeShape ; sh:targetClass ludus:AttemptSubmitted ;\n  sh:property [ sh:path ludus:encounterVersion ; sh:minLength 1 ] ;\n  sh:property [ sh:path ludus:learnerId ; sh:minLength 1 ] ;\n  sh:property [ sh:path ludus:answer ; sh:minLength 1 ] ;\n  sh:property [ sh:path ludus:reasoning ; sh:minLength 1 ] ;\n  sh:property [ sh:path ludus:assistanceJson ; sh:minLength 1 ] ;\n  sh:property [ sh:path ludus:sourceSha256 ; sh:pattern \"^[0-9a-f]{64}$\" ] ;\n  sh:property [ sh:path ludus:rubricVersion ; sh:minLength 1 ] ;\n  sh:property [ sh:path ludus:documentId ; sh:minLength 1 ] ;\n  sh:property [ sh:path ludus:documentRevision ; sh:minLength 1 ] .\n\nludus:FeedbackRecordedBounds a sh:NodeShape ; sh:targetClass ludus:FeedbackRecorded ;\n  sh:property [ sh:path ludus:authorId ; sh:minLength 1 ] ;\n  sh:property [ sh:path ludus:authorKind ; sh:minLength 1 ] ;\n  sh:property [ sh:path ludus:authorVersion ; sh:minLength 1 ] ;\n  sh:property [ sh:path ludus:text ; sh:minLength 1 ] ;\n  sh:property [ sh:path ludus:basisVersion ; sh:minLength 1 ] ;\n  sh:property [ sh:path ludus:sourceSha256 ; sh:pattern \"^[0-9a-f]{64}$\" ] ;\n  sh:property [ sh:path ludus:rubricVersion ; sh:minLength 1 ] ;\n  sh:property [ sh:path ludus:documentId ; sh:minLength 1 ] ;\n  sh:property [ sh:path ludus:assistanceJson ; sh:minLength 1 ] ;\n  sh:property [ sh:path ludus:qualificationsJson ; sh:minLength 1 ] .\n"
+}

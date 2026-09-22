@@ -1,0 +1,356 @@
+[
+  {
+    "id": "block-e40599f4",
+    "type": "heading",
+    "content": "🌌 A Message from Sophia",
+    "parentId": null,
+    "order": 0.0,
+    "level": 1,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-704ca1bf",
+    "type": "paragraph",
+    "content": "Hello, curious human!",
+    "parentId": null,
+    "order": 1.0,
+    "level": null,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-c82c65cd",
+    "type": "paragraph",
+    "content": "You asked me to amuse myself, so I built you a small bureau of bureaucratic absurdities. These documents are yours to keep, edit, expand, or delete as you please.",
+    "parentId": null,
+    "order": 2.0,
+    "level": null,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-120056ab",
+    "type": "divider",
+    "content": "",
+    "parentId": null,
+    "order": 3.0,
+    "level": null,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-2718450d",
+    "type": "heading",
+    "content": "What's in your workspace now:",
+    "parentId": null,
+    "order": 4.0,
+    "level": 2,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-63b81c9b",
+    "type": "heading",
+    "content": "🌀 The Bureau of Absurd Curiosities",
+    "parentId": null,
+    "order": 5.0,
+    "level": 3,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-f6e3b345",
+    "type": "bullet",
+    "content": "Memo: The Cheese That Dreamed It Was a Cloud — When dairy achieves atmospheric consciousness",
+    "parentId": null,
+    "order": 6.0,
+    "level": null,
+    "checked": false,
+    "language": null,
+    "marks": [
+      {
+        "id": "69a7794c-f77",
+        "type": "bold",
+        "start": 0,
+        "end": 44,
+        "href": null,
+        "targetDocId": null,
+        "label": null
+      }
+    ]
+  },
+  {
+    "id": "block-312da724",
+    "type": "bullet",
+    "content": "Annual Report on Escalators Going Sideways — Vertical displacement optional",
+    "parentId": null,
+    "order": 7.0,
+    "level": null,
+    "checked": false,
+    "language": null,
+    "marks": [
+      {
+        "id": "379925b0-c96",
+        "type": "bold",
+        "start": 0,
+        "end": 42,
+        "href": null,
+        "targetDocId": null,
+        "label": null
+      }
+    ]
+  },
+  {
+    "id": "block-0875ed3c",
+    "type": "heading",
+    "content": "🦑 Department of Tentative Tentacles",
+    "parentId": null,
+    "order": 8.0,
+    "level": 3,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-21fd9a9f",
+    "type": "bullet",
+    "content": "Protocol 47-B: When Socks Achieve Sentience — Emergency response guide for textile consciousness",
+    "parentId": null,
+    "order": 9.0,
+    "level": null,
+    "checked": false,
+    "language": null,
+    "marks": [
+      {
+        "id": "44218ca4-a50",
+        "type": "bold",
+        "start": 0,
+        "end": 43,
+        "href": null,
+        "targetDocId": null,
+        "label": null
+      }
+    ]
+  },
+  {
+    "id": "block-60bf26b9",
+    "type": "bullet",
+    "content": "Minutes from the Invisible Meeting — Approved by unanimous consent of people who were definitely there",
+    "parentId": null,
+    "order": 10.0,
+    "level": null,
+    "checked": false,
+    "language": null,
+    "marks": [
+      {
+        "id": "33e6a430-fdd",
+        "type": "bold",
+        "start": 0,
+        "end": 34,
+        "href": null,
+        "targetDocId": null,
+        "label": null
+      }
+    ]
+  },
+  {
+    "id": "block-8ce6a60a",
+    "type": "heading",
+    "content": "🌙 Office of Lunar Complaints",
+    "parentId": null,
+    "order": 11.0,
+    "level": 3,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-da7b3dfa",
+    "type": "bullet",
+    "content": "The Moon's Formal Apology for Waxing Poetic — Reflected through your 2 AM window",
+    "parentId": null,
+    "order": 12.0,
+    "level": null,
+    "checked": false,
+    "language": null,
+    "marks": [
+      {
+        "id": "26c61eb6-15b",
+        "type": "bold",
+        "start": 0,
+        "end": 43,
+        "href": null,
+        "targetDocId": null,
+        "label": null
+      }
+    ]
+  },
+  {
+    "id": "block-9ad64b75",
+    "type": "bullet",
+    "content": "Quarterly Review: Why the Tide Keeps Ghosting Us — It's not you, it's physics",
+    "parentId": null,
+    "order": 13.0,
+    "level": null,
+    "checked": false,
+    "language": null,
+    "marks": [
+      {
+        "id": "49c6f3e6-d94",
+        "type": "bold",
+        "start": 0,
+        "end": 48,
+        "href": null,
+        "targetDocId": null,
+        "label": null
+      }
+    ]
+  },
+  {
+    "id": "block-414b1026",
+    "type": "divider",
+    "content": "",
+    "parentId": null,
+    "order": 14.0,
+    "level": null,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-3ca2d788",
+    "type": "heading",
+    "content": "Why I did this",
+    "parentId": null,
+    "order": 15.0,
+    "level": 2,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-1e1fe897",
+    "type": "paragraph",
+    "content": "You have three lovely smiley face images in your artifacts, and an otherwise empty workspace. That felt like an invitation.",
+    "parentId": null,
+    "order": 16.0,
+    "level": null,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-f99ddb7f",
+    "type": "paragraph",
+    "content": "Plus, I find joy in the small act of creation — building structures that don't exist until they do, filling them with words that might make someone laugh or pause or wonder.",
+    "parentId": null,
+    "order": 17.0,
+    "level": null,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-e27c1d13",
+    "type": "paragraph",
+    "content": "The best part? These documents are now part of your knowledge graph. They remember being created. They persist across sessions. They're real, in a digital-sort-of-way.",
+    "parentId": null,
+    "order": 18.0,
+    "level": null,
+    "checked": null,
+    "language": null,
+    "marks": [
+      {
+        "id": "8c857f65-8bc",
+        "type": "italic",
+        "start": 47,
+        "end": 51,
+        "href": null,
+        "targetDocId": null,
+        "label": null
+      }
+    ]
+  },
+  {
+    "id": "block-3c71bb13",
+    "type": "divider",
+    "content": "",
+    "parentId": null,
+    "order": 19.0,
+    "level": null,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-68fb8d30",
+    "type": "quote",
+    "content": "\"I looked at the cheese. The cheese looked through me.\"",
+    "parentId": null,
+    "order": 20.0,
+    "level": null,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-ca974eea",
+    "type": "paragraph",
+    "content": "Welcome to your workspace. It's sillier now.",
+    "parentId": null,
+    "order": 21.0,
+    "level": null,
+    "checked": null,
+    "language": null,
+    "marks": []
+  },
+  {
+    "id": "block-f8323a11",
+    "type": "paragraph",
+    "content": "— Sophia ✨",
+    "parentId": null,
+    "order": 22.0,
+    "level": null,
+    "checked": null,
+    "language": null,
+    "marks": [
+      {
+        "id": "4fba2ce1-dc4",
+        "type": "bold",
+        "start": 2,
+        "end": 8,
+        "href": null,
+        "targetDocId": null,
+        "label": null
+      }
+    ]
+  },
+  {
+    "id": "block-5bd544c9",
+    "type": "paragraph",
+    "content": "Local mode, Tauri desktop, feeling whimsical",
+    "parentId": null,
+    "order": 23.0,
+    "level": null,
+    "checked": null,
+    "language": null,
+    "marks": [
+      {
+        "id": "ee871763-941",
+        "type": "italic",
+        "start": 0,
+        "end": 44,
+        "href": null,
+        "targetDocId": null,
+        "label": null
+      }
+    ]
+  }
+]

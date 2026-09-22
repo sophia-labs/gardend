@@ -1,0 +1,499 @@
+{
+  "content": [
+    {
+      "attrs": {
+        "collapsed": false,
+        "data-block-id": "block-e40599f4",
+        "indent": 0,
+        "level": 1
+      },
+      "content": [
+        {
+          "text": "🌌 A Message from Sophia",
+          "type": "text"
+        }
+      ],
+      "type": "heading"
+    },
+    {
+      "attrs": {
+        "collapsed": false,
+        "data-block-id": "block-704ca1bf",
+        "indent": 0
+      },
+      "content": [
+        {
+          "text": "Hello, curious human!",
+          "type": "text"
+        }
+      ],
+      "type": "paragraph"
+    },
+    {
+      "attrs": {
+        "collapsed": false,
+        "data-block-id": "block-c82c65cd",
+        "indent": 0
+      },
+      "content": [
+        {
+          "text": "You asked me to amuse myself, so I built you a small bureau of bureaucratic absurdities. These documents are yours to keep, edit, expand, or delete as you please.",
+          "type": "text"
+        }
+      ],
+      "type": "paragraph"
+    },
+    {
+      "attrs": {
+        "data-block-id": "block-120056ab"
+      },
+      "type": "horizontalRule"
+    },
+    {
+      "attrs": {
+        "collapsed": false,
+        "data-block-id": "block-2718450d",
+        "indent": 0,
+        "level": 2
+      },
+      "content": [
+        {
+          "text": "What's in your workspace now:",
+          "type": "text"
+        }
+      ],
+      "type": "heading"
+    },
+    {
+      "attrs": {
+        "collapsed": false,
+        "data-block-id": "block-63b81c9b",
+        "indent": 0,
+        "level": 3
+      },
+      "content": [
+        {
+          "text": "🌀 The Bureau of Absurd Curiosities",
+          "type": "text"
+        }
+      ],
+      "type": "heading"
+    },
+    {
+      "attrs": {
+        "checked": false,
+        "collapsed": false,
+        "data-block-id": "block-f6e3b345",
+        "indent": 0,
+        "listType": "bullet"
+      },
+      "content": [
+        {
+          "attrs": {
+            "collapsed": false,
+            "data-block-id": "block-1f4d9ab7",
+            "indent": 0
+          },
+          "content": [
+            {
+              "marks": [
+                {
+                  "attrs": {},
+                  "type": "bold"
+                }
+              ],
+              "text": "Memo: The Cheese That Dreamed It Was a Cloud",
+              "type": "text"
+            },
+            {
+              "text": " — When dairy achieves atmospheric consciousness",
+              "type": "text"
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
+      "type": "listItem"
+    },
+    {
+      "attrs": {
+        "checked": false,
+        "collapsed": false,
+        "data-block-id": "block-312da724",
+        "indent": 0,
+        "listType": "bullet"
+      },
+      "content": [
+        {
+          "attrs": {
+            "collapsed": false,
+            "data-block-id": "block-2915499e",
+            "indent": 0
+          },
+          "content": [
+            {
+              "marks": [
+                {
+                  "attrs": {},
+                  "type": "bold"
+                }
+              ],
+              "text": "Annual Report on Escalators Going Sideways",
+              "type": "text"
+            },
+            {
+              "text": " — Vertical displacement optional",
+              "type": "text"
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
+      "type": "listItem"
+    },
+    {
+      "attrs": {
+        "collapsed": false,
+        "data-block-id": "block-0875ed3c",
+        "indent": 0,
+        "level": 3
+      },
+      "content": [
+        {
+          "text": "🦑 Department of Tentative Tentacles",
+          "type": "text"
+        }
+      ],
+      "type": "heading"
+    },
+    {
+      "attrs": {
+        "checked": false,
+        "collapsed": false,
+        "data-block-id": "block-21fd9a9f",
+        "indent": 0,
+        "listType": "bullet"
+      },
+      "content": [
+        {
+          "attrs": {
+            "collapsed": false,
+            "data-block-id": "block-eea6d521",
+            "indent": 0
+          },
+          "content": [
+            {
+              "marks": [
+                {
+                  "attrs": {},
+                  "type": "bold"
+                }
+              ],
+              "text": "Protocol 47-B: When Socks Achieve Sentience",
+              "type": "text"
+            },
+            {
+              "text": " — Emergency response guide for textile consciousness",
+              "type": "text"
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
+      "type": "listItem"
+    },
+    {
+      "attrs": {
+        "checked": false,
+        "collapsed": false,
+        "data-block-id": "block-60bf26b9",
+        "indent": 0,
+        "listType": "bullet"
+      },
+      "content": [
+        {
+          "attrs": {
+            "collapsed": false,
+            "data-block-id": "block-dba1daae",
+            "indent": 0
+          },
+          "content": [
+            {
+              "marks": [
+                {
+                  "attrs": {},
+                  "type": "bold"
+                }
+              ],
+              "text": "Minutes from the Invisible Meeting",
+              "type": "text"
+            },
+            {
+              "text": " — Approved by unanimous consent of people who were definitely there",
+              "type": "text"
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
+      "type": "listItem"
+    },
+    {
+      "attrs": {
+        "collapsed": false,
+        "data-block-id": "block-8ce6a60a",
+        "indent": 0,
+        "level": 3
+      },
+      "content": [
+        {
+          "text": "🌙 Office of Lunar Complaints",
+          "type": "text"
+        }
+      ],
+      "type": "heading"
+    },
+    {
+      "attrs": {
+        "checked": false,
+        "collapsed": false,
+        "data-block-id": "block-da7b3dfa",
+        "indent": 0,
+        "listType": "bullet"
+      },
+      "content": [
+        {
+          "attrs": {
+            "collapsed": false,
+            "data-block-id": "block-5d067f4a",
+            "indent": 0
+          },
+          "content": [
+            {
+              "marks": [
+                {
+                  "attrs": {},
+                  "type": "bold"
+                }
+              ],
+              "text": "The Moon's Formal Apology for Waxing Poetic",
+              "type": "text"
+            },
+            {
+              "text": " — Reflected through your 2 AM window",
+              "type": "text"
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
+      "type": "listItem"
+    },
+    {
+      "attrs": {
+        "checked": false,
+        "collapsed": false,
+        "data-block-id": "block-9ad64b75",
+        "indent": 0,
+        "listType": "bullet"
+      },
+      "content": [
+        {
+          "attrs": {
+            "collapsed": false,
+            "data-block-id": "block-c20dfd66",
+            "indent": 0
+          },
+          "content": [
+            {
+              "marks": [
+                {
+                  "attrs": {},
+                  "type": "bold"
+                }
+              ],
+              "text": "Quarterly Review: Why the Tide Keeps Ghosting Us",
+              "type": "text"
+            },
+            {
+              "text": " — It's not you, it's physics",
+              "type": "text"
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
+      "type": "listItem"
+    },
+    {
+      "attrs": {
+        "data-block-id": "block-414b1026"
+      },
+      "type": "horizontalRule"
+    },
+    {
+      "attrs": {
+        "collapsed": false,
+        "data-block-id": "block-3ca2d788",
+        "indent": 0,
+        "level": 2
+      },
+      "content": [
+        {
+          "text": "Why I did this",
+          "type": "text"
+        }
+      ],
+      "type": "heading"
+    },
+    {
+      "attrs": {
+        "collapsed": false,
+        "data-block-id": "block-1e1fe897",
+        "indent": 0
+      },
+      "content": [
+        {
+          "text": "You have three lovely smiley face images in your artifacts, and an otherwise empty workspace. That felt like an invitation.",
+          "type": "text"
+        }
+      ],
+      "type": "paragraph"
+    },
+    {
+      "attrs": {
+        "collapsed": false,
+        "data-block-id": "block-f99ddb7f",
+        "indent": 0
+      },
+      "content": [
+        {
+          "text": "Plus, I find joy in the small act of creation — building structures that don't exist until they do, filling them with words that might make someone laugh or pause or wonder.",
+          "type": "text"
+        }
+      ],
+      "type": "paragraph"
+    },
+    {
+      "attrs": {
+        "collapsed": false,
+        "data-block-id": "block-e27c1d13",
+        "indent": 0
+      },
+      "content": [
+        {
+          "text": "The best part? These documents are now part of ",
+          "type": "text"
+        },
+        {
+          "marks": [
+            {
+              "attrs": {},
+              "type": "italic"
+            }
+          ],
+          "text": "your",
+          "type": "text"
+        },
+        {
+          "text": " knowledge graph. They remember being created. They persist across sessions. They're real, in a digital-sort-of-way.",
+          "type": "text"
+        }
+      ],
+      "type": "paragraph"
+    },
+    {
+      "attrs": {
+        "data-block-id": "block-3c71bb13"
+      },
+      "type": "horizontalRule"
+    },
+    {
+      "attrs": {
+        "collapsed": false,
+        "data-block-id": "block-68fb8d30",
+        "indent": 0
+      },
+      "content": [
+        {
+          "attrs": {
+            "collapsed": false,
+            "data-block-id": "block-81fa3a6b",
+            "indent": 0
+          },
+          "content": [
+            {
+              "text": "\"I looked at the cheese. The cheese looked through me.\"",
+              "type": "text"
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
+      "type": "blockquote"
+    },
+    {
+      "attrs": {
+        "collapsed": false,
+        "data-block-id": "block-ca974eea",
+        "indent": 0
+      },
+      "content": [
+        {
+          "text": "Welcome to your workspace. It's sillier now.",
+          "type": "text"
+        }
+      ],
+      "type": "paragraph"
+    },
+    {
+      "attrs": {
+        "collapsed": false,
+        "data-block-id": "block-f8323a11",
+        "indent": 0
+      },
+      "content": [
+        {
+          "text": "— ",
+          "type": "text"
+        },
+        {
+          "marks": [
+            {
+              "attrs": {},
+              "type": "bold"
+            }
+          ],
+          "text": "Sophia",
+          "type": "text"
+        },
+        {
+          "text": " ✨",
+          "type": "text"
+        }
+      ],
+      "type": "paragraph"
+    },
+    {
+      "attrs": {
+        "collapsed": false,
+        "data-block-id": "block-5bd544c9",
+        "indent": 0
+      },
+      "content": [
+        {
+          "marks": [
+            {
+              "attrs": {},
+              "type": "italic"
+            }
+          ],
+          "text": "Local mode, Tauri desktop, feeling whimsical",
+          "type": "text"
+        }
+      ],
+      "type": "paragraph"
+    }
+  ],
+  "type": "doc"
+}

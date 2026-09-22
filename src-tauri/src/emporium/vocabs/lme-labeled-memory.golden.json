@@ -1,0 +1,578 @@
+{
+    "classes": {
+        "QuestionCase": {
+            "comment": "A LongMemEval benchmark case as a labeled-memory calibration object. Gold answer/session metadata is stored for evaluation and backprojection only; it must not be used as extraction evidence.",
+            "predicates": {
+                "lme:answerSessionId": {
+                    "datatype": "string",
+                    "multi": true,
+                    "required": true,
+                    "source": "LongMemEval answer_session_ids; evaluation labels, not extraction evidence"
+                },
+                "lme:caseId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "lme:expectedAnswerJson": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "serialized benchmark answer for scorer/evaluation surfaces only"
+                },
+                "lme:hasBackprojectionCheck": {
+                    "datatype": "uri",
+                    "multi": true,
+                    "required": false
+                },
+                "lme:hasPacket": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false
+                },
+                "lme:questionDate": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": true
+                },
+                "lme:questionText": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "lme:questionType": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "lme:runId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                }
+            },
+            "rdf_types": [
+                "lme:QuestionCase",
+                "prov:Entity"
+            ],
+            "subject_rule": "{graph_subject}:projection:lme-labeled-memory:case:{caseId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:lme-labeled-memory",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "CasePacket": {
+            "comment": "The compact input packet shown to extractors. It is stored so a label run can be replayed without reopening the full LongMemEval haystack.",
+            "predicates": {
+                "lme:caseId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "lme:generatedAt": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": true
+                },
+                "lme:packetJson": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "lme:runId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                }
+            },
+            "rdf_types": [
+                "lme:CasePacket",
+                "prov:Entity"
+            ],
+            "subject_rule": "{graph_subject}:projection:lme-labeled-memory:case:{caseId}:packet:{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:lme-labeled-memory",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "EvidenceSpan": {
+            "comment": "A source span or snippet from a LongMemEval answer session. Evidence spans are the only acceptable source for extracted observations and frames.",
+            "predicates": {
+                "dcterms:isPartOf": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false
+                },
+                "dcterms:source": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "lme:caseId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "lme:runId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "lme:sessionDate": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": true
+                },
+                "lme:sessionId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "lme:spanText": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "lme:turnIndex": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true
+                },
+                "oa:hasSource": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false
+                }
+            },
+            "rdf_types": [
+                "lme:EvidenceSpan",
+                "oa:Annotation",
+                "prov:Entity"
+            ],
+            "subject_rule": "{graph_subject}:projection:lme-labeled-memory:case:{caseId}:span:{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:lme-labeled-memory",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "ConceptCue": {
+            "comment": "A topic/entity/retrieval cue extracted from an evidence span. SKOS/SKOS-XL labels live here; real-world facts do not.",
+            "predicates": {
+                "lme:caseId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "lme:cueId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "lme:runId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "lme:sourceSpan": {
+                    "datatype": "uri",
+                    "multi": true,
+                    "required": false
+                },
+                "skos:altLabel": {
+                    "datatype": "string",
+                    "multi": true,
+                    "required": false
+                },
+                "skos:hiddenLabel": {
+                    "datatype": "string",
+                    "multi": true,
+                    "required": false
+                },
+                "skos:prefLabel": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                }
+            },
+            "rdf_types": [
+                "lme:ConceptCue",
+                "skos:Concept"
+            ],
+            "subject_rule": "{graph_subject}:projection:lme-labeled-memory:case:{caseId}:cue:{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:lme-labeled-memory",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "Observation": {
+            "comment": "A directly stated value or event-like report extracted from evidence. Derived answers are separate Derivation objects.",
+            "predicates": {
+                "lme:caseId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "lme:observedProperty": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "lme:observationId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "lme:observationKind": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "lme:runId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "lme:observedValue": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "lme:unit": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "prov:wasDerivedFrom": {
+                    "datatype": "uri",
+                    "multi": true,
+                    "required": true
+                },
+                "sosa:resultTime": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": false
+                }
+            },
+            "rdf_types": [
+                "lme:Observation",
+                "sosa:Observation",
+                "prov:Entity"
+            ],
+            "subject_rule": "{graph_subject}:projection:lme-labeled-memory:case:{caseId}:observation:{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:lme-labeled-memory",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "MemoryFrame": {
+            "comment": "The frame-first labeled memory fact. External vocabularies annotate it; benchmark-critical semantics such as current-head state, supersession, progress, contextual preference, and count candidates stay explicit here.",
+            "predicates": {
+                "lme:caseId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "lme:frameId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "lme:frameKind": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "controlled value: CurrentValueState, PreferenceDisposition, PossessionState, EventOccurrence, CountCandidate, ProgressState, Recommendation, DerivedAnswer"
+                },
+                "lme:runId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "lme:frameObject": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "lme:frameProperty": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "lme:frameSubject": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "lme:frameValue": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "lme:isCurrent": {
+                    "datatype": "boolean",
+                    "multi": false,
+                    "required": false
+                },
+                "lme:retrievalCue": {
+                    "datatype": "string",
+                    "multi": true,
+                    "required": false
+                },
+                "lme:supersedesFrame": {
+                    "datatype": "uri",
+                    "multi": true,
+                    "required": false
+                },
+                "lme:unit": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "lme:validFrom": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": false
+                },
+                "lme:validUntil": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": false
+                },
+                "prov:wasDerivedFrom": {
+                    "datatype": "uri",
+                    "multi": true,
+                    "required": true
+                }
+            },
+            "rdf_types": [
+                "lme:MemoryFrame",
+                "prov:Entity"
+            ],
+            "subject_rule": "{graph_subject}:projection:lme-labeled-memory:case:{caseId}:frame:{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:lme-labeled-memory",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "Derivation": {
+            "comment": "A latest-value, arithmetic, temporal-distance, contextual-preference, or answer-support step that produces or justifies a frame or answer.",
+            "predicates": {
+                "lme:caseId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "lme:derivationExpression": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "lme:derivationId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "lme:derivationKind": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "lme:runId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "lme:inputFrame": {
+                    "datatype": "uri",
+                    "multi": true,
+                    "required": false
+                },
+                "lme:outputFrame": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false
+                },
+                "lme:outputValue": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "lme:unit": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "prov:wasDerivedFrom": {
+                    "datatype": "uri",
+                    "multi": true,
+                    "required": true
+                }
+            },
+            "rdf_types": [
+                "lme:Derivation",
+                "prov:Activity"
+            ],
+            "subject_rule": "{graph_subject}:projection:lme-labeled-memory:case:{caseId}:derivation:{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:lme-labeled-memory",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "AdjudicationEvent": {
+            "comment": "The verifier/adjudicator decision over a candidate frame or derivation.",
+            "predicates": {
+                "lme:adjudicationId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "lme:caseId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "lme:confidence": {
+                    "datatype": "float",
+                    "multi": false,
+                    "required": false
+                },
+                "lme:decision": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "lme:leakageFlag": {
+                    "datatype": "string",
+                    "multi": true,
+                    "required": false
+                },
+                "lme:rationale": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "lme:runId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "lme:target": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true
+                },
+                "prov:generatedAtTime": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": true
+                }
+            },
+            "rdf_types": [
+                "lme:AdjudicationEvent",
+                "prov:Activity"
+            ],
+            "subject_rule": "{graph_subject}:projection:lme-labeled-memory:case:{caseId}:adjudication:{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "event-id",
+            "store_mode": "materialize",
+            "store_target": "projection:lme-labeled-memory",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "BackprojectionCheck": {
+            "comment": "Evaluation-only check that accepted evidence/frames backproject to LongMemEval answer_session_ids. This is where gold session ids are used.",
+            "predicates": {
+                "lme:caseId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "lme:checkId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "lme:expectedAnswerSessionId": {
+                    "datatype": "string",
+                    "multi": true,
+                    "required": true
+                },
+                "lme:runId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "lme:observedSessionId": {
+                    "datatype": "string",
+                    "multi": true,
+                    "required": true
+                },
+                "lme:passed": {
+                    "datatype": "boolean",
+                    "multi": false,
+                    "required": true
+                },
+                "lme:target": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false
+                },
+                "prov:generatedAtTime": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": true
+                }
+            },
+            "rdf_types": [
+                "lme:BackprojectionCheck",
+                "prov:Entity"
+            ],
+            "subject_rule": "{graph_subject}:projection:lme-labeled-memory:case:{caseId}:backprojection:{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:lme-labeled-memory",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        }
+    },
+    "comment": "LongMemEval labeled-memory calibration vocabulary. A frame-first Meaningful Object for evidence-backed, adjudicated memory labels: extractors emit compact frames, Garden stores inspectable RDF, and KG-ULTRA can later score candidate neighborhoods over this graph. Gold answer-session ids are evaluation labels only, never extraction evidence.",
+    "description": "Frame-first labeled-memory records for LongMemEval: question cases, compact packets, evidence spans, concept cues, observations, memory frames, derivations, adjudications, and answer-session backprojection checks.",
+    "name": "lme-labeled-memory",
+    "namespaces": {
+        "dcterms": "http://purl.org/dc/terms/",
+        "lme": "http://mnemosyne.dev/longmemeval#",
+        "oa": "http://www.w3.org/ns/oa#",
+        "prov": "http://www.w3.org/ns/prov#",
+        "skos": "http://www.w3.org/2004/02/skos/core#",
+        "sosa": "http://www.w3.org/ns/sosa/",
+        "xsd": "http://www.w3.org/2001/XMLSchema#"
+    },
+    "primary_prefix": "lme",
+    "title": "LongMemEval Labeled Memory Vocabulary",
+    "version": "0.1.0",
+    "write_target": "projection:lme-labeled-memory"
+}

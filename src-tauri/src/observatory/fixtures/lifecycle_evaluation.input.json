@@ -1,0 +1,170 @@
+{
+  "_comment": "HAND-AUTHORED fixture, not a literal `pn-observatory lifecycle` execution -- see mapping.rs test module doc comment for why (machine_runs_v1.sql / fleet_summary_v1.sql, the DuckDB fold queries, live in platform-next and are not available to compile/run from this repo). Every identity/value field below (run_id, machine_id, graph_id, pod_name, pod_uid, boot/durability timings+ids, and the sequence_gaps entry) is copied byte-for-byte from the REAL CaptureEvent lines in fixtures/valid.ndjson (the organism-dev/01J0000000000000000000000R full spawn->boot->drain->quiesce->flush->terminal->reap lifecycle, the create-failure/01J0000000000000000000000T failed spawn attempt, and the obs.gap event). The two content-hash subjects (source_snapshot, fleet) and the capacity-estimate subject are self-consistent placeholders (real sha256 hex, not reverse-engineered from a real body) since content_subject() is a projector-internal helper this pure module never calls. This is the input to map_lifecycle; mapping.rs's own tests assert the output against the checked-in golden .nt.",
+  "object_type": "LifecycleProjectionEvaluation",
+  "schema_version": 1,
+  "projection_definition": "urn:sophia:observatory:projection:machine_lifecycle_v1",
+  "environment_id": "cloud-2-local",
+  "evaluated_at": "2026-07-15T12:00:00.000Z",
+  "as_of": "2026-07-15T12:00:00.000Z",
+  "projected_through": "2026-07-15T09:00:00.018Z",
+  "outcome": "ok",
+  "computation_status": "ok",
+  "projection": {
+    "definition": "urn:sophia:observatory:projection:machine_lifecycle_v1",
+    "machine_runs_query_sha256": "351cf4a00adc39b776e992e7e8bce34c352bb5416febf059fb44c257d97f9f46",
+    "fleet_summary_query_sha256": "08cc6b908b544cd01e9a47485a5026b00fd7b62720918f094ed78a07dc25426a",
+    "engine": { "name": "duckdb", "version": "1.5.4" }
+  },
+  "source_snapshot": {
+    "object_type": "SourceSnapshot",
+    "schema_version": 1,
+    "subject": "urn:sophia:observatory:snapshot:sha256:96308d1b060b30a71897b943e239b43321b58e7057c8d90a82f5ad73d8e0d7cf",
+    "source_system": "observatory-ledger",
+    "source_authority": "validated immutable CaptureEvent NDJSON snapshot",
+    "source_ref": "fixture://lifecycle/valid.ndjson",
+    "captured_at": "2026-07-15T09:00:00.000Z",
+    "sha256": "96308d1b060b30a71897b943e239b43321b58e7057c8d90a82f5ad73d8e0d7cf",
+    "bytes": 14573,
+    "line_count": 36,
+    "unique_event_count": 36
+  },
+  "machine_runs": [
+    {
+      "object_type": "MachineRunProjection",
+      "schema_version": 1,
+      "subject": "urn:sophia:machine-run:cloud-2-local:01J0000000000000000000000R",
+      "projection_definition": "urn:sophia:observatory:projection:machine_lifecycle_v1",
+      "as_of": "2026-07-15T12:00:00.000Z",
+      "run_id": "01J0000000000000000000000R",
+      "machine": "urn:sophia:machine:cloud-2-local:garden-cell:organism-dev",
+      "machine_id": "cell:organism-dev",
+      "graph_id": "organism-dev",
+      "run_state": "http://mnemosyne.dev/machine#Succeeded",
+      "started_at": "2026-07-15T09:00:00.010Z",
+      "first_observed_at": "2026-07-15T09:00:00.009Z",
+      "ended_at": "2026-07-15T09:00:00.016Z",
+      "runtime_ms": 6,
+      "placement": { "pod_name": "garden-organism-dev", "pod_uid": "a1b2c3d4-e5f6" },
+      "boot": {
+        "mode": "restored",
+        "ready_at": "2026-07-15T09:00:00.012Z",
+        "duration_ms": 812,
+        "hydrate_ms": 641,
+        "setup_ms": 171,
+        "snapshot_id": "snap-000042",
+        "hydrated_bytes": 40960
+      },
+      "stop": {
+        "reason": "idle",
+        "draining_at": "2026-07-15T09:00:00.013Z",
+        "quiesced_at": "2026-07-15T09:00:00.014Z",
+        "quiesce_timed_out": false,
+        "idle_ms": 900000,
+        "outstanding": { "requests": 0, "websockets": 0, "jobs": 0, "leases": 0 }
+      },
+      "durability": {
+        "final_flush": "completed",
+        "snapshot_id": "snap-000043",
+        "published": true,
+        "duration_ms": 92,
+        "bytes": 8192,
+        "error_code": null
+      },
+      "evidence": {
+        "source_snapshot": "urn:sophia:observatory:snapshot:sha256:96308d1b060b30a71897b943e239b43321b58e7057c8d90a82f5ad73d8e0d7cf",
+        "projection_definition": "urn:sophia:observatory:projection:machine_lifecycle_v1",
+        "event_ids": [
+          "01J00000000000000000000009",
+          "01J0000000000000000000000A",
+          "01J0000000000000000000000B",
+          "01J0000000000000000000000C",
+          "01J0000000000000000000000E",
+          "01J0000000000000000000000F",
+          "01J0000000000000000000000D",
+          "01J0000000000000000000000G",
+          "01J0000000000000000000000H"
+        ],
+        "event_count": 9
+      }
+    }
+  ],
+  "spawn_attempts": [
+    {
+      "object_type": "SpawnAttemptProjection",
+      "schema_version": 1,
+      "subject": "urn:sophia:observatory:spawn-attempt:cloud-2-local:01J0000000000000000000000T",
+      "projection_definition": "urn:sophia:observatory:projection:machine_lifecycle_v1",
+      "as_of": "2026-07-15T12:00:00.000Z",
+      "candidate_run_id": "01J0000000000000000000000T",
+      "machine": "urn:sophia:machine:cloud-2-local:garden-cell:create-failure",
+      "machine_id": "cell:create-failure",
+      "graph_id": "create-failure",
+      "state": "failed",
+      "requested_at": "2026-07-15T09:00:00.018Z",
+      "last_observed_at": "2026-07-15T09:00:00.018Z",
+      "evidence": {
+        "source_snapshot": "urn:sophia:observatory:snapshot:sha256:96308d1b060b30a71897b943e239b43321b58e7057c8d90a82f5ad73d8e0d7cf",
+        "projection_definition": "urn:sophia:observatory:projection:machine_lifecycle_v1",
+        "event_ids": ["01J0000000000000000000000J"],
+        "event_count": 1
+      }
+    }
+  ],
+  "fleet": {
+    "object_type": "FleetObservation",
+    "schema_version": 1,
+    "subject": "urn:sophia:observatory:fleet-observation:sha256:e8b06d751ef179c6f48c031333a82902b8c7e745ee23823d94832bb6a4e85ff3",
+    "environment_id": "cloud-2-local",
+    "as_of": "2026-07-15T12:00:00.000Z",
+    "candidate_count": 2,
+    "run_count": 1,
+    "unmaterialized_attempts": 1,
+    "active_runs": 0,
+    "cold_or_starting_runs": 0,
+    "draining_runs": 0,
+    "failed_runs": 0,
+    "failed_attempts": 1,
+    "succeeded_runs": 1,
+    "created_runs": 0,
+    "failed_final_flushes": 0,
+    "unobserved_final_flushes": 0,
+    "cold_start_p50_ms": 812,
+    "cold_start_p95_ms": 812,
+    "hydrate_p50_ms": 641,
+    "hydrate_p95_ms": 641,
+    "final_flush_p50_ms": 92,
+    "final_flush_p95_ms": 92,
+    "observed_runtime_ms": 6,
+    "observed_through": "2026-07-15T09:00:00.018Z",
+    "source_snapshot": "urn:sophia:observatory:snapshot:sha256:96308d1b060b30a71897b943e239b43321b58e7057c8d90a82f5ad73d8e0d7cf"
+  },
+  "sequence_gaps": [
+    {
+      "witness": "cell:gardend-a/01J0000000000000000000000C",
+      "expected_seq": 7,
+      "observed_seq": 9,
+      "gap_count": 2
+    }
+  ],
+  "capacity_estimate": {
+    "object_type": "CapacityEstimate",
+    "schema_version": 1,
+    "subject": "urn:sophia:observatory:capacity-estimate:sha256:ee29dafa543191cd576b2bcb3637b769e5f951f94f350a287a3f1fb6aa1d5139",
+    "environment_id": "cloud-2-local",
+    "as_of": "2026-07-15T12:00:00.000Z",
+    "target_idle_ttl_seconds": 900,
+    "resource_shape": { "memory_gib": 2.0, "cpu_cores": 1.0 },
+    "rates_usd": { "memory_gib_hour": 0.0125, "cpu_core_hour": 0.045 },
+    "coverage": { "materialized_runs": 1, "runtime_observed_runs": 1, "idle_terminated_runs": 1 },
+    "observed_runtime_hours": 0.0000016667,
+    "estimated_runtime_hours": 0.2502777778,
+    "estimated_compute_usd": 0.0188263889,
+    "assumptions": [
+      "first-order fixed-run-topology estimate",
+      "idle tail equals testified idle_ms",
+      "does not model reconnects that would merge or split runs under a different TTL",
+      "excludes storage, network, control-plane, and node-bin-packing costs"
+    ],
+    "source_snapshot": "urn:sophia:observatory:snapshot:sha256:96308d1b060b30a71897b943e239b43321b58e7057c8d90a82f5ad73d8e0d7cf"
+  }
+}

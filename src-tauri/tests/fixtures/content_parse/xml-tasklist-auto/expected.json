@@ -1,0 +1,48 @@
+{
+  "tiptapJson": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "listItem",
+        "attrs": {
+          "checked": true,
+          "listType": "task",
+          "indent": 0
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "done item"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "listItem",
+        "attrs": {
+          "listType": "task",
+          "indent": 0,
+          "checked": false
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "todo item"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "derivedTitle": null,
+  "sourceFormat": "xml",
+  "warnings": []
+}

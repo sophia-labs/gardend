@@ -1,0 +1,675 @@
+{
+  "schemaVersion": 2,
+  "description": "Contract coverage for local-native hosted API and MCP parity. Classification says whether a surface exists; contract axes say whether the schema is accepted, semantics are accepted or explicitly deferred, and the surface is enabled by default.",
+  "statusValues": [
+    "accepted",
+    "deferred",
+    "local-only",
+    "not-applicable"
+  ],
+  "routeContractGroups": [
+    {
+      "name": "loopback-health",
+      "status": "accepted",
+      "ownerAdapter": "Rust loopback health endpoint",
+      "schema": "parity/local-openapi.json",
+      "liveProbe": "parity:loopback startup health check",
+      "routes": [
+        "GET /health"
+      ],
+      "schemaStatus": "accepted",
+      "semanticStatus": "accepted",
+      "exposure": "enabled"
+    },
+    {
+      "name": "graph-job-facade",
+      "status": "accepted",
+      "ownerAdapter": "Rust loopback graph job facade over local graph catalog and Oxigraph store cache",
+      "schema": "parity/local-openapi.json",
+      "liveProbe": "parity:loopback graph list/job probes and parity:compare shared graph probes",
+      "routes": [
+        "GET /graphs",
+        "GET /graphs/catalog",
+        "POST /graphs",
+        "GET /graphs/jobs/{job_id}",
+        "DELETE /graphs/jobs/{job_id}",
+        "GET /graphs/jobs/{job_id}/result"
+      ],
+      "schemaStatus": "accepted",
+      "semanticStatus": "accepted",
+      "exposure": "enabled"
+    },
+    {
+      "name": "sparql-admission",
+      "status": "accepted",
+      "ownerAdapter": "Rust shared SPARQL admission boundary over Oxigraph and the graph persistence coordinator",
+      "schema": "parity/local-openapi.json plus parity/route-envelope-snapshot.json",
+      "liveProbe": "parity:loopback direct SPARQL and MCP query probes",
+      "note": "Query aliases share bounded admission, blocking execution, graph lifecycle fencing, server-clamped deadlines/results, and cooperative engine cancellation. Update aliases share admission/fencing and await the real commit; timeout controls are explicitly refused until all Oxigraph update forms are transaction-safely cancellable.",
+      "routes": [
+        "POST /graphs/query",
+        "POST /api/graphs/query",
+        "POST /api/sparql/query",
+        "POST /graphs/update",
+        "POST /api/graphs/update",
+        "POST /api/sparql/update"
+      ],
+      "schemaStatus": "accepted",
+      "semanticStatus": "accepted",
+      "exposure": "enabled"
+    },
+    {
+      "name": "graph-metadata-facade",
+      "status": "accepted",
+      "ownerAdapter": "Rust loopback graph metadata aliases over local graph manifests and local job records",
+      "schema": "parity/local-openapi.json",
+      "liveProbe": "parity:loopback graphMetadata section",
+      "note": "Read/update/delete metadata aliases are live-tested through hosted-shaped local job records.",
+      "routes": [
+        "GET /graphs/{graph_id}",
+        "PUT /graphs/{graph_id}",
+        "DELETE /graphs/{graph_id}"
+      ],
+      "schemaStatus": "accepted",
+      "semanticStatus": "accepted",
+      "exposure": "enabled"
+    },
+    {
+      "name": "graph-support-aliases",
+      "status": "accepted",
+      "ownerAdapter": "Rust loopback graph support aliases over local graph manifests, local job records, RDF stores, and profile storage accounting",
+      "schema": "parity/local-openapi.json plus parity/route-envelope-snapshot.json",
+      "liveProbe": "parity:loopback graphSupportAliases section",
+      "note": "Duplicate flushes pending local CRDT state before copying graph directories and rematerializing RDF. Stats aggregate active local graph quad counts. Preflight mirrors the hosted allowed/storage envelope with unlimited local-profile limits and dev simulation support.",
+      "routes": [
+        "POST /graphs/{graph_id}/duplicate",
+        "GET /graphs/stats",
+        "POST /graphs/{graph_id}/documents/preflight"
+      ],
+      "schemaStatus": "accepted",
+      "semanticStatus": "accepted",
+      "exposure": "enabled"
+    },
+    {
+      "name": "graph-analytics-facade",
+      "status": "accepted",
+      "ownerAdapter": "Rust loopback graph analytics aliases over local RDF projections",
+      "schema": "parity/local-openapi.json",
+      "liveProbe": "parity:loopback graphAnalytics section",
+      "note": "Summary, properties, and viz are derived synchronously from the local per-graph RDF store; hosted job/offload behavior remains intentionally collapsed for local reads.",
+      "routes": [
+        "GET /graphs/{graph_id}/summary",
+        "GET /graphs/{graph_id}/viz",
+        "GET /graphs/{graph_id}/properties"
+      ],
+      "schemaStatus": "accepted",
+      "semanticStatus": "accepted",
+      "exposure": "enabled"
+    },
+    {
+      "name": "graph-export-facade",
+      "status": "accepted",
+      "ownerAdapter": "Rust loopback graph export alias over local RDF dump plus local job records",
+      "schema": "parity/local-openapi.json",
+      "liveProbe": "parity:loopback graphExport section",
+      "note": "RDF export is live-tested end-to-end through the local job result facade; the probe verifies job envelope shape, TriG result format, quad count, and the /navigation job-result alias. Artifact bundle export remains unsupported and returns a stable 400 (intentional, not a parity gap).",
+      "routes": [
+        "POST /graphs/{graph_id}/export"
+      ],
+      "schemaStatus": "accepted",
+      "semanticStatus": "accepted",
+      "exposure": "enabled"
+    },
+    {
+      "name": "graph-archive-import-facade",
+      "status": "accepted",
+      "ownerAdapter": "Rust loopback graph archive multipart/job alias plus NativeLocalRuntime mnemosyne-graph-export archive replay over local CRDT document/workspace materialization and RDF loading",
+      "schema": "parity/local-openapi.json plus parity/route-envelope-snapshot.json",
+      "liveProbe": "parity:loopback graphArchiveImport section",
+      "note": "The live probe builds a hosted-shaped mnemosyne-graph-export .tar.gz from real local workspace/document Y.Doc blobs, imports it into a new graph, and verifies graph metadata, workspace documents, document content, RDF sentinel visibility, route-level non-gzip 400 behavior, and worker-style corrupt gzip job failure. Large-archive offload/progress/cancellation and artifact bundle import are separate Phase 4 work, not gaps in the small-archive parser contract.",
+      "routes": [
+        "POST /graphs/import"
+      ],
+      "schemaStatus": "accepted",
+      "semanticStatus": "accepted",
+      "exposure": "enabled"
+    },
+    {
+      "name": "graph-rdf-import-facade",
+      "status": "accepted",
+      "ownerAdapter": "Rust loopback graph RDF import alias over multipart upload parsing, local RDF loading, and local job records",
+      "schema": "parity/local-openapi.json plus parity/route-envelope-snapshot.json",
+      "liveProbe": "parity:loopback graphRdfImport section",
+      "note": "The live probe covers Turtle multipart upload, extension-based MIME detection, job result retrieval, actual triple visibility in the local RDF store, and undetectable-format 400 behavior. Large-file offload/progress and vault/web imports remain separate Phase 4 work.",
+      "routes": [
+        "POST /graphs/{graph_id}/imports/rdf"
+      ],
+      "schemaStatus": "accepted",
+      "semanticStatus": "accepted",
+      "exposure": "enabled"
+    },
+    {
+      "name": "graph-vault-import-facade",
+      "status": "accepted",
+      "ownerAdapter": "Rust loopback multipart/job aliases plus NativeLocalRuntime ZIP import parser over local CRDT document, workspace, and wire authority",
+      "schema": "parity/local-openapi.json plus parity/route-envelope-snapshot.json",
+      "liveProbe": "parity:loopback graphVaultImport section",
+      "note": "The live probe covers deterministic Obsidian, Notion, and Roam archive semantics: ZIP-only route validation, root folder handling, markdown/page creation, CSV/database conversion, daily-note folders, wikilink/tag wire counts, tag hub documents, unresolved link warnings, and invalid ZIP warning behavior. Large-archive worker/offload/progress/cancellation is separate Phase 4 work, not a gap in the deterministic parser contract being tested.",
+      "routes": [
+        "POST /graphs/{graph_id}/imports/obsidian",
+        "POST /graphs/{graph_id}/imports/notion",
+        "POST /graphs/{graph_id}/imports/roam"
+      ],
+      "schemaStatus": "accepted",
+      "semanticStatus": "accepted",
+      "exposure": "enabled"
+    },
+    {
+      "name": "graph-web-import-facades",
+      "status": "deferred",
+      "ownerAdapter": "Rust loopback JSON routes plus NativeLocalRuntime local Markdown write path",
+      "schema": "parity/local-openapi.json",
+      "liveProbe": "parity:loopback graphWebImports section",
+      "note": "Default-secure web clip guard (private/local network blocking), hosted ImportResponse error aliases, and deterministic YouTube validation errors are live-tested. Successful clip/YouTube import remains deferred because the success path depends on public network reachability, live upstream page shape, caption API availability, and SSRF redirect blocking — none reliably assertable in CI without external mocks. To accept: add a fixture-server harness that serves a stable HTML page and a stub captions response.",
+      "routes": [
+        "POST /graphs/{graph_id}/imports/clip",
+        "POST /graphs/{graph_id}/imports/youtube"
+      ],
+      "schemaStatus": "accepted",
+      "semanticStatus": "deferred",
+      "exposure": "enabled"
+    },
+    {
+      "name": "document-read-aliases",
+      "status": "accepted",
+      "ownerAdapter": "Rust loopback hosted document aliases over local document projections",
+      "schema": "parity/local-openapi.json",
+      "liveProbe": "parity:loopback hostedAliases and readAdapters sections",
+      "routes": [
+        "GET /documents/{graph_id}",
+        "GET /documents/{graph_id}/{doc_id}",
+        "GET /documents/{graph_id}/{doc_id}/blocks",
+        "GET /documents/{graph_id}/{doc_id}/block-context"
+      ],
+      "schemaStatus": "accepted",
+      "semanticStatus": "accepted",
+      "exposure": "enabled"
+    },
+    {
+      "name": "document-export-aliases",
+      "status": "accepted",
+      "ownerAdapter": "Rust loopback hosted raw export alias over local document projections",
+      "schema": "parity/local-openapi.json",
+      "liveProbe": "parity:loopback documentExport section",
+      "note": "Markdown, XML, and HTML exports are generated synchronously from the local projection; HTML theming is lightweight local styling rather than the full hosted converter pipeline.",
+      "routes": [
+        "GET /documents/{graph_id}/{doc_id}/export"
+      ],
+      "schemaStatus": "accepted",
+      "semanticStatus": "accepted",
+      "exposure": "enabled"
+    },
+    {
+      "name": "document-ydoc-blob-aliases",
+      "status": "accepted",
+      "ownerAdapter": "Rust loopback hosted Y.Doc blob aliases over local profile CRDT state files",
+      "schema": "parity/local-openapi.json",
+      "liveProbe": "parity:loopback documentBlobs section",
+      "note": "Workspace and document blob routes stream local Y.Doc update bytes directly; Redis/S3 source headers collapse to local-file or manifest.",
+      "routes": [
+        "GET /documents/{graph_id}/workspace/blob",
+        "GET /documents/{graph_id}/{doc_id}/blob"
+      ],
+      "schemaStatus": "accepted",
+      "semanticStatus": "accepted",
+      "exposure": "enabled"
+    },
+    {
+      "name": "document-crdt-mutations",
+      "status": "accepted",
+      "ownerAdapter": "Rust loopback hosted document aliases enqueue document/workspace CRDT operations drained by NativeLocalRuntime",
+      "schema": "parity/local-openapi.json",
+      "liveProbe": "parity:loopback documentWriteSmokeMs and parity:compare --include-mutations",
+      "note": "Whole-document write/delete, duplicate (with job polling), flush (return envelope), and PATCH /description (RDF materialization) are live-tested with full write→read→verify roundtrip. Deep document fixture coverage (nested indents, complex marks, comment interactions) is Phase 3 fixture work, not a gap in the basic mutation contract.",
+      "routes": [
+        "PUT /documents/{graph_id}/{doc_id}",
+        "DELETE /documents/{graph_id}/{doc_id}",
+        "PATCH /documents/{graph_id}/{doc_id}/description",
+        "POST /documents/{graph_id}/{doc_id}/duplicate",
+        "POST /documents/{graph_id}/{doc_id}/flush"
+      ],
+      "schemaStatus": "accepted",
+      "semanticStatus": "accepted",
+      "exposure": "enabled"
+    },
+    {
+      "name": "document-history-aliases",
+      "status": "accepted",
+      "ownerAdapter": "Rust loopback /v1 document snapshot aliases over append-only per-document local snapshot stores",
+      "schema": "parity/local-openapi.json plus parity/route-envelope-snapshot.json",
+      "liveProbe": "parity:loopback documentHistoryApi section",
+      "note": "List/count/text/html/manual-save/copy/delete aliases use the same durable local snapshot store as MCP history. Automatic snapshots are protected from deletion; manual snapshots and copied snapshots can be deleted. Restore-point time-travel remains separate graph-level route work.",
+      "routes": [
+        "GET /v1/documents/{graph_id}/{doc_id}/snapshots",
+        "POST /v1/documents/{graph_id}/{doc_id}/snapshots",
+        "GET /v1/documents/{graph_id}/{doc_id}/snapshots/count",
+        "GET /v1/documents/{graph_id}/{doc_id}/snapshots/{snapshot_id}/html",
+        "GET /v1/documents/{graph_id}/{doc_id}/snapshots/{snapshot_id}/text",
+        "POST /v1/documents/{graph_id}/{doc_id}/snapshots/{snapshot_id}/copy",
+        "DELETE /v1/documents/{graph_id}/{doc_id}/snapshots/{snapshot_id}"
+      ],
+      "schemaStatus": "accepted",
+      "semanticStatus": "accepted",
+      "exposure": "enabled"
+    },
+    {
+      "name": "entity-crdt-aliases",
+      "status": "accepted",
+      "ownerAdapter": "Rust loopback generic entity aliases over local document projections plus workspace folder/artifact CRDT operations",
+      "schema": "parity/local-openapi.json plus parity/route-envelope-snapshot.json",
+      "liveProbe": "parity:loopback entityAliases section",
+      "note": "The old hosted route used generic RDF entity handlers; local-native keeps the same document/folder/artifact envelopes while routing mutations through the canonical Y.Doc/document runtime. The live probe covers metadata, pagination, get, typed PUT, hosted-required validation, document revision conflict, folder non-empty 409, and delete envelopes.",
+      "routes": [
+        "GET /entities/entity-types",
+        "GET /entities/{graph_id}/{entity_type}",
+        "GET /entities/{graph_id}/{entity_type}/{entity_id}",
+        "PUT /entities/{graph_id}/{entity_type}/{entity_id}",
+        "DELETE /entities/{graph_id}/{entity_type}/{entity_id}"
+      ],
+      "schemaStatus": "accepted",
+      "semanticStatus": "accepted",
+      "exposure": "enabled"
+    },
+    {
+      "name": "artifact-original-downloads",
+      "status": "accepted",
+      "ownerAdapter": "Rust loopback original-byte store under local graph/document artifact directories",
+      "schema": "parity/local-openapi.json",
+      "liveProbe": "parity:loopback artifactMutations and upload download checks",
+      "routes": [
+        "GET /artifacts/{graph_id}/documents/{document_id}/download-original",
+        "GET /artifacts/{graph_id}/{artifact_id}/download"
+      ],
+      "schemaStatus": "accepted",
+      "semanticStatus": "accepted",
+      "exposure": "enabled"
+    },
+    {
+      "name": "artifact-import-convert-aliases",
+      "status": "accepted",
+      "ownerAdapter": "Rust loopback artifact aliases over local original-byte records plus desktop document.uploadIngest and workspace CRDT operations",
+      "schema": "parity/local-openapi.json plus parity/route-envelope-snapshot.json",
+      "liveProbe": "parity:loopback artifactRouteImportConvert section",
+      "note": "The live probe covers hosted body defaults, useYdocPath flag acceptance, fallback title extension stripping, editable import parent/link/status semantics, read-only hidden document/link/status semantics, convert's response-title-only behavior, and the no-stored-file 400. Accurate/OCR PDF ingestion remains a separate Phase 4 concern.",
+      "routes": [
+        "POST /artifacts/{graph_id}/{artifact_id}/import",
+        "POST /artifacts/{graph_id}/{artifact_id}/convert"
+      ],
+      "schemaStatus": "accepted",
+      "semanticStatus": "accepted",
+      "exposure": "enabled"
+    },
+    {
+      "name": "artifact-pdf-accurate-facade",
+      "status": "accepted",
+      "ownerAdapter": "Rust hosted pdf-accurate route over local job records, prepared Python/Docling conversion, and the desktop optimized PDF fast-text fallback",
+      "schema": "parity/local-openapi.json plus parity/route-envelope-snapshot.json",
+      "liveProbe": "parity:loopback artifactPdfAccurate section",
+      "note": "The live probe covers hosted multipart validation, 202 jobId/documentId envelope shape, graph job result retrieval, original-byte persistence, read-only document creation, and runtime-gated result metadata. Docling availability is gated and reported explicitly via the localFallback/pdf.fast-text result field; the fallback path is deterministic and tested. The accurate-mode runtime presence is an environment dependency, not a parity gap.",
+      "routes": [
+        "POST /artifacts/{graph_id}/ingest/pdf-accurate"
+      ],
+      "schemaStatus": "accepted",
+      "semanticStatus": "accepted",
+      "exposure": "enabled"
+    },
+    {
+      "name": "artifact-ingestion-and-images",
+      "status": "deferred",
+      "ownerAdapter": "Rust multipart loopback plus JS parser/CRDT runtime and local original-byte adoption",
+      "schema": "parity/local-openapi.json",
+      "liveProbe": "parity:loopback artifactUpload, artifactFormatUpload, artifactBatchUpload, and artifactImageUpload sections",
+      "note": "Markdown/HTML/EPUB/image upload, batch prepare/register, and signed image fetch are live-tested. Searchable-PDF and OCR-typed binary ingestion remain deferred because they depend on the Docling runtime (and bundled OCR back-end) which is not yet packaged with the desktop build. Async job offload deep-fixture coverage (abort/timeout scenarios) is Phase 3 fixture work tracked separately.",
+      "routes": [
+        "POST /artifacts/{graph_id}/batch/prepare",
+        "POST /artifacts/{graph_id}/batch/register",
+        "POST /artifacts/{graph_id}/upload",
+        "POST /artifacts/{graph_id}/images/upload",
+        "GET /artifacts/{graph_id}/images/{image_id}"
+      ],
+      "schemaStatus": "accepted",
+      "semanticStatus": "deferred",
+      "exposure": "enabled"
+    },
+    {
+      "name": "navigation-read-aliases",
+      "status": "accepted",
+      "ownerAdapter": "Rust loopback navigation aliases over materialized workspace Y.Doc snapshot",
+      "schema": "parity/local-openapi.json",
+      "liveProbe": "parity:loopback hostedAliases navigation/folder/artifact checks",
+      "routes": [
+        "GET /navigation/{graph_id}",
+        "GET /navigation/{graph_id}/job-result/{job_id}",
+        "GET /navigation/{graph_id}/folders",
+        "GET /navigation/{graph_id}/folders/{folder_id}",
+        "GET /navigation/{graph_id}/artifacts",
+        "GET /navigation/{graph_id}/artifacts/{artifact_id}"
+      ],
+      "schemaStatus": "accepted",
+      "semanticStatus": "accepted",
+      "exposure": "enabled"
+    },
+    {
+      "name": "navigation-mutations",
+      "status": "accepted",
+      "ownerAdapter": "Rust loopback hosted navigation aliases enqueue workspace CRDT artifact/folder mutations",
+      "schema": "parity/local-openapi.json",
+      "liveProbe": "parity:loopback navigationFolder, artifact metadata, and batch cleanup checks",
+      "note": "Basic folder/artifact mutation adapters are tested; deeper non-empty folder and move semantics remain Phase 1.",
+      "routes": [
+        "PUT /navigation/{graph_id}/folders/{folder_id}",
+        "DELETE /navigation/{graph_id}/folders/{folder_id}",
+        "PUT /navigation/{graph_id}/artifacts/{artifact_id}",
+        "DELETE /navigation/{graph_id}/artifacts/{artifact_id}"
+      ],
+      "schemaStatus": "accepted",
+      "semanticStatus": "accepted",
+      "exposure": "enabled"
+    },
+    {
+      "name": "search-aliases",
+      "status": "deferred",
+      "ownerAdapter": "Rust loopback hosted search aliases over local lexical projections and optional fastembed index",
+      "schema": "parity/local-openapi.json",
+      "liveProbe": "parity:loopback hostedAliases search and MCP write search visibility checks",
+      "note": "Lexical visibility, /search/blocks, local RDF rematerialization, the reindex alias, and the semantic setup-required gate are covered. The hybrid arm (/search/hybrid) is exercised but lacks deep assertions on lexical+semantic result blending, score ordering, and min_score filtering — promotable with a ~1-2 hour probe extension once the prepared local fastembed index is part of the parity fixture setup.",
+      "routes": [
+        "POST /search",
+        "POST /search/blocks",
+        "POST /search/hybrid",
+        "POST /search/rematerialize",
+        "POST /search/reindex"
+      ],
+      "schemaStatus": "accepted",
+      "semanticStatus": "deferred",
+      "exposure": "enabled"
+    },
+    {
+      "name": "salience-value-routes",
+      "status": "accepted",
+      "ownerAdapter": "Rust loopback salience aliases over the durable local value store",
+      "schema": "parity/local-openapi.json",
+      "liveProbe": "parity:loopback mcpValuationAdapters section",
+      "note": "The live probe covers legacy valuation semantics: raw sums, log2 cumulative values, active forgetting by raw importance decay, duplicate batch accumulation, partial batch errors, replaceable user overlays, config patching, and RDF materialization.",
+      "routes": [
+        "GET /salience/{graph_id}/blocks/values",
+        "POST /salience/{graph_id}/blocks/value",
+        "PUT /salience/{graph_id}/blocks/user-value",
+        "PATCH /salience/{graph_id}/config"
+      ],
+      "schemaStatus": "accepted",
+      "semanticStatus": "accepted",
+      "exposure": "enabled"
+    },
+    {
+      "name": "wire-read-aliases",
+      "status": "accepted",
+      "ownerAdapter": "Rust loopback wire aliases over materialized workspace wire snapshot",
+      "schema": "parity/local-openapi.json",
+      "liveProbe": "parity:loopback readAdapters, hostedAliases, and wireMutations post-read checks",
+      "routes": [
+        "GET /wires/{graph_id}/predicates",
+        "GET /wires/{graph_id}/document/{document_id}/bundle",
+        "GET /wires/{graph_id}/document/{document_id}/outgoing",
+        "GET /wires/{graph_id}/document/{document_id}/incoming",
+        "GET /wires/{graph_id}/document/{document_id}/wired-blocks",
+        "GET /wires/{graph_id}/document/{document_id}/has-incoming"
+      ],
+      "schemaStatus": "accepted",
+      "semanticStatus": "accepted",
+      "exposure": "enabled"
+    },
+    {
+      "name": "wire-crdt-mutations",
+      "status": "accepted",
+      "ownerAdapter": "Rust loopback wire aliases enqueue workspace wire CRDT operations",
+      "schema": "parity/local-openapi.json",
+      "liveProbe": "parity:loopback wireMutations section",
+      "note": "Create/refresh/delete are smoke-tested; traversal, inverse, tombstone, and history semantics remain Phase 1/2.",
+      "routes": [
+        "POST /wires/{graph_id}/document/{document_id}",
+        "POST /wires/{graph_id}/{wire_id}/refresh",
+        "DELETE /wires/{graph_id}/{wire_id}"
+      ],
+      "schemaStatus": "accepted",
+      "semanticStatus": "accepted",
+      "exposure": "enabled"
+    }
+  ],
+  "mcpToolContractGroups": [
+    {
+      "name": "mcp-read-search-rdf-core",
+      "status": "accepted",
+      "ownerAdapter": "Rust MCP tools over local graph catalog, document projections, workspace snapshot, lexical search, and Oxigraph",
+      "schema": "live tools/list inputSchema plus parity/mcp-tool-schema-snapshot.json",
+      "liveProbe": "parity:loopback tools/list, readAdapters, hostedAliases, and MCP search visibility checks",
+      "note": "Raw SPARQL query uses shared bounded admission, server-clamped timeout/row controls, and Oxigraph cancellation. Raw update shares admission and graph lifecycle fencing but intentionally exposes no timeout until update cancellation is transaction-safe.",
+      "tools": [
+        "list_graphs",
+        "get_workspace",
+        "read_document",
+        "read_blocks",
+        "document_digest",
+        "get_block",
+        "query_blocks",
+        "search_documents",
+        "search_blocks",
+        "list_wire_predicates",
+        "get_wires",
+        "sparql_query",
+        "sparql_update"
+      ],
+      "schemaStatus": "accepted",
+      "semanticStatus": "accepted",
+      "exposure": "enabled"
+    },
+    {
+      "name": "mcp-graph-job-adapters",
+      "status": "accepted",
+      "ownerAdapter": "Rust MCP graph/job tools over local graph manifests, Oxigraph queries, semantic-index lifecycle, and the local job registry",
+      "schema": "live tools/list inputSchema plus parity/mcp-tool-schema-snapshot.json",
+      "liveProbe": "parity:loopback mcpGraphJobs section",
+      "note": "Create/update/duplicate/manage are synchronous local provider operations; query_graph returns inline after the shared admitted blocking worker completes. Duplicate flushes the source CRDT state before copying local graph files and rematerializing RDF. manage_graph reads graph metadata, derives local RDF/workspace stats, or soft-deletes the target graph. cancel reports completed local jobs as non-cancellable; reindex returns a setup-required structured result when the embedding model is not prepared.",
+      "tools": [
+        "create_graph",
+        "duplicate_graph",
+        "manage_graph",
+        "update_graph",
+        "query_graph",
+        "cancel_job",
+        "reindex_graph"
+      ],
+      "schemaStatus": "accepted",
+      "semanticStatus": "accepted",
+      "exposure": "enabled"
+    },
+    {
+      "name": "mcp-orientation-adapters",
+      "status": "accepted",
+      "ownerAdapter": "Rust MCP orientation tools over local profile metadata, graph manifests, document projections, and workspace snapshots",
+      "schema": "live tools/list inputSchema plus parity/mcp-tool-schema-snapshot.json",
+      "liveProbe": "parity:loopback mcpOrientation section",
+      "note": "These are local orientation replacements. Song now reads the local narrative store; agent identity remains an explicit local-unavailable field. Recall prefers the local memory queue when memories exist and falls back to recent document previews when the queue is empty.",
+      "tools": [
+        "quick_orient",
+        "context_bundle"
+      ],
+      "schemaStatus": "accepted",
+      "semanticStatus": "accepted",
+      "exposure": "enabled"
+    },
+    {
+      "name": "mcp-memory-store-adapters",
+      "status": "accepted",
+      "ownerAdapter": "Rust MCP memory tools over a durable per-graph local memory queue with RDF materialization",
+      "schema": "live tools/list inputSchema plus parity/mcp-tool-schema-snapshot.json",
+      "liveProbe": "parity:loopback mcpMemoryAdapters section",
+      "note": "The local memory queue matches the useful legacy MCP semantics: numbered append-only remember, recall by recency/number/query, care-aware last_active ordering, archive by keeping the most recently active memories, an archive document for removed memories, and RDF triples for live queue records.",
+      "tools": [
+        "remember",
+        "recall",
+        "care",
+        "archive_memories"
+      ],
+      "schemaStatus": "accepted",
+      "semanticStatus": "accepted",
+      "exposure": "enabled"
+    },
+    {
+      "name": "mcp-narrative-surface-adapters",
+      "status": "accepted",
+      "ownerAdapter": "Rust MCP narrative tools over a durable per-graph local Song store plus local surface title resolution",
+      "schema": "live tools/list inputSchema plus parity/mcp-tool-schema-snapshot.json",
+      "liveProbe": "parity:loopback mcpNarrativeSurface section",
+      "note": "The local Song preserves the useful legacy semantics: seeded narrative orientation, a three-verse rolling window, ejected verse archive document, counterpoints capped at three total voices, coda replacement with eight-ejection lifetime accounting, orientation integration, and RDF triples for active Song verses. surface returns the hosted chat-card envelope and resolves local document titles with document-id fallback.",
+      "tools": [
+        "music",
+        "sing",
+        "surface"
+      ],
+      "schemaStatus": "accepted",
+      "semanticStatus": "accepted",
+      "exposure": "enabled"
+    },
+    {
+      "name": "mcp-document-history-adapters",
+      "status": "accepted",
+      "ownerAdapter": "Rust MCP history tools over append-only per-document local snapshot stores",
+      "schema": "live tools/list inputSchema plus parity/mcp-tool-schema-snapshot.json",
+      "liveProbe": "parity:loopback mcpDocumentHistory section",
+      "note": "Local document saves capture best-effort snapshots with block/character diff metrics, manual-save flags, five hosted-style history tiers, pseudo-logarithmic compaction, markdown snapshot reads, and document-scoped durable payloads. The /v1 document snapshot aliases share this store; restore-point time-travel remains separate route work.",
+      "tools": [
+        "get_document_history",
+        "read_document_at_snapshot"
+      ],
+      "schemaStatus": "accepted",
+      "semanticStatus": "accepted",
+      "exposure": "enabled"
+    },
+    {
+      "name": "mcp-value-store-adapters",
+      "status": "accepted",
+      "ownerAdapter": "Rust MCP value tools over a durable local graph value store with RDF materialization",
+      "schema": "live tools/list inputSchema plus parity/mcp-tool-schema-snapshot.json",
+      "liveProbe": "parity:loopback mcpValuationAdapters section",
+      "note": "Value tools now match legacy local semantics for raw agent sums, log2 cumulative values, active forgetting, partial batch errors, replaceable user overlays through hosted salience, config reads/updates with revaluate archive history, ranked block reads, document digest/context bundle integration, and RDF materialization. Calendar remains a separate deferred surface.",
+      "tools": [
+        "value",
+        "get_values",
+        "revaluate",
+        "get_block_values",
+        "get_important_blocks"
+      ],
+      "schemaStatus": "accepted",
+      "semanticStatus": "accepted",
+      "exposure": "enabled"
+    },
+    {
+      "name": "mcp-workspace-management",
+      "status": "accepted",
+      "ownerAdapter": "Rust MCP workspace management tools over local graph metadata helpers and desktop workspace/document CRDT operations",
+      "schema": "live tools/list inputSchema plus parity/mcp-tool-schema-snapshot.json",
+      "liveProbe": "parity:loopback mcpWorkspaceManagement section",
+      "note": "move_folder and folder/document rename route through workspace CRDT operations; graph rename routes through local graph metadata provider; unified delete dispatches graph/document/folder/block/wire targets to their existing provider or CRDT operation paths.",
+      "tools": [
+        "move_folder",
+        "rename",
+        "delete"
+      ],
+      "schemaStatus": "accepted",
+      "semanticStatus": "accepted",
+      "exposure": "enabled"
+    },
+    {
+      "name": "mcp-wire-adapters",
+      "status": "accepted",
+      "ownerAdapter": "Rust MCP wire tools over desktop workspace wire CRDT operations and persisted workspace snapshots",
+      "schema": "live tools/list inputSchema plus parity/mcp-tool-schema-snapshot.json",
+      "liveProbe": "parity:loopback mcpWireAdapters section",
+      "note": "create_wires queues workspace.createWire through the desktop runtime; traverse_wires performs bounded BFS over active workspace wire snapshots and treats bidirectional wires as traversable both ways.",
+      "tools": [
+        "create_wires",
+        "traverse_wires"
+      ],
+      "schemaStatus": "accepted",
+      "semanticStatus": "accepted",
+      "exposure": "enabled"
+    },
+    {
+      "name": "mcp-artifact-adapters",
+      "status": "accepted",
+      "ownerAdapter": "Rust MCP artifact tools over local original-byte files and the desktop document upload ingestion CRDT operation",
+      "schema": "live tools/list inputSchema plus parity/mcp-tool-schema-snapshot.json",
+      "liveProbe": "parity:loopback mcpArtifactAdapters section",
+      "note": "upload_artifact auto-ingests into a read-only local document and ingest_artifact reuses existing upload documents and legacy artifact original-byte records; both are live-tested through MCP write→read→verify roundtrips that confirm document creation, readOnly transitions, and ingestion metadata. Broader async import/convert jobs (Phase 4) live under separate artifact-pdf-accurate-facade / artifact-ingestion-and-images surfaces.",
+      "tools": [
+        "upload_artifact",
+        "ingest_artifact"
+      ],
+      "schemaStatus": "accepted",
+      "semanticStatus": "accepted",
+      "exposure": "enabled"
+    },
+    {
+      "name": "mcp-workspace-mutations",
+      "status": "accepted",
+      "ownerAdapter": "Rust MCP tools enqueue workspace CRDT operations drained by NativeLocalRuntime",
+      "schema": "live tools/list inputSchema plus parity/mcp-tool-schema-snapshot.json",
+      "liveProbe": "parity:loopback tools/list and workspace mutation smoke through document/artifact flows",
+      "note": "create_folder and move_documents are live-tested through MCP write→read→verify roundtrips. Adjacent rename/move_folder/delete tools live in the accepted mcp-workspace-management surface. Full artifact folder semantics (artifact-typed folder operations) are tracked separately under artifact-ingestion-and-images.",
+      "tools": [
+        "create_folder",
+        "move_documents"
+      ],
+      "schemaStatus": "accepted",
+      "semanticStatus": "accepted",
+      "exposure": "enabled"
+    },
+    {
+      "name": "mcp-document-and-block-mutations",
+      "status": "accepted",
+      "ownerAdapter": "Rust MCP tools enqueue document CRDT operations drained by NativeLocalRuntime",
+      "schema": "live tools/list inputSchema plus parity/mcp-tool-schema-snapshot.json",
+      "liveProbe": "parity:loopback mcpWriteAdapters and blockMutations sections; parity:compare --include-mcp-fidelity/--include-mcp-fixtures",
+      "note": "Local implementation is live and fixture-backed for key block operations, comment set/resolve/delete, and read-only workspace metadata updates, but write_document and deep attrs/calendar coverage are not fully accepted until Phase 3.",
+      "tools": [
+        "write_document",
+        "make_document_editable",
+        "insert_blocks",
+        "update_blocks",
+        "edit_block_text",
+        "edit_comment"
+      ],
+      "schemaStatus": "accepted",
+      "semanticStatus": "accepted",
+      "exposure": "enabled"
+    }
+  ],
+  "schemaStatusValues": [
+    "accepted",
+    "deferred",
+    "not-applicable"
+  ],
+  "semanticStatusValues": [
+    "accepted",
+    "deferred",
+    "local-only",
+    "not-applicable"
+  ],
+  "exposureValues": [
+    "enabled",
+    "local-only",
+    "disabled",
+    "not-applicable"
+  ]
+}

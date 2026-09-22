@@ -1,0 +1,230 @@
+{
+    "classes": {
+        "Intuition": {
+            "comment": "A KG-ULTRA structural intuition event: model-attributed, defeasible testimony over a source graph snapshot. This is the durable Meaningful Object. The service-private ULTRA integer graph, relation graph, tensors, checkpoint state, and caches are deliberately not represented here.",
+            "predicates": {
+                "kgultra:graphId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "the Garden graph id the intuition was computed over"
+                },
+                "kgultra:intuitionId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "stable caller/service id for this intuition event"
+                },
+                "kgultra:modelId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "model/checkpoint family, e.g. ultra_4g"
+                },
+                "kgultra:modelVersion": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false
+                },
+                "kgultra:sourceSnapshotId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "opaque graph/workspace snapshot token used to build the ULTRA input"
+                },
+                "kgultra:taskId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "agent turn, workflow run, or task id that requested the intuition"
+                },
+                "kgultra:taskKind": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "broker-selected oracle task family, for example link-prediction or logical-query-answering"
+                },
+                "kgultra:queryJson": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "compact JSON request summary; not chain-of-thought"
+                },
+                "kgultra:compiledQueryJson": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "Garden broker query plan sent to the oracle service; safe transport/debug shape, not hidden reasoning"
+                },
+                "kgultra:generatedAt": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": true
+                },
+                "kgultra:hasCandidate": {
+                    "datatype": "uri",
+                    "multi": true,
+                    "required": false,
+                    "source": "candidate IntuitionCandidate resources returned with this event"
+                },
+                "kgultra:hasAnswerCandidate": {
+                    "datatype": "uri",
+                    "multi": true,
+                    "required": false,
+                    "source": "candidate AnswerCandidate resources returned by logical query answering"
+                },
+                "prov:wasAttributedTo": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "the model/service observer that authored this testimony"
+                }
+            },
+            "rdf_types": [
+                "kgultra:Intuition",
+                "prov:Entity"
+            ],
+            "subject_rule": "{graph_subject}:projection:kg-ultra:intuition:{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:kg-ultra",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "IntuitionCandidate": {
+            "comment": "One ranked structural candidate produced by a KG-ULTRA intuition event. Candidates are suggestions, not accepted Garden wires; accepting one should mint the ordinary Wire Meaningful Object through the workspace/wire authority path.",
+            "predicates": {
+                "kgultra:candidateId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "kgultra:partOfIntuition": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true
+                },
+                "kgultra:head": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "candidate triple head entity IRI"
+                },
+                "kgultra:relation": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "candidate relation/predicate IRI"
+                },
+                "kgultra:tail": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "candidate triple tail entity IRI"
+                },
+                "kgultra:rank": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true
+                },
+                "kgultra:score": {
+                    "datatype": "float",
+                    "multi": false,
+                    "required": false
+                },
+                "kgultra:explanation": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "short provenance/explanation string safe to show; not model internals"
+                }
+            },
+            "rdf_types": [
+                "kgultra:IntuitionCandidate"
+            ],
+            "subject_rule": "{graph_subject}:projection:kg-ultra:intuition:{intuitionId}:candidate:{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:kg-ultra",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "AnswerCandidate": {
+            "comment": "One ranked answer produced by UltraQuery-style logical query answering. Answers are defeasible oracle testimony; accepting any derived relation still goes through the ordinary Garden Wire authority path.",
+            "predicates": {
+                "kgultra:candidateId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "kgultra:partOfIntuition": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true
+                },
+                "kgultra:answerJson": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "compact JSON answer payload, usually bindings or entity ids"
+                },
+                "kgultra:rank": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": true
+                },
+                "kgultra:score": {
+                    "datatype": "float",
+                    "multi": false,
+                    "required": false
+                },
+                "kgultra:bindingJson": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "variable binding payload for logical-query results"
+                },
+                "kgultra:scorePartsJson": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "public scoring components for UI/agent inspection; not service-private tensors"
+                },
+                "kgultra:explanation": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "short provenance/explanation string safe to show; not model internals"
+                }
+            },
+            "rdf_types": [
+                "kgultra:AnswerCandidate"
+            ],
+            "subject_rule": "{graph_subject}:projection:kg-ultra:intuition:{intuitionId}:answer:{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:kg-ultra",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        }
+    },
+    "comment": "KG-ULTRA intuition vocabulary. A served Meaningful-Object pack for structural model testimony: Garden owns the projection sink and validation, KG-ULTRA owns ranking. This pack is the durable inspectable face of the service, not the ULTRA transport format itself. kgultra: subjects are URN-space under the graph's :projection:kg-ultra branch; the projection is derived/regenerable from service outputs and never source of truth for accepted wires.",
+    "description": "Structural intuition records from KG-ULTRA: one attributed Intuition event plus ranked IntuitionCandidate head/relation/tail suggestions over a graph snapshot.",
+    "name": "kg-ultra-intuition",
+    "namespaces": {
+        "kgultra": "http://mnemosyne.dev/kg-ultra#",
+        "prov": "http://www.w3.org/ns/prov#",
+        "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+        "xsd": "http://www.w3.org/2001/XMLSchema#"
+    },
+    "primary_prefix": "kgultra",
+    "title": "KG-ULTRA Intuition Vocabulary",
+    "version": "1.1.0",
+    "write_target": "projection:kg-ultra"
+}

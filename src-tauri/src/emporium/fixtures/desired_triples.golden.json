@@ -1,0 +1,553 @@
+{
+ "_comment": "GENERATED — do not hand-edit. Regen: see fixtures/README.md. canon()-normalized desired-triple SET captured from the Python engine (emporium_engine.ingest.planner.plan_compute) on parsed.json + judgment.json against an EMPTY live graph. The SCRIPT_BLOCK placeholder is left UNRESOLVED so the set is engine-agnostic.",
+ "fixture": "demo workflow (parsed.json + judgment.json, empty live)",
+ "graphPrefix": "urn:mnemosyne:user:U:graph:lab",
+ "placeholderNs": "urn:wf-emit:placeholder:",
+ "scriptBlockPlaceholder": "urn:wf-emit:placeholder:SCRIPT_BLOCK",
+ "rdfInsert": 60,
+ "rdfDelete": 0,
+ "nt": [
+  "<urn:mnemosyne:user:U:graph:lab:doc:agent-alpha> <http://mnemosyne.dev/workflow#name> \"alpha\"",
+  "<urn:mnemosyne:user:U:graph:lab:doc:agent-alpha> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://mnemosyne.dev/workflow#Archetype>",
+  "<urn:mnemosyne:user:U:graph:lab:doc:wf-demo-n-a> <http://mnemosyne.dev/workflow#label> \"a\"",
+  "<urn:mnemosyne:user:U:graph:lab:doc:wf-demo-n-a> <http://mnemosyne.dev/workflow#partOfWorkflow> <urn:mnemosyne:user:U:graph:lab:doc:wf-demo>",
+  "<urn:mnemosyne:user:U:graph:lab:doc:wf-demo-n-a> <http://mnemosyne.dev/workflow#phaseIndex> \"1\"^^<http://www.w3.org/2001/XMLSchema#integer>",
+  "<urn:mnemosyne:user:U:graph:lab:doc:wf-demo-n-a> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://mnemosyne.dev/workflow#AgentNode>",
+  "<urn:mnemosyne:user:U:graph:lab:doc:wf-demo-n-b> <http://mnemosyne.dev/workflow#label> \"b\"",
+  "<urn:mnemosyne:user:U:graph:lab:doc:wf-demo-n-b> <http://mnemosyne.dev/workflow#partOfWorkflow> <urn:mnemosyne:user:U:graph:lab:doc:wf-demo>",
+  "<urn:mnemosyne:user:U:graph:lab:doc:wf-demo-n-b> <http://mnemosyne.dev/workflow#phaseIndex> \"1\"^^<http://www.w3.org/2001/XMLSchema#integer>",
+  "<urn:mnemosyne:user:U:graph:lab:doc:wf-demo-n-b> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://mnemosyne.dev/workflow#AgentNode>",
+  "<urn:mnemosyne:user:U:graph:lab:doc:wf-demo> <http://mnemosyne.dev/workflow#description> \"d\"",
+  "<urn:mnemosyne:user:U:graph:lab:doc:wf-demo> <http://mnemosyne.dev/workflow#name> \"demo\"",
+  "<urn:mnemosyne:user:U:graph:lab:doc:wf-demo> <http://mnemosyne.dev/workflow#phase> <urn:sophia:wf:demo:phase:1>",
+  "<urn:mnemosyne:user:U:graph:lab:doc:wf-demo> <http://mnemosyne.dev/workflow#scriptBlock> <urn:wf-emit:placeholder:SCRIPT_BLOCK>",
+  "<urn:mnemosyne:user:U:graph:lab:doc:wf-demo> <http://mnemosyne.dev/workflow#scriptSha256> \"583c6d1d03f5fc00dbce7697448af60834e9848a951cb303b709f9dbef663692\"",
+  "<urn:mnemosyne:user:U:graph:lab:doc:wf-demo> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://mnemosyne.dev/workflow#Workflow>",
+  "<urn:sophia:wf-run:wf_test-1:agent:a> <http://mnemosyne.dev/workflow#archetype> <urn:mnemosyne:user:U:graph:lab:doc:agent-alpha>",
+  "<urn:sophia:wf-run:wf_test-1:agent:a> <http://mnemosyne.dev/workflow#cached> \"false\"^^<http://www.w3.org/2001/XMLSchema#boolean>",
+  "<urn:sophia:wf-run:wf_test-1:agent:a> <http://mnemosyne.dev/workflow#durationMs> \"2000\"^^<http://www.w3.org/2001/XMLSchema#integer>",
+  "<urn:sophia:wf-run:wf_test-1:agent:a> <http://mnemosyne.dev/workflow#label> \"a\"",
+  "<urn:sophia:wf-run:wf_test-1:agent:a> <http://mnemosyne.dev/workflow#model> \"m\"",
+  "<urn:sophia:wf-run:wf_test-1:agent:a> <http://mnemosyne.dev/workflow#node> <urn:mnemosyne:user:U:graph:lab:doc:wf-demo-n-a>",
+  "<urn:sophia:wf-run:wf_test-1:agent:a> <http://mnemosyne.dev/workflow#partOfRun> <urn:sophia:wf-run:wf_test-1>",
+  "<urn:sophia:wf-run:wf_test-1:agent:a> <http://mnemosyne.dev/workflow#phaseIndex> \"1\"^^<http://www.w3.org/2001/XMLSchema#integer>",
+  "<urn:sophia:wf-run:wf_test-1:agent:a> <http://mnemosyne.dev/workflow#queuedAt> \"1000\"^^<http://www.w3.org/2001/XMLSchema#long>",
+  "<urn:sophia:wf-run:wf_test-1:agent:a> <http://mnemosyne.dev/workflow#startedAt> \"1100\"^^<http://www.w3.org/2001/XMLSchema#long>",
+  "<urn:sophia:wf-run:wf_test-1:agent:a> <http://mnemosyne.dev/workflow#state> \"done\"",
+  "<urn:sophia:wf-run:wf_test-1:agent:a> <http://mnemosyne.dev/workflow#tokens> \"5\"^^<http://www.w3.org/2001/XMLSchema#integer>",
+  "<urn:sophia:wf-run:wf_test-1:agent:a> <http://mnemosyne.dev/workflow#toolCalls> \"1\"^^<http://www.w3.org/2001/XMLSchema#integer>",
+  "<urn:sophia:wf-run:wf_test-1:agent:a> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://mnemosyne.dev/workflow#AgentRun>",
+  "<urn:sophia:wf-run:wf_test-1:agent:b> <http://mnemosyne.dev/workflow#archetype> <urn:mnemosyne:user:U:graph:lab:doc:agent-alpha>",
+  "<urn:sophia:wf-run:wf_test-1:agent:b> <http://mnemosyne.dev/workflow#cached> \"false\"^^<http://www.w3.org/2001/XMLSchema#boolean>",
+  "<urn:sophia:wf-run:wf_test-1:agent:b> <http://mnemosyne.dev/workflow#durationMs> \"1000\"^^<http://www.w3.org/2001/XMLSchema#integer>",
+  "<urn:sophia:wf-run:wf_test-1:agent:b> <http://mnemosyne.dev/workflow#label> \"b\"",
+  "<urn:sophia:wf-run:wf_test-1:agent:b> <http://mnemosyne.dev/workflow#model> \"m\"",
+  "<urn:sophia:wf-run:wf_test-1:agent:b> <http://mnemosyne.dev/workflow#node> <urn:mnemosyne:user:U:graph:lab:doc:wf-demo-n-b>",
+  "<urn:sophia:wf-run:wf_test-1:agent:b> <http://mnemosyne.dev/workflow#partOfRun> <urn:sophia:wf-run:wf_test-1>",
+  "<urn:sophia:wf-run:wf_test-1:agent:b> <http://mnemosyne.dev/workflow#phaseIndex> \"1\"^^<http://www.w3.org/2001/XMLSchema#integer>",
+  "<urn:sophia:wf-run:wf_test-1:agent:b> <http://mnemosyne.dev/workflow#queuedAt> \"3000\"^^<http://www.w3.org/2001/XMLSchema#long>",
+  "<urn:sophia:wf-run:wf_test-1:agent:b> <http://mnemosyne.dev/workflow#startedAt> \"3100\"^^<http://www.w3.org/2001/XMLSchema#long>",
+  "<urn:sophia:wf-run:wf_test-1:agent:b> <http://mnemosyne.dev/workflow#state> \"done\"",
+  "<urn:sophia:wf-run:wf_test-1:agent:b> <http://mnemosyne.dev/workflow#tokens> \"5\"^^<http://www.w3.org/2001/XMLSchema#integer>",
+  "<urn:sophia:wf-run:wf_test-1:agent:b> <http://mnemosyne.dev/workflow#toolCalls> \"1\"^^<http://www.w3.org/2001/XMLSchema#integer>",
+  "<urn:sophia:wf-run:wf_test-1:agent:b> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://mnemosyne.dev/workflow#AgentRun>",
+  "<urn:sophia:wf-run:wf_test-1> <http://mnemosyne.dev/workflow#agentCount> \"2\"^^<http://www.w3.org/2001/XMLSchema#integer>",
+  "<urn:sophia:wf-run:wf_test-1> <http://mnemosyne.dev/workflow#durationMs> \"4000\"^^<http://www.w3.org/2001/XMLSchema#integer>",
+  "<urn:sophia:wf-run:wf_test-1> <http://mnemosyne.dev/workflow#runId> \"wf_test-1\"",
+  "<urn:sophia:wf-run:wf_test-1> <http://mnemosyne.dev/workflow#runRecordDocument> <urn:mnemosyne:user:U:graph:lab:doc:wf-demo-run-wf_test-1>",
+  "<urn:sophia:wf-run:wf_test-1> <http://mnemosyne.dev/workflow#sessionRecord> \"/tmp/x.json\"",
+  "<urn:sophia:wf-run:wf_test-1> <http://mnemosyne.dev/workflow#status> \"completed\"",
+  "<urn:sophia:wf-run:wf_test-1> <http://mnemosyne.dev/workflow#totalTokens> \"10\"^^<http://www.w3.org/2001/XMLSchema#integer>",
+  "<urn:sophia:wf-run:wf_test-1> <http://mnemosyne.dev/workflow#workflowName> \"demo\"",
+  "<urn:sophia:wf-run:wf_test-1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://mnemosyne.dev/workflow#Run>",
+  "<urn:sophia:wf-run:wf_test-1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/ns/prov#Activity>",
+  "<urn:sophia:wf-run:wf_test-1> <http://www.w3.org/ns/prov#endedAtTime> \"1970-01-01T00:00:05+00:00\"^^<http://www.w3.org/2001/XMLSchema#dateTime>",
+  "<urn:sophia:wf-run:wf_test-1> <http://www.w3.org/ns/prov#startedAtTime> \"1970-01-01T00:00:01+00:00\"^^<http://www.w3.org/2001/XMLSchema#dateTime>",
+  "<urn:sophia:wf-run:wf_test-1> <http://www.w3.org/ns/prov#used> <urn:mnemosyne:user:U:graph:lab:doc:wf-demo>",
+  "<urn:sophia:wf:demo:phase:1> <http://mnemosyne.dev/workflow#order> \"1\"^^<http://www.w3.org/2001/XMLSchema#integer>",
+  "<urn:sophia:wf:demo:phase:1> <http://purl.org/dc/terms/title> \"Go\"",
+  "<urn:sophia:wf:demo:phase:1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://mnemosyne.dev/workflow#Phase>"
+ ],
+ "canon": [
+  [
+   "urn:mnemosyne:user:U:graph:lab:doc:agent-alpha",
+   "http://mnemosyne.dev/workflow#name",
+   [
+    "LIT",
+    "alpha"
+   ]
+  ],
+  [
+   "urn:mnemosyne:user:U:graph:lab:doc:agent-alpha",
+   "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+   [
+    "URI",
+    "http://mnemosyne.dev/workflow#Archetype"
+   ]
+  ],
+  [
+   "urn:mnemosyne:user:U:graph:lab:doc:wf-demo",
+   "http://mnemosyne.dev/workflow#description",
+   [
+    "LIT",
+    "d"
+   ]
+  ],
+  [
+   "urn:mnemosyne:user:U:graph:lab:doc:wf-demo",
+   "http://mnemosyne.dev/workflow#name",
+   [
+    "LIT",
+    "demo"
+   ]
+  ],
+  [
+   "urn:mnemosyne:user:U:graph:lab:doc:wf-demo",
+   "http://mnemosyne.dev/workflow#phase",
+   [
+    "URI",
+    "urn:sophia:wf:demo:phase:1"
+   ]
+  ],
+  [
+   "urn:mnemosyne:user:U:graph:lab:doc:wf-demo",
+   "http://mnemosyne.dev/workflow#scriptBlock",
+   [
+    "PLACEHOLDER",
+    "SCRIPT_BLOCK"
+   ]
+  ],
+  [
+   "urn:mnemosyne:user:U:graph:lab:doc:wf-demo",
+   "http://mnemosyne.dev/workflow#scriptSha256",
+   [
+    "LIT",
+    "583c6d1d03f5fc00dbce7697448af60834e9848a951cb303b709f9dbef663692"
+   ]
+  ],
+  [
+   "urn:mnemosyne:user:U:graph:lab:doc:wf-demo",
+   "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+   [
+    "URI",
+    "http://mnemosyne.dev/workflow#Workflow"
+   ]
+  ],
+  [
+   "urn:mnemosyne:user:U:graph:lab:doc:wf-demo-n-a",
+   "http://mnemosyne.dev/workflow#label",
+   [
+    "LIT",
+    "a"
+   ]
+  ],
+  [
+   "urn:mnemosyne:user:U:graph:lab:doc:wf-demo-n-a",
+   "http://mnemosyne.dev/workflow#partOfWorkflow",
+   [
+    "URI",
+    "urn:mnemosyne:user:U:graph:lab:doc:wf-demo"
+   ]
+  ],
+  [
+   "urn:mnemosyne:user:U:graph:lab:doc:wf-demo-n-a",
+   "http://mnemosyne.dev/workflow#phaseIndex",
+   [
+    "NUM",
+    1.0
+   ]
+  ],
+  [
+   "urn:mnemosyne:user:U:graph:lab:doc:wf-demo-n-a",
+   "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+   [
+    "URI",
+    "http://mnemosyne.dev/workflow#AgentNode"
+   ]
+  ],
+  [
+   "urn:mnemosyne:user:U:graph:lab:doc:wf-demo-n-b",
+   "http://mnemosyne.dev/workflow#label",
+   [
+    "LIT",
+    "b"
+   ]
+  ],
+  [
+   "urn:mnemosyne:user:U:graph:lab:doc:wf-demo-n-b",
+   "http://mnemosyne.dev/workflow#partOfWorkflow",
+   [
+    "URI",
+    "urn:mnemosyne:user:U:graph:lab:doc:wf-demo"
+   ]
+  ],
+  [
+   "urn:mnemosyne:user:U:graph:lab:doc:wf-demo-n-b",
+   "http://mnemosyne.dev/workflow#phaseIndex",
+   [
+    "NUM",
+    1.0
+   ]
+  ],
+  [
+   "urn:mnemosyne:user:U:graph:lab:doc:wf-demo-n-b",
+   "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+   [
+    "URI",
+    "http://mnemosyne.dev/workflow#AgentNode"
+   ]
+  ],
+  [
+   "urn:sophia:wf-run:wf_test-1",
+   "http://mnemosyne.dev/workflow#agentCount",
+   [
+    "NUM",
+    2.0
+   ]
+  ],
+  [
+   "urn:sophia:wf-run:wf_test-1",
+   "http://mnemosyne.dev/workflow#durationMs",
+   [
+    "NUM",
+    4000.0
+   ]
+  ],
+  [
+   "urn:sophia:wf-run:wf_test-1",
+   "http://mnemosyne.dev/workflow#runId",
+   [
+    "LIT",
+    "wf_test-1"
+   ]
+  ],
+  [
+   "urn:sophia:wf-run:wf_test-1",
+   "http://mnemosyne.dev/workflow#runRecordDocument",
+   [
+    "URI",
+    "urn:mnemosyne:user:U:graph:lab:doc:wf-demo-run-wf_test-1"
+   ]
+  ],
+  [
+   "urn:sophia:wf-run:wf_test-1",
+   "http://mnemosyne.dev/workflow#sessionRecord",
+   [
+    "LIT",
+    "/tmp/x.json"
+   ]
+  ],
+  [
+   "urn:sophia:wf-run:wf_test-1",
+   "http://mnemosyne.dev/workflow#status",
+   [
+    "LIT",
+    "completed"
+   ]
+  ],
+  [
+   "urn:sophia:wf-run:wf_test-1",
+   "http://mnemosyne.dev/workflow#totalTokens",
+   [
+    "NUM",
+    10.0
+   ]
+  ],
+  [
+   "urn:sophia:wf-run:wf_test-1",
+   "http://mnemosyne.dev/workflow#workflowName",
+   [
+    "LIT",
+    "demo"
+   ]
+  ],
+  [
+   "urn:sophia:wf-run:wf_test-1",
+   "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+   [
+    "URI",
+    "http://mnemosyne.dev/workflow#Run"
+   ]
+  ],
+  [
+   "urn:sophia:wf-run:wf_test-1",
+   "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+   [
+    "URI",
+    "http://www.w3.org/ns/prov#Activity"
+   ]
+  ],
+  [
+   "urn:sophia:wf-run:wf_test-1",
+   "http://www.w3.org/ns/prov#endedAtTime",
+   [
+    "DT",
+    5.0
+   ]
+  ],
+  [
+   "urn:sophia:wf-run:wf_test-1",
+   "http://www.w3.org/ns/prov#startedAtTime",
+   [
+    "DT",
+    1.0
+   ]
+  ],
+  [
+   "urn:sophia:wf-run:wf_test-1",
+   "http://www.w3.org/ns/prov#used",
+   [
+    "URI",
+    "urn:mnemosyne:user:U:graph:lab:doc:wf-demo"
+   ]
+  ],
+  [
+   "urn:sophia:wf-run:wf_test-1:agent:a",
+   "http://mnemosyne.dev/workflow#archetype",
+   [
+    "URI",
+    "urn:mnemosyne:user:U:graph:lab:doc:agent-alpha"
+   ]
+  ],
+  [
+   "urn:sophia:wf-run:wf_test-1:agent:a",
+   "http://mnemosyne.dev/workflow#cached",
+   [
+    "BOOL",
+    false
+   ]
+  ],
+  [
+   "urn:sophia:wf-run:wf_test-1:agent:a",
+   "http://mnemosyne.dev/workflow#durationMs",
+   [
+    "NUM",
+    2000.0
+   ]
+  ],
+  [
+   "urn:sophia:wf-run:wf_test-1:agent:a",
+   "http://mnemosyne.dev/workflow#label",
+   [
+    "LIT",
+    "a"
+   ]
+  ],
+  [
+   "urn:sophia:wf-run:wf_test-1:agent:a",
+   "http://mnemosyne.dev/workflow#model",
+   [
+    "LIT",
+    "m"
+   ]
+  ],
+  [
+   "urn:sophia:wf-run:wf_test-1:agent:a",
+   "http://mnemosyne.dev/workflow#node",
+   [
+    "URI",
+    "urn:mnemosyne:user:U:graph:lab:doc:wf-demo-n-a"
+   ]
+  ],
+  [
+   "urn:sophia:wf-run:wf_test-1:agent:a",
+   "http://mnemosyne.dev/workflow#partOfRun",
+   [
+    "URI",
+    "urn:sophia:wf-run:wf_test-1"
+   ]
+  ],
+  [
+   "urn:sophia:wf-run:wf_test-1:agent:a",
+   "http://mnemosyne.dev/workflow#phaseIndex",
+   [
+    "NUM",
+    1.0
+   ]
+  ],
+  [
+   "urn:sophia:wf-run:wf_test-1:agent:a",
+   "http://mnemosyne.dev/workflow#queuedAt",
+   [
+    "NUM",
+    1000.0
+   ]
+  ],
+  [
+   "urn:sophia:wf-run:wf_test-1:agent:a",
+   "http://mnemosyne.dev/workflow#startedAt",
+   [
+    "NUM",
+    1100.0
+   ]
+  ],
+  [
+   "urn:sophia:wf-run:wf_test-1:agent:a",
+   "http://mnemosyne.dev/workflow#state",
+   [
+    "LIT",
+    "done"
+   ]
+  ],
+  [
+   "urn:sophia:wf-run:wf_test-1:agent:a",
+   "http://mnemosyne.dev/workflow#tokens",
+   [
+    "NUM",
+    5.0
+   ]
+  ],
+  [
+   "urn:sophia:wf-run:wf_test-1:agent:a",
+   "http://mnemosyne.dev/workflow#toolCalls",
+   [
+    "NUM",
+    1.0
+   ]
+  ],
+  [
+   "urn:sophia:wf-run:wf_test-1:agent:a",
+   "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+   [
+    "URI",
+    "http://mnemosyne.dev/workflow#AgentRun"
+   ]
+  ],
+  [
+   "urn:sophia:wf-run:wf_test-1:agent:b",
+   "http://mnemosyne.dev/workflow#archetype",
+   [
+    "URI",
+    "urn:mnemosyne:user:U:graph:lab:doc:agent-alpha"
+   ]
+  ],
+  [
+   "urn:sophia:wf-run:wf_test-1:agent:b",
+   "http://mnemosyne.dev/workflow#cached",
+   [
+    "BOOL",
+    false
+   ]
+  ],
+  [
+   "urn:sophia:wf-run:wf_test-1:agent:b",
+   "http://mnemosyne.dev/workflow#durationMs",
+   [
+    "NUM",
+    1000.0
+   ]
+  ],
+  [
+   "urn:sophia:wf-run:wf_test-1:agent:b",
+   "http://mnemosyne.dev/workflow#label",
+   [
+    "LIT",
+    "b"
+   ]
+  ],
+  [
+   "urn:sophia:wf-run:wf_test-1:agent:b",
+   "http://mnemosyne.dev/workflow#model",
+   [
+    "LIT",
+    "m"
+   ]
+  ],
+  [
+   "urn:sophia:wf-run:wf_test-1:agent:b",
+   "http://mnemosyne.dev/workflow#node",
+   [
+    "URI",
+    "urn:mnemosyne:user:U:graph:lab:doc:wf-demo-n-b"
+   ]
+  ],
+  [
+   "urn:sophia:wf-run:wf_test-1:agent:b",
+   "http://mnemosyne.dev/workflow#partOfRun",
+   [
+    "URI",
+    "urn:sophia:wf-run:wf_test-1"
+   ]
+  ],
+  [
+   "urn:sophia:wf-run:wf_test-1:agent:b",
+   "http://mnemosyne.dev/workflow#phaseIndex",
+   [
+    "NUM",
+    1.0
+   ]
+  ],
+  [
+   "urn:sophia:wf-run:wf_test-1:agent:b",
+   "http://mnemosyne.dev/workflow#queuedAt",
+   [
+    "NUM",
+    3000.0
+   ]
+  ],
+  [
+   "urn:sophia:wf-run:wf_test-1:agent:b",
+   "http://mnemosyne.dev/workflow#startedAt",
+   [
+    "NUM",
+    3100.0
+   ]
+  ],
+  [
+   "urn:sophia:wf-run:wf_test-1:agent:b",
+   "http://mnemosyne.dev/workflow#state",
+   [
+    "LIT",
+    "done"
+   ]
+  ],
+  [
+   "urn:sophia:wf-run:wf_test-1:agent:b",
+   "http://mnemosyne.dev/workflow#tokens",
+   [
+    "NUM",
+    5.0
+   ]
+  ],
+  [
+   "urn:sophia:wf-run:wf_test-1:agent:b",
+   "http://mnemosyne.dev/workflow#toolCalls",
+   [
+    "NUM",
+    1.0
+   ]
+  ],
+  [
+   "urn:sophia:wf-run:wf_test-1:agent:b",
+   "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+   [
+    "URI",
+    "http://mnemosyne.dev/workflow#AgentRun"
+   ]
+  ],
+  [
+   "urn:sophia:wf:demo:phase:1",
+   "http://mnemosyne.dev/workflow#order",
+   [
+    "NUM",
+    1.0
+   ]
+  ],
+  [
+   "urn:sophia:wf:demo:phase:1",
+   "http://purl.org/dc/terms/title",
+   [
+    "LIT",
+    "Go"
+   ]
+  ],
+  [
+   "urn:sophia:wf:demo:phase:1",
+   "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+   [
+    "URI",
+    "http://mnemosyne.dev/workflow#Phase"
+   ]
+  ]
+ ]
+}

@@ -1,0 +1,51 @@
+{
+  "tiptapJson": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "heading",
+        "attrs": {
+          "level": 1
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "Actual Heading"
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "Here is a claim"
+          },
+          {
+            "type": "footnote",
+            "attrs": {
+              "content": "This is the footnote text.",
+              "label": "note"
+            }
+          },
+          {
+            "type": "text",
+            "text": " that needs support."
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "Closing paragraph."
+          }
+        ]
+      }
+    ]
+  },
+  "derivedTitle": "Actual Heading",
+  "sourceFormat": "markdown",
+  "warnings": []
+}

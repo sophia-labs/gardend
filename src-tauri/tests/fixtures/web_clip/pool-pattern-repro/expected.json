@@ -1,0 +1,4 @@
+{
+  "title": "The Pool Pattern",
+  "markdown": "# The Pool Pattern\n\nSource: https://wormnews.net/pool-pattern\n\n---\n\n# The Pool Pattern\n\nCells own **state**; pure functions go to pools.\n\n- embeddings\n- parsing"
+}

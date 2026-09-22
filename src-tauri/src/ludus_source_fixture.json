@@ -1,0 +1,84 @@
+[
+  {
+    "kind": "SourceEdition",
+    "localId": "edition-1",
+    "sourceId": "urn:ludus:source:gutenberg:18251",
+    "sourceSha256": "7ac00fc13357102ccdbf1a593816c625c61f66440a6312d988057e7e05b1fe9d",
+    "title": "Latin for Beginners",
+    "editionLabel": "Pinned Gutenberg transcription",
+    "sourceStatus": "pinned-transcription"
+  },
+  {
+    "kind": "SourceOccurrence",
+    "localId": "occurrence-1",
+    "editionRef": "urn:mnemosyne:local:graph:ludus-native:projection:ludus:source-edition:edition-1",
+    "sourceId": "urn:ludus:source:gutenberg:18251",
+    "sourceSha256": "7ac00fc13357102ccdbf1a593816c625c61f66440a6312d988057e7e05b1fe9d",
+    "unitId": "urn:ludus:dooge:unit:lesson-003",
+    "passageId": "urn:ludus:dooge:passage:b72824-72850",
+    "passageTextSha256": "a234764ba892261a253f10e964ecda241d9609b15a6001092bb8efed25eb229b",
+    "text": "Fīliam domina amat",
+    "startByte": 72824,
+    "endByte": 72850,
+    "sourceReferenceJson": "{\"sourceId\":\"urn:ludus:source:gutenberg:18251\",\"sourceSha256\":\"7ac00fc13357102ccdbf1a593816c625c61f66440a6312d988057e7e05b1fe9d\",\"unitId\":\"urn:ludus:dooge:unit:lesson-003\",\"passageId\":\"urn:ludus:dooge:passage:b72824-72850\",\"passageTextSha256\":\"a234764ba892261a253f10e964ecda241d9609b15a6001092bb8efed25eb229b\",\"sourceRange\":{\"startByte\":72824,\"endByte\":72850},\"text\":\"Fīliam domina amat\",\"anchorId\":\"urn:ludus:dooge:anchor:sec32\"}",
+    "anchorId": "urn:ludus:dooge:anchor:sec32"
+  },
+  {
+    "kind": "Concept",
+    "localId": "concept-1",
+    "conceptId": "nominative-accusative",
+    "version": "1",
+    "title": "What the endings tell us",
+    "explanation": "A synthetic editorial fixture, not a certified Latin rule.",
+    "limits": "One early first-declension contrast.",
+    "provenanceJson": "{\"fixture\":true}"
+  },
+  {
+    "kind": "Encounter",
+    "localId": "encounter-1",
+    "encounterId": "sec32",
+    "version": "1",
+    "title": "Interpret the role contrast",
+    "prompt": "Synthetic prompt",
+    "rubricVersion": "Synthetic rubricVersion",
+    "rubricJson": "{\"fixture\":true}",
+    "assistancePolicyJson": "{\"fixture\":true}",
+    "authorship": "Synthetic authorship",
+    "sourceRefs": [
+      "urn:mnemosyne:local:graph:ludus-native:projection:ludus:source-occurrence:occurrence-1"
+    ]
+  },
+  {
+    "kind": "AttemptSubmitted",
+    "localId": "attempt-a",
+    "encounterRef": "urn:mnemosyne:local:graph:ludus-native:projection:ludus:encounter:encounter-1",
+    "encounterVersion": "1",
+    "sourceOccurrenceRef": "urn:mnemosyne:local:graph:ludus-native:projection:ludus:source-occurrence:occurrence-1",
+    "learnerId": "synthetic-test-user-not-Vera",
+    "answer": "The daughter loves the lady.",
+    "reasoning": "I made the first word the subject. é 🌱\r\nThis is fictional test evidence.",
+    "assistanceJson": "[]",
+    "sourceSha256": "7ac00fc13357102ccdbf1a593816c625c61f66440a6312d988057e7e05b1fe9d",
+    "rubricVersion": "Synthetic rubricVersion",
+    "submittedAt": "2026-09-09T06:00:00Z",
+    "documentId": "synthetic-reference-not-created-in-this-native-test",
+    "documentRevision": "fixture-snapshot-1"
+  },
+  {
+    "kind": "FeedbackRecorded",
+    "localId": "feedback-a",
+    "attemptRef": "urn:mnemosyne:local:graph:ludus-native:projection:ludus:attempt:attempt-a",
+    "authorId": "synthetic-authored-rule",
+    "authorKind": "authored-rule",
+    "authorVersion": "1",
+    "text": "Which noun has the -am ending?",
+    "basisVersion": "fixture-basis-1",
+    "sourceOccurrenceRef": "urn:mnemosyne:local:graph:ludus-native:projection:ludus:source-occurrence:occurrence-1",
+    "sourceSha256": "7ac00fc13357102ccdbf1a593816c625c61f66440a6312d988057e7e05b1fe9d",
+    "rubricVersion": "Synthetic rubricVersion",
+    "createdAt": "2026-09-09T06:00:00Z",
+    "documentId": "synthetic-feedback-reference-not-created-in-this-native-test",
+    "assistanceJson": "[\"fixture-hint\"]",
+    "qualificationsJson": "{\"independentReview\":false}"
+  }
+]

@@ -1,0 +1,255 @@
+@prefix mach: <http://mnemosyne.dev/machine#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+# A logical topology fixture, not a live inventory. MachineRun testimony is
+# emitted from runtime events and deliberately does not live in this static file.
+
+<urn:sophia:machine-definition:pn-gateway:0.1.0>
+    a mach:MachineDefinition ;
+    mach:definitionId "pn-gateway" ;
+    mach:version "0.1.0" ;
+    mach:machineKind mach:Gateway ;
+    mach:executionMode mach:KubernetesDeployment ;
+    mach:cardinality mach:Replicated ;
+    mach:authorityDomain mach:EdgeAuthentication, mach:GraphAuthorization, mach:CellSupervision ;
+    mach:lifecycleStatus mach:Active ;
+    rdfs:label "Cloud-2 gateway" .
+
+<urn:sophia:machine-definition:garden-cell:0.1.0>
+    a mach:MachineDefinition ;
+    mach:definitionId "garden-cell" ;
+    mach:version "0.1.0" ;
+    mach:machineKind mach:GardenCell ;
+    mach:executionMode mach:KubernetesPod ;
+    mach:cardinality mach:OnePerGraph ;
+    mach:authorityDomain mach:GraphLiveState, mach:CellActivity, mach:CellQuiescence ;
+    mach:lifecycleStatus mach:Active ;
+    rdfs:label "Garden graph cell" .
+
+<urn:sophia:machine-definition:parser-pool:0.1.0>
+    a mach:MachineDefinition ;
+    mach:definitionId "parser-pool" ;
+    mach:version "0.1.0" ;
+    mach:machineKind mach:ParserPool ;
+    mach:executionMode mach:KubernetesDeployment ;
+    mach:cardinality mach:SharedPool ;
+    mach:authorityDomain mach:DocumentParsing ;
+    mach:lifecycleStatus mach:Active ;
+    rdfs:label "Parser pool" .
+
+<urn:sophia:machine-definition:embedding-pool:0.1.0>
+    a mach:MachineDefinition ;
+    mach:definitionId "embedding-pool" ;
+    mach:version "0.1.0" ;
+    mach:machineKind mach:EmbeddingPool ;
+    mach:executionMode mach:KubernetesDeployment ;
+    mach:cardinality mach:SharedPool ;
+    mach:authorityDomain mach:EmbeddingComputation ;
+    mach:lifecycleStatus mach:Active ;
+    rdfs:label "Embedding pool" .
+
+<urn:sophia:machine-definition:choreograph:0.1.0>
+    a mach:MachineDefinition ;
+    mach:definitionId "choreograph" ;
+    mach:version "0.1.0" ;
+    mach:machineKind mach:AgentRuntime ;
+    mach:executionMode mach:BareEc2Process ;
+    mach:cardinality mach:Replicated ;
+    mach:authorityDomain mach:AgentExecution, mach:InferenceMediation ;
+    mach:lifecycleStatus mach:Active ;
+    rdfs:label "Choreograph agent runtime" .
+
+<urn:sophia:machine-definition:pn-ops:0.1.0>
+    a mach:MachineDefinition ;
+    mach:definitionId "pn-ops" ;
+    mach:version "0.1.0" ;
+    mach:machineKind mach:OperationsController ;
+    mach:executionMode mach:KubernetesDeployment ;
+    mach:cardinality mach:Singleton ;
+    mach:authorityDomain mach:OperationalReconciliation ;
+    mach:lifecycleStatus mach:Active ;
+    rdfs:label "Platform operations controller" .
+
+<urn:sophia:machine-definition:observatory-estimator:0.1.0>
+    a mach:MachineDefinition ;
+    mach:definitionId "observatory-estimator" ;
+    mach:version "0.1.0" ;
+    mach:machineKind mach:Estimator ;
+    mach:executionMode mach:KubernetesDeployment ;
+    mach:cardinality mach:Singleton ;
+    mach:authorityDomain mach:MetricEstimation ;
+    mach:lifecycleStatus mach:Proposed ;
+    rdfs:label "Observatory estimator" .
+
+<urn:sophia:machine:cloud-2-canary:gateway>
+    a mach:Machine ;
+    mach:machineId "gateway" ;
+    mach:conformsTo <urn:sophia:machine-definition:pn-gateway:0.1.0> ;
+    mach:environment <urn:sophia:environment:cloud-2-canary> ;
+    mach:lifecycleStatus mach:Active ;
+    mach:hasPort
+        <urn:sophia:machine:cloud-2-canary:gateway:port:graph-api>,
+        <urn:sophia:machine:cloud-2-canary:gateway:port:cell-upstream> ;
+    rdfs:label "Cloud-2 canary gateway" .
+
+<urn:sophia:machine:cloud-2-canary:garden-cell:sophia-code-lab>
+    a mach:Machine ;
+    mach:machineId "garden-cell:sophia-code-lab" ;
+    mach:conformsTo <urn:sophia:machine-definition:garden-cell:0.1.0> ;
+    mach:environment <urn:sophia:environment:cloud-2-canary> ;
+    mach:scope <urn:mnemosyne:graph:sophia-code-lab> ;
+    mach:lifecycleStatus mach:OnDemand ;
+    mach:hasPort
+        <urn:sophia:machine:cloud-2-canary:garden-cell:sophia-code-lab:port:graph-api>,
+        <urn:sophia:machine:cloud-2-canary:garden-cell:sophia-code-lab:port:parser>,
+        <urn:sophia:machine:cloud-2-canary:garden-cell:sophia-code-lab:port:embeddings> ;
+    rdfs:label "sophia-code-lab Garden cell" .
+
+<urn:sophia:machine:cloud-2-canary:parser-pool>
+    a mach:Machine ;
+    mach:machineId "parser-pool" ;
+    mach:conformsTo <urn:sophia:machine-definition:parser-pool:0.1.0> ;
+    mach:environment <urn:sophia:environment:cloud-2-canary> ;
+    mach:lifecycleStatus mach:Active ;
+    mach:hasPort <urn:sophia:machine:cloud-2-canary:parser-pool:port:parse> ;
+    rdfs:label "Cloud-2 parser pool" .
+
+<urn:sophia:machine:cloud-2-canary:embedding-pool>
+    a mach:Machine ;
+    mach:machineId "embedding-pool" ;
+    mach:conformsTo <urn:sophia:machine-definition:embedding-pool:0.1.0> ;
+    mach:environment <urn:sophia:environment:cloud-2-canary> ;
+    mach:lifecycleStatus mach:Active ;
+    mach:hasPort <urn:sophia:machine:cloud-2-canary:embedding-pool:port:embed> ;
+    rdfs:label "Cloud-2 embedding pool" .
+
+<urn:sophia:machine:cloud-2-canary:choreograph>
+    a mach:Machine ;
+    mach:machineId "choreograph" ;
+    mach:conformsTo <urn:sophia:machine-definition:choreograph:0.1.0> ;
+    mach:environment <urn:sophia:environment:cloud-2-canary> ;
+    mach:lifecycleStatus mach:Active ;
+    mach:hasPort <urn:sophia:machine:cloud-2-canary:choreograph:port:garden-mcp> ;
+    rdfs:label "Cloud-2 Choreograph" .
+
+<urn:sophia:machine:cloud-2-canary:pn-ops>
+    a mach:Machine ;
+    mach:machineId "pn-ops" ;
+    mach:conformsTo <urn:sophia:machine-definition:pn-ops:0.1.0> ;
+    mach:environment <urn:sophia:environment:cloud-2-canary> ;
+    mach:lifecycleStatus mach:Active ;
+    rdfs:label "Cloud-2 platform operations controller" .
+
+<urn:sophia:machine:cloud-2-canary:observatory-estimator>
+    a mach:Machine ;
+    mach:machineId "observatory-estimator" ;
+    mach:conformsTo <urn:sophia:machine-definition:observatory-estimator:0.1.0> ;
+    mach:environment <urn:sophia:environment:cloud-2-canary> ;
+    mach:lifecycleStatus mach:Proposed ;
+    rdfs:label "Cloud-2 Observatory estimator" .
+
+<urn:sophia:machine:cloud-2-canary:gateway:port:graph-api>
+    a mach:Port ;
+    mach:portId "gateway:graph-api" ;
+    mach:portOf <urn:sophia:machine:cloud-2-canary:gateway> ;
+    mach:portName "graph-api" ;
+    mach:direction mach:Inbound ;
+    mach:protocol mach:HttpAndWebSocket ;
+    mach:requiresAuthority mach:EndUserOrServiceAuthentication, mach:GraphAcl .
+
+<urn:sophia:machine:cloud-2-canary:gateway:port:cell-upstream>
+    a mach:Port ;
+    mach:portId "gateway:cell-upstream" ;
+    mach:portOf <urn:sophia:machine:cloud-2-canary:gateway> ;
+    mach:portName "cell-upstream" ;
+    mach:direction mach:Outbound ;
+    mach:protocol mach:HttpAndWebSocket ;
+    mach:requiresAuthority mach:CellBearerToken .
+
+<urn:sophia:machine:cloud-2-canary:garden-cell:sophia-code-lab:port:graph-api>
+    a mach:Port ;
+    mach:portId "garden-cell:sophia-code-lab:graph-api" ;
+    mach:portOf <urn:sophia:machine:cloud-2-canary:garden-cell:sophia-code-lab> ;
+    mach:portName "graph-api" ;
+    mach:direction mach:Inbound ;
+    mach:protocol mach:HttpAndWebSocket ;
+    mach:requiresAuthority mach:CellBearerToken .
+
+<urn:sophia:machine:cloud-2-canary:garden-cell:sophia-code-lab:port:parser>
+    a mach:Port ;
+    mach:portId "garden-cell:sophia-code-lab:parser" ;
+    mach:portOf <urn:sophia:machine:cloud-2-canary:garden-cell:sophia-code-lab> ;
+    mach:portName "parser" ;
+    mach:direction mach:Outbound ;
+    mach:protocol mach:Http .
+
+<urn:sophia:machine:cloud-2-canary:garden-cell:sophia-code-lab:port:embeddings>
+    a mach:Port ;
+    mach:portId "garden-cell:sophia-code-lab:embeddings" ;
+    mach:portOf <urn:sophia:machine:cloud-2-canary:garden-cell:sophia-code-lab> ;
+    mach:portName "embeddings" ;
+    mach:direction mach:Outbound ;
+    mach:protocol mach:Http .
+
+<urn:sophia:machine:cloud-2-canary:parser-pool:port:parse>
+    a mach:Port ;
+    mach:portId "parser-pool:parse" ;
+    mach:portOf <urn:sophia:machine:cloud-2-canary:parser-pool> ;
+    mach:portName "parse" ;
+    mach:direction mach:Inbound ;
+    mach:protocol mach:Http .
+
+<urn:sophia:machine:cloud-2-canary:embedding-pool:port:embed>
+    a mach:Port ;
+    mach:portId "embedding-pool:embed" ;
+    mach:portOf <urn:sophia:machine:cloud-2-canary:embedding-pool> ;
+    mach:portName "embed" ;
+    mach:direction mach:Inbound ;
+    mach:protocol mach:Http .
+
+<urn:sophia:machine:cloud-2-canary:choreograph:port:garden-mcp>
+    a mach:Port ;
+    mach:portId "choreograph:garden-mcp" ;
+    mach:portOf <urn:sophia:machine:cloud-2-canary:choreograph> ;
+    mach:portName "garden-mcp" ;
+    mach:direction mach:Outbound ;
+    mach:protocol mach:McpOverHttp ;
+    mach:requiresAuthority mach:GatewayServiceAuthentication, mach:OnBehalfOfIdentity .
+
+<urn:sophia:machine-binding:choreograph-to-gateway-mcp>
+    a mach:Binding ;
+    mach:bindingId "choreograph-to-gateway-mcp" ;
+    mach:sourcePort <urn:sophia:machine:cloud-2-canary:choreograph:port:garden-mcp> ;
+    mach:destinationPort <urn:sophia:machine:cloud-2-canary:gateway:port:graph-api> ;
+    mach:authenticationPolicy mach:ServiceAuthWithOnBehalfOf ;
+    mach:deliverySemantics mach:SynchronousRequestResponse ;
+    mach:failureBehavior mach:SurfaceUpstreamFailure ;
+    mach:lifecycleStatus mach:Active .
+
+<urn:sophia:machine-binding:gateway-to-sophia-code-lab-cell>
+    a mach:Binding ;
+    mach:bindingId "gateway-to-sophia-code-lab-cell" ;
+    mach:sourcePort <urn:sophia:machine:cloud-2-canary:gateway:port:cell-upstream> ;
+    mach:destinationPort <urn:sophia:machine:cloud-2-canary:garden-cell:sophia-code-lab:port:graph-api> ;
+    mach:authenticationPolicy mach:CellBearer ;
+    mach:deliverySemantics mach:SynchronousRequestResponse ;
+    mach:failureBehavior mach:SpawnOrSurfaceUnavailable ;
+    mach:lifecycleStatus mach:Active .
+
+<urn:sophia:machine-binding:sophia-code-lab-cell-to-parser>
+    a mach:Binding ;
+    mach:bindingId "sophia-code-lab-cell-to-parser" ;
+    mach:sourcePort <urn:sophia:machine:cloud-2-canary:garden-cell:sophia-code-lab:port:parser> ;
+    mach:destinationPort <urn:sophia:machine:cloud-2-canary:parser-pool:port:parse> ;
+    mach:deliverySemantics mach:SynchronousRequestResponse ;
+    mach:failureBehavior mach:SurfaceUpstreamFailure ;
+    mach:lifecycleStatus mach:Active .
+
+<urn:sophia:machine-binding:sophia-code-lab-cell-to-embeddings>
+    a mach:Binding ;
+    mach:bindingId "sophia-code-lab-cell-to-embeddings" ;
+    mach:sourcePort <urn:sophia:machine:cloud-2-canary:garden-cell:sophia-code-lab:port:embeddings> ;
+    mach:destinationPort <urn:sophia:machine:cloud-2-canary:embedding-pool:port:embed> ;
+    mach:deliverySemantics mach:SynchronousRequestResponse ;
+    mach:failureBehavior mach:SurfaceUpstreamFailure ;
+    mach:lifecycleStatus mach:Active .

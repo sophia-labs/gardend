@@ -1,0 +1,40 @@
+{
+    "classes": {
+        "DashboardSurface": {
+            "comment": "One graph-served Domain Kit dashboard surface. The layout remains one validated ux:layoutJson literal and the freshness governor remains explicit testimony.",
+            "predicates": {
+                "ux:layoutJson": { "datatype": "string", "multi": false, "required": true },
+                "domain:queryCatalogueDigest": { "datatype": "string", "multi": false, "required": true },
+                "domain:freshnessQuery": { "datatype": "string", "multi": false, "required": true },
+                "domain:freshnessPolicy": { "datatype": "string", "multi": false, "required": true },
+                "domain:freshnessGeneratedAt": { "datatype": "dateTime", "multi": false, "required": true },
+                "domain:freshnessMaxAgeSeconds": { "datatype": "integer", "multi": false, "required": true }
+            },
+            "rdf_types": ["ux:DashboardSurface"],
+            "subject_rule": "{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:domain-dashboard",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        }
+    },
+    "comanaged_forbidden": ["doc:", "mnemo:", "nfo:"],
+    "comment": "Domain Kit dashboard projection pack. Layout validation happens in Nucleus; Garden owns the reserved projection and enforces the frozen wire shape.",
+    "description": "Validated graph-native domain dashboard layouts and freshness governors.",
+    "name": "sophia-domain-dashboard",
+    "namespaces": {
+        "domain": "http://sophia.ai/domain#",
+        "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+        "sh": "http://www.w3.org/ns/shacl#",
+        "ux": "http://sophia.ai/ux#",
+        "xsd": "http://www.w3.org/2001/XMLSchema#"
+    },
+    "primary_prefix": "ux",
+    "raw_shacl_shapes": "@prefix sh: <http://www.w3.org/ns/shacl#> .\n@prefix ux: <http://sophia.ai/ux#> .\n@prefix domain: <http://sophia.ai/domain#> .\n\nux:DomainDashboardFreshnessShape a sh:NodeShape ;\n    sh:targetClass ux:DashboardSurface ;\n    sh:property [ sh:path domain:freshnessPolicy ; sh:in ( \"unknown-on-missing-or-error\" ) ; sh:severity sh:Violation ] ;\n    sh:property [ sh:path domain:freshnessMaxAgeSeconds ; sh:minExclusive 0 ; sh:severity sh:Violation ] .\n",
+    "title": "Sophia Domain Dashboard Projection Vocabulary",
+    "version": "1.0.0",
+    "write_target": "projection:domain-dashboard"
+}

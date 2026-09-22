@@ -1,0 +1,9 @@
+{
+  "serviceId": "choreograph",
+  "command": "choreograph/node_modules/.bin/tsx",
+  "args": ["src/orchestrator.ts"],
+  "workingDir": "choreograph",
+  "healthPath": "/health",
+  "proxyMount": "/services/choreograph",
+  "env": [{ "name": "NODE_ENV", "value": "production" }]
+}

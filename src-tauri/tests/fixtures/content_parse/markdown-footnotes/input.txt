@@ -1,0 +1,11 @@
+---
+title: Frontmatter Title
+---
+
+# Actual Heading
+
+Here is a claim[^note] that needs support.
+
+[^note]: This is the footnote text.
+
+Closing paragraph.

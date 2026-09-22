@@ -1,0 +1,18 @@
+# Garden Notes
+
+Some **bold** and *italic* and ~~struck~~ and `inline code` text.
+This sentence continues after a soft break.
+
+#### Deep heading gets clamped
+
+> A quote with **emphasis** inside.
+
+Visit [the docs](https://example.com/docs "Docs") for more.
+
+---
+
+```rust
+fn main() {
+    println!("hi");
+}
+```

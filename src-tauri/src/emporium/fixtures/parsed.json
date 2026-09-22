@@ -1,0 +1,83 @@
+{
+  "kind": "run-record",
+  "name": "demo",
+  "description": "d",
+  "whenToUse": null,
+  "script": "export const meta = {}\n",
+  "scriptSha256": "583c6d1d03f5fc00dbce7697448af60834e9848a951cb303b709f9dbef663692",
+  "phases": [
+    {
+      "order": 1,
+      "title": "Go",
+      "detail": null
+    }
+  ],
+  "nodes": [
+    {
+      "label": "a",
+      "phase": "Go",
+      "phaseIndex": 1,
+      "agentType": null,
+      "prompt": "p1"
+    },
+    {
+      "label": "b",
+      "phase": "Go",
+      "phaseIndex": 1,
+      "agentType": null,
+      "prompt": "p2 [output of a]"
+    }
+  ],
+  "edges": [
+    [
+      "a",
+      "b"
+    ]
+  ],
+  "duplicateLabels": [],
+  "run": {
+    "runId": "wf_test-1",
+    "status": "completed",
+    "startTimeMs": 1000,
+    "endTimeMs": 5000,
+    "endTimeIso": null,
+    "totalTokens": 10,
+    "agentCount": 2,
+    "durationMs": 4000,
+    "recordPath": "/tmp/x.json",
+    "phases": [
+      {
+        "index": 1,
+        "title": "Go"
+      }
+    ],
+    "agents": [
+      {
+        "label": "a",
+        "phaseIndex": 1,
+        "model": "m",
+        "state": "done",
+        "tokens": 5,
+        "toolCalls": 1,
+        "durationMs": 2000,
+        "queuedAt": 1000,
+        "startedAt": 1100,
+        "cached": false,
+        "agentType": null
+      },
+      {
+        "label": "b",
+        "phaseIndex": 1,
+        "model": "m",
+        "state": "done",
+        "tokens": 5,
+        "toolCalls": 1,
+        "durationMs": 1000,
+        "queuedAt": 3000,
+        "startedAt": 3100,
+        "cached": false,
+        "agentType": null
+      }
+    ]
+  }
+}
