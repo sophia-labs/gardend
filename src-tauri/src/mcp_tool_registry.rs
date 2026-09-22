@@ -122,7 +122,11 @@ mod tests {
             .get("tools")
             .and_then(serde_json::Value::as_array)
             .expect("tools array");
-        assert_eq!(tools.len(), 110);
+        // 102 base + 2 flow-board tools (main) + 8 engine-line tools
+        // (custom_css/read_custom_css/write_custom_css, agent_status,
+        // status, create_document_once, create_artifact_text,
+        // write_artifact_text) = 112.
+        assert_eq!(tools.len(), 112);
 
         let known_scopes = loopback_scope_keys()
             .into_iter()
@@ -240,8 +244,8 @@ mod tests {
         .expect("desktop tools list serializes");
         let tools = result["tools"].as_array().expect("tools");
 
-        // 110 registered tools minus the two explicitly optional CSS schemas.
-        assert_eq!(tools.len(), 108);
+        // 112 registered tools minus the two explicitly optional CSS schemas.
+        assert_eq!(tools.len(), 110);
         assert!(tools.iter().any(|tool| tool["name"] == "read_document"));
         assert!(tools.iter().any(|tool| tool["name"] == "write_document"));
         assert!(tools.iter().any(|tool| tool["name"] == "create_document_once"));
@@ -262,10 +266,18 @@ mod tests {
             .filter_map(|tool| tool["name"].as_str())
             .collect::<BTreeSet<_>>();
 
-        // The inspected predecessor had 96 owner-visible cell tools. The
-        // compact CSS entry and two Agent status tools add exactly three;
-        // expanded CSS schemas remain opt-in, not default-discoverable.
-        assert_eq!(names.len(), 99);
+        // 112 catalog tools − 9 profile-denied − 2 optional CSS schemas
+        // (opt-in, not default-discoverable) = 101. G4's two flow tools are
+        // cell-visible (documents.write.crdt / documents.read). The three
+        // source_* tools are cell-visible too: main's 0db7586 originally
+        // fenced them (mcpProfileDenied) the day the registry gained them
+        // unclassified, but 6e70030 "fix(cell): authorize graph source
+        // tools for editors" (2026-09-06, upstream of the deployed
+        // fix/cutover-history-sharing-20260920 engine line) superseded that
+        // with real Editor+ role mapping (sources.read/write/rebuild are
+        // classified Editor in `minimum_role_for_effect`) — the merge keeps
+        // that later, deployed decision, not main's earlier blanket fence.
+        assert_eq!(names.len(), 101);
         for added in ["custom_css", "agent_status", "status"] {
             assert!(names.contains(added), "missing default tool {added}");
         }

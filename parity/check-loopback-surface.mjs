@@ -307,8 +307,13 @@ function evaluatePerformanceBudgets() {
 }
 
 const health = await fetchJson(`${manifest.apiUrl}/health`)
-if (health.status !== 'ok' || !health.redis) {
-  throw new Error('/health did not return hosted-shaped status/redis envelope')
+// Loopback /health (loopback_health in loopback_core_routes.rs) has no Redis;
+// the old `redis` expectation was copied from the hosted platform's /health.
+if (health.status !== 'ok') {
+  throw new Error(`/health did not return status "ok" (got ${JSON.stringify(health.status)})`)
+}
+if (typeof health.surfacePolicy !== 'string' || typeof health.surfaceDriftCount !== 'number') {
+  throw new Error('/health did not return the expected surfacePolicy/surfaceDriftCount envelope')
 }
 
 const loopbackManifest = await fetchJson(`${manifest.apiUrl}/manifest`, { headers: authHeaders })

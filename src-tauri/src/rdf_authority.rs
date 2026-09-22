@@ -118,6 +118,23 @@ pub(crate) fn salience_projection_graph_iri(graph_id: &str) -> String {
     format!("{}:projection:salience", graph_subject(graph_id))
 }
 
+/// The reserved, materializer-only Mithras Flow board projection lane for a
+/// graph_id — `urn:mnemosyne:local:graph:{id}:projection:flow` (interfaces.md
+/// §A; FLOW-GS-3). The board's `resource` root reconciles here DIRECT-ON-STORE
+/// (`flow_board_reconcile`, unit G3) and the registered `flow` Emporium pack's
+/// `write_target: projection:flow` (unit G1) resolves to the same IRI — one
+/// lane, two sanctioned materializer doors, both value-diffed. The room is the
+/// only authority (GS-3: "its RDF form is a declared projection, never an
+/// independent authority"): like every `:projection:*` graph this IRI is
+/// reserved (caught by `is_reserved_rdf_graph_iri` /
+/// `contains_reserved_named_graph_target` via the `:projection:` prefix), so a
+/// user `sparql_update`/`rdf_load` targeting it is refused with ZERO
+/// authority-gate edits — GS-3's acceptance rides the prefix rule, and
+/// `flow_board_reconcile::tests` proves it stays that way.
+pub(crate) fn flow_projection_graph_iri(graph_id: &str) -> String {
+    format!("{}:projection:flow", graph_subject(graph_id))
+}
+
 /// The per-OBSERVER salience projection graph — the Valuation analog of
 /// [`song_projection_graph_iri_for`] / [`memory_projection_graph_iri_for`]. Salience
 /// is the ONE faculty that was NOT witness-scoped: every observer's valuations

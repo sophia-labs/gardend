@@ -659,7 +659,11 @@ pub(crate) fn run_document_update(
 /// scoped to the document graph: match the leading verb, take the body between
 /// the FIRST `{` and the LAST `}`, re-emit wrapped. The `render_updates` output
 /// satisfies this shape.
-fn graph_wrap_document(update: &str, doc_graph: &str) -> Result<String, String> {
+///
+/// `pub(crate)`: the body is graph-agnostic (verb + target IRI in, wrapped
+/// update out) — `flow_board_reconcile` (unit G3) reuses it verbatim to wrap
+/// its `:projection:flow` lane updates instead of growing a drifting copy.
+pub(crate) fn graph_wrap_document(update: &str, doc_graph: &str) -> Result<String, String> {
     let trimmed = update.trim_start();
     let (verb_word, after) = if let Some(rest) = trimmed.strip_prefix("INSERT DATA") {
         ("INSERT DATA", rest)
@@ -819,6 +823,7 @@ mod tests {
             }),
             blocks: Vec::new(),
             rdf_triple_count: 0,
+            document_kind: None,
         }
     }
 
@@ -2773,6 +2778,7 @@ mod shacl_document_conformance_oracle {
             }),
             blocks: Vec::new(),
             rdf_triple_count: 0,
+            document_kind: None,
         }
     }
 

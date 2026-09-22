@@ -401,6 +401,7 @@ mod tests {
             }),
             blocks: Vec::new(),
             rdf_triple_count: 0,
+            document_kind: None,
         };
 
         let rendered = document_tree_triples(&document)

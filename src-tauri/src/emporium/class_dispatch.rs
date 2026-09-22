@@ -167,6 +167,19 @@ mod tests {
             ("emporium-observatory", "SequenceGap", "virtual-skip"),
             ("emporium-observatory", "SourceSnapshot", "virtual-skip"),
             ("emporium-observatory", "SpawnAttempt", "virtual-skip"),
+            ("flow", "Constraint", "simple-projection"),
+            ("flow", "ConstraintLink", "simple-projection"),
+            ("flow", "Dependency", "simple-projection"),
+            ("flow", "Edge", "simple-projection"),
+            ("flow", "Outcome", "simple-projection"),
+            ("flow", "Requirement", "simple-projection"),
+            ("flow", "Source", "simple-projection"),
+            ("flow", "System", "simple-projection"),
+            ("flow", "Task", "simple-projection"),
+            ("flow", "Trade", "simple-projection"),
+            ("flow", "TradeLink", "simple-projection"),
+            ("flow", "Workflow", "simple-projection"),
+            ("flow", "WorkflowLink", "simple-projection"),
             ("garden-pdf-source", "PdfOriginal", "simple-projection"),
             ("garden-pdf-source", "PdfPageSelector", "simple-projection"),
             ("garden-pdf-source", "PdfRegion", "simple-projection"),
@@ -526,7 +539,7 @@ mod tests {
             .map(|(pack, _json, _sha)| get_vocabulary(pack).unwrap().classes.len())
             .sum();
         assert_eq!(
-            total, 139,
+            total, 162,
             "VOCAB_REGISTRY class count drifted from the snapshot above"
         );
     }

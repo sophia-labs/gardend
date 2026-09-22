@@ -376,6 +376,9 @@ async fn apply_operation_inner(
         "document.batchRegister" => super::workspace_ops::batch_register(app, operation)
             .await
             .map_err(ApplyOperationError::from),
+        "flow.seed" => super::flow_ops::apply_classified(app, operation)
+            .await
+            .map_err(ApplyOperationError::from),
         "import.vault" => super::import_vault_ops::apply_classified(app, operation)
             .await
             .map_err(ApplyOperationError::from),

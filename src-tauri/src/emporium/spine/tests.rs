@@ -306,6 +306,7 @@ fn write_doc_body(app: &AppHandle, graph_id: &str, doc_id: &str, content: &str) 
         tree: None,
         blocks: Vec::new(),
         rdf_triple_count: 0,
+        document_kind: None,
     };
     crate::document_record_store::write_document_record(&graph_dir, &document)
         .expect("write doc body");

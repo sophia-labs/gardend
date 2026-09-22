@@ -95,6 +95,11 @@ pub(crate) fn ensure_document_persistence_tail_with_tombstone_fence(
 
     let store = open_graph_store(graph_dir)?;
     reconcile_document_record(&store, document)?;
+    // Flow boards additionally reconcile the graph's `:projection:flow` lane
+    // from the record's Y.Doc bytes (a no-op for every other kind) — same
+    // repairable tail slot as the document MO reconcile above, so a crashed
+    // tail replays it under the same revision. Unit G3.
+    crate::flow_board_reconcile::reconcile_flow_board_record(&store, graph_dir, document)?;
     crate::pdf_source::reconcile(&store, document)?;
     let snapshot = if let Some(expected_deletion_id) = expected_deletion_id {
         ensure_document_snapshot_for_revision_with_tombstone_fence(
@@ -356,6 +361,12 @@ fn save_document_with_tombstone_fence(
     document.schema_version = DOCUMENT_SCHEMA_VERSION;
     document.tiptap_xml = input.tiptap_xml.unwrap_or_default();
     document.tiptap_json = input.tiptap_json;
+    // Sticky kind (unit G3): a kind is declared at creation and never changes
+    // (interfaces.md §A), so a save that carries one records it and a
+    // metadata-only save that omits it must not erase it.
+    if let Some(kind) = input.document_kind {
+        document.document_kind = Some(kind);
+    }
     document.ydoc_update_base64 = input.ydoc_update_base64.unwrap_or_default();
     document.ydoc_state_path =
         display_path(&document_ydoc_state_path(&graph_dir, &document.document_id));
@@ -451,6 +462,7 @@ fn read_or_initialize_document_record(
         tree: None,
         blocks: Vec::new(),
         rdf_triple_count: 0,
+        document_kind: None,
     })
 }
 

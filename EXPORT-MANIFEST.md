@@ -141,6 +141,14 @@ now-included `README.md`/`CONTRIBUTING.md`:
   narrower public boundary in its own text (see the "Two boundaries" note
   added at its top).
 
+### `export/github/workflows/ci.yml` → `.github/workflows/ci.yml` (relocated)
+
+The public CI workflow. It is stored inert in the private repo (private-repo
+CI does not run on GitHub) and placed at `.github/workflows/ci.yml` only in
+the export tree. It needs no secrets: it builds `gardend` and runs the
+library tests exactly as [`docs/headless-engine.md`](docs/headless-engine.md)
+describes.
+
 ## EXCLUDE (with reasons)
 
 - **`frontend/`** (entire directory) — the private-boundary UI, plus
@@ -152,7 +160,7 @@ now-included `README.md`/`CONTRIBUTING.md`:
   private UI/user content).
 - **`.github/workflows/release.yml`, `.github/workflows/native-tauri-prototype.yml`**
   — both require `secrets.SHRUBBERY_READ_TOKEN`, per spec.
-- **`.github/` entirely** (issue templates, PR template) — not requested by
+- **The private repo's `.github/` entirely** (issue templates, PR template; the public CI workflow is relocated from `export/` instead, above) — not requested by
   this work item, and found stale on inspection (the PR template still says
   "Frontend (sibling `../mnemosyne-platform/frontend/`)", predating even the
   `frontend/` vendoring). Flagged as a follow-up finding, not fixed here —

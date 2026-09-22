@@ -22,6 +22,11 @@ pub(super) struct SaveDocumentInput {
     pub(super) ydoc_update_base64: Option<String>,
     pub(super) tree: Option<DocumentTreeSnapshot>,
     pub(super) blocks: Option<Vec<BlockSnapshot>>,
+    /// Workspace-declared document kind (unit G3). `Some("flow-board")` marks
+    /// a Mithras Flow board whose content lives in the Y.Doc's `resource`/
+    /// `scene` roots, never in TipTap fields; absent = TipTap document.
+    #[serde(default)]
+    pub(super) document_kind: Option<String>,
     pub(super) trace_operation_id: Option<String>,
     /// Optimistic-concurrency revision guard (A2 item 9).
     /// If present: increment only if current == expected (normal write) or
@@ -91,6 +96,12 @@ pub(super) struct DocumentRecord {
     pub(super) blocks: Vec<BlockSnapshot>,
     #[serde(default)]
     pub(super) rdf_triple_count: usize,
+    /// The workspace-declared `documentKind` flag, persisted so cold paths
+    /// (history snapshots, restore, RDF tails) can take the flow-board branch
+    /// without consulting the workspace Y.Doc (unit G3). Skipped when `None`
+    /// so every existing TipTap `document.json` round-trips byte-identically.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) document_kind: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

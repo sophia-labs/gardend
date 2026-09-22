@@ -4755,6 +4755,49 @@
         },
         "additionalProperties": false
       }
+    },
+    {
+      "name": "flow_seed_board",
+      "description": "Seed (or wholly replace) the graph's Mithras Flow board from a Flow board JSON file: materializes the board Y.Doc (resource + scene roots), ensures the 'flow-board' workspace entry with documentKind \"flow-board\", and flushes the :projection:flow lane. Seeding is a whole-board act: a non-empty board is refused unless replace is true.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graphId",
+          "json"
+        ],
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "json": {
+            "type": "string",
+            "description": "The Flow board file content (Flow JSON, form N or any parseable board)."
+          },
+          "replace": {
+            "type": "boolean",
+            "description": "Replace an existing non-empty board (default false: refuse)."
+          }
+        }
+      }
+    },
+    {
+      "name": "flow_export_board",
+      "description": "Export the graph's Mithras Flow board as canonical Flow JSON (form C) with the top-level 'sophia' sidecar key. Without restorePointId the live room is read in one consistency point; with restorePointId that restore point's board bytes are exported and the id travels in the file.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graphId"
+        ],
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "restorePointId": {
+            "type": "string",
+            "description": "Export from this restore point's captured board instead of the live room."
+          }
+        }
+      }
     }
   ]
 }

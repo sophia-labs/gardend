@@ -40,6 +40,7 @@ use crate::{
         mcp_local_emporium_read, mcp_local_emporium_retract, mcp_local_emporium_sweep,
         mcp_local_emporium_write, mcp_local_sparql_query_named,
     },
+    flow_board_mcp::{mcp_local_flow_export_board, mcp_local_flow_seed_board},
     geist_memory_backfill::mcp_local_backfill_memory_projection,
     geist_memory_recall_service::mcp_local_recall_memories,
     geist_memory_service::{
@@ -784,6 +785,24 @@ fn tramp_create_restore_point<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> M
     Box::pin(async move { mcp_local_create_restore_point(app, args) })
 }
 
+fn tramp_flow_seed_board<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
+    let app = ctx.app.clone();
+    Box::pin(async move {
+        mcp_local_flow_seed_board(app, args)
+            .await
+            .map_err(AppError::internal)
+    })
+}
+
+fn tramp_flow_export_board<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
+    let app = ctx.app.clone();
+    Box::pin(async move {
+        mcp_local_flow_export_board(app, args)
+            .await
+            .map_err(AppError::internal)
+    })
+}
+
 fn tramp_diff_restore_points<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
     let app = ctx.app.clone();
     Box::pin(async move { mcp_local_diff_restore_points(app, args) })
@@ -1218,6 +1237,14 @@ const REGISTRY: &[McpToolEntry] = &[
     McpToolEntry {
         name: "create_restore_point",
         handler: tramp_create_restore_point,
+    },
+    McpToolEntry {
+        name: "flow_seed_board",
+        handler: tramp_flow_seed_board,
+    },
+    McpToolEntry {
+        name: "flow_export_board",
+        handler: tramp_flow_export_board,
     },
     McpToolEntry {
         name: "diff_restore_points",

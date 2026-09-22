@@ -1084,8 +1084,17 @@ pub(crate) async fn rebuild_room_document_projection(
     if !room.needs_projection_flush() {
         return Ok(false);
     }
-    let materialized =
-        materialize_room_document(graph_id, document_id, title, room, operation_id, None).await?;
+    let document_kind = resolve_document_kind(app, graph_id, document_id).await?;
+    let materialized = materialize_room_document(
+        graph_id,
+        document_id,
+        title,
+        room,
+        operation_id,
+        None,
+        document_kind.as_deref(),
+    )
+    .await?;
     let graph_dir = existing_graph_dir(app, graph_id)?;
     let manifest = document_dir(&graph_dir, document_id)?.join("document.json");
     if !manifest.is_file() {
@@ -1103,6 +1112,10 @@ pub(crate) async fn rebuild_room_document_projection(
     }
     let store = crate::rdf_service::open_graph_store(&graph_dir)?;
     crate::document_meaningful_object::reconcile_document_record(&store, &record)?;
+    // Flow boards project into the graph's `:projection:flow` lane instead of
+    // a TipTap tree; the replay reconciles it from the same verified record
+    // (no-op for every other kind). Unit G3.
+    crate::flow_board_reconcile::reconcile_flow_board_record(&store, &graph_dir, &record)?;
     crate::pdf_source::reconcile(&store, &record)?;
     room.mark_projection_persisted(materialized.projection_epoch);
     Ok(true)
@@ -1138,6 +1151,62 @@ pub(super) struct MaterializedRoomDocument {
     save_input: SaveDocumentInput,
 }
 
+/// Resolve the workspace-declared `documentKind` for one document (unit G3):
+/// the live workspace room when hosted (`RoomRegistry::peek` — never
+/// `get_or_create`, a document flush must not host/hydrate the workspace room
+/// as a side effect), else the durable workspace Y.Doc sidecar (authoritative
+/// at rest — every accepted workspace mutation persists it before broadcast).
+/// A graph with no workspace sidecar yet has declared no kinds ⇒ `None`.
+/// FAIL CLOSED on a corrupt sidecar: refusing to guess a kind beats silently
+/// projecting a board through the TipTap seam (or vice versa).
+pub(super) async fn resolve_document_kind(
+    app: &AppHandle,
+    graph_id: &str,
+    document_id: &str,
+) -> Result<Option<String>, String> {
+    let registry = app.state::<super::rooms::RoomRegistry>();
+    if let Some(room) = registry.peek(&format!("workspace:{graph_id}")).await {
+        let document_id = document_id.to_string();
+        return Ok(room
+            .with_doc(move |doc| super::workspace_ops::document_kind(doc, &document_id))
+            .await);
+    }
+    let graph_dir = existing_graph_dir(app, graph_id)?;
+    let sidecar = crate::ydoc_paths::workspace_ydoc_state_path(&graph_dir);
+    if !sidecar.is_file() {
+        return Ok(None);
+    }
+    let bytes = std::fs::read(&sidecar)
+        .map_err(|error| format!("read workspace Y.Doc sidecar for kind resolution: {error}"))?;
+    if bytes.is_empty() {
+        return Ok(None);
+    }
+    let update = Update::decode_v1(&bytes)
+        .map_err(|error| format!("decode workspace Y.Doc sidecar for kind resolution: {error}"))?;
+    let doc = Doc::new();
+    {
+        let mut txn = doc.transact_mut();
+        txn.apply_update(update).map_err(|error| {
+            format!("apply workspace Y.Doc sidecar for kind resolution: {error}")
+        })?;
+    }
+    Ok(super::workspace_ops::document_kind(&doc, document_id))
+}
+
+/// Materialize one room Y.Doc into a save candidate.
+///
+/// `document_kind` branches the ONE TipTap seam (unit G3): for a
+/// `"flow-board"` document the TipTap projection is skipped ENTIRELY — no
+/// `materialize_ydoc`, no `ydoc_to_tiptap_xml`, and crucially no
+/// `get_or_insert_xml_fragment("content")` (which would insert an empty
+/// `content` root into a board doc whose only roots are `resource`/`scene`).
+/// The candidate's content fields are empty BY CONSTRUCTION (`body:""`,
+/// `tiptapXml:""`, `tiptapJson:null`, `tree:null`, `blocks:[]`), the Y.Doc
+/// bytes are saved verbatim exactly as for TipTap documents, and the record
+/// carries `documentKind:"flow-board"` so every cold path (persistence tail,
+/// history snapshots, restore) can take the same branch. The graph's
+/// `:projection:flow` lane is reconciled from those bytes downstream, in the
+/// shared persistence tail (`flow_board_reconcile::reconcile_flow_board_record`).
 pub(super) async fn materialize_room_document(
     graph_id: &str,
     document_id: &str,
@@ -1145,7 +1214,39 @@ pub(super) async fn materialize_room_document(
     room: &super::rooms::Room,
     operation_id: &str,
     expected_revision: Option<&Value>,
+    document_kind: Option<&str>,
 ) -> Result<MaterializedRoomDocument, String> {
+    if document_kind == Some(crate::flow_board::FLOW_BOARD_KIND) {
+        let (projection_epoch, ydoc_state) = room
+            .with_doc_version(|doc| {
+                let txn = doc.transact();
+                txn.encode_state_as_update_v1(&yrs::StateVector::default())
+            })
+            .await;
+        let ydoc_b64 = base64::engine::general_purpose::STANDARD.encode(ydoc_state);
+        let candidate = json!({
+            "graphId": graph_id,
+            "documentId": document_id,
+            "title": title,
+            "body": "",
+            "tiptapXml": "",
+            "tiptapJson": Value::Null,
+            "ydocUpdateBase64": ydoc_b64,
+            "tree": Value::Null,
+            "blocks": [],
+            "documentKind": crate::flow_board::FLOW_BOARD_KIND,
+            "traceOperationId": operation_id,
+            "expectedRevision": expected_revision.cloned(),
+        });
+        let save_input: SaveDocumentInput = serde_json::from_value(candidate.clone())
+            .map_err(|error| format!("assemble flow-board save_document input: {error}"))?;
+        return Ok(MaterializedRoomDocument {
+            projection_epoch,
+            candidate,
+            save_input,
+        });
+    }
+
     let (projection_epoch, (snapshot, tiptap_xml, ydoc_state)) = room
         .with_doc_version(|doc| {
             let snapshot = projection::materialize_ydoc(doc, document_id);
@@ -1228,13 +1329,44 @@ fn projection_semantics_match(record: &Value, candidate: &Value) -> Result<bool,
     // byte identical. Body is retained as a defensive semantic cross-check.
     // Comments are authoritative non-TipTap semantics, but raw CRDT update
     // bytes are not: equal visible state can have different Yjs histories.
-    let content_matches = ["title", "body", "tiptapJson"]
+    let content_matches = ["title", "body", "tiptapJson", "documentKind"]
         .into_iter()
         .all(|field| record.get(field) == candidate.get(field));
     if !content_matches {
         return Ok(false);
     }
+    // A flow board's semantics live ENTIRELY outside the TipTap fields (its
+    // title/body/tiptapJson are empty by construction), so the fields above
+    // would call EVERY board edit "unchanged" and route it through the
+    // repair-replay path — stale record bytes, no revision, a stale
+    // `:projection:flow` reconcile. Compare the board's canonical projection
+    // instead: the deterministic form-C export of each side's Y.Doc state
+    // (raw update bytes stay a non-key here too — equal boards with different
+    // Yjs histories still compare equal). Unit G3.
+    let record_kind = record.get("documentKind").and_then(Value::as_str);
+    if record_kind == Some(crate::flow_board::FLOW_BOARD_KIND) {
+        if canonical_board_projection(record)? != canonical_board_projection(candidate)? {
+            return Ok(false);
+        }
+    }
     Ok(canonical_projection_comments(record)? == canonical_projection_comments(candidate)?)
+}
+
+/// The value-canonical board content of one save-candidate/record JSON: the
+/// deterministic form-C export of its inline Y.Doc state. An empty/absent
+/// inline payload canonicalizes to `""` — distinct from every real export
+/// (which always starts with `{`), so a restored record whose inline payload
+/// was deliberately cleared never reads as equal to a live board.
+fn canonical_board_projection(value: &Value) -> Result<String, String> {
+    let encoded = value
+        .get("ydocUpdateBase64")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    if encoded.is_empty() {
+        return Ok(String::new());
+    }
+    let doc = crate::flow_board::board_doc_from_update_base64(encoded)?;
+    Ok(crate::flow_board::board_export_json(&doc, None).json)
 }
 
 pub(super) fn reconcile_matching_document_projection(
@@ -1298,6 +1430,7 @@ async fn persist_room_document_locked(
     expected_revision: Option<&Value>,
     expected_deletion_id: Option<&str>,
 ) -> Result<Value, String> {
+    let document_kind = resolve_document_kind(app, graph_id, document_id).await?;
     let materialized = materialize_room_document(
         graph_id,
         document_id,
@@ -1305,6 +1438,7 @@ async fn persist_room_document_locked(
         room,
         operation_id,
         expected_revision,
+        document_kind.as_deref(),
     )
     .await?;
     persist_materialized_room_document_with_tombstone_fence(

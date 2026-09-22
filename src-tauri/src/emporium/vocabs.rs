@@ -116,7 +116,7 @@ pub(crate) const WORKSPACE_GOLDEN_JSON: &str =
     include_str!("vocabs/emporium-workspace.golden.json");
 /// Pinned sha256 — recompute with `shasum -a 256 src/emporium/vocabs/emporium-workspace.golden.json`.
 pub(crate) const WORKSPACE_GOLDEN_SHA: &str =
-    "8d549aaa4f1f83f980dcf30b27050dae4ff8a8bcf6a5aacf924b4c274c831e6f";
+    "cf6c525d43c312cf8d13b0bc6b003e36105603e9034ebbb4ae37ee1a84de12ca";
 
 /// The `emporium-bookmark` EXAMPLE product vocab (EA-3), embedded verbatim. Unlike
 /// the EA-2b retrofit contracts this IS a served pack — it is the minimal real
@@ -370,6 +370,16 @@ pub(crate) const SHRUBBERY_SITE_GOLDEN_JSON: &str =
 pub(crate) const SHRUBBERY_SITE_GOLDEN_SHA: &str =
     "22a1159852508fd6099dbea5a6ea082d3ae32d25a4862a769627b738d96b72c8";
 
+/// The Mithras Flow playground board vocabulary (unit G1). One class per Flow
+/// table (13); geometry columns (x, y, width, height, waypoints — the 14
+/// fields interfaces.md §C names) are deliberately absent, they live in the
+/// board Y.Doc's scene root, never in `:projection:flow`. See
+/// `contracts/vocabulary-map.md` (Mithras Flow build) for the full map and
+/// the six RTRIP-11 vocabulary corrections.
+pub(crate) const FLOW_GOLDEN_JSON: &str = include_str!("vocabs/flow.golden.json");
+pub(crate) const FLOW_GOLDEN_SHA: &str =
+    "121842b0ee5dd4a59fd7735c0a512e0cf7cf1f059301f7cfd1daf282bf8c4bfb";
+
 /// The TABLE-DRIVEN vocab registry (EA-3 / Seq 0). One row per SERVED pack:
 /// `(name, golden JSON bytes, pinned sha256)`. The two registration projections
 /// — the thin `Vec<VocabContract>` for serving and the parsed
@@ -468,6 +478,7 @@ pub(crate) const VOCAB_REGISTRY: &[(&str, &str, &str)] = &[
         SHRUBBERY_SITE_GOLDEN_JSON,
         SHRUBBERY_SITE_GOLDEN_SHA,
     ),
+    ("flow", FLOW_GOLDEN_JSON, FLOW_GOLDEN_SHA),
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -722,6 +733,18 @@ pub(crate) const VOCAB_JURISDICTIONS: &[VocabJurisdiction] = &[
         slug_aliases: &[],
         compatibility_aliases: &[],
     },
+    // Mithras Flow playground board vocabulary (unit G1) — a third-party app's
+    // schema faithfully described, not a fourth ontology pillar. Mirrors
+    // shrubbery-site's own internal-substrate/non-pillar classification.
+    VocabJurisdiction {
+        name: "flow",
+        public_jurisdiction: "internal-substrate",
+        canonical_ontology: "internal-substrate",
+        canonical_pack: "flow",
+        status: RegistryStatus::InternalSubstrate,
+        slug_aliases: &[],
+        compatibility_aliases: &[],
+    },
 ];
 
 pub(crate) fn registry_metadata(name: &str) -> Option<VocabJurisdiction> {
@@ -970,6 +993,18 @@ mod tests {
         );
     }
 
+    // The drift gate for the Mithras Flow playground pack (unit G1) — a byte
+    // drift in the flow golden fails CI here, exactly like every other pack.
+    #[test]
+    fn embedded_flow_sha_is_pinned() {
+        let computed = sha256_hex(FLOW_GOLDEN_JSON.as_bytes());
+        assert_eq!(
+            computed, FLOW_GOLDEN_SHA,
+            "embedded flow golden bytes drifted from the pinned sha"
+        );
+        assert_eq!(find_contract("flow", "latest").unwrap().sha, FLOW_GOLDEN_SHA);
+    }
+
     #[test]
     fn embedded_workspace_sha_is_pinned() {
         assert_eq!(
@@ -1086,6 +1121,7 @@ mod tests {
     fn served_pack_version_and_sha_rail() {
         // (pack_name, golden version, pinned sha). Edit CONSCIOUSLY per the discipline.
         const RAIL: &[(&str, &str, &str)] = &[
+            ("ludus-core", "1.0.0", LUDUS_CORE_GOLDEN_SHA),
             ("garden-pdf-source", "1.0.0", PDF_SOURCE_GOLDEN_SHA),
             ("workflow", "1.0.0", WORKFLOW_GOLDEN_SHA),
             ("sophia-memory-core", "1.3.0", MEMORY_CORE_GOLDEN_SHA),
@@ -1123,6 +1159,7 @@ mod tests {
                 DOMAIN_DASHBOARD_GOLDEN_SHA,
             ),
             ("shrubbery-site", "0.2.1", SHRUBBERY_SITE_GOLDEN_SHA),
+            ("flow", "0.1.0", FLOW_GOLDEN_SHA),
         ];
 
         // (1) The rail covers EXACTLY the served registry — none missing, none extra.
@@ -1200,7 +1237,13 @@ mod tests {
             assert!(
                 matches!(
                     metadata.public_jurisdiction,
-                    "agent" | "memory" | "workflow" | "koch" | "internal-substrate"
+                    "agent"
+                        | "memory"
+                        | "workflow"
+                        | "koch"
+                        | "ludus"
+                        | "pdf-source"
+                        | "internal-substrate"
                 ),
                 "{name} has an allowed public jurisdiction"
             );
@@ -1275,6 +1318,7 @@ mod tests {
             "sophia-domain-verdict",
             "sophia-domain-dashboard",
             "shrubbery-site",
+            "flow",
         ] {
             let contract = find_contract(name, "latest").expect("served internal/example pack");
             assert_ne!(contract.registry_status, "canonical-public");
@@ -1328,6 +1372,8 @@ mod tests {
         assert_eq!(
             names,
             vec![
+                "ludus-core",
+                "garden-pdf-source",
                 "workflow",
                 "sophia-memory-core",
                 "emporium-bookmark",
@@ -1347,7 +1393,8 @@ mod tests {
                 "sophia-domain-manifest",
                 "sophia-domain-verdict",
                 "sophia-domain-dashboard",
-                "shrubbery-site"
+                "shrubbery-site",
+                "flow"
             ]
         );
     }

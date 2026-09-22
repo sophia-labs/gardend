@@ -515,6 +515,7 @@ mod tests {
             }),
             blocks: Vec::new(),
             rdf_triple_count: 0,
+            document_kind: None,
         }
     }
 

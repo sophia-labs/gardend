@@ -60,6 +60,35 @@ pub(super) fn push_document_snapshot_triples(
         RDF_TYPE,
         &format!("{MDOC_NS}TipTapDocument"),
     );
+    // Flow board (unit G3): emit `flow:Board` BESIDE `doc:TipTapDocument`,
+    // plus the discriminator literal `flow:documentKind "flow-board"`. Beside,
+    // not instead — the workspace RECONCILE partitions desired triples into
+    // exactly the 10 known rdf:type class spans, so a subject typed ONLY
+    // `flow:Board` would route to no span and never materialize; with the
+    // mdoc type kept, the board rides the TipTapDocument span exactly the way
+    // an artifact's kind class (`mdoc:Image` etc.) rides the Artifact span
+    // (see `rdf_workspace_store_materializer.rs::partition_workspace_desired`).
+    // `documentKind` reaches this snapshot entity as a generic extra field
+    // (`insert_extra_fields`), hence the `extra_value` fallback.
+    let document_kind = json_string(
+        document
+            .get("documentKind")
+            .or_else(|| extra_value(document, "documentKind")),
+    );
+    if document_kind.as_deref() == Some(crate::flow_board::FLOW_BOARD_KIND) {
+        push_uri_triple(
+            triples,
+            &subject,
+            RDF_TYPE,
+            &format!("{}Board", crate::flow_board::FLOW_NS),
+        );
+        push_string_triple(
+            triples,
+            &subject,
+            &format!("{}documentKind", crate::flow_board::FLOW_NS),
+            crate::flow_board::FLOW_BOARD_KIND,
+        );
+    }
     if let Some(title) = json_string(document.get("title")) {
         push_string_triple(triples, &subject, &format!("{DCTERMS_NS}title"), &title);
     }
@@ -674,6 +703,66 @@ fn uri_component(value: &str) -> String {
 mod tests {
     use super::*;
     use crate::rdf::format_rdf_triple;
+
+    /// Unit G3, brief item 2: a workspace document entry whose `documentKind`
+    /// extra field is `"flow-board"` types as `flow:Board` (beside
+    /// `doc:TipTapDocument` — see the partition-routing comment at the emit
+    /// site) and carries `flow:documentKind "flow-board"`; a plain document
+    /// gains neither.
+    #[test]
+    fn flow_board_document_entry_types_as_flow_board() {
+        let board = serde_json::json!({
+            "id": "flow-board",
+            "title": "Mission Board",
+            "order": 1,
+            "extra": { "documentKind": "flow-board" }
+        });
+        let mut triples = Vec::new();
+        push_document_snapshot_triples(&mut triples, "graph-a", &board);
+        let rendered = triples
+            .iter()
+            .map(format_rdf_triple)
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(rendered.contains("<urn:sophia:flow:vocab:Board>"));
+        assert!(rendered.contains("documentKind> \"flow-board\""));
+        assert!(
+            rendered.contains("TipTapDocument>"),
+            "the mdoc type must stay beside flow:Board so the workspace \
+             reconcile's class-span partition still routes the subject"
+        );
+
+        // Top-level (non-extra) carriage works too — both shapes appear
+        // depending on which serializer produced the snapshot entity.
+        let board_top = serde_json::json!({
+            "id": "flow-board",
+            "title": "Mission Board",
+            "order": 1,
+            "documentKind": "flow-board"
+        });
+        let mut top_triples = Vec::new();
+        push_document_snapshot_triples(&mut top_triples, "graph-a", &board_top);
+        let top_rendered = top_triples
+            .iter()
+            .map(format_rdf_triple)
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(top_rendered.contains("<urn:sophia:flow:vocab:Board>"));
+
+        let plain = serde_json::json!({
+            "id": "doc-plain",
+            "title": "Plain",
+            "order": 2
+        });
+        let mut plain_triples = Vec::new();
+        push_document_snapshot_triples(&mut plain_triples, "graph-a", &plain);
+        let plain_rendered = plain_triples
+            .iter()
+            .map(format_rdf_triple)
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(!plain_rendered.contains("urn:sophia:flow:vocab"));
+    }
 
     #[test]
     fn artifact_triples_include_scene_projection_summary_fields() {

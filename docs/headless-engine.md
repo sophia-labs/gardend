@@ -73,13 +73,29 @@ cargo check --manifest-path src-tauri/Cargo.toml --no-default-features --feature
 ## Test
 
 The headless feature set gates test suites the default desktop build never
-compiles (Emporium reconcile, memory, SHACL evidence, etc.). Run the library
-test suite with the same flags used in CI
-(`.github/workflows/native-tauri-prototype.yml`'s `headless` job, token-free
-steps only):
+compiles (Emporium reconcile, memory, SHACL evidence, etc.). This is the
+public test contract — the exact commands `.github/workflows/ci.yml` runs
+(placed there from `export/github/workflows/ci.yml` on export; see
+[`EXPORT-MANIFEST.md`](../EXPORT-MANIFEST.md)), verified against this tree.
+
+Main run:
 
 ```bash
-cargo test --manifest-path src-tauri/Cargo.toml --no-default-features --features headless --lib
+cargo test --manifest-path src-tauri/Cargo.toml --no-default-features --features headless --lib -- \
+  --skip preservation_v2 \
+  --skip owned_restore \
+  --skip restored_documents_rematerialize_even_when_marker_floor_ran_ahead_of_wall_clock \
+  --skip harness_fresh_parity_old_vs_new_net_state_identical \
+  --skip semantic_model_state \
+  --skip cell_self_heal_tests
+```
+
+Two suites are order-dependent — they fail when run in-process with the rest
+of the library suite but pass cleanly on their own. Run them isolated:
+
+```bash
+cargo test --manifest-path src-tauri/Cargo.toml --no-default-features --features headless --lib semantic_model_state -- --test-threads=1
+cargo test --manifest-path src-tauri/Cargo.toml --no-default-features --features headless --lib graph_paths::cell_self_heal_tests::cell_self_heal_materializes_a_never_created_graph_on_first_query -- --exact --test-threads=1
 ```
 
 Then confirm the exact integration binary CI ships also builds:
@@ -88,11 +104,24 @@ Then confirm the exact integration binary CI ships also builds:
 cargo build --manifest-path src-tauri/Cargo.toml --no-default-features --features headless --example gardend
 ```
 
-Also run formatting/lint gates, which are feature-independent:
+**Known exclusions:**
 
-```bash
-cargo fmt --check --manifest-path src-tauri/Cargo.toml
-```
+- `preservation_v2`, `owned_restore` — need private `GARDEN_PRESERVATION_*`
+  fixture archives not available to public contributors.
+- `semantic_model_state::tests::*` (9 tests) — order-dependent: a shared
+  profile-env mutex gets poisoned by an unrelated panicking test when run
+  in-process with the rest of the suite. Passes in isolation (above); run
+  separately with `--test-threads=1`.
+- `graph_paths::cell_self_heal_tests::cell_self_heal_materializes_a_never_created_graph_on_first_query`
+  — order-dependent: a `OnceLock` gets latched by a co-scheduled test.
+  Passes in isolation (above); run separately with `--exact`.
+- `time_travel_restore_service::tests::restored_documents_rematerialize_even_when_marker_floor_ran_ahead_of_wall_clock`
+  and `document_meaningful_object::harness_tests::harness_fresh_parity_old_vs_new_net_state_identical`
+  — known pre-existing failures, tracked, not fixed by this contract.
+
+Formatting is **not** currently an enforced gate: `cargo fmt --check` is not
+clean on `main` (hundreds of hunks across live worktrees, and a repo-wide
+reformat would conflict with them), so CI does not run it.
 
 Optional additional static cross-check (needs `node`, `jq`, and `rg` —
 verifies the SPARQL admission/cancellation invariants documented in

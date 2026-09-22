@@ -63,6 +63,9 @@ const CRDT_OPERATION_SCOPE_RULES: &[CrdtOperationScopeRule] = &[
     crdt_rule("artifact.mutateText", &["artifacts.write", "workspace.write.crdt"]),
     crdt_rule("document.editComment", &["documents.write.crdt"]),
     crdt_rule("document.liveProjection", &["documents.write.crdt"]),
+    // Unit G4: seeding the Mithras Flow board is a document write (the brief's
+    // "scope rule like other document.* writes").
+    crdt_rule("flow.seed", &["documents.write.crdt"]),
     crdt_rule("block.insert", &["documents.write.crdt"]),
     crdt_rule("block.update", &["documents.write.crdt"]),
     crdt_rule("block.editText", &["documents.write.crdt"]),

@@ -1,0 +1,57 @@
+# Public CI for the sophia-labs/gardend export. Lives inert in the private
+# repo (no private-repo GitHub CI, per the Rampart ruling); the export
+# assembly places it at .github/workflows/ci.yml in the public tree.
+# Mirrors docs/headless-engine.md: Rust toolchain only, no credentials.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  headless:
+    name: build gardend, lib tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install native build dependencies
+        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev cmake pkg-config libssl-dev
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: ${{ runner.os }}-cargo-headless-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-headless-
+
+      - name: Build gardend
+        run: cargo build --locked --manifest-path src-tauri/Cargo.toml --no-default-features --features headless --example gardend
+
+      - name: Library tests (headless)
+        run: |
+          cargo test --manifest-path src-tauri/Cargo.toml --no-default-features --features headless --lib -- \
+            --skip preservation_v2 \
+            --skip owned_restore \
+            --skip restored_documents_rematerialize_even_when_marker_floor_ran_ahead_of_wall_clock \
+            --skip harness_fresh_parity_old_vs_new_net_state_identical \
+            --skip semantic_model_state \
+            --skip cell_self_heal_tests
+
+      - name: Library tests (order-dependent, isolated)
+        run: |
+          cargo test --manifest-path src-tauri/Cargo.toml --no-default-features --features headless --lib semantic_model_state -- --test-threads=1
+          cargo test --manifest-path src-tauri/Cargo.toml --no-default-features --features headless --lib graph_paths::cell_self_heal_tests::cell_self_heal_materializes_a_never_created_graph_on_first_query -- --exact --test-threads=1

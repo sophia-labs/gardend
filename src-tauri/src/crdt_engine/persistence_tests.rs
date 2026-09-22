@@ -176,6 +176,7 @@ fn older_document_materialization_cannot_clear_newer_projection() {
                 &room,
                 "old-flush",
                 None,
+                None,
             )
             .await
             .expect("old materialization");

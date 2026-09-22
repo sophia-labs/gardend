@@ -596,6 +596,26 @@ pub(crate) fn document_title_in_workspace(doc: &Doc, document_id: &str) -> Optio
     }
 }
 
+/// Typed accessor for a workspace document entry's `documentKind` field
+/// (unit G3; interfaces.md §A). The workspace `documents` Y.Map carries extra
+/// fields generically (clients write them over raw CRDT sync;
+/// `insert_extra_fields` round-trips them into the snapshot), so no schema
+/// change is needed for `documentKind: "flow-board"` — this just reads it
+/// back with a type. Naming follows `document_title_in_workspace` above:
+/// first argument is the WORKSPACE (graph room) Y.Doc, second the document id.
+/// `None` = entry absent, kind absent, or non-string ⇒ TipTap document.
+pub(crate) fn document_kind(doc: &Doc, document_id: &str) -> Option<String> {
+    let txn = doc.transact();
+    let documents = txn.get_map("documents")?;
+    let Out::YMap(entry) = documents.get(&txn, document_id)? else {
+        return None;
+    };
+    match entry.get(&txn, "documentKind") {
+        Some(Out::Any(Any::String(kind))) if !kind.is_empty() => Some(kind.to_string()),
+        _ => None,
+    }
+}
+
 /// Membership guard for document-room connection. Unlike the title helper,
 /// this checks the Y.Map entry itself: an untitled/partially initialized
 /// workspace document is still an authorized document identity.
@@ -647,6 +667,14 @@ pub(super) fn write_workspace_document(
         "readOnly",
         boolean_value(pick(&value, &["readOnly", "read_only"]), false),
     );
+    // Optional kind discriminator (unit G4; interfaces.md §A): the workspace
+    // entry's `documentKind` extra field, written through this same
+    // createDocument path when the caller supplies it (`flow.seed` passes
+    // "flow-board"). Absent from the payload = untouched, so a plain
+    // createDocument never clears an existing kind.
+    if let Some(kind) = string_value(pick(&value, &["documentKind", "document_kind"])) {
+        document_map.insert(txn, "documentKind", kind.as_str());
+    }
     if value.contains_key("description") {
         let description = string_value(value.get("description")).unwrap_or_default();
         let described_at =

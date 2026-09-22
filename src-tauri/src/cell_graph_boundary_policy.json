@@ -1,7 +1,7 @@
 {
   "restSurfaceSha256": "d42039d7a4c9f8a3c71024ce7c4e02ba260db42ad57533406abb881798144203",
-  "mcpSurfaceSha256": "39f061cfad8390feab500551a737f3b68c38c326ba70dd4b8b770f7ede654d09",
-  "effectRegistrySha256": "2bd68c7ed672b1c55ba55005561755795747b26f1ef5408707a6048bab05892c",
+  "mcpSurfaceSha256": "e64edf29c124a613e7292533884385bf27a0af7323a38d4c33e35403ee3bb895",
+  "effectRegistrySha256": "16b223d509d51053456fe56af9fc08ded820e6647dfd8a17c2e6a48aa3b3ff9f",
   "restGlobal": [
     "GET /api/artifacts/ingestion/approaches",
     "GET /api/artifacts/ingestion/docling/status",
@@ -304,6 +304,8 @@
     "emporium_sweep",
     "emporium_violations",
     "emporium_write",
+    "flow_export_board",
+    "flow_seed_board",
     "flush_crdt",
     "get_block",
     "get_block_values",

@@ -100,6 +100,7 @@ pub(crate) fn write_memory_archive_document(
         tree: None,
         blocks,
         rdf_triple_count: 0,
+        document_kind: None,
     };
     let tree_triples = document_tree_triples(&document);
     document.rdf_triple_count = tree_triples.len();

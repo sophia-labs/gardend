@@ -53,7 +53,17 @@ pub fn gardend_binary() -> PathBuf {
     BINARY
         .get_or_init(|| {
             let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-            let status = Command::new(env!("CARGO"))
+            // `--message-format=json-render-diagnostics`: cargo itself names
+            // the built (or fresh) example executable in its artifact stream.
+            // Never guess `target/debug/examples/gardend` from the manifest
+            // dir — under a redirected target layout (CARGO_TARGET_DIR, a
+            // config `build.target-dir`, a shared warm cache in the forge
+            // pod) the example lands elsewhere and the guessed path fails
+            // even though the build succeeded (G5 forge run
+            // run:6acfa0f0…ec803, attempt 1: exit 101,
+            // "missing /work/src/src-tauri/target/debug/examples/gardend").
+            // Human diagnostics still render to the inherited stderr.
+            let output = Command::new(env!("CARGO"))
                 .args([
                     "build",
                     "--no-default-features",
@@ -61,15 +71,64 @@ pub fn gardend_binary() -> PathBuf {
                     "headless",
                     "--example",
                     "gardend",
+                    "--message-format=json-render-diagnostics",
                 ])
                 .env("CARGO_NET_OFFLINE", "true")
                 .current_dir(&manifest_dir)
-                .status()
+                .output()
                 .expect("build gardend");
-            assert!(status.success(), "gardend build failed: {status}");
-            let binary = manifest_dir.join("target/debug/examples/gardend");
-            assert!(binary.is_file(), "missing {}", binary.display());
-            binary
+            assert!(
+                output.status.success(),
+                "gardend build failed: {}",
+                output.status
+            );
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let executable = stdout
+                .lines()
+                .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+                .filter(|message| message["reason"] == "compiler-artifact")
+                .filter(|message| message["target"]["name"] == "gardend")
+                .filter(|message| {
+                    message["target"]["kind"]
+                        .as_array()
+                        .is_some_and(|kinds| kinds.iter().any(|kind| kind == "example"))
+                })
+                .find_map(|message| {
+                    message["executable"].as_str().map(PathBuf::from)
+                })
+                .unwrap_or_else(|| {
+                    panic!(
+                        "cargo build reported success but emitted no \
+                         compiler-artifact for example `gardend` — the target \
+                         was skipped (required-features mismatch?) or the \
+                         message stream changed shape; raw artifact reasons: \
+                         {:?}",
+                        stdout
+                            .lines()
+                            .filter_map(|line| {
+                                serde_json::from_str::<serde_json::Value>(line).ok()
+                            })
+                            .map(|message| {
+                                format!(
+                                    "{}:{}",
+                                    message["reason"]
+                                        .as_str()
+                                        .unwrap_or("?"),
+                                    message["target"]["name"]
+                                        .as_str()
+                                        .unwrap_or("?")
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                    )
+                });
+            assert!(
+                executable.is_file(),
+                "cargo names {} as the gardend example executable, but it is \
+                 not a file",
+                executable.display()
+            );
+            executable
         })
         .clone()
 }

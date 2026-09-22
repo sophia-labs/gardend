@@ -2208,6 +2208,20 @@
       "scopes": [
         "sources.rebuild"
       ]
+    },
+    {
+      "name": "flow_seed_board",
+      "status": "implemented-crdt-queued",
+      "scopes": [
+        "documents.write.crdt"
+      ]
+    },
+    {
+      "name": "flow_export_board",
+      "status": "implemented",
+      "scopes": [
+        "documents.read"
+      ]
     }
   ]
 }

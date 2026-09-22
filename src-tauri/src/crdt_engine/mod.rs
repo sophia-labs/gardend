@@ -20,6 +20,7 @@ pub(crate) mod create_once;
 #[doc(hidden)]
 pub mod document_ops;
 pub(crate) mod executor;
+pub(crate) mod flow_ops;
 pub(crate) mod flush_ops;
 #[doc(hidden)]
 pub mod import_archive_ops;
@@ -33,5 +34,7 @@ pub mod web_clip_ops;
 #[doc(hidden)]
 pub mod workspace_ops;
 
+#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
+mod flow_board_flush_tests;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod persistence_tests;

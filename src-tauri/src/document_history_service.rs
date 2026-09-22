@@ -291,7 +291,7 @@ fn capture_document_snapshot_locked(
         title: document.title.clone(),
         created_at,
         blocks,
-        tiptap_xml: document_xml(document),
+        tiptap_xml: snapshot_content_xml(graph_dir, document)?,
     };
 
     create_dir_all(&document_history_snapshots_dir(
@@ -316,7 +316,21 @@ fn capture_document_snapshot_locked(
     Ok(meta)
 }
 
+/// The `tiptap_xml` slot of a history snapshot payload: TipTap XML for a
+/// TipTap document; for a flow board (unit G3, whose TipTap fields are empty
+/// by construction) the readable form-C export JSON of its Y.Doc, so a
+/// restore point / history entry carries a readable board. Capture and the
+/// currency matcher MUST share this one definition or every board snapshot
+/// reads as permanently stale.
+fn snapshot_content_xml(graph_dir: &Path, document: &DocumentRecord) -> Result<String, String> {
+    match crate::flow_board_reconcile::flow_board_snapshot_content(graph_dir, document)? {
+        Some(board_json) => Ok(board_json),
+        None => Ok(document_xml(document)),
+    }
+}
+
 pub(super) fn snapshot_payload_matches_document(
+    graph_dir: &Path,
     payload: &LocalDocumentSnapshotPayload,
     document: &DocumentRecord,
 ) -> Result<bool, String> {
@@ -328,7 +342,7 @@ pub(super) fn snapshot_payload_matches_document(
         && payload.document_id == document.document_id
         && payload.title == document.title
         && payload_blocks == document_blocks
-        && payload.tiptap_xml == document_xml(document))
+        && payload.tiptap_xml == snapshot_content_xml(graph_dir, document)?)
 }
 
 fn try_snapshot_meta_matches_document(
@@ -339,7 +353,7 @@ fn try_snapshot_meta_matches_document(
     read_document_snapshot_payload(graph_dir, &document.document_id, &meta.snapshot_id).and_then(
         |payload| {
             Ok(payload.snapshot_id == meta.snapshot_id
-                && snapshot_payload_matches_document(&payload, document)?)
+                && snapshot_payload_matches_document(graph_dir, &payload, document)?)
         },
     )
 }
@@ -747,6 +761,7 @@ mod tests {
             tree: None,
             blocks: Vec::new(),
             rdf_triple_count: 0,
+            document_kind: None,
         }
     }
 
@@ -1175,8 +1190,10 @@ mod tests {
                     &ensured.snapshot_id,
                 )
                 .expect("replacement payload");
-                assert!(snapshot_payload_matches_document(&repaired, &document)
-                    .expect("compare repaired payload"));
+                assert!(
+                    snapshot_payload_matches_document(&graph_dir, &repaired, &document)
+                        .expect("compare repaired payload")
+                );
             }
             fs::remove_dir_all(graph_dir).expect("remove graph dir");
         }

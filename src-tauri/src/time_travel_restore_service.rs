@@ -417,7 +417,14 @@ fn run_phases(
 /// bytes copy still recreates its state. Every OTHER failure is a real `Err`
 /// that must fail the whole restore.
 enum DocumentMetadataOutcome {
-    Restored,
+    Restored {
+        /// The restored record's `documentKind` (unit G3): `apply_restore`
+        /// reconciles a flow board's `:projection:flow` lane from the freshly
+        /// swapped Y.Doc bytes, so the lane never survives a restore stale —
+        /// the same self-reconcile discipline `restore_document_metadata`
+        /// applies to the document's own RDF.
+        document_kind: Option<String>,
+    },
     SkippedNoMetadata,
 }
 
@@ -437,9 +444,12 @@ fn apply_restore(graph_dir: &Path, manifest: &RestorePointManifest) -> AppResult
         // next user save. Sidecar projection files (tiptap.xml, tree.json,
         // blocks.json) are intentionally left for the frontend's first save
         // to regenerate — Y.Doc state is the canonical source.
+        let mut restored_document_kind: Option<String> = None;
         match restore_document_metadata(graph_dir, doc_ref) {
-            Ok(DocumentMetadataOutcome::Restored)
-            | Ok(DocumentMetadataOutcome::SkippedNoMetadata) => {}
+            Ok(DocumentMetadataOutcome::Restored { document_kind }) => {
+                restored_document_kind = document_kind;
+            }
+            Ok(DocumentMetadataOutcome::SkippedNoMetadata) => {}
             Err(error) => {
                 log::error!(
                     "metadata restore for document {} FAILED: {message}",
@@ -454,6 +464,29 @@ fn apply_restore(graph_dir: &Path, manifest: &RestorePointManifest) -> AppResult
             read_document_bytes(graph_dir, &manifest.restore_point_id, &doc_ref.document_id)?;
         let target = document_ydoc_state_path(graph_dir, &doc_ref.document_id);
         write_bytes(&target, &bytes).map_err(AppError::storage)?;
+
+        // Flow board (unit G3): the `:projection:flow` lane derives from the
+        // Y.Doc, so reconcile it from the restored bytes just swapped in —
+        // restore's self-reconcile invariant applied to the board's lane
+        // (the seed pass in `rebuild_projections` re-materializes only
+        // graph/workspace/per-document lanes, never `:projection:flow`).
+        if restored_document_kind.as_deref() == Some(crate::flow_board::FLOW_BOARD_KIND) {
+            let result = crate::flow_board::board_doc_from_update_bytes(&bytes).and_then(|doc| {
+                let store = open_graph_store(graph_dir)?;
+                crate::flow_board_reconcile::reconcile_flow_board_doc(
+                    &store,
+                    &manifest.graph_id,
+                    &doc,
+                )
+            });
+            if let Err(error) = result {
+                log::error!(
+                    "flow lane restore reconcile for document {} FAILED: {error}",
+                    doc_ref.document_id,
+                );
+                failures.push(format!("{}: {error}", doc_ref.document_id));
+            }
+        }
     }
     if !failures.is_empty() {
         return Err(AppError::internal(format!(
@@ -513,8 +546,17 @@ fn restore_document_metadata(
         read_document_snapshot_payload(graph_dir, &doc_ref.document_id, &doc_ref.snapshot_id)
             .map_err(AppError::storage)?;
     record.title = payload.title;
-    record.tiptap_xml = payload.tiptap_xml;
-    record.blocks = payload.blocks;
+    if crate::flow_board_reconcile::is_flow_board_record(&record) {
+        // A board snapshot's `tiptap_xml` slot carries the READABLE form-C
+        // export JSON (unit G3) — a snapshot artifact, never record content.
+        // The board record's content fields stay empty by construction; the
+        // restored Y.Doc bytes (swapped in right after this) are the content.
+        record.tiptap_xml = String::new();
+        record.blocks = Vec::new();
+    } else {
+        record.tiptap_xml = payload.tiptap_xml;
+        record.blocks = payload.blocks;
+    }
     // tree / tiptap_json are derived; clear so frontend rebuilds them on save.
     record.tree = None;
     record.tiptap_json = None;
@@ -551,7 +593,9 @@ fn restore_document_metadata(
     // correctness. O(restored documents), an explicit bounded operation.
     let store = open_graph_store(graph_dir).map_err(AppError::rdf)?;
     materialize_document_record(&store, &record).map_err(AppError::rdf)?;
-    Ok(DocumentMetadataOutcome::Restored)
+    Ok(DocumentMetadataOutcome::Restored {
+        document_kind: record.document_kind.clone(),
+    })
 }
 
 fn rebuild_projections(graph_dir: &Path) -> AppResult<()> {

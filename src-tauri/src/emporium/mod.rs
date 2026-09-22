@@ -26,6 +26,8 @@ pub(crate) mod contract;
 mod domain_kit_tests;
 #[cfg(test)]
 mod fixtures;
+#[cfg(test)]
+mod flow_projection_tests;
 pub(crate) mod ingest_routes;
 #[cfg(all(test, feature = "headless"))]
 mod lex_scotus_core_tests;

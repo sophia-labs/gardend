@@ -1920,6 +1920,21 @@ mod tests {
     }
 
     #[test]
+    fn bound_cell_boots_with_zero_surface_drift() {
+        // The embedded policy pins must match the embedded artifacts exactly:
+        // any drift here reaches production as a boot-time
+        // `cell_surface_drift` error on every gardend cell. The parity gate
+        // checks the same invariants in CI; this unit makes `cargo test`
+        // sufficient to catch a surface change that forgot the policy.
+        let cell = CellGraphBoundary::for_test(Some("graph-a"));
+        assert_eq!(
+            cell.surface_drift(),
+            &[] as &[String],
+            "embedded cell-boundary policy has drifted from the embedded surface artifacts"
+        );
+    }
+
+    #[test]
     fn source_tools_allow_signed_editors_and_owners_but_not_viewers() {
         let secret = b"source-role-test-secret-at-least-32-bytes".to_vec();
         let cell = CellGraphBoundary::new_with_binding(
@@ -2290,6 +2305,16 @@ mod tests {
             ),
             Err(CellGraphBoundaryError::ProfileWideOperation(_))
         ));
+        // source_pull/source_push/source_rebuild are deliberately NOT in this
+        // denied loop: main's 0db7586 blanket-fenced them (mcpProfileDenied)
+        // as a stopgap the day it discovered them unclassified, but its own
+        // commit message named proper role mapping "a deliberate future
+        // decision" — the engine line's 6e70030 ("fix(cell): authorize graph
+        // source tools for editors") made exactly that decision, reclassifying
+        // them mcpGraphScoped with sources.read/write/rebuild mapped to
+        // CellRole::Editor in `minimum_role_for_effect`. Their Viewer-excluded,
+        // Editor+-admitted property is asserted directly by
+        // `source_tools_allow_signed_editors_and_owners_but_not_viewers` below.
         for denied in [
             "upload_artifact",
             "workflow_authoring_session",

@@ -18,6 +18,7 @@
             "predicates": {
                 "dcterms:title": { "datatype": "string", "multi": false, "required": false },
                 "dcterms:description": { "datatype": "string", "multi": false, "required": false },
+                "flow:documentKind": { "datatype": "string", "multi": false, "required": false, "comment": "Workspace-declared document kind (unit G3). \"flow-board\" marks a Mithras Flow board entry, which additionally types flow:Board beside mdoc:TipTapDocument (rdf:type rides sh:ignoredProperties)." },
                 "nfo:belongsToContainer": { "datatype": "uri", "multi": false, "required": false },
                 "mdoc:order": { "datatype": "float", "multi": false, "required": false },
                 "mdoc:section": { "datatype": "string", "multi": false, "required": false },
@@ -67,6 +68,7 @@
     "name": "emporium-workspace",
     "namespaces": {
         "dcterms": "http://purl.org/dc/terms/",
+        "flow": "urn:sophia:flow:vocab:",
         "mdoc": "http://mnemosyne.dev/doc#",
         "nfo": "http://www.semanticdesktop.org/ontologies/2007/03/22/nfo#",
         "nie": "http://www.semanticdesktop.org/ontologies/2007/01/19/nie#",

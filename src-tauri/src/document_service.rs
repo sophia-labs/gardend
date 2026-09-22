@@ -158,6 +158,7 @@ fn create_document_record_with_lease(
         tree: None,
         blocks: Vec::new(),
         rdf_triple_count: 0,
+        document_kind: None,
     };
 
     write_document_record(&graph_dir, &document)?;

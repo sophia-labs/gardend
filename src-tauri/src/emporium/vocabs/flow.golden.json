@@ -1,0 +1,544 @@
+{
+    "name": "flow",
+    "version": "0.1.0",
+    "title": "Mithras Flow Board Vocabulary",
+    "description": "One class per Mithras Flow table (13), typed door for the playground's resource facts.",
+    "comment": "Read from tmp/mithras-flow/flow/src/db/schema.ts (DDL, source of truth for columns and order) and src/types.ts at 9ead5ee, cross-checked against courtship/flow-shapes-v1.ttl and flow-specimen.ttl. Geometry columns (systems x/y/width/height, workflows x/y, trades x/y, constraints x/y, and waypoints on the four link tables \u2014 the 14 fields interfaces.md \u00a7C names) live in the board Y.Doc's scene root, never here; display_mode, parent_id, and sort_order ARE resource facts (interfaces.md \u00a7C) and are materialized. flow:Snapshot (a shape for the JSON file envelope, not a DB table) is out of scope \u2014 13 classes = 13 Flow tables. See contracts/vocabulary-map.md for the full table/class/predicate map, the six RTRIP-11 corrections, and the sh:order/domain-range placement notes.",
+    "primary_prefix": "flow",
+    "namespaces": {
+        "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+        "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
+        "owl": "http://www.w3.org/2002/07/owl#",
+        "xsd": "http://www.w3.org/2001/XMLSchema#",
+        "flow": "urn:sophia:flow:vocab:"
+    },
+    "classes": {
+        "Constraint": {
+            "comment": "Parametric constraint / external driver (SysML constraint block) - mission, regulatory, equation; owns its requirements (ConstraintNode.tsx:6-8). x, y are scene geometry and are NOT materialized on this class.",
+            "predicates": {
+                "flow:name": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "constraints.name TEXT NOT NULL"
+                },
+                "flow:description": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "constraints.description TEXT NOT NULL DEFAULT ''; the characteristic/equation, markdown; a legacy calc_url folds into a Source row at parse time if none exists (persistence.ts:86-92)"
+                }
+            },
+            "rdf_types": [
+                "flow:Constraint"
+            ],
+            "subject_rule": "{graph_subject}:projection:flow:constraint:{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:flow",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "ConstraintLink": {
+            "comment": "Target is a system OR a requirement (types.ts:111), with a note. waypoints is scene geometry and is NOT materialized on this class.",
+            "predicates": {
+                "flow:constraint": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "constraint_links.constraint_id TEXT NOT NULL; sh:class flow:Constraint"
+                },
+                "flow:target": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "constraint_links.target_id TEXT NOT NULL; sh:or(System,Requirement) in raw_shacl_shapes"
+                },
+                "flow:note": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "constraint_links.note TEXT NOT NULL DEFAULT ''"
+                }
+            },
+            "rdf_types": [
+                "flow:ConstraintLink"
+            ],
+            "subject_rule": "{graph_subject}:projection:flow:constraint-link:{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:flow",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "Dependency": {
+            "comment": "Schedule predecessor/successor between tasks or requirements (types.ts:118). This pack materializes the literal DDL columns flow:predecessor/flow:successor directly and does NOT include the derived flow:dependsOn shortcut (see contracts/vocabulary-map.md, RTRIP-11 correction #6, for why: flow:dependsOn is not a DDL column, and this unit could not reproduce the R1 paper's claimed direction inversion against schedule.ts).",
+            "predicates": {
+                "flow:predecessor": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "deps.predecessor_id TEXT NOT NULL; task or requirement id; sh:or(Task,Requirement) in raw_shacl_shapes"
+                },
+                "flow:successor": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "deps.successor_id TEXT NOT NULL; task or requirement id; sh:or(Task,Requirement) in raw_shacl_shapes"
+                }
+            },
+            "rdf_types": [
+                "flow:Dependency"
+            ],
+            "subject_rule": "{graph_subject}:projection:flow:dependency:{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:flow",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "Edge": {
+            "comment": "Free labeled edge; target may be a requirement row. waypoints is scene geometry and is NOT materialized on this class.",
+            "predicates": {
+                "flow:sourceNode": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "edges.source_id TEXT NOT NULL; sh:or(System,Workflow,Trade,Constraint) in raw_shacl_shapes"
+                },
+                "flow:targetNode": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "edges.target_id TEXT NOT NULL; sh:or(System,Workflow,Trade,Constraint,Requirement) in raw_shacl_shapes; toFlow.ts endpoint(): a requirement target anchors on its owner's row handle"
+                },
+                "flow:label": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "edges.label TEXT NOT NULL DEFAULT ''"
+                }
+            },
+            "rdf_types": [
+                "flow:Edge"
+            ],
+            "subject_rule": "{graph_subject}:projection:flow:edge:{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:flow",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "Outcome": {
+            "comment": "What a workflow is meant to produce: a measurement, dataset, decision, artifact (types.ts:51).",
+            "predicates": {
+                "flow:workflow": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "outcomes.workflow_id TEXT NOT NULL; sh:class flow:Workflow"
+                },
+                "flow:text": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "outcomes.text TEXT NOT NULL"
+                },
+                "flow:achieved": {
+                    "datatype": "boolean",
+                    "multi": false,
+                    "required": false,
+                    "source": "outcomes.achieved BOOLEAN NOT NULL DEFAULT false"
+                },
+                "flow:sortOrder": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": false,
+                    "source": "outcomes.sort_order INTEGER NOT NULL DEFAULT 0"
+                }
+            },
+            "rdf_types": [
+                "flow:Outcome"
+            ],
+            "subject_rule": "{graph_subject}:projection:flow:outcome:{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:flow",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "Requirement": {
+            "comment": "Owner: a system, constraint, or trade (types.ts:20; UUIDs unique across tables, no DB FK). RTRIP-11 correction #1: the requirement's evidence citation is flow:requirementSource, NOT flow:source (avoids the flow:source/flow:Source case collision the R1 paper found).",
+            "predicates": {
+                "flow:ownedBy": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "requirements.system_id TEXT NOT NULL; owner is System|Constraint|Trade (sh:or in raw_shacl_shapes)"
+                },
+                "flow:text": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "requirements.text TEXT NOT NULL"
+                },
+                "flow:requirementSource": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "requirements.source TEXT NOT NULL DEFAULT ''; markdown citation, e.g. 'ICD 4.2' (RENAMED from flow:source, RTRIP-11 #1)"
+                },
+                "flow:status": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "requirements.status TEXT NOT NULL DEFAULT 'open'; types.ts ReqStatus = 'open'|'met'|'waived'"
+                },
+                "flow:sortOrder": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": false,
+                    "source": "requirements.sort_order INTEGER NOT NULL DEFAULT 0"
+                },
+                "flow:startDate": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "requirements.start_date TEXT nullable, 'YYYY-MM-DD'"
+                },
+                "flow:dueDate": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "requirements.due_date TEXT nullable, 'YYYY-MM-DD'"
+                },
+                "flow:durationDays": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": false,
+                    "source": "requirements.duration_days INTEGER nullable"
+                }
+            },
+            "rdf_types": [
+                "flow:Requirement"
+            ],
+            "subject_rule": "{graph_subject}:projection:flow:requirement:{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:flow",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "Source": {
+            "comment": "A reference (datasheet, calculator spreadsheet, doc) owned by a system, workflow, constraint, OR TRADE \u2014 types.ts:101-103 says only system|workflow|constraint, but TradeDetails renders SourcesList for trades (DetailsPanel.tsx:121) and deleteTradeCascade deletes trade-owned sources (repo.ts:473): the code wins, the shape follows the code (per this unit's brief: 'where the shapes and the DDL disagree, the DDL wins' \u2014 here it is the STALE COMMENT in types.ts that disagrees with the code, and the code is the tighter authority than its own comment). RTRIP-11 correction #2: this row's own citation text is flow:sourceCitation, NOT the shared flow:text (avoids flow:text over-collapsing a Source's reference with a Requirement's/Task's/Outcome's statement).",
+            "predicates": {
+                "flow:ownedBy": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "sources.owner_id TEXT NOT NULL; owner is System|Workflow|Constraint|Trade (sh:or in raw_shacl_shapes)"
+                },
+                "flow:sourceCitation": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "sources.text TEXT NOT NULL; markdown, e.g. '[thrust calc](https://...)' (RENAMED from flow:text, RTRIP-11 #2)"
+                },
+                "flow:sortOrder": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": false,
+                    "source": "sources.sort_order INTEGER NOT NULL DEFAULT 0"
+                }
+            },
+            "rdf_types": [
+                "flow:Source"
+            ],
+            "subject_rule": "{graph_subject}:projection:flow:source:{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:flow",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "System": {
+            "comment": "Nested via parent_id; groups carry explicit width/height (geometry, excluded here), leaves auto-size; display_mode solid = concrete system, outline = meta context (DetailsPanel.tsx:153). x, y, width, height are scene geometry (interfaces.md \u00a7C) and are NOT materialized on this class.",
+            "predicates": {
+                "flow:parent": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "systems.parent_id (nullable FK; self-referential)"
+                },
+                "flow:name": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "systems.name TEXT NOT NULL"
+                },
+                "flow:description": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "systems.description TEXT NOT NULL DEFAULT ''"
+                },
+                "flow:displayMode": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "systems.display_mode TEXT NOT NULL DEFAULT 'solid'; types.ts DisplayMode = 'solid'|'outline'"
+                },
+                "flow:color": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "systems.color TEXT NOT NULL DEFAULT '#111111'; UI emits #rrggbb, the app never validates (Warning-severity pattern)"
+                }
+            },
+            "rdf_types": [
+                "flow:System"
+            ],
+            "subject_rule": "{graph_subject}:projection:flow:system:{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:flow",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "Task": {
+            "comment": "Owned by a system or a workflow, discriminated by owner_type (types.ts:3 OwnerType).",
+            "predicates": {
+                "flow:ownerType": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "tasks.owner_type TEXT NOT NULL; 'system'|'workflow'"
+                },
+                "flow:ownedBy": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "tasks.owner_id TEXT NOT NULL; owner is System|Workflow per owner_type (sh:or + sh:sparql cross-check in raw_shacl_shapes)"
+                },
+                "flow:text": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "tasks.text TEXT NOT NULL"
+                },
+                "flow:done": {
+                    "datatype": "boolean",
+                    "multi": false,
+                    "required": false,
+                    "source": "tasks.done BOOLEAN NOT NULL DEFAULT false"
+                },
+                "flow:sortOrder": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": false,
+                    "source": "tasks.sort_order INTEGER NOT NULL DEFAULT 0"
+                },
+                "flow:startDate": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "tasks.start_date TEXT nullable, 'YYYY-MM-DD'"
+                },
+                "flow:dueDate": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "tasks.due_date TEXT nullable, 'YYYY-MM-DD'"
+                },
+                "flow:durationDays": {
+                    "datatype": "integer",
+                    "multi": false,
+                    "required": false,
+                    "source": "tasks.duration_days INTEGER nullable"
+                }
+            },
+            "rdf_types": [
+                "flow:Task"
+            ],
+            "subject_rule": "{graph_subject}:projection:flow:task:{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:flow",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "Trade": {
+            "comment": "Candidate systems evaluated against metrics; winner declared by judgment (types.ts:76). RTRIP-11 correction #3: the decision rationale is flow:tradeRationale, NOT the shared flow:description (FLOW-ATTR-1 names 'trade description as rationale' as one of the three attributed-witness predicates; giving it its own CURIE makes that attribution boundary exact instead of riding the generic description property systems/workflows/constraints also use). x, y are scene geometry and are NOT materialized on this class.",
+            "predicates": {
+                "flow:name": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "trades.name TEXT NOT NULL"
+                },
+                "flow:tradeRationale": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "trades.description TEXT NOT NULL DEFAULT ''; 'rationale lives here once decided' (types.ts:79) (RENAMED from flow:description, RTRIP-11 #3)"
+                },
+                "flow:winner": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "trades.winner_id TEXT nullable; sh:class flow:System AND sh:sparql 'winner must be a linked TradeLink candidate' in raw_shacl_shapes"
+                }
+            },
+            "rdf_types": [
+                "flow:Trade"
+            ],
+            "subject_rule": "{graph_subject}:projection:flow:trade:{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:flow",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "TradeLink": {
+            "comment": "A candidate under evaluation. waypoints is scene geometry (interfaces.md \u00a7C) and is NOT materialized on this class.",
+            "predicates": {
+                "flow:trade": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "trade_links.trade_id TEXT NOT NULL; sh:class flow:Trade"
+                },
+                "flow:system": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "trade_links.system_id TEXT NOT NULL; sh:class flow:System"
+                }
+            },
+            "rdf_types": [
+                "flow:TradeLink"
+            ],
+            "subject_rule": "{graph_subject}:projection:flow:trade-link:{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:flow",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "Workflow": {
+            "comment": "x, y are scene geometry (interfaces.md \u00a7C) and are NOT materialized on this class.",
+            "predicates": {
+                "flow:name": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "workflows.name TEXT NOT NULL"
+                },
+                "flow:description": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "workflows.description TEXT NOT NULL DEFAULT ''; a legacy 'purpose' enum folds in here at parse time (persistence.ts:78-84)"
+                }
+            },
+            "rdf_types": [
+                "flow:Workflow"
+            ],
+            "subject_rule": "{graph_subject}:projection:flow:workflow:{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:flow",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "WorkflowLink": {
+            "comment": "workflow <-> system with a role and user-adjusted waypoints. waypoints is scene geometry (interfaces.md \u00a7C) and is NOT materialized on this class.",
+            "predicates": {
+                "flow:workflow": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "workflow_links.workflow_id TEXT NOT NULL; sh:class flow:Workflow"
+                },
+                "flow:system": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "workflow_links.system_id TEXT NOT NULL; sh:class flow:System"
+                },
+                "flow:role": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "workflow_links.role TEXT NOT NULL DEFAULT ''"
+                }
+            },
+            "rdf_types": [
+                "flow:WorkflowLink"
+            ],
+            "subject_rule": "{graph_subject}:projection:flow:workflow-link:{localId}",
+            "source_kind": "current-state",
+            "identity_kind": "logical-id",
+            "store_mode": "materialize",
+            "store_target": "projection:flow",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        }
+    },
+    "comanaged_forbidden": [
+        "doc:",
+        "mnemo:",
+        "nfo:"
+    ],
+    "write_target": "projection:flow",
+    "registration": {
+        "comment": "G1 registration testimony (Mithras Flow playground build, lane G unit 1).",
+        "registry_name": "flow",
+        "registry_row": "(\"flow\", FLOW_GOLDEN_JSON, FLOW_GOLDEN_SHA) in VOCAB_REGISTRY, garden/src-tauri/src/emporium/vocabs.rs",
+        "embedded_bytes": "FLOW_GOLDEN_JSON = include_str!(\"vocabs/flow.golden.json\") - served byte-verbatim, never re-serialized",
+        "sha_constant": "FLOW_GOLDEN_SHA = sha256 of the on-disk golden bytes (recompute with: shasum -a 256 src/emporium/vocabs/flow.golden.json), pinned at land time",
+        "sha_pin_test": "embedded_flow_sha_is_pinned",
+        "jurisdiction": {
+            "name": "flow",
+            "public_jurisdiction": "internal-substrate",
+            "canonical_ontology": "internal-substrate",
+            "canonical_pack": "flow",
+            "status": "internal-substrate",
+            "slug_aliases": [],
+            "compatibility_aliases": []
+        },
+        "served_at": "/emporium/vocab/flow/{latest|version} (+ /emporium/vocabs catalog row), ETag = sha, ?format=/Accept negotiation",
+        "invariants": [
+            "registry name equals this golden's 'name' field exactly (registry_names_match_golden_names)",
+            "internal-substrate, not a public ontology pillar \u2014 mirrors shrubbery-site's own non-pillar status (vocabs.rs jurisdiction comment)",
+            "geometry (x, y, width, height, waypoints \u2014 14 fields per interfaces.md \u00a7C) is deliberately absent from every class's predicates; it lives in the board Y.Doc's scene root, not :projection:flow",
+            "version bump = new golden + new sha; the served body is the embedded bytes verbatim"
+        ]
+    },
+    "raw_shacl_shapes": "@prefix sh:   <http://www.w3.org/ns/shacl#> .\n@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .\n@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .\n@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n@prefix owl:  <http://www.w3.org/2002/07/owl#> .\n@prefix flow: <urn:sophia:flow:vocab:> .\n@prefix fsh:  <urn:sophia:flow:shapes:> .\n\n# ---- FLOW-RTRIP-5: sh:order per declared predicate, equal to its DDL column\n# index (schema.ts; 0 = id, never materialized here \u2014 gaps are geometry/id).\n# The ClassSpec/PredicateSpec format has no order slot (contract.rs has no\n# `order` field on PredicateSpec; shacl_emit.rs never emits sh:order), so it\n# is carried here per this unit's brief.\nfsh:SystemOrderShape a sh:NodeShape ; sh:severity sh:Info ; sh:targetClass flow:System ;\n  sh:property [ sh:path flow:parent ; sh:order 1 ] ;\n  sh:property [ sh:path flow:name ; sh:order 2 ] ;\n  sh:property [ sh:path flow:description ; sh:order 3 ] ;\n  sh:property [ sh:path flow:displayMode ; sh:order 4 ] ;\n  sh:property [ sh:path flow:color ; sh:order 5 ] .\nfsh:RequirementOrderShape a sh:NodeShape ; sh:severity sh:Info ; sh:targetClass flow:Requirement ;\n  sh:property [ sh:path flow:ownedBy ; sh:order 1 ] ;\n  sh:property [ sh:path flow:text ; sh:order 2 ] ;\n  sh:property [ sh:path flow:requirementSource ; sh:order 3 ] ;\n  sh:property [ sh:path flow:status ; sh:order 4 ] ;\n  sh:property [ sh:path flow:sortOrder ; sh:order 5 ] ;\n  sh:property [ sh:path flow:startDate ; sh:order 6 ] ;\n  sh:property [ sh:path flow:dueDate ; sh:order 7 ] ;\n  sh:property [ sh:path flow:durationDays ; sh:order 8 ] .\nfsh:TaskOrderShape a sh:NodeShape ; sh:severity sh:Info ; sh:targetClass flow:Task ;\n  sh:property [ sh:path flow:ownerType ; sh:order 1 ] ;\n  sh:property [ sh:path flow:ownedBy ; sh:order 2 ] ;\n  sh:property [ sh:path flow:text ; sh:order 3 ] ;\n  sh:property [ sh:path flow:done ; sh:order 4 ] ;\n  sh:property [ sh:path flow:sortOrder ; sh:order 5 ] ;\n  sh:property [ sh:path flow:startDate ; sh:order 6 ] ;\n  sh:property [ sh:path flow:dueDate ; sh:order 7 ] ;\n  sh:property [ sh:path flow:durationDays ; sh:order 8 ] .\nfsh:WorkflowOrderShape a sh:NodeShape ; sh:severity sh:Info ; sh:targetClass flow:Workflow ;\n  sh:property [ sh:path flow:name ; sh:order 1 ] ;\n  sh:property [ sh:path flow:description ; sh:order 2 ] .\nfsh:OutcomeOrderShape a sh:NodeShape ; sh:severity sh:Info ; sh:targetClass flow:Outcome ;\n  sh:property [ sh:path flow:workflow ; sh:order 1 ] ;\n  sh:property [ sh:path flow:text ; sh:order 2 ] ;\n  sh:property [ sh:path flow:achieved ; sh:order 3 ] ;\n  sh:property [ sh:path flow:sortOrder ; sh:order 4 ] .\nfsh:WorkflowLinkOrderShape a sh:NodeShape ; sh:severity sh:Info ; sh:targetClass flow:WorkflowLink ;\n  sh:property [ sh:path flow:workflow ; sh:order 1 ] ;\n  sh:property [ sh:path flow:system ; sh:order 2 ] ;\n  sh:property [ sh:path flow:role ; sh:order 3 ] .\nfsh:TradeOrderShape a sh:NodeShape ; sh:severity sh:Info ; sh:targetClass flow:Trade ;\n  sh:property [ sh:path flow:name ; sh:order 1 ] ;\n  sh:property [ sh:path flow:tradeRationale ; sh:order 2 ] ;\n  sh:property [ sh:path flow:winner ; sh:order 3 ] .\nfsh:TradeLinkOrderShape a sh:NodeShape ; sh:severity sh:Info ; sh:targetClass flow:TradeLink ;\n  sh:property [ sh:path flow:trade ; sh:order 1 ] ;\n  sh:property [ sh:path flow:system ; sh:order 2 ] .\nfsh:ConstraintOrderShape a sh:NodeShape ; sh:severity sh:Info ; sh:targetClass flow:Constraint ;\n  sh:property [ sh:path flow:name ; sh:order 1 ] ;\n  sh:property [ sh:path flow:description ; sh:order 2 ] .\nfsh:ConstraintLinkOrderShape a sh:NodeShape ; sh:severity sh:Info ; sh:targetClass flow:ConstraintLink ;\n  sh:property [ sh:path flow:constraint ; sh:order 1 ] ;\n  sh:property [ sh:path flow:target ; sh:order 2 ] ;\n  sh:property [ sh:path flow:note ; sh:order 3 ] .\nfsh:SourceOrderShape a sh:NodeShape ; sh:severity sh:Info ; sh:targetClass flow:Source ;\n  sh:property [ sh:path flow:ownedBy ; sh:order 1 ] ;\n  sh:property [ sh:path flow:sourceCitation ; sh:order 2 ] ;\n  sh:property [ sh:path flow:sortOrder ; sh:order 3 ] .\nfsh:EdgeOrderShape a sh:NodeShape ; sh:severity sh:Info ; sh:targetClass flow:Edge ;\n  sh:property [ sh:path flow:sourceNode ; sh:order 1 ] ;\n  sh:property [ sh:path flow:targetNode ; sh:order 2 ] ;\n  sh:property [ sh:path flow:label ; sh:order 3 ] .\nfsh:DependencyOrderShape a sh:NodeShape ; sh:severity sh:Info ; sh:targetClass flow:Dependency ;\n  sh:property [ sh:path flow:predecessor ; sh:order 1 ] ;\n  sh:property [ sh:path flow:successor ; sh:order 2 ] .\n\n# ---- enums (sh:in), closed vocabularies read from types.ts\n#\n# sh:severity placement, IMPORTANT: rudof does NOT cascade a NodeShape's\n# sh:severity down into its nested `sh:property [...]` blank-node shapes \u2014\n# each (property-)shape has its OWN severity, independently defaulting to\n# sh:Violation. Measured directly: an outer-only `sh:severity sh:Warning`\n# on fsh:SystemColorShape still reported severity Violation on the\n# flow:color pattern result. Every sh:severity below therefore sits on the\n# sh:property block itself (the SAME discipline this file already applies\n# to sh:sparql: shacl_sparql.rs reads `?c sh:severity ?sev` off the\n# constraint node, not the enclosing shape).\nfsh:SystemDisplayModeShape a sh:NodeShape ; sh:targetClass flow:System ;\n  sh:property [ sh:path flow:displayMode ; sh:in ( \"solid\" \"outline\" ) ; sh:severity sh:Violation ] .\nfsh:RequirementStatusShape a sh:NodeShape ; sh:targetClass flow:Requirement ;\n  sh:property [ sh:path flow:status ; sh:in ( \"open\" \"met\" \"waived\" ) ; sh:severity sh:Violation ] .\nfsh:TaskOwnerTypeShape a sh:NodeShape ; sh:targetClass flow:Task ;\n  sh:property [ sh:path flow:ownerType ; sh:in ( \"system\" \"workflow\" ) ; sh:severity sh:Violation ] .\n\n# ---- patterns and tolerated-but-flagged rules (severity Warning mirrors\n# flow-shapes-v1.ttl exactly: the app itself only tolerates these, never\n# refuses \u2014 and per the note above, Warning MUST sit on the sh:property\n# block itself or write.rs::is_blocking (severity == \"Violation\") never\n# sees it and the write halts anyway).\nfsh:SystemColorShape a sh:NodeShape ; sh:targetClass flow:System ;\n  sh:property [ sh:path flow:color ; sh:pattern \"^#[0-9a-fA-F]{3,6}$\" ; sh:severity sh:Warning ] .\nfsh:RequirementDateShape a sh:NodeShape ; sh:targetClass flow:Requirement ;\n  sh:property [ sh:path flow:startDate ; sh:pattern \"^[0-9]{4}-[0-9]{2}-[0-9]{2}$\" ; sh:severity sh:Violation ] ;\n  sh:property [ sh:path flow:dueDate ; sh:pattern \"^[0-9]{4}-[0-9]{2}-[0-9]{2}$\" ; sh:severity sh:Violation ] .\nfsh:RequirementDurationShape a sh:NodeShape ; sh:targetClass flow:Requirement ;\n  sh:property [ sh:path flow:durationDays ; sh:minInclusive 1 ; sh:severity sh:Warning ] .\nfsh:TaskDateShape a sh:NodeShape ; sh:targetClass flow:Task ;\n  sh:property [ sh:path flow:startDate ; sh:pattern \"^[0-9]{4}-[0-9]{2}-[0-9]{2}$\" ; sh:severity sh:Violation ] ;\n  sh:property [ sh:path flow:dueDate ; sh:pattern \"^[0-9]{4}-[0-9]{2}-[0-9]{2}$\" ; sh:severity sh:Violation ] .\nfsh:TaskDurationShape a sh:NodeShape ; sh:targetClass flow:Task ;\n  sh:property [ sh:path flow:durationDays ; sh:minInclusive 1 ; sh:severity sh:Warning ] .\n\n# ---- sh:or class-typing on uri (object) predicates \u2014 NOT derivable from\n# {datatype:uri} alone, which only yields sh:nodeKind sh:IRI\nfsh:SystemParentTypeShape a sh:NodeShape ; sh:targetClass flow:System ;\n  sh:property [ sh:path flow:parent ; sh:class flow:System ; sh:severity sh:Violation ] .\nfsh:RequirementOwnedByTypeShape a sh:NodeShape ; sh:targetClass flow:Requirement ;\n  sh:property [ sh:path flow:ownedBy ; sh:or ( [ sh:class flow:System ] [ sh:class flow:Constraint ] [ sh:class flow:Trade ] ) ; sh:severity sh:Violation ] .\nfsh:TaskOwnedByTypeShape a sh:NodeShape ; sh:targetClass flow:Task ;\n  sh:property [ sh:path flow:ownedBy ; sh:or ( [ sh:class flow:System ] [ sh:class flow:Workflow ] ) ; sh:severity sh:Violation ] .\nfsh:OutcomeWorkflowTypeShape a sh:NodeShape ; sh:targetClass flow:Outcome ;\n  sh:property [ sh:path flow:workflow ; sh:class flow:Workflow ; sh:severity sh:Violation ] .\nfsh:WorkflowLinkTypeShape a sh:NodeShape ; sh:targetClass flow:WorkflowLink ;\n  sh:property [ sh:path flow:workflow ; sh:class flow:Workflow ; sh:severity sh:Violation ] ;\n  sh:property [ sh:path flow:system ; sh:class flow:System ; sh:severity sh:Violation ] .\nfsh:TradeWinnerTypeShape a sh:NodeShape ; sh:targetClass flow:Trade ;\n  sh:property [ sh:path flow:winner ; sh:class flow:System ; sh:severity sh:Violation ] .\nfsh:TradeLinkTypeShape a sh:NodeShape ; sh:targetClass flow:TradeLink ;\n  sh:property [ sh:path flow:trade ; sh:class flow:Trade ; sh:severity sh:Violation ] ;\n  sh:property [ sh:path flow:system ; sh:class flow:System ; sh:severity sh:Violation ] .\nfsh:ConstraintLinkTypeShape a sh:NodeShape ; sh:targetClass flow:ConstraintLink ;\n  sh:property [ sh:path flow:constraint ; sh:class flow:Constraint ; sh:severity sh:Violation ] ;\n  sh:property [ sh:path flow:target ; sh:or ( [ sh:class flow:System ] [ sh:class flow:Requirement ] ) ; sh:severity sh:Violation ] .\nfsh:SourceOwnedByTypeShape a sh:NodeShape ; sh:targetClass flow:Source ;\n  sh:property [ sh:path flow:ownedBy ; sh:or ( [ sh:class flow:System ] [ sh:class flow:Workflow ] [ sh:class flow:Constraint ] [ sh:class flow:Trade ] ) ; sh:severity sh:Violation ] .\nfsh:EdgeTypeShape a sh:NodeShape ; sh:targetClass flow:Edge ;\n  sh:property [ sh:path flow:sourceNode ; sh:or ( [ sh:class flow:System ] [ sh:class flow:Workflow ] [ sh:class flow:Trade ] [ sh:class flow:Constraint ] ) ; sh:severity sh:Violation ] ;\n  sh:property [ sh:path flow:targetNode ; sh:or ( [ sh:class flow:System ] [ sh:class flow:Workflow ] [ sh:class flow:Trade ] [ sh:class flow:Constraint ] [ sh:class flow:Requirement ] ) ; sh:severity sh:Violation ] .\nfsh:DependencyTypeShape a sh:NodeShape ; sh:targetClass flow:Dependency ;\n  sh:property [ sh:path flow:predecessor ; sh:or ( [ sh:class flow:Task ] [ sh:class flow:Requirement ] ) ; sh:severity sh:Violation ] ;\n  sh:property [ sh:path flow:successor ; sh:or ( [ sh:class flow:Task ] [ sh:class flow:Requirement ] ) ; sh:severity sh:Violation ] .\n\n# ---- FLOW-RTRIP-11 #4: flow:ownedBy gains rdfs:domain/rdfs:range, correctly\n# as an owl:unionOf (a bare rdfs:domain/rdfs:range per triple is AND-semantics\n# under RDFS entailment \u2014 asserting it three times would wrongly entail every\n# owner is simultaneously a Requirement AND a Task AND a Source. The real\n# per-owner-kind constraint is the sh:or shapes above; this axiom is\n# documentary, RDFS-sound, and inert to the SHACL validator (it targets no\n# sh:NodeShape).\nflow:ownedBy a rdf:Property ;\n  flow:columnOf \"requirements.system_id | tasks.owner_id | sources.owner_id\" ;\n  rdfs:domain [ a owl:Class ; owl:unionOf ( flow:Requirement flow:Task flow:Source ) ] ;\n  rdfs:range  [ a owl:Class ; owl:unionOf ( flow:System flow:Constraint flow:Trade flow:Workflow ) ] .\n\n# columnOf documentary triples for the RTRIP-11 renames (##1-3), so the\n# provenance back to the DDL survives the rename.\nflow:requirementSource a rdf:Property ; flow:columnOf \"requirements.source\" ;\n  rdfs:comment \"RENAMED from flow:source (RTRIP-11 #1): flow:source and flow:Source differed only by case.\" .\nflow:sourceCitation a rdf:Property ; flow:columnOf \"sources.text\" ;\n  rdfs:comment \"RENAMED from flow:text (RTRIP-11 #2): flow:text also carries requirements.text | tasks.text | outcomes.text, a different kind of field (a statement, not a citation).\" .\nflow:tradeRationale a rdf:Property ; flow:columnOf \"trades.description\" ;\n  rdfs:comment \"RENAMED from flow:description (RTRIP-11 #3): trades.description is a decision rationale (types.ts:79), not a plain description, and FLOW-ATTR-1 attributes it by name.\" .\n\n# ---- sh:sparql invariants, ported from courtship/flow-shapes-v1.ttl verbatim\n# (SELECT bodies unchanged \u2014 none reference a renamed predicate)\nfsh:SystemParentCycleShape a sh:NodeShape ; sh:severity sh:Violation ; sh:targetClass flow:System ;\n  sh:sparql [ a sh:SPARQLConstraint ;\n    sh:severity sh:Violation ;\n    sh:message \"a system's parent chain reaches itself (hierarchy.ts validParents forbids this; bfsOrder would orphan it)\" ;\n    sh:select \"\"\"SELECT $this WHERE { $this <urn:sophia:flow:vocab:parent>+ $this }\"\"\" ] .\n# fsh:SystemGroupDimsWarning (flow-shapes-v1.ttl) is deliberately NOT ported:\n# it checks a group's absence of explicit width/height, but width/height are\n# scene geometry excluded from :projection:flow entirely (interfaces.md \u00a7C) \u2014\n# the check is unanswerable at the resource layer (every group would\n# trivially satisfy FILTER NOT EXISTS since width/height never appear in this\n# projection at all), so porting it verbatim would make it a permanently-\n# vacuous, always-fires Warning. FLOW-GARDEN-P3's effectiveExtent() (contracts/\n# garden.md \u00a74) is where group-sizing is actually answered, post-partition.\nfsh:TaskOwnerTypeMismatchShape a sh:NodeShape ; sh:severity sh:Violation ; sh:targetClass flow:Task ;\n  sh:sparql [ a sh:SPARQLConstraint ;\n    sh:severity sh:Violation ;\n    sh:message \"owner_type disagrees with the owner's class (store filters tasks by owner_type AND owner_id \u2014 useModelStore.ts:353, 402)\" ;\n    sh:select \"\"\"SELECT $this WHERE { $this <urn:sophia:flow:vocab:ownerType> ?t ; <urn:sophia:flow:vocab:ownedBy> ?o . ?o a ?c . FILTER( (?t = \"system\" && ?c != <urn:sophia:flow:vocab:System>) || (?t = \"workflow\" && ?c != <urn:sophia:flow:vocab:Workflow>) ) }\"\"\" ] .\nfsh:WorkflowLinkDuplicateShape a sh:NodeShape ; sh:severity sh:Violation ; sh:targetClass flow:WorkflowLink ;\n  sh:sparql [ a sh:SPARQLConstraint ;\n    sh:severity sh:Violation ;\n    sh:message \"duplicate workflow<->system link (addWorkflowLink de-duplicates, useModelStore.ts:493)\" ;\n    sh:select \"\"\"SELECT $this WHERE { $this <urn:sophia:flow:vocab:workflow> ?w ; <urn:sophia:flow:vocab:system> ?s . ?other a <urn:sophia:flow:vocab:WorkflowLink> ; <urn:sophia:flow:vocab:workflow> ?w ; <urn:sophia:flow:vocab:system> ?s . FILTER(?other != $this) }\"\"\" ] .\nfsh:TradeWinnerNotCandidateShape a sh:NodeShape ; sh:severity sh:Violation ; sh:targetClass flow:Trade ;\n  sh:sparql [ a sh:SPARQLConstraint ;\n    sh:severity sh:Violation ;\n    sh:message \"the winner is not a linked candidate (removeTradeLink clears the winner; detachSystemsFromTrades nulls it; the UI only offers linked candidates - useModelStore.ts:561-578, repo.ts:477-482, DetailsPanel.tsx:81-92)\" ;\n    sh:select \"\"\"SELECT $this WHERE { $this <urn:sophia:flow:vocab:winner> ?w . FILTER NOT EXISTS { ?l a <urn:sophia:flow:vocab:TradeLink> ; <urn:sophia:flow:vocab:trade> $this ; <urn:sophia:flow:vocab:system> ?w } }\"\"\" ] .\nfsh:TradeLinkDuplicateShape a sh:NodeShape ; sh:severity sh:Violation ; sh:targetClass flow:TradeLink ;\n  sh:sparql [ a sh:SPARQLConstraint ;\n    sh:severity sh:Violation ;\n    sh:message \"duplicate trade<->candidate link (addTradeLink de-duplicates, useModelStore.ts:555)\" ;\n    sh:select \"\"\"SELECT $this WHERE { $this <urn:sophia:flow:vocab:trade> ?t ; <urn:sophia:flow:vocab:system> ?s . ?other a <urn:sophia:flow:vocab:TradeLink> ; <urn:sophia:flow:vocab:trade> ?t ; <urn:sophia:flow:vocab:system> ?s . FILTER(?other != $this) }\"\"\" ] .\nfsh:ConstraintLinkDuplicateShape a sh:NodeShape ; sh:severity sh:Violation ; sh:targetClass flow:ConstraintLink ;\n  sh:sparql [ a sh:SPARQLConstraint ;\n    sh:severity sh:Violation ;\n    sh:message \"duplicate constraint->target link (addConstraintLink de-duplicates, useModelStore.ts:624)\" ;\n    sh:select \"\"\"SELECT $this WHERE { $this <urn:sophia:flow:vocab:constraint> ?c ; <urn:sophia:flow:vocab:target> ?t . ?other a <urn:sophia:flow:vocab:ConstraintLink> ; <urn:sophia:flow:vocab:constraint> ?c ; <urn:sophia:flow:vocab:target> ?t . FILTER(?other != $this) }\"\"\" ] .\nfsh:EdgeSelfLoopShape a sh:NodeShape ; sh:severity sh:Violation ; sh:targetClass flow:Edge ;\n  sh:sparql [ a sh:SPARQLConstraint ;\n    sh:severity sh:Violation ;\n    sh:message \"self-loop (onConnect refuses source === target, Canvas.tsx)\" ;\n    sh:select \"\"\"SELECT $this WHERE { $this <urn:sophia:flow:vocab:sourceNode> ?n ; <urn:sophia:flow:vocab:targetNode> ?n }\"\"\" ] .\nfsh:EdgeDuplicateShape a sh:NodeShape ; sh:severity sh:Violation ; sh:targetClass flow:Edge ;\n  sh:sparql [ a sh:SPARQLConstraint ;\n    sh:severity sh:Violation ;\n    sh:message \"duplicate free edge (addFreeEdge de-duplicates, useModelStore.ts:660)\" ;\n    sh:select \"\"\"SELECT $this WHERE { $this <urn:sophia:flow:vocab:sourceNode> ?a ; <urn:sophia:flow:vocab:targetNode> ?b . ?other a <urn:sophia:flow:vocab:Edge> ; <urn:sophia:flow:vocab:sourceNode> ?a ; <urn:sophia:flow:vocab:targetNode> ?b . FILTER(?other != $this) }\"\"\" ] .\nfsh:DependencySelfShape a sh:NodeShape ; sh:severity sh:Violation ; sh:targetClass flow:Dependency ;\n  sh:sparql [ a sh:SPARQLConstraint ;\n    sh:severity sh:Violation ;\n    sh:message \"self-dependency (wouldCreateCycle returns true for pred === succ, schedule.ts:123)\" ;\n    sh:select \"\"\"SELECT $this WHERE { $this <urn:sophia:flow:vocab:predecessor> ?p ; <urn:sophia:flow:vocab:successor> ?p }\"\"\" ] .\nfsh:DependencyCycleShape a sh:NodeShape ; sh:severity sh:Warning ; sh:targetClass flow:Dependency ;\n  sh:sparql [ a sh:SPARQLConstraint ;\n    sh:severity sh:Warning ;\n    sh:message \"dependency cycle (refused at entry by wouldCreateCycle; computeSchedule only warns and schedules anyway, schedule.ts:92-96)\" ;\n    sh:select \"\"\"SELECT $this WHERE { $this <urn:sophia:flow:vocab:predecessor> ?p ; <urn:sophia:flow:vocab:successor> ?s . ?s (^<urn:sophia:flow:vocab:predecessor>/<urn:sophia:flow:vocab:successor>)+ ?p }\"\"\" ] .\nfsh:DependencyDuplicateShape a sh:NodeShape ; sh:severity sh:Violation ; sh:targetClass flow:Dependency ;\n  sh:sparql [ a sh:SPARQLConstraint ;\n    sh:severity sh:Violation ;\n    sh:message \"duplicate dependency (addDep de-duplicates, useModelStore.ts:673)\" ;\n    sh:select \"\"\"SELECT $this WHERE { $this <urn:sophia:flow:vocab:predecessor> ?p ; <urn:sophia:flow:vocab:successor> ?s . ?other a <urn:sophia:flow:vocab:Dependency> ; <urn:sophia:flow:vocab:predecessor> ?p ; <urn:sophia:flow:vocab:successor> ?s . FILTER(?other != $this) }\"\"\" ] .\n"
+}
