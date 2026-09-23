@@ -97,6 +97,20 @@ run** — a stale store lock makes the spawn fail.
 | `SOPHIA_OBSERVATORY_CAPTURE_ENABLED` | Headless cell lifecycle CaptureEvent testimony (default `false`; see [observatory-testimony.md](observatory-testimony.md)). |
 | `SOPHIA_OBSERVATORY_CONTRACT_BUNDLE_SHA256` | Exact ratified CaptureEvent v0.1 bundle identity; required only when testimony is enabled. |
 | `RUST_LOG` | Log filter (default `info`). |
+| `GARDEN_NO_UPDATE_CHECK` | `1` disables the once-a-day release check (also off when `CI` or `GARDEN_CELL_GRAPH_ID` is set; the container image sets it). |
+| `GARDEN_UPDATE_URL` | Release base for `--check-update` / `update` (default `https://github.com/sophia-labs/gardend`). |
+| `GARDEN_CACHE_DIR` | Where the update-check stamp lives (default the user cache dir). |
+
+## Updating
+
+Containers update by pulling a new `ghcr.io/sophia-labs/gardend:<version>`
+image. Bare-binary installs run `gardend --check-update` / `gardend update`:
+the tarball is verified against the release's `SHA256SUMS`, the new binary's
+`--version --json` must match the release manifest, and the replacement is an
+atomic rename. `update` refuses while any gardend is serving (stop it first —
+SIGTERM runs the forced final durable flush) and refuses a release whose
+`storageFormat` differs from the running binary's
+(`src-tauri/src/storage_format.rs`).
 
 ## Verifying the build is GUI-free
 

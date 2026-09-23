@@ -156,6 +156,40 @@ spawns** (`--backend local`).
 See [`docs/headless-gardend.md`](docs/headless-gardend.md) for the cell
 architecture, build modes, and how it relates to the desktop app.
 
+#### Updating `gardend`
+
+Prebuilt `gardend` binaries (linux x86_64/aarch64, macOS aarch64/x86_64) and
+a container image are published per release on
+[GitHub Releases](https://github.com/sophia-labs/gardend/releases).
+
+- **Containers** update by pulling a new image:
+  `docker pull ghcr.io/sophia-labs/gardend:<version>` (or `:latest`). The
+  image sets `GARDEN_NO_UPDATE_CHECK=1`; platform cells never self-update.
+- **Bare binaries** update themselves:
+
+  ```bash
+  gardend --version --json   # {"name":"gardend","version":…,"storageFormat":…}
+  gardend --check-update     # is there a newer release? is it format-compatible?
+  gardend update             # replace this binary with it
+  ```
+
+  `update` verifies the tarball against the release's `SHA256SUMS`, checks
+  that the new binary's own `--version --json` matches the release manifest,
+  then atomically renames it over the running executable. It **refuses**
+  while a graph is being served (a live pid or port in the profile's
+  `loopback.json`, or any other running `gardend`) — stop it first; SIGTERM
+  runs gardend's forced final durable flush — and it **refuses** a release
+  whose `storageFormat` differs from the running binary's (back up the
+  profile/durable dirs and install such a release by hand).
+  `GARDEN_UPDATE_URL` points it at a fork or mirror.
+
+When serving, a bare `gardend` checks for a newer release at most once a day,
+off the boot path, and logs one line (stderr). Off with
+`GARDEN_NO_UPDATE_CHECK=1`, whenever `CI` is set, and inside platform cells
+(`GARDEN_CELL_GRAPH_ID` set). `storageFormat` lives in
+`src-tauri/src/storage_format.rs`; a test pins every per-store schema version
+to it, so a schema change forces a format bump.
+
 ## Current Contract
 
 The frontend calls product-level commands:

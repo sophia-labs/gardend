@@ -1,7 +1,7 @@
 {
   "restSurfaceSha256": "d42039d7a4c9f8a3c71024ce7c4e02ba260db42ad57533406abb881798144203",
-  "mcpSurfaceSha256": "e64edf29c124a613e7292533884385bf27a0af7323a38d4c33e35403ee3bb895",
-  "effectRegistrySha256": "16b223d509d51053456fe56af9fc08ded820e6647dfd8a17c2e6a48aa3b3ff9f",
+  "mcpSurfaceSha256": "3d707b231f79b17463dd5fc227b4ee0d226ab06e11610b8a5beddae100ac8bce",
+  "effectRegistrySha256": "3fa908f8fa8a058be9cff7799597f28c8944acc0d27e747762bb303c5ed5a374",
   "restGlobal": [
     "GET /api/artifacts/ingestion/approaches",
     "GET /api/artifacts/ingestion/docling/status",
@@ -273,6 +273,7 @@
   ],
   "mcpGraphScoped": [
     "agent_status",
+    "agent_self_image",
     "status",
     "custom_css",
     "read_custom_css",

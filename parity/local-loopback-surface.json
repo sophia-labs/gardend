@@ -1445,6 +1445,7 @@
   "mcpTools": [
     {"name":"agent_status","status":"implemented","scopes":["rdf.query"]},
     {"name":"status","status":"implemented","scopes":["rdf.update"]},
+    {"name":"agent_self_image","status":"implemented","scopes":["artifacts.read","artifacts.write","rdf.query","rdf.update"]},
     {"name":"custom_css","status":"implemented-crdt-queued","scopes":["workspace.read","workspace.write.crdt"]},
     {"name":"read_custom_css","status":"implemented","scopes":["workspace.read"]},
     {"name":"write_custom_css","status":"implemented-crdt-queued","scopes":["workspace.write.crdt"]},

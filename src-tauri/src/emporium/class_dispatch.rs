@@ -242,9 +242,11 @@ mod tests {
             ("sophia-agent-core", "Driver", "workflow-campaign"),
             ("sophia-agent-core", "Faculty", "workflow-campaign"),
             ("sophia-agent-core", "FacultyPooling", "workflow-campaign"),
+            ("sophia-agent-core", "Mode", "workflow-campaign"),
             ("sophia-agent-core", "PoolingMode", "workflow-campaign"),
             ("sophia-agent-core", "ReadOperation", "workflow-campaign"),
             ("sophia-agent-core", "Run", "workflow-campaign"),
+            ("sophia-agent-core", "SelfImage", "workflow-campaign"),
             ("sophia-agent-core", "Session", "workflow-campaign"),
             ("sophia-agent-core", "Tool", "workflow-campaign"),
             ("sophia-agent-core", "Turn", "workflow-campaign"),
@@ -539,7 +541,7 @@ mod tests {
             .map(|(pack, _json, _sha)| get_vocabulary(pack).unwrap().classes.len())
             .sum();
         assert_eq!(
-            total, 162,
+            total, 164,
             "VOCAB_REGISTRY class count drifted from the snapshot above"
         );
     }

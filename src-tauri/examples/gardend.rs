@@ -74,8 +74,86 @@ fn main() {
     std::process::exit(1);
 }
 
+/// `gardend --version [--json]`, `gardend --check-update`, `gardend update`.
+/// Returns `None` when no such command was given (serve as usual). These
+/// commands never start the engine and never touch a profile.
+#[cfg(not(feature = "desktop"))]
+fn run_command(args: &[String]) -> Option<i32> {
+    use garden_lib::self_update::{self as update, UpdateOutcome};
+    let has = |flag: &str| args.iter().any(|a| a == flag);
+    if has("--version") || has("-V") {
+        if has("--json") {
+            println!("{}", update::version_json());
+        } else {
+            println!(
+                "gardend {} (storage format {})",
+                update::CURRENT_VERSION,
+                garden_lib::storage_format::STORAGE_FORMAT
+            );
+        }
+        return Some(0);
+    }
+    let check_only = has("--check-update") || (has("update") && has("--check"));
+    if !check_only && args.first().map(String::as_str) != Some("update") {
+        if let Some(unknown) = args.first() {
+            // gardend has always ignored argv; keep serving, but say so.
+            eprintln!(
+                "gardend: ignoring argument {unknown:?} (configure via GARDEN_* env; \
+                 commands: --version [--json], --check-update, update)"
+            );
+        }
+        return None;
+    }
+    let exe = match std::env::current_exe() {
+        Ok(exe) => exe,
+        Err(error) => {
+            eprintln!("gardend: cannot locate the running binary: {error}");
+            return Some(1);
+        }
+    };
+    let profile = update::configured_profile_dir();
+    let current = update::CURRENT_VERSION;
+    let base = update::release_base();
+    match update::run_update(&base, &exe, current, check_only, profile.as_deref()) {
+        Ok(UpdateOutcome::UpToDate { latest }) => {
+            println!("gardend {current} is up to date (latest release: {latest})");
+            Some(0)
+        }
+        Ok(UpdateOutcome::Available {
+            latest,
+            storage_format_ok,
+        }) => {
+            println!("{}", update::notice(&latest, current));
+            if let Err(why) = storage_format_ok {
+                println!("note: {why}");
+            }
+            Some(0)
+        }
+        Ok(UpdateOutcome::Installed { latest, path }) => {
+            println!(
+                "gardend updated {current} -> {latest} at {}",
+                path.display()
+            );
+            Some(0)
+        }
+        Err(error) => {
+            eprintln!("gardend update: {error}");
+            Some(1)
+        }
+    }
+}
+
 #[cfg(not(feature = "desktop"))]
 fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if let Some(code) = run_command(&args) {
+        std::process::exit(code);
+    }
+    serve();
+}
+
+#[cfg(not(feature = "desktop"))]
+fn serve() {
     use garden_lib::headless::{
         durability::{
             current_write_epoch, DirtyFlushScheduler, FlushTrigger, HydrateMode, SchedulerAction,
@@ -93,6 +171,17 @@ fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .target(env_logger::Target::Stderr)
         .init();
+
+    // Bare-binary installs learn about new releases from one log line, at
+    // most once a day, off the boot path. Off in platform cells (they update
+    // by image), in CI, and with GARDEN_NO_UPDATE_CHECK=1.
+    let _ = std::thread::Builder::new()
+        .name("gardend-update-check".into())
+        .spawn(|| {
+            if let Some(line) = garden_lib::self_update::startup_check() {
+                log::info!("{line}");
+            }
+        });
 
     let profile_dir = std::env::var("GARDEN_PROFILE_DIR")
         .ok()

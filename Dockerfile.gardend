@@ -202,7 +202,8 @@ ENV GARDEN_PROFILE_DIR=/data/profile \
     GARDEN_LOCAL_CRDT_OPERATION_TIMEOUT_SECS=1800 \
     HOME=/tmp \
     SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
-    RUST_LOG=info
+    RUST_LOG=info \
+    GARDEN_NO_UPDATE_CHECK=1
 EXPOSE 8086
 VOLUME /data
 USER 65532:65532

@@ -173,6 +173,15 @@ the export tree. It needs no secrets: it builds `gardend` and runs the
 library tests exactly as [`docs/headless-engine.md`](docs/headless-engine.md)
 describes.
 
+### `export/github/workflows/release.yml` → `.github/workflows/release.yml` (relocated)
+
+The public release workflow (distinct from the private repo's own
+`.github/workflows/release.yml`, which is excluded below). On a `v*` tag it
+builds `gardend` for linux x86_64/aarch64 and macOS aarch64/x86_64, publishes
+a GitHub Release with the tarballs, `SHA256SUMS`, and `release.json` (the
+manifest `gardend update` reads, including `storageFormat`), and pushes
+`ghcr.io/sophia-labs/gardend:<version>` + `:latest`. Only `GITHUB_TOKEN`.
+
 ## EXCLUDE (with reasons)
 
 - **`frontend/`** (entire directory) — the private-boundary UI, plus
@@ -182,7 +191,7 @@ describes.
   `frontend/public/graphviewss.png` (~3.1MB) + `frontend/public/wirefanout.mp4`
   (~2.1MB) (large tracked media, not reviewed for redistribution rights or
   private UI/user content).
-- **`.github/workflows/release.yml`, `.github/workflows/native-tauri-prototype.yml`**
+- **The private repo's `.github/workflows/release.yml`, `.github/workflows/native-tauri-prototype.yml`**
   — both require `secrets.SHRUBBERY_READ_TOKEN`, per spec.
 - **The private repo's `.github/` entirely** (issue templates, PR template; the public CI workflow is relocated from `export/` instead, above) — not requested by
   this work item, and found stale on inspection (the PR template still says

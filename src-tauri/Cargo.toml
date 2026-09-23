@@ -146,3 +146,6 @@ tower = { version = "0.5", features = ["util"] }
 # The headless `gardend` cell does not use it (window_settings is desktop-gated).
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
+# macOS Keychain lookup for provider API keys (local_provider_keys::resolve_provider_key).
+# Already in the lock via the TLS stack; declared directly for the passwords API.
+security-framework = "3"

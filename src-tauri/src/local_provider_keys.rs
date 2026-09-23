@@ -16,6 +16,10 @@ const SCHEMA_VERSION: u32 = 1;
 /// overwrite arbitrary keychain accounts under our service).
 const KNOWN_PROVIDERS: &[&str] = &["openrouter", "anthropic", "openai"];
 
+// Server-side READS resolve env → macOS Keychain → this file (see
+// `resolve_provider_key_with`; Vera's ruling 2026-09-22). The settings UI below
+// still WRITES this file, which is now the deprecated last resort.
+//
 // Storage backend. Today: a 0o600 JSON file in the profile dir, the same tier
 // as `hosted-credentials.json` (which already stores a Cognito refresh token in
 // plaintext-owner-only form). The OS keychain is a planned FOLLOW-UP, deferred
@@ -83,13 +87,87 @@ fn derive_status(file: &ProviderKeyFile) -> HashMap<String, bool> {
         .collect()
 }
 
-/// Read a single provider's API key (for server-side use, e.g. the
-/// `edit_artifact_image` MCP tool calling an image model). Returns None if unset
-/// or unknown.
-pub(crate) fn provider_key(app: &AppHandle, provider: &str) -> Option<String> {
+/// The macOS Keychain service Garden reads provider keys from (generic
+/// password; the account is the provider name, e.g. `openrouter`). Add one with
+/// `security add-generic-password -s dev.sophia.garden -a openrouter -w`.
+pub(crate) const KEYCHAIN_SERVICE: &str = "dev.sophia.garden";
+
+/// Where a resolved provider key came from. Never carries the value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProviderKeySource {
+    /// `SOPHIA_{PROVIDER}_API_KEY` — hosted cells (Sirin mounts it from a
+    /// Kubernetes Secret via `secretKeyRef`).
+    Env,
+    /// macOS Keychain, service [`KEYCHAIN_SERVICE`], account = provider.
+    Keychain,
+    /// DEPRECATED: the profile's `provider-keys.json`. Kept for back-compat.
+    ProfileFile,
+}
+
+/// `SOPHIA_OPENROUTER_API_KEY` for `openrouter`, etc.
+pub(crate) fn provider_key_env_var(provider: &str) -> String {
+    format!("SOPHIA_{}_API_KEY", provider.to_ascii_uppercase())
+}
+
+fn non_empty(value: String) -> Option<String> {
+    let trimmed = value.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn keychain_provider_key(service: &str, provider: &str) -> Option<String> {
+    security_framework::passwords::get_generic_password(service, provider)
+        .ok()
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+        .and_then(non_empty)
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn keychain_provider_key(_service: &str, _provider: &str) -> Option<String> {
+    None
+}
+
+/// Resolution order (Vera, 2026-09-22): env var → macOS Keychain → profile
+/// file (deprecated). The Keychain service is a parameter so tests can use a
+/// throwaway item; production passes [`KEYCHAIN_SERVICE`].
+pub(crate) fn resolve_provider_key_with(
+    provider: &str,
+    keychain_service: &str,
+    profile_file_key: impl FnOnce() -> Option<String>,
+) -> Option<(String, ProviderKeySource)> {
     if !is_known_provider(provider) {
         return None;
     }
+    if let Some(key) = std::env::var(provider_key_env_var(provider)).ok().and_then(non_empty) {
+        return Some((key, ProviderKeySource::Env));
+    }
+    if let Some(key) = keychain_provider_key(keychain_service, provider) {
+        return Some((key, ProviderKeySource::Keychain));
+    }
+    profile_file_key()
+        .and_then(non_empty)
+        .map(|key| (key, ProviderKeySource::ProfileFile))
+}
+
+/// Read a single provider's API key for server-side use (the shared
+/// `openrouter_image` path behind `edit_artifact_image` and `agent_self_image`),
+/// in the order env → Keychain → deprecated profile file. None if unset/unknown.
+pub(crate) fn provider_key(app: &AppHandle, provider: &str) -> Option<String> {
+    resolve_provider_key_with(provider, KEYCHAIN_SERVICE, || profile_file_key(app, provider))
+        .map(|(key, source)| {
+            if source == ProviderKeySource::ProfileFile {
+                log::warn!(
+                    "provider key for {provider} read from the deprecated profile provider-keys.json; \
+                     move it to {} or the macOS Keychain ({KEYCHAIN_SERVICE}/{provider})",
+                    provider_key_env_var(provider)
+                );
+            }
+            key
+        })
+}
+
+/// DEPRECATED source: the profile's `provider-keys.json` entry.
+fn profile_file_key(app: &AppHandle, provider: &str) -> Option<String> {
     read_key_file(app)
         .ok()
         .and_then(|file| file.keys.get(provider).cloned())
@@ -225,4 +303,72 @@ mod tests {
             let _ = fs::remove_dir_all(&dir);
         }
     }
+
+    // ── resolution order: env → Keychain → profile file (no mocks) ──
+
+    /// A REAL env var wins over everything; the profile file is the last
+    /// resort. Uses `anthropic` so no other test's provider path is disturbed.
+    #[test]
+    fn resolution_order_env_then_profile_file() {
+        let var = provider_key_env_var("anthropic");
+        assert_eq!(var, "SOPHIA_ANTHROPIC_API_KEY");
+        let previous = std::env::var_os(&var);
+        let service = format!("dev.sophia.garden.test-absent-{}", uuid::Uuid::new_v4().simple());
+        std::env::remove_var(&var);
+        assert_eq!(resolve_provider_key_with("anthropic", &service, || None), None);
+        assert_eq!(
+            resolve_provider_key_with("anthropic", &service, || Some("from-file".into())),
+            Some(("from-file".into(), ProviderKeySource::ProfileFile))
+        );
+        std::env::set_var(&var, "  from-env  ");
+        assert_eq!(
+            resolve_provider_key_with("anthropic", &service, || Some("from-file".into())),
+            Some(("from-env".into(), ProviderKeySource::Env))
+        );
+        std::env::set_var(&var, "   ");
+        assert_eq!(
+            resolve_provider_key_with("anthropic", &service, || Some("from-file".into())),
+            Some(("from-file".into(), ProviderKeySource::ProfileFile)),
+            "a blank env var is unset"
+        );
+        match previous {
+            Some(value) => std::env::set_var(&var, value),
+            None => std::env::remove_var(&var),
+        }
+        assert_eq!(resolve_provider_key_with("not-a-provider", &service, || Some("x".into())), None);
+    }
+
+    /// The REAL macOS Keychain: write a throwaway generic password under a
+    /// unique service, resolve it (Keychain beats the file, env beats the
+    /// Keychain), delete it, and prove it is gone.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn resolution_order_reads_the_real_macos_keychain() {
+        use security_framework::passwords::{delete_generic_password, set_generic_password};
+        let var = provider_key_env_var("openai");
+        let previous = std::env::var_os(&var);
+        std::env::remove_var(&var);
+        let service = format!("dev.sophia.garden.test-{}", uuid::Uuid::new_v4().simple());
+        set_generic_password(&service, "openai", b"from-keychain").expect("write throwaway keychain item");
+        let outcome = std::panic::catch_unwind(|| {
+            assert_eq!(keychain_provider_key(&service, "openai").as_deref(), Some("from-keychain"));
+            assert_eq!(
+                resolve_provider_key_with("openai", &service, || Some("from-file".into())),
+                Some(("from-keychain".into(), ProviderKeySource::Keychain))
+            );
+            std::env::set_var(&var, "from-env");
+            let env_wins = resolve_provider_key_with("openai", &service, || None);
+            std::env::remove_var(&var);
+            assert_eq!(env_wins, Some(("from-env".into(), ProviderKeySource::Env)));
+        });
+        delete_generic_password(&service, "openai").expect("delete throwaway keychain item");
+        assert_eq!(keychain_provider_key(&service, "openai"), None, "throwaway item is gone");
+        if let Some(value) = previous {
+            std::env::set_var(&var, value);
+        }
+        if let Err(panic) = outcome {
+            std::panic::resume_unwind(panic);
+        }
+    }
+
 }

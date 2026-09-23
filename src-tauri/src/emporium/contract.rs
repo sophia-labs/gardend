@@ -1084,7 +1084,7 @@ mod tests {
         // (1) parses via the real by-name resolver …
         let c = get_vocabulary("sophia-agent-core").expect("sophia-agent-core registered");
         assert_eq!(c.name, "sophia-agent-core");
-        assert_eq!(c.version, "1.1.0");
+        assert_eq!(c.version, "1.3.0");
         assert_eq!(c.primary_prefix, "agt");
         assert_eq!(c.primary_namespace(), "http://mnemosyne.dev/agent#");
         // (2) … and is SERVED (in the thin catalog + by-name find) ……
@@ -1276,7 +1276,37 @@ mod tests {
     agt:voicing agt:Parliament ;
     agt:ownsMembrane <{membrane}> ;
     agt:hasFaculty agt:Song, agt:Memory, agt:Valuation ;
-    agt:hasVoice <{agent}#voice:archivist>, <{agent}#voice:critic> .
+    agt:hasVoice <{agent}#voice:archivist>, <{agent}#voice:critic> ;
+    agt:selfImage <{agent}#self-image> ;
+    agt:defaultMode <urn:sophia:mode:researcher> ;
+    agt:mayUseMode <urn:sophia:mode:researcher> .
+
+<urn:sophia:mode:researcher> a agt:Mode ;
+    rdfs:label "Researcher" ;
+    agt:allowsTool "search_documents", "read_document", "write_document" ;
+    agt:access "read" ;
+    agt:graphScope <urn:graph:lab> ;
+    agt:requiresApproval "write_document" ;
+    agt:imageTransform "wearing round reading glasses" .
+
+<{agent}#self-image> a agt:SelfImage, prov:Entity ;
+    agt:imageOf <{agent}> ;
+    agt:artifactId "agent-self-image-1a2b3c4d5e6f7a8b" ;
+    agt:artifactRevision "rev-1-a" ;
+    agt:contentSha256 "00" ;
+    agt:mimeType "image/svg+xml" ;
+    agt:imagePrompt "an archivist-critic" ;
+    agt:generator "local-sigil" ;
+    agt:generatorModel "sigil-v1" ;
+    agt:generatedByTool "agent_self_image" ;
+    prov:generatedAtTime "2026-09-22T00:00:00Z"^^xsd:dateTime ;
+    agt:ingressPrincipal "user:u1" .
+
+<{agent}#self-image:mode:0011223344556677> a agt:SelfImage, prov:Entity ;
+    agt:imageOf <{agent}> ;
+    agt:derivedFromImage <{agent}#self-image> ;
+    agt:underMode <urn:sophia:mode:researcher> ;
+    agt:derivationKey "11" .
 
 <{agent}#voice:archivist> a agt:Voice, agt:Witness ; agt:voiceOf <{agent}> ; agt:voiceId "archivist" .
 <{agent}#voice:critic>    a agt:Voice, agt:Witness ; agt:voiceOf <{agent}> ; agt:voiceId "critic" .
@@ -1296,6 +1326,7 @@ mod tests {
     agt:systemPromptChangeId "chg-1" ; agt:systemPromptCurrentSnapshot "snap-2" ;
     agt:systemPromptCurrentDigest "digest-2" ; agt:systemPromptCompatibilitySeeded true ;
     agt:systemPromptBlock <urn:mnemosyne:block:b1> ;
+    agt:ranInMode <urn:sophia:mode:researcher> ;
     agt:realizedBy <urn:sophia:wf-run:wfr-fold> .
 
 <urn:sophia:agent:agent-1a2b3c4d5e6f7a8b:turn:t1> a agt:Turn ;
@@ -1420,6 +1451,34 @@ agt:Attunement a agt:ReadOperation ; agt:readsAcross agt:Song, agt:Memory, agt:V
                 == Some("http://mnemosyne.dev/agent#I1_MembraneWitnessShape")),
             "a commons record (un-segmented graph, no witness) MUST NOT trip I1"
         );
+    }
+
+    #[test]
+    fn agent_core_mode_shape_refuses_approval_outside_the_allowed_tools() {
+        let c = get_vocabulary("sophia-agent-core").expect("registered");
+        let shapes = c.raw_shacl_shapes.as_deref().expect("raw shapes present");
+        let graph = "urn:mnemosyne:local:graph:lab:user:rdf";
+        let shape = "http://mnemosyne.dev/agent#ModeApprovalSubsetShape";
+        let mode = |approval: &str| {
+            format!(
+                "<urn:sophia:mode:researcher> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> \
+                 <http://mnemosyne.dev/agent#Mode> .\n\
+                 <urn:sophia:mode:researcher> <http://mnemosyne.dev/agent#allowsTool> \"read_document\" .\n\
+                 <urn:sophia:mode:researcher> <http://mnemosyne.dev/agent#allowsTool> \"write_document\" .\n\
+                 <urn:sophia:mode:researcher> <http://mnemosyne.dev/agent#requiresApproval> \"{approval}\" .\n"
+            )
+        };
+        let fired = |data: &str| {
+            crate::emporium::shacl_sparql::evaluate_sparql_constraints(shapes, data, graph)
+                .expect("evaluator runs")
+                .iter()
+                .any(|v| v.shape.as_deref() == Some(shape))
+        };
+        // Approval never widens the surface: a tool that needs approval but is
+        // not allowed by the mode is a violation (teeth) ...
+        assert!(fired(&mode("delete_document")), "approval outside allowsTool MUST violate");
+        // ... while approval on an allowed tool is legal.
+        assert!(!fired(&mode("write_document")), "approval on an allowed tool MUST pass");
     }
 
     #[test]

@@ -21,7 +21,10 @@ use crate::{
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use serde_json::{json, Value};
 
-const IMAGE_MODEL: &str = "google/gemini-2.5-flash-image";
+pub(crate) const IMAGE_MODEL: &str = "google/gemini-2.5-flash-image";
+
+/// Bound on one image-model round trip; generation is slow but never unbounded.
+const IMAGE_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(180);
 
 fn required_artifact_id(args: &Value) -> AppResult<String> {
     mcp_arg_string(args, &["artifactId", "artifact_id"])
@@ -125,28 +128,54 @@ pub(super) async fn mcp_local_edit_artifact_image(
         .ok_or_else(|| AppError::validation("prompt is required"))?;
 
     let key = provider_key(&app, "openrouter").ok_or_else(|| {
-        AppError::validation("No OpenRouter API key configured (Settings → Local AI).")
+        AppError::validation(
+            "No OpenRouter API key: set SOPHIA_OPENROUTER_API_KEY, or the macOS Keychain item dev.sophia.garden/openrouter.",
+        )
     })?;
     let (manifest, bytes) = read_artifact_original_file(&app, &graph_id, &artifact_id)?;
-    let input_url = format!(
-        "data:{};base64,{}",
-        manifest.mime_type,
-        BASE64_STANDARD.encode(&bytes)
-    );
+    let (out_mime, out_b64) =
+        openrouter_image(&key, &prompt, Some((&manifest.mime_type, &bytes))).await?;
 
-    let response: Value = reqwest::Client::new()
+    let entry = create_artifact_revision(
+        &app,
+        &graph_id,
+        &artifact_id,
+        &manifest.filename,
+        &out_mime,
+        &out_b64,
+        Some(format!(
+            "AI: {}",
+            prompt.chars().take(60).collect::<String>()
+        )),
+    )?;
+    Ok(json!({ "artifactId": artifact_id, "revision": entry }))
+}
+
+/// One OpenRouter image-model call: a text prompt, optionally with an input
+/// image to edit. Returns the output image as `(mime, base64)`. Shared by
+/// `edit_artifact_image` and `agent_self_image`.
+pub(crate) async fn openrouter_image(
+    key: &str,
+    prompt: &str,
+    input: Option<(&str, &[u8])>,
+) -> AppResult<(String, String)> {
+    let mut content = vec![json!({ "type": "text", "text": prompt })];
+    if let Some((mime, bytes)) = input {
+        content.push(json!({
+            "type": "image_url",
+            "image_url": { "url": format!("data:{mime};base64,{}", BASE64_STANDARD.encode(bytes)) },
+        }));
+    }
+    let response: Value = reqwest::Client::builder()
+        .timeout(IMAGE_REQUEST_TIMEOUT)
+        .build()
+        .map_err(|error| AppError::internal(format!("image model client: {error}")))?
         .post("https://openrouter.ai/api/v1/chat/completions")
-        .bearer_auth(&key)
+        .bearer_auth(key)
         .json(&json!({
             "model": IMAGE_MODEL,
             "modalities": ["image", "text"],
-            "messages": [{
-                "role": "user",
-                "content": [
-                    { "type": "text", "text": prompt },
-                    { "type": "image_url", "image_url": { "url": input_url } },
-                ],
-            }],
+            "messages": [{ "role": "user", "content": content }],
         }))
         .send()
         .await
@@ -162,27 +191,13 @@ pub(super) async fn mcp_local_edit_artifact_image(
     {
         return Err(AppError::internal(format!("image model error: {message}")));
     }
-
     let out_url = response
         .pointer("/choices/0/message/images/0/image_url/url")
         .and_then(Value::as_str)
         .ok_or_else(|| AppError::internal("image model returned no image"))?;
-    let (out_mime, out_b64) = parse_data_url(out_url)
+    let (mime, payload) = parse_data_url(out_url)
         .ok_or_else(|| AppError::internal("image model returned a non-data-url image"))?;
-
-    let entry = create_artifact_revision(
-        &app,
-        &graph_id,
-        &artifact_id,
-        &manifest.filename,
-        out_mime,
-        out_b64,
-        Some(format!(
-            "AI: {}",
-            prompt.chars().take(60).collect::<String>()
-        )),
-    )?;
-    Ok(json!({ "artifactId": artifact_id, "revision": entry }))
+    Ok((mime.to_string(), payload.to_string()))
 }
 
 /// Split a `data:<mime>;base64,<payload>` URL into (mime, payload).

@@ -203,7 +203,7 @@ pub(crate) const AGENT_CORE_GOLDEN_JSON: &str =
 /// gate (asserted by `embedded_agent_core_sha_is_pinned`). Recompute with
 /// `shasum -a 256 src/emporium/vocabs/sophia-agent-core.golden.json` after any edit.
 pub(crate) const AGENT_CORE_GOLDEN_SHA: &str =
-    "fcc0c4e1a7806a0309a586c308ecba93975f83c76ad9e656a737b1b1dfb8c68f";
+    "e9dd3eaa68b831047ee1772f52ff7d8a13eb05dbd09f9f9006a8ca4c7ae43ad8";
 
 /// The WS-7 workflow-agent binding compatibility publication pack. Canonical
 /// ownership now lives in `workflow` (`wf:boundToAgent`) and `sophia-agent-core`
@@ -1129,7 +1129,7 @@ mod tests {
             ("koch-morse", "1.0.0", KOCH_MORSE_GOLDEN_SHA),
             ("emporium-chamber", "1.1.0", CHAMBER_GOLDEN_SHA),
             ("sophia-api", "1.0.0", SOPHIA_API_GOLDEN_SHA),
-            ("sophia-agent-core", "1.1.0", AGENT_CORE_GOLDEN_SHA),
+            ("sophia-agent-core", "1.3.0", AGENT_CORE_GOLDEN_SHA),
             ("wf-agent-binding", "1.0.0", WF_AGENT_BINDING_GOLDEN_SHA),
             (
                 "wf-agent-session-projection",

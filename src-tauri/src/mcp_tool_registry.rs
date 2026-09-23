@@ -126,7 +126,7 @@ mod tests {
         // (custom_css/read_custom_css/write_custom_css, agent_status,
         // status, create_document_once, create_artifact_text,
         // write_artifact_text) = 112.
-        assert_eq!(tools.len(), 112);
+        assert_eq!(tools.len(), 113);
 
         let known_scopes = loopback_scope_keys()
             .into_iter()
@@ -244,8 +244,8 @@ mod tests {
         .expect("desktop tools list serializes");
         let tools = result["tools"].as_array().expect("tools");
 
-        // 112 registered tools minus the two explicitly optional CSS schemas.
-        assert_eq!(tools.len(), 110);
+        // 113 registered tools minus the two explicitly optional CSS schemas.
+        assert_eq!(tools.len(), 111);
         assert!(tools.iter().any(|tool| tool["name"] == "read_document"));
         assert!(tools.iter().any(|tool| tool["name"] == "write_document"));
         assert!(tools.iter().any(|tool| tool["name"] == "create_document_once"));
@@ -266,8 +266,8 @@ mod tests {
             .filter_map(|tool| tool["name"].as_str())
             .collect::<BTreeSet<_>>();
 
-        // 112 catalog tools − 9 profile-denied − 2 optional CSS schemas
-        // (opt-in, not default-discoverable) = 101. G4's two flow tools are
+        // 113 catalog tools − 9 profile-denied − 2 optional CSS schemas
+        // (opt-in, not default-discoverable) = 102. G4's two flow tools are
         // cell-visible (documents.write.crdt / documents.read). The three
         // source_* tools are cell-visible too: main's 0db7586 originally
         // fenced them (mcpProfileDenied) the day the registry gained them
@@ -277,8 +277,8 @@ mod tests {
         // with real Editor+ role mapping (sources.read/write/rebuild are
         // classified Editor in `minimum_role_for_effect`) — the merge keeps
         // that later, deployed decision, not main's earlier blanket fence.
-        assert_eq!(names.len(), 101);
-        for added in ["custom_css", "agent_status", "status"] {
+        assert_eq!(names.len(), 102);
+        for added in ["custom_css", "agent_status", "agent_self_image", "status"] {
             assert!(names.contains(added), "missing default tool {added}");
         }
         for optional in ["read_custom_css", "write_custom_css"] {

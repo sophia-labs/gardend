@@ -557,6 +557,9 @@ fn tramp_read_custom_css<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHan
 fn tramp_agent_status<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
     Box::pin(crate::agent_status::read(ctx.app.clone(), args))
 }
+fn tramp_agent_self_image<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
+    Box::pin(crate::agent_self_image::mcp(ctx.app.clone(), args))
+}
 fn tramp_status<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
     Box::pin(crate::agent_status::write(ctx.app.clone(), args))
 }
@@ -1096,6 +1099,7 @@ const REGISTRY: &[McpToolEntry] = &[
         handler: tramp_read_artifact,
     },
     McpToolEntry { name:"agent_status", handler:tramp_agent_status },
+    McpToolEntry { name:"agent_self_image", handler:tramp_agent_self_image },
     McpToolEntry { name:"status", handler:tramp_status },
     McpToolEntry { name:"read_custom_css", handler:tramp_read_custom_css },
     McpToolEntry { name:"custom_css", handler:tramp_custom_css },

@@ -43,6 +43,24 @@
                     "multi": true,
                     "required": false,
                     "source": "Agent -> agt:Faculty (Song | Memory | Valuation)"
+                },
+                "agt:selfImage": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "Agent -> its BASE agt:SelfImage (plans/2026-09-22-agent-self-image.md); written only by the agent_self_image tool for this same agent"
+                },
+                "agt:defaultMode": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "Agent -> the agt:Mode a session runs in when none is chosen (plans/2026-09-22-choreograph-modes-v1.md)"
+                },
+                "agt:mayUseMode": {
+                    "datatype": "uri",
+                    "multi": true,
+                    "required": false,
+                    "source": "Agent -> each agt:Mode a session of this agent may select (modes draft)"
                 }
             },
             "rdf_types": [
@@ -173,6 +191,12 @@
                     "datatype": "uri",
                     "multi": true,
                     "required": false
+                },
+                "agt:ranInMode": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "NET-NEW (1.3.0). Session -> the agt:Mode it ran under (explicit per-session choice from the agent's agt:mayUseMode, else its agt:defaultMode); recorded by Choreograph at activation so every turn is auditable (plans/2026-09-22-choreograph-modes-v1.md)"
                 }
             },
             "rdf_types": [
@@ -569,6 +593,157 @@
             "enforcement": "halt",
             "reconciliation_strategy": "codeBacked",
             "dispatch_mode": "current-state-materialize"
+        },
+        "Mode": {
+            "comment": "NET-NEW (1.2.0). A MODE: a named subset of the MCP tool surface plus permissions that an agent session runs in (plans/2026-09-22-choreograph-modes-v1.md). Exact tool names only; mode \u2229 grant (attenuation, never escalation). Distinct from agt:Voicing (Monovocal/Parliament), which is NOT a mode. Carries an optional agt:imageTransform: the prompt modifier that derives the agent's mode variant of its self-image (plans/2026-09-22-agent-self-image.md). 1.3.0: agt:access is at most one of \"read\" | \"write\" (absent reads as \"read\" - fail closed), agt:requiresApproval names only tools the mode allows, and a session records the mode it ran under (agt:Session agt:ranInMode).",
+            "predicates": {
+                "rdfs:label": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "display name, e.g. \"Researcher\""
+                },
+                "agt:allowsTool": {
+                    "datatype": "string",
+                    "multi": true,
+                    "required": false,
+                    "source": "an exact MCP tool name this mode exposes (no wildcards)"
+                },
+                "agt:access": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "read | write - the effect ceiling for every allowed tool (at most one; absent = read, fail closed)"
+                },
+                "agt:graphScope": {
+                    "datatype": "uri",
+                    "multi": true,
+                    "required": false,
+                    "source": "optional graph fence; absent = the agent's own graphs"
+                },
+                "agt:requiresApproval": {
+                    "datatype": "string",
+                    "multi": true,
+                    "required": false,
+                    "source": "exact tool names whose calls pause for a human; each MUST also be an agt:allowsTool of the same mode"
+                },
+                "agt:imageTransform": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "natural-language modifier applied to the agent's BASE self-image to derive its variant under this mode (e.g. 'wearing round reading glasses')"
+                }
+            },
+            "rdf_types": [
+                "agt:Mode"
+            ],
+            "subject_rule": "urn:sophia:mode:{slug} - graph-authored; the slug is the mode's stable name",
+            "identity_kind": "urn-template",
+            "source_kind": "current-state",
+            "store_mode": "materialize",
+            "store_target": "user:rdf",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
+        },
+        "SelfImage": {
+            "comment": "NET-NEW (1.2.0). An image of an agent, made BY that agent for itself (plans/2026-09-22-agent-self-image.md). The bytes live in a Garden artifact (artifacts/{artifactId}/original + revisions); this record is the ontology face: whose image it is, which exact artifact revision and content hash, and the provenance (prompt, generator, model, tool, time, ingress principal). A BASE image hangs off agt:Agent agt:selfImage; a MODE VARIANT is derived from the base under an agt:Mode (agt:derivedFromImage + agt:underMode) and is cached by agt:derivationKey = sha256(base content hash, mode transform, generator, model) - a changed base or transform changes the key and marks the variant stale.",
+            "predicates": {
+                "agt:imageOf": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": true,
+                    "source": "SelfImage -> the agt:Agent it depicts (exactly one; the writer of the record)"
+                },
+                "agt:artifactId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "the Garden artifact holding the bytes"
+                },
+                "agt:artifactRevision": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "the artifact revision id these bytes were saved as"
+                },
+                "agt:contentSha256": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "sha256 of the image bytes (equals the revision's content_hash_sha256)"
+                },
+                "agt:mimeType": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:imagePrompt": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "the full prompt the generator received"
+                },
+                "agt:generator": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "openrouter | local-sigil"
+                },
+                "agt:generatorModel": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "e.g. google/gemini-2.5-flash-image | sigil-v1"
+                },
+                "agt:generatedByTool": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": true,
+                    "source": "the MCP tool that wrote it (agent_self_image)"
+                },
+                "prov:generatedAtTime": {
+                    "datatype": "dateTime",
+                    "multi": false,
+                    "required": true
+                },
+                "agt:ingressPrincipal": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "hosted ingress principal captured from the verified cell lease (attribution, not agent authentication)"
+                },
+                "agt:derivedFromImage": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "variant -> the BASE agt:SelfImage it was derived from"
+                },
+                "agt:underMode": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "source": "variant -> the agt:Mode whose imageTransform derived it"
+                },
+                "agt:derivationKey": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "source": "variant cache key: sha256 over (base contentSha256, mode imageTransform, generator, model)"
+                }
+            },
+            "rdf_types": [
+                "agt:SelfImage",
+                "prov:Entity"
+            ],
+            "subject_rule": "<agentIRI>#self-image (base) | <agentIRI>#self-image:mode:{sha256(modeIRI)[0:16]} (mode variant)",
+            "identity_kind": "urn-template",
+            "source_kind": "current-state",
+            "store_mode": "materialize",
+            "store_target": "user:rdf",
+            "enforcement": "halt",
+            "reconciliation_strategy": "codeBacked",
+            "dispatch_mode": "current-state-materialize"
         }
     },
     "comanaged_forbidden": [
@@ -599,7 +774,7 @@
             "subPropertyOf": "agt:witnessedBy"
         }
     },
-    "raw_shacl_shapes": "@prefix sh:    <http://www.w3.org/ns/shacl#> .\n@prefix agt:   <http://mnemosyne.dev/agent#> .\n@prefix mem:   <http://mnemosyne.dev/memory#> .\n@prefix mnemo: <https://mnemosyne.local/ns#> .\n@prefix prov:  <http://www.w3.org/ns/prov#> .\n@prefix xsd:   <http://www.w3.org/2001/XMLSchema#> .\n\n# I1 (HARD/structural via sh:select): a record INSIDE a per-observer membrane\n# (\u2026:projection:memory:agent:) MUST be observedBy exactly one agt:Agent. The\n# COMMONS (un-segmented graph, empty observer, legally no mem:observedBy) is NOT\n# targeted - observedBy is OPTIONAL at L0.\nagt:I1_MembraneWitnessShape a sh:NodeShape ;\n    sh:targetClass mem:MemoryRecord ;\n    sh:sparql [\n        sh:severity sh:Violation ;\n        sh:message \"I1: a record INSIDE a per-observer membrane (\u2026:projection:memory:agent:) MUST be observedBy exactly one agt:Agent. (Commons records, in the un-segmented graph, are exempt - observedBy is optional at L0.)\" ;\n        sh:prefixes [ sh:declare [ sh:prefix \"mem\" ; sh:namespace \"http://mnemosyne.dev/memory#\" ] ] ;\n        sh:select \"\"\"\n            SELECT $this WHERE {\n              GRAPH ?g { $this a mem:MemoryRecord . }\n              FILTER( CONTAINS(STR(?g), ':projection:memory:agent:') )\n              FILTER NOT EXISTS { GRAPH ?g { $this mem:observedBy ?obs . } }\n            }\n        \"\"\" ;\n    ] .\n\n# I1b (FlagAndAccept/IRI-surgery): observedBy leaf == the {id} segment of the\n# membrane graph. Requires the spec-\u00a74 unified stem to pass - keep FlagAndAccept until then.\nagt:I1b_MembraneOwnerShape a sh:NodeShape ;\n    sh:targetClass mem:MemoryRecord ;\n    sh:sparql [\n        sh:severity sh:Violation ;\n        sh:message \"I1b: a record's mem:observedBy agent token MUST equal the {id} segment of its membrane graph.\" ;\n        sh:prefixes [ sh:declare [ sh:prefix \"mem\" ; sh:namespace \"http://mnemosyne.dev/memory#\" ] ] ;\n        sh:select \"\"\"\n            SELECT $this WHERE {\n              GRAPH ?g { $this mem:observedBy ?obs . }\n              FILTER( CONTAINS(STR(?g), ':projection:memory:agent:') )\n              BIND( STRAFTER(STR(?g),  ':projection:memory:agent:') AS ?seg )\n              BIND( STRAFTER(STR(?obs), 'urn:sophia:agent:')        AS ?obsLeaf )\n              FILTER( ?seg != ?obsLeaf )\n            }\n        \"\"\" ;\n    ] .\n\n# I1-Song (HARD): the Song membrane graph is attributed to the agent.\nagt:I1_SongMembraneShape a sh:NodeShape ;\n    sh:targetClass mnemo:Song ;\n    sh:property [\n        sh:path prov:wasAttributedTo ; sh:minCount 1 ; sh:class agt:Agent ;\n        sh:severity sh:Violation ;\n        sh:message \"I1: a Song's membrane MUST be prov:wasAttributedTo an agt:Agent.\" ;\n    ] .\n\n# I1-Valuation (ADVISORY): check the MEMBRANE, not a never-present mem:observedBy\n# triple. Warns when a valuation's graph lacks an :agent: segment - the actual gap (ask #5).\nagt:I1_ValuationMembraneAdvisory a sh:NodeShape ;\n    sh:targetClass mnemo:BlockValuation ;\n    sh:sparql [\n        sh:severity sh:Warning ;\n        sh:message \"I1-advisory: this BlockValuation lives in a NON-witness-scoped salience graph (no :agent:{id} segment) - salience is the one Geist surface still global/commons. EA-3 ask #5: fork salience per observer (\u2026:projection:salience:agent:{id}).\" ;\n        sh:prefixes [ sh:declare [ sh:prefix \"mnemo\" ; sh:namespace \"https://mnemosyne.local/ns#\" ] ] ;\n        sh:select \"\"\"\n            SELECT $this WHERE {\n              GRAPH ?g { $this a mnemo:BlockValuation . }\n              FILTER( CONTAINS(STR(?g), ':projection:salience') )\n              FILTER( !CONTAINS(STR(?g), ':projection:salience:agent:') )\n            }\n        \"\"\" ;\n    ] .\n\n# I2 (FlagAndAccept until \u00a74): when a record carries BOTH a voice leaf and a\n# witness, the leaf MUST name an agt:Voice voiceOf that observedBy agent.\nagt:I2_VoiceContainmentShape a sh:NodeShape ;\n    sh:targetClass mem:MemoryRecord ;\n    sh:property [ sh:path mem:agentId ; sh:maxCount 1 ; sh:datatype xsd:string ] ;\n    sh:sparql [\n        sh:severity sh:Violation ;\n        sh:message \"I2: when a record carries BOTH a voice leaf (mem:agentId) and a witness (mem:observedBy), the leaf MUST name an agt:Voice voiceOf that observedBy agent - a voice cannot author testimony outside its agent.\" ;\n        sh:prefixes [ sh:declare [ sh:prefix \"agt\" ; sh:namespace \"http://mnemosyne.dev/agent#\" ] ,\n                                  [ sh:prefix \"mem\" ; sh:namespace \"http://mnemosyne.dev/memory#\" ] ] ;\n        sh:select \"\"\"\n            SELECT $this WHERE {\n              $this mem:agentId ?vid ; mem:observedBy ?agent .\n              FILTER NOT EXISTS {\n                ?voice a agt:Voice ; agt:voiceId ?vid ; agt:voiceOf ?agent .\n              }\n            }\n        \"\"\" ;\n    ] .\n\n# I2b (HARD): inside a per-observer membrane, a voice leaf MUST also carry the\n# agent witness. In the commons a leaf-only record is tolerated.\nagt:I2b_VoiceNeedsWitnessShape a sh:NodeShape ;\n    sh:targetClass mem:MemoryRecord ;\n    sh:sparql [\n        sh:severity sh:Violation ;\n        sh:message \"I2b: inside a per-observer membrane, a record with a voice leaf (mem:agentId) MUST also carry the agent witness (mem:observedBy) - a voice cannot exist without its owning agent.\" ;\n        sh:prefixes [ sh:declare [ sh:prefix \"mem\" ; sh:namespace \"http://mnemosyne.dev/memory#\" ] ] ;\n        sh:select \"\"\"\n            SELECT $this WHERE {\n              GRAPH ?g { $this mem:agentId ?vid . }\n              FILTER( CONTAINS(STR(?g), ':projection:memory:agent:') )\n              FILTER NOT EXISTS { GRAPH ?g { $this mem:observedBy ?obs . } }\n            }\n        \"\"\" ;\n    ] .\n\n# I3a/b (HARD/structural): voicing is exactly-one from the closed enum.\nagt:I3_VoicingShape a sh:NodeShape ;\n    sh:targetClass agt:Agent ;\n    sh:property [\n        sh:path agt:voicing ; sh:minCount 1 ; sh:maxCount 1 ;\n        sh:in ( agt:Monovocal agt:Parliament ) ; sh:severity sh:Violation ;\n        sh:message \"I3: every agent has exactly one voicing, drawn from {Monovocal, Parliament}.\" ;\n    ] .\n\n# I3c (HARD via sh:select): Monovocal <=> exactly one voice; Parliament <=> >=2.\nagt:I3_CardinalityShape a sh:NodeShape ;\n    sh:targetClass agt:Agent ;\n    sh:sparql [\n        sh:severity sh:Violation ;\n        sh:message \"I3: a Monovocal agent MUST have exactly one agt:Voice; a Parliament MUST have >=2 (a 1-voice Parliament is functionally Monovocal - forbidden so the graph determines the mode).\" ;\n        sh:prefixes [ sh:declare [ sh:prefix \"agt\" ; sh:namespace \"http://mnemosyne.dev/agent#\" ] ] ;\n        sh:select \"\"\"\n            SELECT $this WHERE {\n              $this agt:voicing ?mode .\n              { SELECT $this (COUNT(?v) AS ?n) WHERE { ?v agt:voiceOf $this } GROUP BY $this }\n              FILTER ( (?mode = agt:Monovocal  && ?n != 1) ||\n                       (?mode = agt:Parliament && ?n < 2) )\n            }\n        \"\"\" ;\n    ] .\n\n# I3d (ADVISORY): a Monovocal agent's records SHOULD elide the redundant voice leaf.\nagt:I3d_MonovocalElisionAdvisory a sh:NodeShape ;\n    sh:targetClass mem:MemoryRecord ;\n    sh:sparql [\n        sh:severity sh:Warning ;\n        sh:message \"I3d-advisory: this record carries a mem:agentId leaf but its witnessing agent is Monovocal - the leaf is redundant and SHOULD be elided.\" ;\n        sh:prefixes [ sh:declare [ sh:prefix \"agt\" ; sh:namespace \"http://mnemosyne.dev/agent#\" ] ,\n                                  [ sh:prefix \"mem\" ; sh:namespace \"http://mnemosyne.dev/memory#\" ] ] ;\n        sh:select \"\"\"\n            SELECT $this WHERE {\n              $this mem:agentId ?vid ; mem:observedBy ?agent .\n              ?agent agt:voicing agt:Monovocal .\n            }\n        \"\"\" ;\n    ] .\n\n# I4a (HARD/structural): a voice borrows exactly one agent and owns no membrane.\nagt:I4_BorrowShape a sh:NodeShape ;\n    sh:targetClass agt:Voice ;\n    sh:property [\n        sh:path agt:voiceOf ; sh:minCount 1 ; sh:maxCount 1 ; sh:class agt:Agent ;\n        sh:severity sh:Violation ;\n        sh:message \"I4a: a voice borrows exactly one agent's membrane (voiceOf, single).\" ;\n    ] ;\n    sh:property [\n        sh:path agt:ownsMembrane ; sh:maxCount 0 ; sh:severity sh:Violation ;\n        sh:message \"I4a: a voice MUST NOT own a membrane - it borrows its agent's (attribution at the leaf, no graph of its own).\" ;\n    ] .\n\n# I4b (FlagAndAccept until \u00a74): a voiced record's observedBy is the AGENT, not the voice.\nagt:I4b_SharedObserverShape a sh:NodeShape ;\n    sh:targetClass mem:MemoryRecord ;\n    sh:sparql [\n        sh:severity sh:Violation ;\n        sh:message \"I4b: a voiced record's mem:observedBy is the agent's witness IRI urn:sophia:agent:{agentId} - voices share it, they don't mint their own.\" ;\n        sh:prefixes [ sh:declare [ sh:prefix \"agt\" ; sh:namespace \"http://mnemosyne.dev/agent#\" ] ,\n                                  [ sh:prefix \"mem\" ; sh:namespace \"http://mnemosyne.dev/memory#\" ] ] ;\n        sh:select \"\"\"\n            SELECT $this WHERE {\n              $this mem:agentId ?vid ; mem:observedBy ?obs .\n              ?voice a agt:Voice ; agt:voiceId ?vid ; agt:voiceOf ?agent .\n              ?agent agt:agentId ?aid .\n              FILTER ( STR(?obs) != CONCAT('urn:sophia:agent:', ?aid) )\n            }\n        \"\"\" ;\n    ] .\n\n# IDENTITY UNIFICATION (spec \u00a74): subject IRI == urn:sophia:agent:{agentId}.\n# \u00a74 is LANDED on choreograph main so this is Halt-eligible now.\nagt:IdentityUnificationShape a sh:NodeShape ;\n    sh:targetClass agt:Agent ;\n    sh:sparql [\n        sh:severity sh:Violation ;\n        sh:message \"Identity unification: the agt:Agent subject IRI MUST equal urn:sophia:agent:{agentId} (the unified stem; \u00a74 landed).\" ;\n        sh:prefixes [ sh:declare [ sh:prefix \"agt\" ; sh:namespace \"http://mnemosyne.dev/agent#\" ] ] ;\n        sh:select \"\"\"\n            SELECT $this WHERE {\n              $this agt:agentId ?id .\n              FILTER( STR($this) != CONCAT('urn:sophia:agent:', ?id) )\n            }\n        \"\"\" ;\n    ] .\n",
+    "raw_shacl_shapes": "@prefix sh:    <http://www.w3.org/ns/shacl#> .\n@prefix agt:   <http://mnemosyne.dev/agent#> .\n@prefix mem:   <http://mnemosyne.dev/memory#> .\n@prefix mnemo: <https://mnemosyne.local/ns#> .\n@prefix prov:  <http://www.w3.org/ns/prov#> .\n@prefix xsd:   <http://www.w3.org/2001/XMLSchema#> .\n\n# I1 (HARD/structural via sh:select): a record INSIDE a per-observer membrane\n# (\u2026:projection:memory:agent:) MUST be observedBy exactly one agt:Agent. The\n# COMMONS (un-segmented graph, empty observer, legally no mem:observedBy) is NOT\n# targeted - observedBy is OPTIONAL at L0.\nagt:I1_MembraneWitnessShape a sh:NodeShape ;\n    sh:targetClass mem:MemoryRecord ;\n    sh:sparql [\n        sh:severity sh:Violation ;\n        sh:message \"I1: a record INSIDE a per-observer membrane (\u2026:projection:memory:agent:) MUST be observedBy exactly one agt:Agent. (Commons records, in the un-segmented graph, are exempt - observedBy is optional at L0.)\" ;\n        sh:prefixes [ sh:declare [ sh:prefix \"mem\" ; sh:namespace \"http://mnemosyne.dev/memory#\" ] ] ;\n        sh:select \"\"\"\n            SELECT $this WHERE {\n              GRAPH ?g { $this a mem:MemoryRecord . }\n              FILTER( CONTAINS(STR(?g), ':projection:memory:agent:') )\n              FILTER NOT EXISTS { GRAPH ?g { $this mem:observedBy ?obs . } }\n            }\n        \"\"\" ;\n    ] .\n\n# I1b (FlagAndAccept/IRI-surgery): observedBy leaf == the {id} segment of the\n# membrane graph. Requires the spec-\u00a74 unified stem to pass - keep FlagAndAccept until then.\nagt:I1b_MembraneOwnerShape a sh:NodeShape ;\n    sh:targetClass mem:MemoryRecord ;\n    sh:sparql [\n        sh:severity sh:Violation ;\n        sh:message \"I1b: a record's mem:observedBy agent token MUST equal the {id} segment of its membrane graph.\" ;\n        sh:prefixes [ sh:declare [ sh:prefix \"mem\" ; sh:namespace \"http://mnemosyne.dev/memory#\" ] ] ;\n        sh:select \"\"\"\n            SELECT $this WHERE {\n              GRAPH ?g { $this mem:observedBy ?obs . }\n              FILTER( CONTAINS(STR(?g), ':projection:memory:agent:') )\n              BIND( STRAFTER(STR(?g),  ':projection:memory:agent:') AS ?seg )\n              BIND( STRAFTER(STR(?obs), 'urn:sophia:agent:')        AS ?obsLeaf )\n              FILTER( ?seg != ?obsLeaf )\n            }\n        \"\"\" ;\n    ] .\n\n# I1-Song (HARD): the Song membrane graph is attributed to the agent.\nagt:I1_SongMembraneShape a sh:NodeShape ;\n    sh:targetClass mnemo:Song ;\n    sh:property [\n        sh:path prov:wasAttributedTo ; sh:minCount 1 ; sh:class agt:Agent ;\n        sh:severity sh:Violation ;\n        sh:message \"I1: a Song's membrane MUST be prov:wasAttributedTo an agt:Agent.\" ;\n    ] .\n\n# I1-Valuation (ADVISORY): check the MEMBRANE, not a never-present mem:observedBy\n# triple. Warns when a valuation's graph lacks an :agent: segment - the actual gap (ask #5).\nagt:I1_ValuationMembraneAdvisory a sh:NodeShape ;\n    sh:targetClass mnemo:BlockValuation ;\n    sh:sparql [\n        sh:severity sh:Warning ;\n        sh:message \"I1-advisory: this BlockValuation lives in a NON-witness-scoped salience graph (no :agent:{id} segment) - salience is the one Geist surface still global/commons. EA-3 ask #5: fork salience per observer (\u2026:projection:salience:agent:{id}).\" ;\n        sh:prefixes [ sh:declare [ sh:prefix \"mnemo\" ; sh:namespace \"https://mnemosyne.local/ns#\" ] ] ;\n        sh:select \"\"\"\n            SELECT $this WHERE {\n              GRAPH ?g { $this a mnemo:BlockValuation . }\n              FILTER( CONTAINS(STR(?g), ':projection:salience') )\n              FILTER( !CONTAINS(STR(?g), ':projection:salience:agent:') )\n            }\n        \"\"\" ;\n    ] .\n\n# I2 (FlagAndAccept until \u00a74): when a record carries BOTH a voice leaf and a\n# witness, the leaf MUST name an agt:Voice voiceOf that observedBy agent.\nagt:I2_VoiceContainmentShape a sh:NodeShape ;\n    sh:targetClass mem:MemoryRecord ;\n    sh:property [ sh:path mem:agentId ; sh:maxCount 1 ; sh:datatype xsd:string ] ;\n    sh:sparql [\n        sh:severity sh:Violation ;\n        sh:message \"I2: when a record carries BOTH a voice leaf (mem:agentId) and a witness (mem:observedBy), the leaf MUST name an agt:Voice voiceOf that observedBy agent - a voice cannot author testimony outside its agent.\" ;\n        sh:prefixes [ sh:declare [ sh:prefix \"agt\" ; sh:namespace \"http://mnemosyne.dev/agent#\" ] ,\n                                  [ sh:prefix \"mem\" ; sh:namespace \"http://mnemosyne.dev/memory#\" ] ] ;\n        sh:select \"\"\"\n            SELECT $this WHERE {\n              $this mem:agentId ?vid ; mem:observedBy ?agent .\n              FILTER NOT EXISTS {\n                ?voice a agt:Voice ; agt:voiceId ?vid ; agt:voiceOf ?agent .\n              }\n            }\n        \"\"\" ;\n    ] .\n\n# I2b (HARD): inside a per-observer membrane, a voice leaf MUST also carry the\n# agent witness. In the commons a leaf-only record is tolerated.\nagt:I2b_VoiceNeedsWitnessShape a sh:NodeShape ;\n    sh:targetClass mem:MemoryRecord ;\n    sh:sparql [\n        sh:severity sh:Violation ;\n        sh:message \"I2b: inside a per-observer membrane, a record with a voice leaf (mem:agentId) MUST also carry the agent witness (mem:observedBy) - a voice cannot exist without its owning agent.\" ;\n        sh:prefixes [ sh:declare [ sh:prefix \"mem\" ; sh:namespace \"http://mnemosyne.dev/memory#\" ] ] ;\n        sh:select \"\"\"\n            SELECT $this WHERE {\n              GRAPH ?g { $this mem:agentId ?vid . }\n              FILTER( CONTAINS(STR(?g), ':projection:memory:agent:') )\n              FILTER NOT EXISTS { GRAPH ?g { $this mem:observedBy ?obs . } }\n            }\n        \"\"\" ;\n    ] .\n\n# I3a/b (HARD/structural): voicing is exactly-one from the closed enum.\nagt:I3_VoicingShape a sh:NodeShape ;\n    sh:targetClass agt:Agent ;\n    sh:property [\n        sh:path agt:voicing ; sh:minCount 1 ; sh:maxCount 1 ;\n        sh:in ( agt:Monovocal agt:Parliament ) ; sh:severity sh:Violation ;\n        sh:message \"I3: every agent has exactly one voicing, drawn from {Monovocal, Parliament}.\" ;\n    ] .\n\n# I3c (HARD via sh:select): Monovocal <=> exactly one voice; Parliament <=> >=2.\nagt:I3_CardinalityShape a sh:NodeShape ;\n    sh:targetClass agt:Agent ;\n    sh:sparql [\n        sh:severity sh:Violation ;\n        sh:message \"I3: a Monovocal agent MUST have exactly one agt:Voice; a Parliament MUST have >=2 (a 1-voice Parliament is functionally Monovocal - forbidden so the graph determines the mode).\" ;\n        sh:prefixes [ sh:declare [ sh:prefix \"agt\" ; sh:namespace \"http://mnemosyne.dev/agent#\" ] ] ;\n        sh:select \"\"\"\n            SELECT $this WHERE {\n              $this agt:voicing ?mode .\n              { SELECT $this (COUNT(?v) AS ?n) WHERE { ?v agt:voiceOf $this } GROUP BY $this }\n              FILTER ( (?mode = agt:Monovocal  && ?n != 1) ||\n                       (?mode = agt:Parliament && ?n < 2) )\n            }\n        \"\"\" ;\n    ] .\n\n# I3d (ADVISORY): a Monovocal agent's records SHOULD elide the redundant voice leaf.\nagt:I3d_MonovocalElisionAdvisory a sh:NodeShape ;\n    sh:targetClass mem:MemoryRecord ;\n    sh:sparql [\n        sh:severity sh:Warning ;\n        sh:message \"I3d-advisory: this record carries a mem:agentId leaf but its witnessing agent is Monovocal - the leaf is redundant and SHOULD be elided.\" ;\n        sh:prefixes [ sh:declare [ sh:prefix \"agt\" ; sh:namespace \"http://mnemosyne.dev/agent#\" ] ,\n                                  [ sh:prefix \"mem\" ; sh:namespace \"http://mnemosyne.dev/memory#\" ] ] ;\n        sh:select \"\"\"\n            SELECT $this WHERE {\n              $this mem:agentId ?vid ; mem:observedBy ?agent .\n              ?agent agt:voicing agt:Monovocal .\n            }\n        \"\"\" ;\n    ] .\n\n# I4a (HARD/structural): a voice borrows exactly one agent and owns no membrane.\nagt:I4_BorrowShape a sh:NodeShape ;\n    sh:targetClass agt:Voice ;\n    sh:property [\n        sh:path agt:voiceOf ; sh:minCount 1 ; sh:maxCount 1 ; sh:class agt:Agent ;\n        sh:severity sh:Violation ;\n        sh:message \"I4a: a voice borrows exactly one agent's membrane (voiceOf, single).\" ;\n    ] ;\n    sh:property [\n        sh:path agt:ownsMembrane ; sh:maxCount 0 ; sh:severity sh:Violation ;\n        sh:message \"I4a: a voice MUST NOT own a membrane - it borrows its agent's (attribution at the leaf, no graph of its own).\" ;\n    ] .\n\n# I4b (FlagAndAccept until \u00a74): a voiced record's observedBy is the AGENT, not the voice.\nagt:I4b_SharedObserverShape a sh:NodeShape ;\n    sh:targetClass mem:MemoryRecord ;\n    sh:sparql [\n        sh:severity sh:Violation ;\n        sh:message \"I4b: a voiced record's mem:observedBy is the agent's witness IRI urn:sophia:agent:{agentId} - voices share it, they don't mint their own.\" ;\n        sh:prefixes [ sh:declare [ sh:prefix \"agt\" ; sh:namespace \"http://mnemosyne.dev/agent#\" ] ,\n                                  [ sh:prefix \"mem\" ; sh:namespace \"http://mnemosyne.dev/memory#\" ] ] ;\n        sh:select \"\"\"\n            SELECT $this WHERE {\n              $this mem:agentId ?vid ; mem:observedBy ?obs .\n              ?voice a agt:Voice ; agt:voiceId ?vid ; agt:voiceOf ?agent .\n              ?agent agt:agentId ?aid .\n              FILTER ( STR(?obs) != CONCAT('urn:sophia:agent:', ?aid) )\n            }\n        \"\"\" ;\n    ] .\n\n# IDENTITY UNIFICATION (spec \u00a74): subject IRI == urn:sophia:agent:{agentId}.\n# \u00a74 is LANDED on choreograph main so this is Halt-eligible now.\nagt:IdentityUnificationShape a sh:NodeShape ;\n    sh:targetClass agt:Agent ;\n    sh:sparql [\n        sh:severity sh:Violation ;\n        sh:message \"Identity unification: the agt:Agent subject IRI MUST equal urn:sophia:agent:{agentId} (the unified stem; \u00a74 landed).\" ;\n        sh:prefixes [ sh:declare [ sh:prefix \"agt\" ; sh:namespace \"http://mnemosyne.dev/agent#\" ] ] ;\n        sh:select \"\"\"\n            SELECT $this WHERE {\n              $this agt:agentId ?id .\n              FILTER( STR($this) != CONCAT('urn:sophia:agent:', ?id) )\n            }\n        \"\"\" ;\n    ] .\n\n# SELF-IMAGE (1.2.0, plans/2026-09-22-agent-self-image.md). A self-image depicts\n# exactly one agent (an IRI; the tool refuses agents absent from the graph).\nagt:SelfImageShape a sh:NodeShape ;\n    sh:targetClass agt:SelfImage ;\n    sh:property [\n        sh:path agt:imageOf ; sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI ;\n        sh:severity sh:Violation ;\n        sh:message \"SelfImage: a self-image depicts exactly one agt:Agent (agt:imageOf).\" ;\n    ] .\n\n# SELF-IMAGE VARIANT (HARD via sh:select): a mode variant MUST name its base,\n# its mode and its derivation key, and the base MUST be an image of the SAME\n# agent - an agent can never dress itself in another agent's image.\nagt:SelfImageVariantShape a sh:NodeShape ;\n    sh:targetClass agt:SelfImage ;\n    sh:sparql [\n        sh:severity sh:Violation ;\n        sh:message \"SelfImage variant: an image derived under a mode MUST carry agt:derivedFromImage (a base self-image of the SAME agent) and agt:derivationKey.\" ;\n        sh:prefixes [ sh:declare [ sh:prefix \"agt\" ; sh:namespace \"http://mnemosyne.dev/agent#\" ] ] ;\n        sh:select \"\"\"\n            SELECT $this WHERE {\n              $this agt:underMode ?mode ; agt:imageOf ?agent .\n              FILTER NOT EXISTS {\n                $this agt:derivedFromImage ?base ; agt:derivationKey ?key .\n                ?base agt:imageOf ?agent .\n              }\n            }\n        \"\"\" ;\n    ] .\n\n# MODE (1.3.0, plans/2026-09-22-choreograph-modes-v1.md). The access ceiling is\n# at most one value from the closed set; absent reads as \"read\" (fail closed).\nagt:ModeShape a sh:NodeShape ;\n    sh:targetClass agt:Mode ;\n    sh:property [\n        sh:path agt:access ; sh:maxCount 1 ; sh:in ( \"read\" \"write\" ) ;\n        sh:severity sh:Violation ;\n        sh:message \"Mode: agt:access is at most one of \\\"read\\\" | \\\"write\\\".\" ;\n    ] ;\n    sh:property [\n        sh:path agt:allowsTool ; sh:datatype xsd:string ;\n        sh:severity sh:Violation ;\n        sh:message \"Mode: agt:allowsTool is an exact MCP tool name (a plain string).\" ;\n    ] .\n\n# MODE APPROVAL (HARD via sh:select): an approval-required tool must be a tool\n# the mode allows - approval never widens the surface.\nagt:ModeApprovalSubsetShape a sh:NodeShape ;\n    sh:targetClass agt:Mode ;\n    sh:sparql [\n        sh:severity sh:Violation ;\n        sh:message \"Mode: every agt:requiresApproval tool MUST also be an agt:allowsTool of the same mode.\" ;\n        sh:prefixes [ sh:declare [ sh:prefix \"agt\" ; sh:namespace \"http://mnemosyne.dev/agent#\" ] ] ;\n        sh:select \"\"\"\n            SELECT $this WHERE {\n              $this agt:requiresApproval ?tool .\n              FILTER NOT EXISTS { $this agt:allowsTool ?tool . }\n            }\n        \"\"\" ;\n    ] .\n\n# SESSION MODE (1.3.0): a session ran under at most one mode, named by IRI.\nagt:SessionModeShape a sh:NodeShape ;\n    sh:targetClass agt:Session ;\n    sh:property [\n        sh:path agt:ranInMode ; sh:maxCount 1 ; sh:nodeKind sh:IRI ;\n        sh:severity sh:Violation ;\n        sh:message \"Session: agt:ranInMode names at most one agt:Mode (an IRI).\" ;\n    ] .\n",
     "status_transitions": [
         [
             "active",
@@ -607,5 +782,5 @@
         ]
     ],
     "title": "Sophia Agent Core Vocabulary",
-    "version": "1.1.0"
+    "version": "1.3.0"
 }

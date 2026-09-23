@@ -1854,6 +1854,23 @@ mod tests {
     }
 
     #[test]
+    fn agent_self_image_is_editor_gated_and_graph_bound() {
+        let secret=b"self-image-synthetic-lease-secret-at-least-32".to_vec();
+        let cell=CellGraphBoundary::new_with_binding(Some("graph-a".into()),Some("user:owner".into()),Some(3),Some(9),Some(secret.clone())).unwrap();
+        let now=SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        for role in [CellRole::Viewer,CellRole::Editor,CellRole::Owner] {
+            let claims=serde_json::json!({"iss":"pn-gateway","aud":"gardend-cell","sub":"user:self-image","owner":"user:owner","graphId":"graph-a","generation":3,"cellId":bound_cell_id("user:owner","graph-a",3),"role":role,"policyRevision":7,"registryRevision":9,"sessionId":"self-image-native-test","iat":now,"exp":now+60});
+            let verified=cell.verify_cell_lease(&sign_test_lease(&secret,&claims)).unwrap();
+            // It writes artifact bytes + RDF: Viewers neither see nor call it.
+            assert_eq!(cell.authorize_mcp_role("agent_self_image",verified.role).is_ok(),role>=CellRole::Editor);
+            assert_eq!(cell.mcp_tool_visible_for_role("agent_self_image",verified.role),role>=CellRole::Editor);
+        }
+        let jobs=LocalJobRegistry::new(std::env::temp_dir().join(format!("garden-self-image-jobs-{}",uuid::Uuid::new_v4()))).unwrap();
+        assert!(cell.scope_mcp_arguments("agent_self_image",serde_json::json!({"graphId":"foreign"}),&jobs).is_err());
+        assert!(cell.scope_mcp_arguments("agent_self_image",serde_json::json!({"graphId":"graph-a","graph_id":"foreign"}),&jobs).is_err());
+    }
+
+    #[test]
     fn signed_cell_lease_is_exactly_bound_and_roles_filter_discovery() {
         let secret = b"test-cell-lease-secret-at-least-32-bytes".to_vec();
         let cell = CellGraphBoundary::new_with_binding(
