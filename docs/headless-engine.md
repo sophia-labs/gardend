@@ -87,15 +87,17 @@ cargo test --manifest-path src-tauri/Cargo.toml --no-default-features --features
   --skip restored_documents_rematerialize_even_when_marker_floor_ran_ahead_of_wall_clock \
   --skip harness_fresh_parity_old_vs_new_net_state_identical \
   --skip semantic_model_state \
-  --skip cell_self_heal_tests
+  --skip cell_self_heal_tests \
+  --skip host_dry_run_apply_and_replay_preserve_the_exact_site_route
 ```
 
-Two suites are order-dependent — they fail when run in-process with the rest
+Three suites are order-dependent — they fail when run in-process with the rest
 of the library suite but pass cleanly on their own. Run them isolated:
 
 ```bash
 cargo test --manifest-path src-tauri/Cargo.toml --no-default-features --features headless --lib semantic_model_state -- --test-threads=1
 cargo test --manifest-path src-tauri/Cargo.toml --no-default-features --features headless --lib graph_paths::cell_self_heal_tests::cell_self_heal_materializes_a_never_created_graph_on_first_query -- --exact --test-threads=1
+cargo test --manifest-path src-tauri/Cargo.toml --no-default-features --features headless --lib emporium::site_projection_tests::headless::host_dry_run_apply_and_replay_preserve_the_exact_site_route -- --exact --test-threads=1
 ```
 
 Then confirm the exact integration binary CI ships also builds:
@@ -115,6 +117,9 @@ cargo build --manifest-path src-tauri/Cargo.toml --no-default-features --feature
 - `graph_paths::cell_self_heal_tests::cell_self_heal_materializes_a_never_created_graph_on_first_query`
   — order-dependent: a `OnceLock` gets latched by a co-scheduled test.
   Passes in isolation (above); run separately with `--exact`.
+- `emporium::site_projection_tests::headless::host_dry_run_apply_and_replay_preserve_the_exact_site_route`
+  — order-dependent: its temporary store can be reopened by a co-scheduled
+  test ("lock hold by current process"). Run separately with `--exact`.
 - `time_travel_restore_service::tests::restored_documents_rematerialize_even_when_marker_floor_ran_ahead_of_wall_clock`
   and `document_meaningful_object::harness_tests::harness_fresh_parity_old_vs_new_net_state_identical`
   — known pre-existing failures, tracked, not fixed by this contract.

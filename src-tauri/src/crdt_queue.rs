@@ -28,6 +28,11 @@ pub(crate) use crate::crdt_operation_types::{
 const LOCAL_CRDT_OPERATION_TIMEOUT_SECS: u64 = 600;
 const LOCAL_CRDT_OPERATION_TIMEOUT_ENV: &str = "GARDEN_LOCAL_CRDT_OPERATION_TIMEOUT_SECS";
 pub(crate) const GRAPH_INCARNATION_PAYLOAD_KEY: &str = "graphIncarnation";
+/// Returned when the CALLER's wait expires while the operation stays in the
+/// durable queue. The operation is not dead — its background retries still
+/// own their inputs (e.g. staged pending-upload archives), so callers must
+/// NOT treat this error as license to clean those inputs up.
+pub(crate) const CRDT_OPERATION_STILL_QUEUED_ERROR: &str = "CRDT operation timed out waiting for the desktop runtime; operation remains durably queued for local retry";
 /// In-memory-only provenance added while reconstructing selected recovery-aware
 /// operations. It is stripped from fresh enqueue input and never appended as a
 /// new queued journal event. Flushes use it to hydrate an empty registry;
@@ -608,7 +613,7 @@ async fn enqueue_crdt_operation_outcome_inner(
                 );
             }
             queue.detach_responder(&operation.operation_id);
-            Err("CRDT operation timed out waiting for the desktop runtime; operation remains durably queued for local retry".to_string())
+            Err(CRDT_OPERATION_STILL_QUEUED_ERROR.to_string())
         }
     };
 

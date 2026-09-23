@@ -166,6 +166,71 @@ pub(super) fn mcp_write_document_payload(
     Ok(payload)
 }
 
+/// How many characters of a block's stored text ride in a write ack.
+pub(crate) const BLOCK_PREVIEW_CHARS: usize = 10;
+/// Past this many blocks a write ack carries ids only; the previews would
+/// outweigh the document.
+pub(crate) const BLOCK_PREVIEW_MAX_BLOCKS: usize = 400;
+
+/// The first `BLOCK_PREVIEW_CHARS` characters of a text with whitespace runs
+/// collapsed to one space, built incrementally: the iterator is consumed only
+/// until the head is full, so a block of any length costs the same. Both the
+/// write ack (stored record) and the block ops (fragment leaves) use this.
+pub(crate) fn preview_head(chars: impl Iterator<Item = char>) -> String {
+    let mut head = String::new();
+    let mut pending_space = false;
+    for ch in chars {
+        if ch.is_whitespace() {
+            pending_space = !head.is_empty();
+            continue;
+        }
+        if pending_space {
+            if head.chars().count() + 1 >= BLOCK_PREVIEW_CHARS {
+                break;
+            }
+            head.push(' ');
+            pending_space = false;
+        }
+        head.push(ch);
+        if head.chars().count() >= BLOCK_PREVIEW_CHARS {
+            break;
+        }
+    }
+    head
+}
+
+/// One line per written block, in document order: the block's FULL id (what a
+/// caller copies into its next call; the engine matches ids exactly) and the
+/// first characters of the text as STORED — after the content conversion,
+/// which is where block boundaries move. This is the answer to "which id is
+/// which sentence" without a second read: the write handler already holds the
+/// post-write record these come from.
+pub(crate) fn block_previews(blocks: &[serde_json::Value]) -> serde_json::Value {
+    if blocks.len() > BLOCK_PREVIEW_MAX_BLOCKS {
+        return serde_json::json!({
+            "omitted": blocks.len(),
+            "reason": format!("more than {BLOCK_PREVIEW_MAX_BLOCKS} blocks; use blockIds"),
+        });
+    }
+    let lines = blocks
+        .iter()
+        .filter_map(|block| {
+            let id = json_string(block.get("id"))?;
+            let text = block
+                .get("content")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default();
+            let head = preview_head(text.chars());
+            Some(serde_json::Value::String(if head.is_empty() {
+                id
+            } else {
+                format!("{id} {head}")
+            }))
+        })
+        .collect::<Vec<_>>();
+    serde_json::Value::Array(lines)
+}
+
 pub(super) fn mcp_write_document_response(
     arguments: &serde_json::Value,
     graph_id: &str,
@@ -174,16 +239,16 @@ pub(super) fn mcp_write_document_response(
     outcome_value: &serde_json::Value,
     durability: WriteDurability,
 ) -> serde_json::Value {
-    let block_ids = document
+    let blocks = document
         .get("blocks")
         .and_then(serde_json::Value::as_array)
-        .map(|blocks| {
-            blocks
-                .iter()
-                .filter_map(|block| json_string(block.get("id")))
-                .collect::<Vec<_>>()
-        })
+        .cloned()
         .unwrap_or_default();
+    let block_ids = blocks
+        .iter()
+        .filter_map(|block| json_string(block.get("id")))
+        .collect::<Vec<_>>();
+    let previews = block_previews(&blocks);
     let warnings = outcome_value
         .get("warnings")
         .cloned()
@@ -213,6 +278,7 @@ pub(super) fn mcp_write_document_response(
         "revision": document.get("revision").cloned().unwrap_or(serde_json::Value::Null),
         "block_ids": block_ids.clone(),
         "blockIds": block_ids.clone(),
+        "blocks": previews,
         "durability_checked": durability.checked(),
         "durabilityChecked": durability.checked(),
         "durability": durability.state(),
@@ -324,6 +390,50 @@ mod tests {
     }
 
     #[test]
+    fn block_previews_name_each_block_by_its_stored_text() {
+        let blocks = serde_json::json!([
+            { "id": "block-e1998a25", "content": "Marker probe" },
+            { "id": "block-e0998892", "content": "  This   line carries\nan inline marker." },
+            { "id": "block-df9986ff", "content": "" },
+            { "id": "block-ünï", "content": "héllo wörld and more" },
+        ]);
+        let previews = block_previews(blocks.as_array().unwrap());
+        assert_eq!(
+            previews,
+            serde_json::json!([
+                "block-e1998a25 Marker pro",
+                "block-e0998892 This line",
+                "block-df9986ff",
+                "block-ünï héllo wörl",
+            ])
+        );
+    }
+
+    #[test]
+    fn preview_head_is_bounded_and_collapses_whitespace_incrementally() {
+        assert_eq!(preview_head("  This   line carries\nan inline marker.".chars()), "This line");
+        assert_eq!(preview_head("Marker probe".chars()), "Marker pro");
+        assert_eq!(preview_head("   ".chars()), "");
+        assert_eq!(preview_head("héllo wörld and more".chars()), "héllo wörl");
+        // A long single run of text: the iterator is not exhausted. A
+        // side-effecting iterator proves how far it was read.
+        let mut consumed = 0usize;
+        let long = std::iter::repeat('x').take(1_000_000).inspect(|_| consumed += 1);
+        assert_eq!(preview_head(long), "xxxxxxxxxx");
+        assert!(consumed <= BLOCK_PREVIEW_CHARS + 1, "read {consumed} chars for a 10-char head");
+    }
+
+    #[test]
+    fn block_previews_are_capped_by_block_count() {
+        let many = (0..=BLOCK_PREVIEW_MAX_BLOCKS)
+            .map(|i| serde_json::json!({ "id": format!("block-{i}"), "content": "x" }))
+            .collect::<Vec<_>>();
+        let previews = block_previews(&many);
+        assert_eq!(previews["omitted"], BLOCK_PREVIEW_MAX_BLOCKS + 1);
+        assert!(previews["reason"].as_str().unwrap().contains("use blockIds"));
+    }
+
+    #[test]
     fn write_document_response_reports_block_ids_and_outcome_metadata() {
         let response = mcp_write_document_response(
             &serde_json::json!({ "await_durable": false }),
@@ -354,6 +464,11 @@ mod tests {
         assert_eq!(
             response.get("blockIds"),
             Some(&serde_json::json!(["block-a", "12"]))
+        );
+        assert_eq!(
+            response.get("blocks"),
+            Some(&serde_json::json!(["block-a", "12"])),
+            "blocks without text preview as bare full ids"
         );
         assert_eq!(
             response.get("durability_checked"),

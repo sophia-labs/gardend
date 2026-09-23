@@ -164,6 +164,14 @@ pub(super) struct InlineMarkSnapshot {
     pub(super) href: Option<String>,
     pub(super) target_doc_id: Option<String>,
     pub(super) label: Option<String>,
+    // The projection emits these for wikilinks (block/graph targets), comment
+    // anchors, and wire anchors. Until 2026-09-12 the record schema dropped
+    // them on the way through, so every read built from the stored blocks
+    // lost the anchor (18 documents, 28 marks in the cutover rehearsal).
+    pub(super) target_block_id: Option<String>,
+    pub(super) target_graph_id: Option<String>,
+    pub(super) annotation_id: Option<String>,
+    pub(super) wire_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

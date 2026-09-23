@@ -10,6 +10,8 @@ use crate::document_history_store::{LocalDocumentSnapshotMeta, LocalDocumentSnap
 use oxigraph::model::{GraphName, NamedNode, NamedOrBlankNode, Quad, Term};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
+#[cfg(feature = "desktop")]
+use tauri::Manager;
 
 #[cfg(test)]
 #[path = "preservation_v2_tests.rs"]

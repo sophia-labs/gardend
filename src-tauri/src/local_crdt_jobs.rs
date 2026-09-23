@@ -116,8 +116,15 @@ fn spawn_crdt_job(
             },
             Err(error) => Err(error),
         };
-        if result.is_err() {
-            cleanup_optional_path(&pending_cleanup_path);
+        if let Err(error) = &result {
+            // A caller-timeout is not operation death: the op remains
+            // durably queued and its background retries still need the
+            // staged archive (deleting it here doomed every retry of the
+            // maiden graph import, 2026-08-29). Cleanup for the surviving
+            // op belongs to the executor's success/ledger paths.
+            if error != crate::crdt_queue::CRDT_OPERATION_STILL_QUEUED_ERROR {
+                cleanup_optional_path(&pending_cleanup_path);
+            }
         }
         if jobs.is_cancelled(&job_id).unwrap_or(false) {
             cleanup_optional_path(&pending_cleanup_path);

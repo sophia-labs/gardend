@@ -29,6 +29,18 @@ fn hosted_mark_value(mark: &InlineMarkSnapshot) -> serde_json::Value {
     if let Some(target_doc_id) = &mark.target_doc_id {
         value["target_doc_id"] = serde_json::json!(target_doc_id);
     }
+    if let Some(target_block_id) = &mark.target_block_id {
+        value["target_block_id"] = serde_json::json!(target_block_id);
+    }
+    if let Some(target_graph_id) = &mark.target_graph_id {
+        value["target_graph_id"] = serde_json::json!(target_graph_id);
+    }
+    if let Some(annotation_id) = &mark.annotation_id {
+        value["annotation_id"] = serde_json::json!(annotation_id);
+    }
+    if let Some(wire_id) = &mark.wire_id {
+        value["wire_id"] = serde_json::json!(wire_id);
+    }
     if let Some(label) = &mark.label {
         value["label"] = serde_json::json!(label);
     }

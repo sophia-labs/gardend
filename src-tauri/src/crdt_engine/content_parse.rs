@@ -891,7 +891,7 @@ const KNOWN_TIPTAP_NODE_TYPES: &[&str] = &[
     "tableCell",
 ];
 
-fn tiptap_xml_to_tiptap_json(xml: &str) -> Result<Value, String> {
+pub(crate) fn tiptap_xml_to_tiptap_json(xml: &str) -> Result<Value, String> {
     if xml.trim().is_empty() {
         return Ok(json!({"type": "doc", "content": []}));
     }

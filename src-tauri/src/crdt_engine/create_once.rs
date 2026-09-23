@@ -5,6 +5,8 @@
 //! even for the same recovered operation. Partial effects require inspection.
 
 use crate::{app_runtime::AppHandle, crdt_queue::CrdtOperation};
+#[cfg(feature = "desktop")]
+use tauri::Manager;
 use serde_json::{json, Value};
 use std::{
     fs,

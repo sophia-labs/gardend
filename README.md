@@ -14,18 +14,17 @@ your own profile directory, with no hosted backend.
 > OSI-approved "open source" license, and Garden is never described as OSS.
 > See [License and notices](#license-and-notices).
 >
-> **Public boundary.** The desktop app below (Tauri shell + Shrubbery
-> frontend) is Sophia Labs' internal product surface, not the public
-> boundary: its dev/build/CI require a private Shrubbery checkout and a
-> `SHRUBBERY_READ_TOKEN` credential external contributors do not have (see
-> [`docs/release-process.md`](docs/release-process.md)). The supported public
-> artifact is the **headless `gardend` engine** — this same Rust core, built
-> with no Tauri/webview/GUI dependency — plus
-> [`sophia-mcp`](https://github.com/sophia-labs/sophia-mcp).
-> [`docs/headless-engine.md`](docs/headless-engine.md) is a build/test path
-> that needs zero organization credentials. The
-> [source-available readiness tracker](docs/oss-readiness.md) records exactly
-> what is done and what still blocks a public release of that boundary.
+> **Public boundary.** The public tree,
+> [`sophia-labs/gardend`](https://github.com/sophia-labs/gardend), carries the
+> **headless `gardend` engine** — this same Rust core with no Tauri/webview/GUI
+> dependency ([`docs/headless-engine.md`](docs/headless-engine.md)) — and the
+> **desktop app**, whose UI is the public
+> [Shrubbery](https://github.com/sophia-labs/shrubbery) pinned in
+> `shrubbery-ui.lock.json` ([`docs/desktop-from-source.md`](docs/desktop-from-source.md)).
+> Neither needs organization credentials. Sophia Labs' internal repository pins
+> its private Shrubbery line instead; that is the only difference. See also
+> [`sophia-mcp`](https://github.com/sophia-labs/sophia-mcp) and the
+> [source-available readiness tracker](docs/oss-readiness.md).
 
 ## Contents
 
@@ -83,22 +82,18 @@ narrow local-only slice:
   expose a deliberate local-native surface, tracked in
   `parity/surface-contracts.json` and `parity/local-loopback-surface.json`.
 - It is not a self-sufficient frontend checkout. `frontend/` holds Garden's
-  native-shell adapter code (bridge types, provider glue, `native.html`), but
-  the authoritative UI components are Shrubbery, a private Sophia Labs repo
-  fetched at dev/build time by `scripts/shrubbery-frontend.mjs` using a
-  `SHRUBBERY_READ_TOKEN` credential (`.github/workflows/release.yml`,
-  `native-tauri-prototype.yml`). External contributors cannot build the
-  desktop app end to end; use the headless engine
-  ([`docs/headless-engine.md`](docs/headless-engine.md)) instead.
+  native-shell adapter code (bridge types, provider glue, `native.html`); the
+  authoritative UI is Shrubbery, fetched at the commit pinned in
+  `shrubbery-ui.lock.json` by `scripts/shrubbery-frontend.mjs`. In the public
+  tree that pin is the public Shrubbery repository, so the desktop app builds
+  end to end without credentials ([`docs/desktop-from-source.md`](docs/desktop-from-source.md)).
 
 ## Prerequisites
 
-> **This section is for the desktop app, which is internal-only.** It needs
-> a private Shrubbery checkout and a `SHRUBBERY_READ_TOKEN` credential (see
-> [What Garden is not (yet)](#what-garden-is-not-yet) above) that external
-> contributors will not have. If you don't have org credentials, skip to
-> [`docs/headless-engine.md`](docs/headless-engine.md) — the public,
-> credential-free build/test path for the `gardend` engine.
+> For the public tree's credential-free desktop build, follow
+> [`docs/desktop-from-source.md`](docs/desktop-from-source.md); for the engine
+> alone, [`docs/headless-engine.md`](docs/headless-engine.md). The steps below
+> are Sophia Labs' internal workflow, which pins private Shrubbery.
 
 - **Rust 1.88+** — for the Oxigraph-backed RDF store and the fastembed local
   embedding dependencies.

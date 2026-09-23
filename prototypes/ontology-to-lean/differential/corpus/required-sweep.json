@@ -1,0 +1,68 @@
+[
+  {
+    "name": "workflow-complete",
+    "class": "Workflow",
+    "requiredCuries": ["wf:title", "wf:phase"],
+    "instanceKeys": ["wf:title", "wf:phase", "wf:description"]
+  },
+  {
+    "name": "workflow-missing-phase",
+    "class": "Workflow",
+    "requiredCuries": ["wf:title", "wf:phase"],
+    "instanceKeys": ["wf:title", "wf:description"]
+  },
+  {
+    "name": "phase-complete",
+    "class": "Phase",
+    "requiredCuries": ["wf:order"],
+    "instanceKeys": ["wf:order", "wf:label"]
+  },
+  {
+    "name": "phase-missing-order",
+    "class": "Phase",
+    "requiredCuries": ["wf:order"],
+    "instanceKeys": ["wf:label"]
+  },
+  {
+    "name": "agentnode-complete",
+    "class": "AgentNode",
+    "requiredCuries": ["wf:role", "wf:prompt"],
+    "instanceKeys": ["wf:role", "wf:prompt"]
+  },
+  {
+    "name": "agentnode-missing-prompt",
+    "class": "AgentNode",
+    "requiredCuries": ["wf:role", "wf:prompt"],
+    "instanceKeys": ["wf:role"]
+  },
+  {
+    "name": "run-complete",
+    "class": "Run",
+    "requiredCuries": ["wf:startedAt"],
+    "instanceKeys": ["wf:startedAt", "wf:status"]
+  },
+  {
+    "name": "run-missing-startedAt",
+    "class": "Run",
+    "requiredCuries": ["wf:startedAt"],
+    "instanceKeys": ["wf:status"]
+  },
+  {
+    "name": "agentrun-complete",
+    "class": "AgentRun",
+    "requiredCuries": ["wf:node", "wf:run"],
+    "instanceKeys": ["wf:node", "wf:run", "wf:output"]
+  },
+  {
+    "name": "agentrun-missing-node",
+    "class": "AgentRun",
+    "requiredCuries": ["wf:node", "wf:run"],
+    "instanceKeys": ["wf:run", "wf:output"]
+  },
+  {
+    "name": "no-required-trivially-complete",
+    "class": "Phase",
+    "requiredCuries": [],
+    "instanceKeys": []
+  }
+]

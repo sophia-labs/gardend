@@ -97,6 +97,25 @@ pub(crate) fn capture_restore_point_with_lease(
         .or_else(|| Some(format!("{TIMESTAMP_LABEL}/{restore_point_id}")));
 
     for document_id in document_ids {
+        // Catalog ghosts: a workspace can list a document that has no
+        // record on disk (source-side inconsistency, faithfully carried by
+        // graph import — hosted catalogs do this). Nothing exists to
+        // capture, so nothing can be lost by skipping; failing the WHOLE
+        // graph capture here re-ran the full snapshot storm every interval
+        // against the same ghost, forever (2026-08-30). Every other
+        // per-document failure below still fails the capture closed.
+        if !graph_dir
+            .join("documents")
+            .join(&document_id)
+            .join("document.json")
+            .is_file()
+        {
+            log::warn!(
+                "restore point {restore_point_id}: skipping catalog ghost {document_id} \
+                 (workspace lists it, no document record exists)"
+            );
+            continue;
+        }
         let snapshot_meta = current_document_snapshot_with_lease(
             app,
             graph_id,

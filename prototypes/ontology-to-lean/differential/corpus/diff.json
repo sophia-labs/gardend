@@ -1,0 +1,186 @@
+[
+  {
+    "name": "empty",
+    "current": [],
+    "desired": []
+  },
+  {
+    "name": "converged-identical",
+    "current": [
+      ["urn:s:a", "urn:p:title", {"k": "lit", "v": "Hello"}],
+      ["urn:s:a", "urn:p:count", {"k": "num", "v": 5}]
+    ],
+    "desired": [
+      ["urn:s:a", "urn:p:title", {"k": "lit", "v": "Hello"}],
+      ["urn:s:a", "urn:p:count", {"k": "num", "v": 5}]
+    ]
+  },
+  {
+    "name": "converged-numeric-encoding-differs",
+    "comment": "current num via xsd:long 5, desired via xsd:double 5.0 — both canon to num 5 → ZERO ops (L2 collapse)",
+    "current": [
+      ["urn:s:a", "urn:p:n", {"k": "num", "v": 5, "rdf": "\"5\"^^<http://www.w3.org/2001/XMLSchema#long>"}]
+    ],
+    "desired": [
+      ["urn:s:a", "urn:p:n", {"k": "num", "v": 5, "rdf": "\"5.0\"^^<http://www.w3.org/2001/XMLSchema#double>"}]
+    ]
+  },
+  {
+    "name": "datatype-collapse-long-integer-double-swap-zero-ops",
+    "comment": "long(5) -> integer(5) and double(5.0) all canon to num 5: a swap among them is ZERO ops",
+    "current": [
+      ["urn:s:a", "urn:p:x", {"k": "num", "v": 5, "rdf": "\"5\"^^<http://www.w3.org/2001/XMLSchema#long>"}],
+      ["urn:s:a", "urn:p:y", {"k": "num", "v": 5, "rdf": "\"5\"^^<http://www.w3.org/2001/XMLSchema#integer>"}]
+    ],
+    "desired": [
+      ["urn:s:a", "urn:p:x", {"k": "num", "v": 5, "rdf": "\"5.0\"^^<http://www.w3.org/2001/XMLSchema#double>"}],
+      ["urn:s:a", "urn:p:y", {"k": "num", "v": 5, "rdf": "\"5\"^^<http://www.w3.org/2001/XMLSchema#decimal>"}]
+    ]
+  },
+  {
+    "name": "numeric-change-5-to-6",
+    "comment": "the number actually changes -> 1 remove + 1 add",
+    "current": [
+      ["urn:s:a", "urn:p:n", {"k": "num", "v": 5, "rdf": "\"5\"^^<http://www.w3.org/2001/XMLSchema#integer>"}]
+    ],
+    "desired": [
+      ["urn:s:a", "urn:p:n", {"k": "num", "v": 6, "rdf": "\"6\"^^<http://www.w3.org/2001/XMLSchema#integer>"}]
+    ]
+  },
+  {
+    "name": "datetime-z-vs-offset-zero-ops",
+    "comment": "two ISO renderings of the same instant (Z vs +00:00) canon to the same epoch-secs -> zero ops",
+    "current": [
+      ["urn:s:a", "urn:p:t", {"k": "dt", "v": 1700000000, "rdf": "\"2023-11-14T22:13:20Z\"^^<http://www.w3.org/2001/XMLSchema#dateTime>"}]
+    ],
+    "desired": [
+      ["urn:s:a", "urn:p:t", {"k": "dt", "v": 1700000000, "rdf": "\"2023-11-14T22:13:20+00:00\"^^<http://www.w3.org/2001/XMLSchema#dateTime>"}]
+    ]
+  },
+  {
+    "name": "datetime-instant-change",
+    "comment": "a real instant change -> remove + add",
+    "current": [
+      ["urn:s:a", "urn:p:t", {"k": "dt", "v": 1700000000, "rdf": "\"2023-11-14T22:13:20Z\"^^<http://www.w3.org/2001/XMLSchema#dateTime>"}]
+    ],
+    "desired": [
+      ["urn:s:a", "urn:p:t", {"k": "dt", "v": 1700000060, "rdf": "\"2023-11-14T22:14:20Z\"^^<http://www.w3.org/2001/XMLSchema#dateTime>"}]
+    ]
+  },
+  {
+    "name": "placeholder-resolves-to-uri",
+    "comment": "current Placeholder(name), desired a Uri -> remove placeholder + add uri",
+    "current": [
+      ["urn:s:a", "urn:p:ref", {"k": "placeholder", "rdf": "<urn:wf-emit:placeholder:block-x>"}]
+    ],
+    "desired": [
+      ["urn:s:a", "urn:p:ref", {"k": "uri", "v": "urn:mnemosyne:local:block:block-x", "rdf": "<urn:mnemosyne:local:block:block-x>"}]
+    ]
+  },
+  {
+    "name": "stale-plus-missing-rebuild",
+    "comment": "current has a stale triple absent from desired AND desired has a new one absent from current -> 1 remove + 1 add",
+    "current": [
+      ["urn:s:a", "urn:p:keep", {"k": "lit", "v": "stay"}],
+      ["urn:s:a", "urn:p:stale", {"k": "lit", "v": "gone"}]
+    ],
+    "desired": [
+      ["urn:s:a", "urn:p:keep", {"k": "lit", "v": "stay"}],
+      ["urn:s:a", "urn:p:fresh", {"k": "lit", "v": "new"}]
+    ]
+  },
+  {
+    "name": "bool-true-vs-1-zero-ops",
+    "comment": "\"true\" and \"1\" both canon to Bool(true) -> swapping = zero ops",
+    "current": [
+      ["urn:s:a", "urn:p:flag", {"k": "bool", "v": true, "rdf": "\"true\"^^<http://www.w3.org/2001/XMLSchema#boolean>"}]
+    ],
+    "desired": [
+      ["urn:s:a", "urn:p:flag", {"k": "bool", "v": true, "rdf": "\"1\"^^<http://www.w3.org/2001/XMLSchema#boolean>"}]
+    ]
+  },
+  {
+    "name": "bool-flip-true-to-false",
+    "current": [
+      ["urn:s:a", "urn:p:flag", {"k": "bool", "v": true, "rdf": "\"true\"^^<http://www.w3.org/2001/XMLSchema#boolean>"}]
+    ],
+    "desired": [
+      ["urn:s:a", "urn:p:flag", {"k": "bool", "v": false, "rdf": "\"false\"^^<http://www.w3.org/2001/XMLSchema#boolean>"}]
+    ]
+  },
+  {
+    "name": "uri-change",
+    "current": [
+      ["urn:s:a", "urn:p:ref", {"k": "uri", "v": "urn:target:a", "rdf": "<urn:target:a>"}]
+    ],
+    "desired": [
+      ["urn:s:a", "urn:p:ref", {"k": "uri", "v": "urn:target:b", "rdf": "<urn:target:b>"}]
+    ]
+  },
+  {
+    "name": "gen-mixed-overlap-1",
+    "comment": "generated: partial overlap across uri/num/dt/lit, subject reuse",
+    "current": [
+      ["urn:s:1", "urn:p:a", {"k": "uri", "v": "urn:o:1", "rdf": "<urn:o:1>"}],
+      ["urn:s:1", "urn:p:b", {"k": "num", "v": 10, "rdf": "\"10\"^^<http://www.w3.org/2001/XMLSchema#integer>"}],
+      ["urn:s:2", "urn:p:c", {"k": "lit", "v": "keep-me"}]
+    ],
+    "desired": [
+      ["urn:s:1", "urn:p:a", {"k": "uri", "v": "urn:o:1", "rdf": "<urn:o:1>"}],
+      ["urn:s:1", "urn:p:b", {"k": "num", "v": 11, "rdf": "\"11\"^^<http://www.w3.org/2001/XMLSchema#integer>"}],
+      ["urn:s:2", "urn:p:c", {"k": "lit", "v": "keep-me"}]
+    ]
+  },
+  {
+    "name": "gen-mixed-overlap-2",
+    "current": [
+      ["urn:s:3", "urn:p:t", {"k": "dt", "v": 1600000000, "rdf": "\"2020-09-13T12:26:40Z\"^^<http://www.w3.org/2001/XMLSchema#dateTime>"}],
+      ["urn:s:3", "urn:p:f", {"k": "bool", "v": false, "rdf": "\"false\"^^<http://www.w3.org/2001/XMLSchema#boolean>"}],
+      ["urn:s:3", "urn:p:ph", {"k": "placeholder", "rdf": "<urn:wf-emit:placeholder:p3>"}]
+    ],
+    "desired": [
+      ["urn:s:3", "urn:p:t", {"k": "dt", "v": 1600000000, "rdf": "\"2020-09-13T12:26:40+00:00\"^^<http://www.w3.org/2001/XMLSchema#dateTime>"}],
+      ["urn:s:3", "urn:p:f", {"k": "bool", "v": true, "rdf": "\"true\"^^<http://www.w3.org/2001/XMLSchema#boolean>"}],
+      ["urn:s:3", "urn:p:ph", {"k": "uri", "v": "urn:resolved:p3", "rdf": "<urn:resolved:p3>"}]
+    ]
+  },
+  {
+    "name": "gen-all-removed",
+    "current": [
+      ["urn:s:4", "urn:p:a", {"k": "lit", "v": "x"}],
+      ["urn:s:4", "urn:p:b", {"k": "lit", "v": "y"}]
+    ],
+    "desired": []
+  },
+  {
+    "name": "gen-all-added",
+    "current": [],
+    "desired": [
+      ["urn:s:5", "urn:p:a", {"k": "num", "v": 1, "rdf": "\"1\"^^<http://www.w3.org/2001/XMLSchema#integer>"}],
+      ["urn:s:5", "urn:p:b", {"k": "uri", "v": "urn:o:5", "rdf": "<urn:o:5>"}]
+    ]
+  },
+  {
+    "name": "gen-multi-subject-disjoint-change",
+    "current": [
+      ["urn:s:6", "urn:p:x", {"k": "lit", "v": "a"}],
+      ["urn:s:7", "urn:p:x", {"k": "lit", "v": "b"}],
+      ["urn:s:8", "urn:p:x", {"k": "lit", "v": "c"}]
+    ],
+    "desired": [
+      ["urn:s:6", "urn:p:x", {"k": "lit", "v": "a"}],
+      ["urn:s:7", "urn:p:x", {"k": "lit", "v": "B-CHANGED"}],
+      ["urn:s:8", "urn:p:x", {"k": "lit", "v": "c"}]
+    ]
+  },
+  {
+    "name": "gen-lit-vs-num-distinct",
+    "comment": "lit \"5\" and num 5 are DISTINCT canon values (different tag) -> remove lit + add num",
+    "current": [
+      ["urn:s:9", "urn:p:v", {"k": "lit", "v": "5"}]
+    ],
+    "desired": [
+      ["urn:s:9", "urn:p:v", {"k": "num", "v": 5, "rdf": "\"5\"^^<http://www.w3.org/2001/XMLSchema#integer>"}]
+    ]
+  }
+]

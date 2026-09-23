@@ -126,6 +126,42 @@ pub(crate) fn ensure_document_persistence_tail_with_tombstone_fence(
     Ok(true)
 }
 
+/// Top-level workspace-snapshot fields that change on every save regardless of
+/// content and so must be ignored when deciding whether the RDF seed's input
+/// actually changed. `materializedAt` is a fresh build timestamp on every
+/// snapshot; `counts` is derived from the content arrays (redundant with them).
+/// Everything else — folders, documents, artifacts, wires, tree, ui — is real.
+const WORKSPACE_SNAPSHOT_VOLATILE_KEYS: [&str; 2] = ["materializedAt", "counts"];
+
+/// A copy of the snapshot with the save-volatile keys removed, for change
+/// detection only (the full snapshot, timestamp and all, is still persisted).
+fn workspace_snapshot_content(snapshot: &serde_json::Value) -> serde_json::Value {
+    let mut content = snapshot.clone();
+    if let Some(object) = content.as_object_mut() {
+        for key in WORKSPACE_SNAPSHOT_VOLATILE_KEYS {
+            object.remove(key);
+        }
+    }
+    content
+}
+
+/// True when `snapshot` carries the same seed-materializable CONTENT as the
+/// workspace snapshot already on disk at `snapshot_path`. Compares parsed JSON
+/// values with the save-volatile keys stripped, so a fresh `materializedAt`
+/// (which changes on every save) is not mistaken for a content change —
+/// otherwise the RDF-seed marker restales on every launch. Incidental
+/// key-ordering is also not a change. A missing or unparseable prior snapshot
+/// counts as changed (fail toward doing the work), so a first save always
+/// materializes.
+fn workspace_snapshot_content_unchanged(
+    snapshot_path: &Path,
+    snapshot: &serde_json::Value,
+) -> bool {
+    read_json::<serde_json::Value>(snapshot_path)
+        .map(|existing| workspace_snapshot_content(&existing) == workspace_snapshot_content(snapshot))
+        .unwrap_or(false)
+}
+
 #[cfg_attr(feature = "desktop", tauri::command)]
 pub(super) fn save_workspace(
     app: AppHandle,
@@ -168,33 +204,58 @@ pub(crate) fn save_workspace_with_lease(
         "rustWriteWorkspaceYdocMs",
         write_ydoc_started.elapsed(),
     );
+    // Reconcile the RDF projection and bump the content revision ONLY when the
+    // workspace snapshot actually changed. The UI re-saves an identical
+    // snapshot as part of every session join; bumping unconditionally moved
+    // content_revision (and, with it, updated_at) on every launch, which
+    // staled the rdf-seed marker AND the time-travel capture index, triggering
+    // a full-graph reseed walk + capture storm against a live query on boot
+    // — the revision-churn root cause that made the imported graph fail to
+    // load (2026-08-30). The Y.Doc write above is unconditional (crash
+    // recovery); only the projection-affecting work is gated. A no-op re-save
+    // would reconcile to byte-identical RDF, so skipping it changes nothing.
+    let mut workspace_content_changed = false;
     if let Some(snapshot) = input.snapshot {
+        let snapshot_path = workspace_snapshot_path(&graph_dir);
+        // Decide BEFORE overwriting whether the seed-materializable content
+        // actually changed (volatile fields like materializedAt stripped).
+        workspace_content_changed = !workspace_snapshot_content_unchanged(&snapshot_path, &snapshot);
+        // Always persist the full snapshot — the UI's view state (expanded
+        // folders, materializedAt, etc.) lives here and must survive even a
+        // content no-op.
         let write_snapshot_started = Instant::now();
-        write_json(&workspace_snapshot_path(&graph_dir), &snapshot)?;
+        write_json(&snapshot_path, &snapshot)?;
         record_crdt_phase(
             &app,
             trace_operation_id.as_deref(),
             "rustWriteWorkspaceSnapshotMs",
             write_snapshot_started.elapsed(),
         );
-        let materialize_started = Instant::now();
-        let store = open_graph_store(&graph_dir)?;
-        reconcile_workspace_snapshot(&store, &input.graph_id, &snapshot)?;
+        // But only re-materialize the RDF projection when content changed. A
+        // no-op re-save would reconcile to byte-identical RDF, so skipping it
+        // (and the revision bump below) changes nothing except the storms.
+        if workspace_content_changed {
+            let materialize_started = Instant::now();
+            let store = open_graph_store(&graph_dir)?;
+            reconcile_workspace_snapshot(&store, &input.graph_id, &snapshot)?;
+            record_crdt_phase(
+                &app,
+                trace_operation_id.as_deref(),
+                "rustMaterializeWorkspaceRdfMs",
+                materialize_started.elapsed(),
+            );
+        }
+    }
+    if workspace_content_changed {
+        let touch_started = Instant::now();
+        touch_graph_content_revision(&graph_dir)?;
         record_crdt_phase(
             &app,
             trace_operation_id.as_deref(),
-            "rustMaterializeWorkspaceRdfMs",
-            materialize_started.elapsed(),
+            "rustTouchWorkspaceGraphMs",
+            touch_started.elapsed(),
         );
     }
-    let touch_started = Instant::now();
-    touch_graph_content_revision(&graph_dir)?;
-    record_crdt_phase(
-        &app,
-        trace_operation_id.as_deref(),
-        "rustTouchWorkspaceGraphMs",
-        touch_started.elapsed(),
-    );
     let read_started = Instant::now();
     let record = read_workspace_record(&graph_dir, &input.graph_id);
     record_crdt_phase(
@@ -533,5 +594,150 @@ mod tests {
         assert_eq!(next_revision(99, None).unwrap(), 100);
         // Saturating at u64::MAX.
         assert_eq!(next_revision(u64::MAX, None).unwrap(), u64::MAX);
+    }
+
+    #[test]
+    fn workspace_snapshot_content_unchanged_ignores_volatile_and_catches_real_change() {
+        let dir = temp_graph_dir("sophia-ws-snap-cmp");
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("workspace.snapshot.json");
+        let snap = serde_json::json!({
+            "materializedAt": 1000,
+            "counts": {"documents": 1},
+            "documents": [{"id": "a", "title": "A"}],
+            "folders": [],
+            "wires": [],
+        });
+
+        // Missing prior snapshot → treated as changed (first save does the work).
+        assert!(!workspace_snapshot_content_unchanged(&path, &snap));
+
+        write_json(&path, &snap).unwrap();
+        // Byte-identical re-save → unchanged.
+        assert!(workspace_snapshot_content_unchanged(&path, &snap));
+        // THE REGRESSION: only materializedAt/counts differ (what happens on
+        // every real save) → still unchanged, so the seed does not restale.
+        let volatile_only = serde_json::json!({
+            "materializedAt": 9999,
+            "counts": {"documents": 1},
+            "documents": [{"id": "a", "title": "A"}],
+            "folders": [],
+            "wires": [],
+        });
+        assert!(workspace_snapshot_content_unchanged(&path, &volatile_only));
+        // Object key reordering is not a change (semantic compare, not textual).
+        let reordered = serde_json::json!({
+            "wires": [],
+            "materializedAt": 1000,
+            "folders": [],
+            "counts": {"documents": 1},
+            "documents": [{"title": "A", "id": "a"}],
+        });
+        assert!(workspace_snapshot_content_unchanged(&path, &reordered));
+        // A real content difference → changed, even with identical volatiles.
+        let changed = serde_json::json!({
+            "materializedAt": 1000,
+            "counts": {"documents": 1},
+            "documents": [{"id": "a", "title": "A"}, {"id": "b", "title": "B"}],
+            "folders": [],
+            "wires": [],
+        });
+        assert!(!workspace_snapshot_content_unchanged(&path, &changed));
+
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The revision-churn regression guard: an identical workspace re-save (what
+    /// the UI does on every session join) must NOT bump content_revision — that
+    /// bump is what staled the rdf-seed marker and time-travel index every
+    /// launch and made the imported graph fail to load. A real change must
+    /// still bump. Real engine, real graph, real save path.
+    #[test]
+    fn identical_workspace_resave_does_not_bump_content_revision() {
+        let _serial = crate::tauri_runtime::profile_env_serial()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let profile = std::env::temp_dir().join(format!("garden-ws-noop-{nanos}"));
+        std::env::set_var("GARDEN_PROFILE_DIR", &profile);
+
+        let result = std::panic::catch_unwind(|| {
+            let app = crate::tauri_runtime::build_mock_app_for_tests(true);
+            let graph_id = "ws-noop-graph";
+            crate::graph_service::create_graph_service(
+                &app,
+                crate::graph_service::CreateGraphInput {
+                    title: "Workspace No-Op".to_string(),
+                    graph_id: Some(graph_id.to_string()),
+                    description: None,
+                    operation_id: None,
+                },
+            )
+            .expect("create graph");
+            let graph_dir = existing_graph_dir(&app, graph_id).expect("graph dir");
+
+            let save = |snapshot: serde_json::Value| {
+                save_workspace_with_lease(
+                    app.clone(),
+                    SaveWorkspaceInput {
+                        graph_id: graph_id.to_string(),
+                        ydoc_update_base64: String::new(),
+                        snapshot: Some(snapshot),
+                        trace_operation_id: None,
+                    },
+                )
+                .expect("save workspace");
+            };
+            let revision = || {
+                read_json::<GraphRecord>(&graph_dir.join("graph.json"))
+                    .expect("graph record")
+                    .content_revision
+            };
+
+            // Snapshots carry a fresh materializedAt on every save, exactly as
+            // the real UI does — the no-op detection must see past it.
+            let snapshot = |materialized_at: u64, docs: serde_json::Value| {
+                serde_json::json!({
+                    "materializedAt": materialized_at,
+                    "documents": docs,
+                    "folders": [],
+                    "wires": [],
+                })
+            };
+            let one_doc = || serde_json::json!([{"id": "d1", "title": "One"}]);
+
+            save(snapshot(1000, one_doc()));
+            let r1 = revision();
+            assert!(r1.is_some(), "first save establishes a content revision");
+
+            // Session-join re-save: identical content, NEW materializedAt →
+            // must not move the revision (this is the launch-churn regression).
+            save(snapshot(2000, one_doc()));
+            assert_eq!(
+                r1,
+                revision(),
+                "content-identical re-save must not bump content_revision despite a new materializedAt"
+            );
+
+            // A genuine content change must bump it.
+            save(snapshot(3000, serde_json::json!([
+                {"id": "d1", "title": "One"},
+                {"id": "d2", "title": "Two"},
+            ])));
+            assert_ne!(
+                r1,
+                revision(),
+                "a changed workspace must bump content_revision"
+            );
+        });
+
+        std::env::remove_var("GARDEN_PROFILE_DIR");
+        let _ = std::fs::remove_dir_all(&profile);
+        if let Err(payload) = result {
+            std::panic::resume_unwind(payload);
+        }
     }
 }

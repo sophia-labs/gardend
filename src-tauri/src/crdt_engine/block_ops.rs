@@ -805,6 +805,110 @@ pub(crate) fn xml_text_content<T: ReadTxn>(txn: &T, text: &XmlTextRef) -> String
 
 /// Port of collectTextSegments: depth-first walk gathering Y.XmlText leaves
 /// in document order with cumulative UTF-16 offsets.
+/// The preview line a mutation ack carries for one block: the block's FULL id
+/// (the id is what a caller copies into the next call, and the engine matches
+/// ids exactly) and the first characters of the block's text as it now stands
+/// in the fragment, whitespace collapsed. Read inside the same transaction that
+/// made the change, from an element the caller already located, so an ack for
+/// N blocks costs one fragment walk, not N. Extraction is bounded at the
+/// source: text leaves are read chunk by chunk and reading stops once the head
+/// is full, so a single giant paragraph leaf is never rendered whole.
+pub(crate) fn block_preview_from_element<T: ReadTxn>(
+    txn: &T,
+    element: &XmlElementRef,
+    block_id: &str,
+) -> String {
+    let head = crate::document_mcp_write_payloads::preview_head(BoundedElementChars::new(txn, element));
+    if head.is_empty() {
+        block_id.to_string()
+    } else {
+        format!("{block_id} {head}")
+    }
+}
+
+/// Characters of an element's text, in document order, produced lazily: one
+/// text chunk (a formatting run from the CRDT diff) is decoded at a time, and
+/// nothing past what the consumer asks for is copied. `preview_head` stops
+/// after ten characters, so this yields at most one chunk beyond that.
+struct BoundedElementChars<'a, T: ReadTxn> {
+    txn: &'a T,
+    stack: Vec<XmlOut>,
+    chunks: std::vec::IntoIter<String>,
+    current: std::vec::IntoIter<char>,
+}
+
+impl<'a, T: ReadTxn> BoundedElementChars<'a, T> {
+    fn new(txn: &'a T, element: &XmlElementRef) -> Self {
+        let mut stack: Vec<XmlOut> = element.children(txn).collect();
+        stack.reverse();
+        Self {
+            txn,
+            stack,
+            chunks: Vec::new().into_iter(),
+            current: Vec::new().into_iter(),
+        }
+    }
+}
+
+impl<'a, T: ReadTxn> Iterator for BoundedElementChars<'a, T> {
+    type Item = char;
+    fn next(&mut self) -> Option<char> {
+        loop {
+            if let Some(ch) = self.current.next() {
+                return Some(ch);
+            }
+            if let Some(chunk) = self.chunks.next() {
+                self.current = chunk.chars().collect::<Vec<_>>().into_iter();
+                continue;
+            }
+            match self.stack.pop()? {
+                XmlOut::Text(text) => {
+                    // The diff hands back the leaf as formatting-run chunks
+                    // already owned by yrs; we take them one at a time and
+                    // stop asking once the consumer stops pulling.
+                    let chunks = text
+                        .diff(self.txn, YChange::identity)
+                        .into_iter()
+                        .filter_map(|diff| match diff.insert {
+                            Out::Any(Any::String(chunk)) => Some(chunk.to_string()),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>();
+                    self.chunks = chunks.into_iter();
+                }
+                XmlOut::Element(child) => {
+                    let mut children: Vec<XmlOut> = child.children(self.txn).collect();
+                    children.reverse();
+                    self.stack.extend(children);
+                }
+                XmlOut::Fragment(_) => {}
+            }
+        }
+    }
+}
+
+/// Preview lines for `ids`, in order, from one index of the fragment. Past
+/// the write-ack cap the ack carries ids only.
+pub(crate) fn block_previews_for_ids<T: ReadTxn>(
+    txn: &T,
+    fragment: &XmlFragmentRef,
+    ids: &[String],
+) -> Value {
+    if ids.len() > crate::document_mcp_write_payloads::BLOCK_PREVIEW_MAX_BLOCKS {
+        return json!({ "omitted": ids.len(), "reason": "use block_ids" });
+    }
+    let index = index_blocks_in_fragment(txn, fragment);
+    Value::Array(
+        ids.iter()
+            .filter_map(|id| {
+                index
+                    .get(id)
+                    .map(|(element, _)| Value::String(block_preview_from_element(txn, element, id)))
+            })
+            .collect(),
+    )
+}
+
 pub(crate) fn collect_text_segments<T: ReadTxn>(
     txn: &T,
     element: &XmlElementRef,
@@ -1437,8 +1541,10 @@ async fn block_insert(app: &AppHandle, operation: &CrdtOperation) -> ApplyOperat
                 }
             }
 
+            let previews = block_previews_for_ids(txn, &fragment, &block_ids);
             let envelope = json!({
                 "block_ids": block_ids,
+                "blocks": previews,
                 "blocks_inserted": inserted_ids.len(),
                 "blocks_existing": existing_block_ids.len(),
                 "existing_block_ids": existing_block_ids,
@@ -1474,7 +1580,7 @@ async fn block_update(app: &AppHandle, operation: &CrdtOperation) -> ApplyOperat
     }
 
     let ctx = document_context(app, operation, &document_id).await?;
-    let (updated, missing) = ctx
+    let updated = ctx
         .room
         .update_doc(move |_doc, txn| {
             let fragment = content_fragment(txn);
@@ -1490,14 +1596,33 @@ async fn block_update(app: &AppHandle, operation: &CrdtOperation) -> ApplyOperat
                     }
                 }
             }
-            Ok((updated, missing))
+            // Reuse the index built above: one walk for the whole batch,
+            // and the same cap as insert/write.
+            let previews = if updated.len()
+                > crate::document_mcp_write_payloads::BLOCK_PREVIEW_MAX_BLOCKS
+            {
+                json!({ "omitted": updated.len(), "reason": "use updated" })
+            } else {
+                Value::Array(
+                    updated
+                        .iter()
+                        .filter_map(|id| {
+                            block_index.get(id).map(|(element, _)| {
+                                Value::String(block_preview_from_element(txn, element, id))
+                            })
+                        })
+                        .collect(),
+                )
+            };
+            Ok((updated, missing, previews))
         })
         .await?;
+    let (updated, missing, previews) = (updated.0, updated.1, updated.2);
 
     persist_document(app, &ctx, operation)
         .await
         .map_err(ApplyOperationError::retryable_after_hot_commit)?;
-    Ok(json!({ "success": true, "updated": updated, "missing": missing }))
+    Ok(json!({ "success": true, "updated": updated, "blocks": previews, "missing": missing }))
 }
 
 /// Port of applyBlockEditText.
@@ -1536,9 +1661,11 @@ async fn block_edit_text(
             let (element, _) = find_block_in_fragment(txn, &fragment, &block_id)
                 .ok_or_else(|| format!("Block not found: {block_id}"))?;
             let edit = edit_block_text(txn, &element, &operations)?;
+            let preview = block_preview_from_element(txn, &element, &block_id);
 
             let envelope = json!({
                 "block_id": edit.block_id,
+                "block": preview,
                 "length_before": edit.length_before,
                 "length_after": edit.length_after,
                 "applied": edit.applied,

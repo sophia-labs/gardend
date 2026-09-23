@@ -27,19 +27,48 @@ use futures_util::StreamExt;
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 
+/// Response headers a cross-origin caller must be able to READ. A browser
+/// hides every non-safelisted response header from script unless the server
+/// names it in `Access-Control-Expose-Headers`; `CorsLayer::very_permissive()`
+/// handles the preflight and credentials but exposes nothing. The packaged
+/// desktop app (origin `tauri://localhost`) fetches the loopback cross-origin,
+/// so without this list `x-document-incarnation` and `x-graph-incarnation`
+/// were sent and never seen: every live snapshot read as unfenced, the
+/// activation cache filled with fence-less records, and the third click
+/// quarantined the document ("Offline cache cannot be safely fenced",
+/// 2026-09-17). Same-origin callers (the Vite dev proxy, MCP adapters) never
+/// noticed, which is why the harnesses passed. Keep this list in step with
+/// every `response.headers.get('x-…')` in the frontend.
+pub(crate) const EXPOSED_RESPONSE_HEADERS: [&str; 4] = [
+    crate::document_incarnation_store::DOCUMENT_INCARNATION_HEADER,
+    crate::graph_record_store::GRAPH_INCARNATION_HEADER,
+    "x-next-since",
+    "x-user-id",
+];
+
+pub(crate) fn loopback_cors_layer() -> CorsLayer {
+    CorsLayer::very_permissive().expose_headers(
+        EXPOSED_RESPONSE_HEADERS
+            .iter()
+            .map(|name| axum::http::HeaderName::from_static(name))
+            .collect::<Vec<_>>(),
+    )
+}
+
 pub(super) fn loopback_router(state: Arc<LoopbackState>) -> Router {
     // The Tauri WebView is cross-origin: in dev it loads from Vite at
     // localhost:3000, and in packaged builds from the tauri:// or app://
     // scheme. Without CORS preflight handling, every credentialed request
     // (Authorization Bearer + X-User-ID) gets rejected at the browser.
-    // `very_permissive` mirrors the request Origin and allows credentials.
+    // `very_permissive` mirrors the request Origin and allows credentials;
+    // `loopback_cors_layer` adds the response headers script must read.
     //
     // NOTE: this is NOT loopback-only. In the cell deployment the server
     // binds 0.0.0.0 (see loopback_server) and sits behind the platform-next
     // gateway, which terminates auth and ACLs upstream. The permissive CORS
     // here is acceptable because access control is enforced by the gateway,
     // and the local desktop app reaches the same surface over 127.0.0.1.
-    let cors = CorsLayer::very_permissive();
+    let cors = loopback_cors_layer();
 
     let activity_state = state.clone();
     let cell_graph_state = state.clone();
@@ -170,6 +199,74 @@ fn hold_request_lease(
 mod tests {
     use super::*;
     use crate::cell_lifecycle::CellLifecycle;
+
+    /// The desktop webview reads the incarnation headers cross-origin. A
+    /// browser only lets script see them if the server names them in
+    /// `Access-Control-Expose-Headers`; `very_permissive()` alone does not.
+    #[tokio::test]
+    async fn cross_origin_responses_expose_the_headers_the_frontend_reads() {
+        use axum::{http::Request, routing::get};
+        use tower::ServiceExt;
+
+        let app = Router::new()
+            .route(
+                "/blob",
+                get(|| async {
+                    (
+                        [
+                            (
+                                crate::document_incarnation_store::DOCUMENT_INCARNATION_HEADER,
+                                "4c691f51-0eb3-4712-b3d0-9aac79213fbd",
+                            ),
+                            (
+                                crate::graph_record_store::GRAPH_INCARNATION_HEADER,
+                                "70efb31a-18ca-46c6-9780-e213bab41749",
+                            ),
+                        ],
+                        "bytes",
+                    )
+                }),
+            )
+            .layer(loopback_cors_layer());
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/blob")
+                    .header("origin", "tauri://localhost")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let headers = response.headers();
+        assert_eq!(
+            headers
+                .get("access-control-allow-origin")
+                .and_then(|v| v.to_str().ok()),
+            Some("tauri://localhost"),
+            "origin must still be mirrored"
+        );
+        let exposed = headers
+            .get_all("access-control-expose-headers")
+            .iter()
+            .filter_map(|v| v.to_str().ok())
+            .collect::<Vec<_>>()
+            .join(",")
+            .to_ascii_lowercase();
+        for name in EXPOSED_RESPONSE_HEADERS {
+            assert!(
+                exposed.split(',').map(str::trim).any(|h| h == name),
+                "{name} must be exposed to cross-origin script; got {exposed:?}"
+            );
+        }
+        // And the headers themselves are still on the wire.
+        assert!(
+            headers.contains_key(crate::document_incarnation_store::DOCUMENT_INCARNATION_HEADER)
+        );
+        assert!(headers.contains_key(crate::graph_record_store::GRAPH_INCARNATION_HEADER));
+    }
 
     #[tokio::test]
     async fn request_lease_lives_through_stream_eof() {

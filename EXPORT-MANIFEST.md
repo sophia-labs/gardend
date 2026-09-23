@@ -1,13 +1,16 @@
 # Export Manifest — Public Source-Available Boundary
 
-This is the explicit path list for Garden's **engine-scoped public export**:
-the headless `gardend` engine plus the minimal supporting docs, notices, and
-build tooling a zero-credential external contributor needs. It is licensed
+This is the explicit path list for Garden's **public export**: the headless
+`gardend` engine, the desktop shell's build wiring to the public Shrubbery UI,
+and the minimal supporting docs, notices, and build tooling a zero-credential
+external contributor needs. `scripts/assemble-gardend-export.sh <out-dir>`
+produces exactly this tree from a checkout's HEAD. It is licensed
 **source-available** under the [PolyForm Noncommercial License 1.0.0](LICENSE)
 — never described as OSS/open source (licensing ruling, 2026-09-21).
 
-The desktop app (Tauri shell + Shrubbery frontend) is **not** part of this
-boundary. This manifest assumes a **fresh history** publication (a new
+The desktop app builds from this tree plus the public Shrubbery repository
+(see [`docs/desktop-from-source.md`](docs/desktop-from-source.md)); this
+repo's own `frontend/` directory stays out. This manifest assumes a **fresh history** publication (a new
 initial commit or squashed history), not a filtered export of the existing
 `main` history.
 
@@ -141,6 +144,27 @@ now-included `README.md`/`CONTRIBUTING.md`:
   narrower public boundary in its own text (see the "Two boundaries" note
   added at its top).
 
+### `prototypes/ontology-to-lean/differential/corpus/` (three JSON files, 16 KB)
+
+Synthetic triple fixtures read by the `emporium::terms::diff_oracle` tests via
+`src-tauri/../prototypes/...`. The rest of `prototypes/` stays out.
+
+### Desktop build wiring
+
+- `package.json` (the `pnpm tauri` / `pnpm dev` / `pnpm build` entry points; no
+  dependencies)
+- `scripts/shrubbery-frontend.mjs`, `scripts/resolve-shrubbery-lock.mjs`,
+  `scripts/__tests__/resolve-shrubbery-lock.test.mjs`
+- `docs/desktop-from-source.md`
+- `scripts/assemble-gardend-export.sh` is NOT exported; it builds the export.
+
+### `export/shrubbery-ui.lock.json` → `shrubbery-ui.lock.json` (relocated)
+
+The public pin: `sophia-labs/shrubbery` at a commit in its public history. The
+private repo's root lock pins the private Shrubbery line and is not exported.
+
+### `export/gitignore` → `.gitignore` (relocated)
+
 ### `export/github/workflows/ci.yml` → `.github/workflows/ci.yml` (relocated)
 
 The public CI workflow. It is stored inert in the private repo (private-repo
@@ -165,8 +189,8 @@ describes.
   "Frontend (sibling `../mnemosyne-platform/frontend/`)", predating even the
   `frontend/` vendoring). Flagged as a follow-up finding, not fixed here —
   out of this item's named file set.
-- **`scripts/shrubbery-frontend.mjs`, `scripts/resolve-shrubbery-lock.mjs`,
-  `shrubbery-ui.lock.json`** — per spec, Shrubbery-coupled.
+- **The private repo's root `shrubbery-ui.lock.json`** — it pins private
+  Shrubbery; the export carries the public pin from `export/` instead.
 - **`parity/generated/nabokovs-goblins-field-notes.pdf`** — see above.
 - **`CHANGELOG.md`** — whole-repo release history mixing desktop/frontend
   milestones (the Shrubbery-vendoring entry this very round corrected); not

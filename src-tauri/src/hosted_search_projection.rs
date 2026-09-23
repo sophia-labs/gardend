@@ -29,14 +29,53 @@ fn search_body_f64(arguments: &serde_json::Value, keys: &[&str], default: f64) -
 
 fn hosted_search_hit_from_local(hit: &serde_json::Value) -> serde_json::Value {
     let content = json_string(hit.get("content")).unwrap_or_default();
-    serde_json::json!({
+    let query = json_string(hit.get("query")).unwrap_or_default();
+    let mut value = serde_json::json!({
         "block_id": json_string(hit.get("block_id").or_else(|| hit.get("blockId"))).unwrap_or_default(),
         "doc_id": json_string(hit.get("document_id").or_else(|| hit.get("documentId"))).unwrap_or_default(),
         "doc_title": json_string(hit.get("document_title").or_else(|| hit.get("documentTitle"))).unwrap_or_default(),
-        "text_preview": text_preview(&content, 180),
+        "text_preview": snippet_for_query(&content, &query, 180),
         "score": json_number(hit.get("score")).unwrap_or(0.0),
         "match_source": json_string(hit.get("match_source").or_else(|| hit.get("matchSource"))).unwrap_or_else(|| "lexical".to_string()),
-    })
+    });
+    let object = value.as_object_mut().expect("hosted hit json object");
+    for key in ["lexical_score", "semantic_score"] {
+        if let Some(score) = json_number(hit.get(key)) {
+            object.insert(key.to_string(), serde_json::json!(score));
+        }
+    }
+    value
+}
+
+/// A preview window CENTERED on the first occurrence of the query, so the
+/// match is visible in the result list instead of whatever the block's
+/// first 180 characters happen to be. Falls back to a head preview when the
+/// query does not occur verbatim (semantic hits, token-only matches).
+fn snippet_for_query(content: &str, query: &str, max_chars: usize) -> String {
+    let compact = text_preview(content, usize::MAX);
+    let query = query.trim();
+    let total_chars = compact.chars().count();
+    if total_chars <= max_chars || query.is_empty() {
+        return text_preview(content, max_chars);
+    }
+    // Char-indexed case-insensitive search: byte offsets from a lowercased
+    // copy cannot be used to slice the original (case folding changes byte
+    // lengths for some scripts).
+    let simple_lower = |c: char| c.to_lowercase().next().unwrap_or(c);
+    let haystack: Vec<char> = compact.chars().map(simple_lower).collect();
+    let needle: Vec<char> = query.chars().map(simple_lower).collect();
+    let Some(match_char) = haystack
+        .windows(needle.len())
+        .position(|window| window == needle.as_slice())
+    else {
+        return text_preview(content, max_chars);
+    };
+    let end = (match_char.saturating_sub(max_chars / 2) + max_chars).min(total_chars);
+    let start = end.saturating_sub(max_chars);
+    let snippet: String = compact.chars().skip(start).take(end - start).collect();
+    let prefix = if start > 0 { "..." } else { "" };
+    let suffix = if end < total_chars { "..." } else { "" };
+    format!("{prefix}{snippet}{suffix}")
 }
 
 pub(super) fn hosted_block_search_response(
@@ -167,6 +206,26 @@ mod tests {
         assert_eq!(hit["text_preview"], "alpha beta gamma");
         assert_eq!(hit["score"], 0.5);
         assert_eq!(hit["match_source"], "semantic");
+    }
+
+    #[test]
+    fn snippet_centers_on_the_match_and_marks_elision() {
+        let long_head = "filler ".repeat(40);
+        let content = format!("{long_head}the settlement needle sits here and more trailing text follows it for a while");
+
+        let centered = snippet_for_query(&content, "settlement needle", 60);
+        assert!(centered.contains("settlement needle"), "{centered}");
+        assert!(centered.starts_with("..."), "{centered}");
+
+        // Query absent verbatim (semantic hit): falls back to head preview.
+        let fallback = snippet_for_query(&content, "unrelated words", 60);
+        assert!(fallback.starts_with("filler"), "{fallback}");
+
+        // Short content is returned whole regardless of query.
+        assert_eq!(
+            snippet_for_query("short text", "text", 60),
+            "short text"
+        );
     }
 
     #[test]

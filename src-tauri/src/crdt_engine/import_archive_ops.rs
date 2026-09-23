@@ -24,6 +24,8 @@
 use super::executor::{ApplyOperationError, ApplyOperationResult};
 use crate::app_runtime::AppHandle;
 use crate::crdt_queue::CrdtOperation;
+#[cfg(feature = "desktop")]
+use tauri::Manager;
 use base64::Engine;
 use flate2::read::GzDecoder;
 use oxigraph::io::{RdfFormat, RdfParser};
@@ -303,6 +305,37 @@ pub fn rewrite_graph_archive_workspace(
                 .replace(&source_graph_path, &target_graph_path);
             if next != *value {
                 child.insert(&mut txn, key, next);
+            }
+        }
+    }
+
+    // Wires embed the graph id in `targetGraphId` (and `sceneGraphId`): an
+    // intra-graph wire stores the graph's OWN id as its target. The
+    // storageKey rewrite above never touched the wires map, so before this
+    // fix every intra-graph wire in an imported graph dangled at the old
+    // graph id — clicking one asked for a graph that no longer exists
+    // (`rdf_dump: graph not found: default`, 2026-09-03). Only an EXACT match
+    // of the source graph id is rewritten (→ the new graph id, making the
+    // wire resolve locally again). Wires targeting a DIFFERENT id are left
+    // untouched: cross-graph wires are anomalies (the hard-boundary rule was
+    // not always explicit), not a supported feature — they are not made to
+    // work here, they only need to fail gracefully at click time, which is a
+    // separate frontend concern.
+    let wires = txn.get_or_insert_map("wires");
+    let wire_children: Vec<MapRef> = wires
+        .iter(&txn)
+        .filter_map(|(_, out)| match out {
+            Out::YMap(child) => Some(child),
+            _ => None,
+        })
+        .collect();
+    for wire in wire_children {
+        for field in ["targetGraphId", "sceneGraphId"] {
+            let Some(Out::Any(Any::String(value))) = wire.get(&txn, field) else {
+                continue;
+            };
+            if value.as_ref() == manifest.source_graph_id {
+                wire.insert(&mut txn, field, target_graph_id.to_string());
             }
         }
     }
@@ -2528,5 +2561,51 @@ mod cell_restore_contract_tests {
         assert_eq!(count_archive_nquads(quads).expect("valid N-Quads"), 2);
         assert_eq!(count_archive_nquads("\n\t").expect("empty N-Quads"), 0);
         assert!(count_archive_nquads("not n-quads").is_err());
+    }
+
+    #[test]
+    fn workspace_rewrite_retargets_intra_graph_wires_and_leaves_anomalies() {
+        let manifest = GraphArchiveManifest {
+            source_user_id: "u1".to_string(),
+            source_graph_id: "default".to_string(),
+            source_graph_title: None,
+            source_graph_description: None,
+            includes_artifacts: false,
+        };
+        let doc = Doc::new();
+        {
+            let mut txn = doc.transact_mut();
+            let wires = txn.get_or_insert_map("wires");
+            // Intra-graph wire: target is the source graph itself.
+            let intra = wires.insert(&mut txn, "w-intra", yrs::MapPrelim::default());
+            intra.insert(&mut txn, "targetGraphId", "default".to_string());
+            // Cross-graph anomaly: target is some other graph.
+            let cross = wires.insert(&mut txn, "w-cross", yrs::MapPrelim::default());
+            cross.insert(&mut txn, "targetGraphId", "sophia-labs".to_string());
+        }
+
+        rewrite_graph_archive_workspace(&doc, &manifest, "default_8_25_26_3");
+
+        let mut txn = doc.transact_mut();
+        let wires = txn.get_or_insert_map("wires");
+        let read_target = |txn: &yrs::TransactionMut, wire_id: &str| -> String {
+            let Some(Out::YMap(wire)) = wires.get(txn, wire_id) else {
+                panic!("missing wire {wire_id}");
+            };
+            match wire.get(txn, "targetGraphId") {
+                Some(Out::Any(Any::String(value))) => value.to_string(),
+                other => panic!("targetGraphId not a string: {other:?}"),
+            }
+        };
+        assert_eq!(
+            read_target(&txn, "w-intra"),
+            "default_8_25_26_3",
+            "intra-graph wire must be retargeted to the new graph id"
+        );
+        assert_eq!(
+            read_target(&txn, "w-cross"),
+            "sophia-labs",
+            "cross-graph anomaly must be left untouched (fails gracefully, not rewritten)"
+        );
     }
 }

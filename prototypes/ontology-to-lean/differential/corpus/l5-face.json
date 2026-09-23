@@ -1,0 +1,88 @@
+[
+  {
+    "name": "single-fragment-doc-agree",
+    "comment": "bare-subject-only + single fragment, scopes coincide -> EXPECT AGREE",
+    "subject": "urn:doc:a",
+    "current": [
+      ["urn:doc:a#block-a", "urn:p:text", {"k": "lit", "v": "old"}],
+      ["urn:doc:a", "http://mnemosyne.ai/vocab#body", {"k": "lit", "v": "B0"}]
+    ],
+    "faces": [
+      {
+        "fragmentSubject": "urn:doc:a",
+        "barePredicates": [],
+        "desired": [
+          ["urn:doc:a#block-a", "urn:p:text", {"k": "lit", "v": "new"}]
+        ]
+      },
+      {
+        "fragmentSubject": null,
+        "barePredicates": ["http://mnemosyne.ai/vocab#body"],
+        "desired": [
+          ["urn:doc:a", "http://mnemosyne.ai/vocab#body", {"k": "lit", "v": "B1"}]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "family-a-fragment-subtree-orphan",
+    "comment": "current has urn:doc:a#child triple, desired (tree face) only mentions the doc subject / a different fragment. STRSTARTS scopes the orphan IN (runtime removes it). faceOf exact-subject membership over the desired subjects MISSES it (leaves it). EXPECT DIVERGE: RUST-ONLY remove of the orphan.",
+    "subject": "urn:doc:a",
+    "current": [
+      ["urn:doc:a#child", "urn:p:text", {"k": "lit", "v": "orphan"}],
+      ["urn:doc:a#block-a", "urn:p:text", {"k": "lit", "v": "old"}]
+    ],
+    "faces": [
+      {
+        "fragmentSubject": "urn:doc:a",
+        "barePredicates": [],
+        "desired": [
+          ["urn:doc:a#block-a", "urn:p:text", {"k": "lit", "v": "old"}]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "family-b-bare-predicate-restricted",
+    "comment": "current bare-subject triple on a predicate NOT in this face's barePredicates. Runtime face EXCLUDES it (predicate-restricted span). faceOf (subject-only) INCLUDES it -> would remove it. EXPECT DIVERGE: LEAN-ONLY remove.",
+    "subject": "urn:doc:b",
+    "current": [
+      ["urn:doc:b", "http://mnemosyne.ai/vocab#body", {"k": "lit", "v": "B0"}],
+      ["urn:doc:b", "http://mnemosyne.ai/vocab#salience", {"k": "num", "v": 7, "rdf": "\"7\"^^<http://www.w3.org/2001/XMLSchema#integer>"}]
+    ],
+    "faces": [
+      {
+        "fragmentSubject": null,
+        "barePredicates": ["http://mnemosyne.ai/vocab#body"],
+        "desired": [
+          ["urn:doc:b", "http://mnemosyne.ai/vocab#body", {"k": "lit", "v": "B1"}]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "two-face-disjoint-agree",
+    "comment": "two faces on disjoint bare predicates, no orphan fragments -> scopes coincide -> EXPECT AGREE",
+    "subject": "urn:doc:c",
+    "current": [
+      ["urn:doc:c", "http://mnemosyne.ai/vocab#body", {"k": "lit", "v": "B0"}],
+      ["urn:doc:c", "http://mnemosyne.ai/vocab#rdfTripleCount", {"k": "num", "v": 3, "rdf": "\"3\"^^<http://www.w3.org/2001/XMLSchema#integer>"}]
+    ],
+    "faces": [
+      {
+        "fragmentSubject": null,
+        "barePredicates": ["http://mnemosyne.ai/vocab#body"],
+        "desired": [
+          ["urn:doc:c", "http://mnemosyne.ai/vocab#body", {"k": "lit", "v": "B1"}]
+        ]
+      },
+      {
+        "fragmentSubject": null,
+        "barePredicates": ["http://mnemosyne.ai/vocab#rdfTripleCount"],
+        "desired": [
+          ["urn:doc:c", "http://mnemosyne.ai/vocab#rdfTripleCount", {"k": "num", "v": 4, "rdf": "\"4\"^^<http://www.w3.org/2001/XMLSchema#integer>"}]
+        ]
+      }
+    ]
+  }
+]

@@ -85,10 +85,15 @@ pub(super) async fn mcp_local_delete_document(
     app: AppHandle,
     arguments: &serde_json::Value,
 ) -> Result<serde_json::Value, String> {
+    // A missing id was an empty string here, which the engine then failed on
+    // with a message about a document that "does not exist". Say what is
+    // actually wrong before anything is enqueued.
     let document_id = arguments
         .get("documentId")
         .and_then(serde_json::Value::as_str)
-        .unwrap_or_default()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "documentId is required".to_string())?
         .to_string();
     let graph_id = mcp_raw_graph_id_argument(arguments);
     let value = enqueue_crdt_operation(
@@ -170,8 +175,9 @@ pub(super) async fn mcp_local_crdt_operation(
     let kind = arguments
         .get("kind")
         .and_then(serde_json::Value::as_str)
-        .unwrap_or_default()
-        .trim()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "kind is required".to_string())?
         .to_string();
     let document_id = arguments
         .get("documentId")

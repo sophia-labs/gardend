@@ -186,21 +186,136 @@ pub fn materialize_tiptap_json(tiptap_json: &Value, doc_id: &str) -> ProjectionS
     }
 }
 
-/// Port of yDocToTipTapXml (XmlFragment.toString + sanitize + canonical attrs).
+/// Canonical TipTap XML for the document's `content` fragment.
 ///
-/// `yrs` `XmlFragment::get_string()` emits element-attribute order from an
-/// unordered map (`Branch.map: HashMap<Arc<str>, ItemPtr>`, RandomState seed),
-/// so the start-tag attribute order is non-deterministic across processes and
-/// across Doc reconstructions. Since `tiptapXml` is a convergence/diff key, the
-/// serialization MUST be canonical: we sort each start-tag's attributes
-/// lexicographically by key. This is the SAME canonical order applied by the
-/// frontend serializer (`yDocToTipTapXml` in document-roundtrip.ts) so the two
-/// stacks produce byte-identical XML for the same logical Doc.
+/// This walks the Y.js XML tree itself rather than post-processing
+/// `XmlFragment::get_string()`. The yrs string form writes text runs and
+/// attribute values RAW, so a code block containing `<your-jwt-token>` or a
+/// paragraph containing `<hum>` came out as markup, and the old
+/// regex-shaped sanitizer could not tell literal text from real elements
+/// (61 documents in the 2026-09-12 cutover rehearsal failed to parse). Walking
+/// the tree means every text run and attribute value is escaped in its own
+/// context, and an XML parser reads back exactly the text the author typed.
+///
+/// The shape is otherwise the one yrs produced, so existing fingerprints,
+/// history comparisons, and the RDF `mnemo:tiptapXml` oracle keep meaning:
+/// elements as `<tag k="v">…</tag>` with attributes sorted by key (yrs iterates
+/// an unordered map; `tiptapXml` is a convergence/diff key, so the order must
+/// be canonical), text-run marks as nested `<mark k="v">…</mark>` tags sorted
+/// by mark name with their attributes sorted by key, empty elements written
+/// as an open/close pair, and C0 control characters (illegal in XML 1.0)
+/// dropped from text.
 pub fn ydoc_to_tiptap_xml(doc: &Doc) -> String {
-    use yrs::GetString;
     let fragment = doc.get_or_insert_xml_fragment("content");
     let txn = doc.transact();
-    canonicalize_tiptap_xml_attr_order(&sanitize_tiptap_xml_text_tokens(&fragment.get_string(&txn)))
+    let mut out = String::new();
+    for child in fragment.children(&txn) {
+        write_xml_node(&txn, &child, &mut out);
+    }
+    out
+}
+
+fn write_xml_node<T: ReadTxn>(txn: &T, node: &XmlOut, out: &mut String) {
+    match node {
+        XmlOut::Text(text) => write_xml_text_runs(txn, text, out),
+        XmlOut::Element(element) => {
+            let tag = element.tag().to_string();
+            let mut attrs: Vec<(String, String)> = element
+                .attributes(txn)
+                .map(|(key, value)| (key.to_string(), format!("{value}")))
+                .collect();
+            attrs.sort_by(|a, b| a.0.cmp(&b.0));
+            push_start_tag(out, &tag, &attrs);
+            for child in element.children(txn) {
+                write_xml_node(txn, &child, out);
+            }
+            push_end_tag(out, &tag);
+        }
+        XmlOut::Fragment(fragment) => {
+            for child in fragment.children(txn) {
+                write_xml_node(txn, &child, out);
+            }
+        }
+    }
+}
+
+/// One `XmlText` node is a sequence of runs; each run's formatting attributes
+/// become nested mark elements around the escaped text, exactly as yrs lays
+/// them out, with deterministic order.
+fn write_xml_text_runs<T: ReadTxn>(txn: &T, text: &yrs::XmlTextRef, out: &mut String) {
+    for diff in text.diff(txn, yrs::types::text::YChange::identity) {
+        let mut marks: Vec<(String, Vec<(String, String)>)> = Vec::new();
+        if let Some(attrs) = diff.attributes.as_deref() {
+            for (name, value) in attrs.iter() {
+                let mut mark_attrs = Vec::new();
+                if let Any::Map(map) = value {
+                    for (key, inner) in map.iter() {
+                        mark_attrs.push((key.to_string(), inner.to_string()));
+                    }
+                    mark_attrs.sort_by(|a, b| a.0.cmp(&b.0));
+                }
+                marks.push((name.to_string(), mark_attrs));
+            }
+            marks.sort_by(|a, b| a.0.cmp(&b.0));
+        }
+        for (name, mark_attrs) in &marks {
+            push_start_tag(out, name, mark_attrs);
+        }
+        if let yrs::Out::Any(any) = &diff.insert {
+            push_escaped_text(out, &any.to_string());
+        }
+        for (name, _) in marks.iter().rev() {
+            push_end_tag(out, name);
+        }
+    }
+}
+
+fn push_start_tag(out: &mut String, tag: &str, attrs: &[(String, String)]) {
+    out.push('<');
+    out.push_str(tag);
+    for (key, value) in attrs {
+        out.push(' ');
+        out.push_str(key);
+        out.push_str("=\"");
+        push_escaped_attr(out, value);
+        out.push('"');
+    }
+    out.push('>');
+}
+
+fn push_end_tag(out: &mut String, tag: &str) {
+    out.push_str("</");
+    out.push_str(tag);
+    out.push('>');
+}
+
+fn is_xml_illegal_control(c: char) -> bool {
+    matches!(c, '\u{0}'..='\u{8}' | '\u{B}' | '\u{C}' | '\u{E}'..='\u{1F}')
+}
+
+fn push_escaped_text(out: &mut String, text: &str) {
+    for c in text.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            c if is_xml_illegal_control(c) => {}
+            other => out.push(other),
+        }
+    }
+}
+
+fn push_escaped_attr(out: &mut String, value: &str) {
+    for c in value.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            c if is_xml_illegal_control(c) => {}
+            other => out.push(other),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -783,44 +898,6 @@ fn tree_node_to_json(node: &TreeNode) -> Value {
 // Helpers (port of stringValue/numberValue/booleanValue + JS coercions)
 // ---------------------------------------------------------------------------
 
-fn sanitize_tiptap_xml_text_tokens(xml: &str) -> String {
-    // Port of sanitizeTipTapXmlTextTokens (document-roundtrip.ts). The three
-    // regex passes are approximated without a regex dependency:
-    // 1. escape bare '&' not already part of an entity
-    // 2. drop control chars
-    // 3. escape '<' not starting a tag
-    let mut out = String::with_capacity(xml.len());
-    let chars: Vec<char> = xml.chars().collect();
-    for (i, &c) in chars.iter().enumerate() {
-        match c {
-            '&' => {
-                let rest: String = chars[i..].iter().take(12).collect();
-                let is_entity = ["&amp;", "&lt;", "&gt;", "&quot;", "&apos;"]
-                    .iter()
-                    .any(|e| rest.starts_with(e))
-                    || rest.starts_with("&#");
-                if is_entity {
-                    out.push('&');
-                } else {
-                    out.push_str("&amp;");
-                }
-            }
-            '\u{0}'..='\u{8}' | '\u{B}' | '\u{C}' | '\u{E}'..='\u{1F}' => {}
-            '<' => {
-                let next = chars.get(i + 1);
-                let tag_start = matches!(next, Some(c2) if c2.is_ascii_alphabetic() || *c2 == '_' || *c2 == '/');
-                if tag_start {
-                    out.push('<');
-                } else {
-                    out.push_str("&lt;");
-                }
-            }
-            other => out.push(other),
-        }
-    }
-    out
-}
-
 /// Canonicalize the attribute order of every start-tag in a serialized TipTap
 /// XML string so the output is deterministic regardless of the CRDT library's
 /// internal (unordered/insertion-history) attribute-map iteration order.
@@ -997,6 +1074,116 @@ fn json_number(n: f64) -> Value {
         json!(n as i64)
     } else {
         json!(n)
+    }
+}
+
+#[cfg(test)]
+mod xml_escaping_tests {
+    //! The 2026-09-12 rehearsal finding: literal angle brackets in text made
+    //! the stored XML unparseable. The oracle here is the crate's own XML
+    //! reader: what the serializer writes must read back as the same TipTap
+    //! JSON the Y.Doc projects directly.
+    use super::{ydoc_to_tiptap_json, ydoc_to_tiptap_xml};
+    use crate::crdt_engine::builder::ydoc_from_tiptap_json;
+    use crate::crdt_engine::content_parse::tiptap_xml_to_tiptap_json;
+    use serde_json::{json, Value};
+
+    fn strip_generated_ids(value: &mut Value) {
+        // The reader mints ids for elements that carry none; compare structure + text.
+        match value {
+            Value::Object(map) => {
+                if let Some(Value::Object(attrs)) = map.get_mut("attrs") {
+                    attrs.remove("data-block-id");
+                    attrs.remove("id");
+                    if attrs.is_empty() {
+                        map.remove("attrs");
+                    }
+                }
+                for v in map.values_mut() {
+                    strip_generated_ids(v);
+                }
+            }
+            Value::Array(items) => items.iter_mut().for_each(strip_generated_ids),
+            _ => {}
+        }
+    }
+
+    fn round_trips(tiptap: Value) -> String {
+        let doc = ydoc_from_tiptap_json(&tiptap);
+        let xml = ydoc_to_tiptap_xml(&doc);
+        let mut direct = ydoc_to_tiptap_json(&doc);
+        let mut via_xml = tiptap_xml_to_tiptap_json(&xml)
+            .unwrap_or_else(|e| panic!("serialized XML must parse: {e}\n{xml}"));
+        strip_generated_ids(&mut direct);
+        strip_generated_ids(&mut via_xml);
+        assert_eq!(
+            direct, via_xml,
+            "XML round trip changed the document\n{xml}"
+        );
+        xml
+    }
+
+    #[test]
+    fn literal_angle_brackets_in_code_and_text_survive() {
+        // api-reference and hum-bootstrap, the two named reproductions.
+        let xml = round_trips(json!({"type": "doc", "content": [
+            {"type": "codeBlock", "attrs": {"language": "http"}, "content": [
+                {"type": "text", "text": "Authorization: Bearer <your-jwt-token>\nX-Debug: a < b && c > d"}]},
+            {"type": "paragraph", "content": [
+                {"type": "text", "text": "The Cantor wraps lines in "},
+                {"type": "text", "text": "<hum>", "marks": [{"type": "code"}]},
+                {"type": "text", "text": " tags."}]},
+        ]}));
+        assert!(xml.contains("Bearer &lt;your-jwt-token&gt;"), "{xml}");
+        assert!(xml.contains("<code>&lt;hum&gt;</code>"), "{xml}");
+        assert!(!xml.contains("<your-jwt-token>"), "{xml}");
+    }
+
+    #[test]
+    fn ampersands_and_entity_lookalikes_are_literal_text() {
+        // Old sanitizer left "&amp;" typed by a human as-is, which read back as "&".
+        let xml = round_trips(json!({"type": "doc", "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "Tom &amp; Jerry & co; &#42; is a star"}]}
+        ]}));
+        assert!(
+            xml.contains("Tom &amp;amp; Jerry &amp; co; &amp;#42; is a star"),
+            "{xml}"
+        );
+    }
+
+    #[test]
+    fn attribute_values_are_escaped_and_ordered() {
+        let xml = round_trips(json!({"type": "doc", "content": [
+            {"type": "paragraph", "content": [
+                {"type": "text", "text": "link", "marks": [{"type": "link", "attrs": {"target": "_blank", "href": "https://x/?a=1&b=\"q\"<c>"}}]}]}
+        ]}));
+        assert!(xml.contains(r#"<link href="https://x/?a=1&amp;b=&quot;q&quot;&lt;c&gt;" target="_blank">link</link>"#), "{xml}");
+    }
+
+    #[test]
+    fn element_attributes_and_stacked_marks_are_canonically_ordered() {
+        let doc = ydoc_from_tiptap_json(&json!({"type": "doc", "content": [
+            {"type": "heading", "attrs": {"level": 2, "data-block-id": "h1"}, "content": [
+                {"type": "text", "text": "hi", "marks": [{"type": "italic"}, {"type": "bold"}]}]}
+        ]}));
+        let xml = ydoc_to_tiptap_xml(&doc);
+        assert!(
+            xml.starts_with(r#"<heading data-block-id="h1" level="2">"#),
+            "{xml}"
+        );
+        assert!(xml.contains("<bold><italic>hi</italic></bold>"), "{xml}");
+    }
+
+    #[test]
+    fn control_characters_are_dropped_and_empty_elements_keep_a_pair() {
+        let doc = ydoc_from_tiptap_json(&json!({"type": "doc", "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "a\u{0}b\u{7}c"}]},
+            {"type": "paragraph"}
+        ]}));
+        let xml = ydoc_to_tiptap_xml(&doc);
+        assert!(xml.contains(">abc</paragraph>"), "{xml}");
+        assert!(xml.ends_with("<paragraph></paragraph>"), "{xml}");
+        tiptap_xml_to_tiptap_json(&xml).expect("parses");
     }
 }
 
