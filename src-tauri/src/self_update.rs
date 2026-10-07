@@ -694,9 +694,12 @@ mod tests {
             "{evidence:?}"
         );
         drop(listener);
+        // A dead manifest: no live pid and no port. Re-probing the dropped port raced the parallel
+        // suite on CI (another test can bind the same ephemeral port, and the "accepting
+        // connections" evidence names this "profile" tempdir).
         std::fs::write(
             profile.join("loopback.json"),
-            serde_json::json!({ "pid": 0, "port": port }).to_string(),
+            serde_json::json!({ "pid": 0, "port": 0 }).to_string(),
         )
         .unwrap();
         assert!(serving_evidence(Some(&profile))

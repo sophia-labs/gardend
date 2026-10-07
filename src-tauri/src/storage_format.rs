@@ -28,6 +28,9 @@ mod tests {
         "document_history_store.rs:DOCUMENT_TAIL_COMMIT_SCHEMA_VERSION=2",
         "document_history_store.rs:HISTORY_STORE_SCHEMA_VERSION=3",
         "document_tombstone_store.rs:DOCUMENT_TOMBSTONE_SCHEMA_VERSION=1",
+        // Two new stores from the Files rudiments (2026-10-06), pinned at format 1: no existing
+        // store changed, and a format-1 binary that predates them opens the profile and ignores them.
+        "files_service.rs:TRASH_SCHEMA_VERSION=1",
         "geist_memory_store.rs:MEMORY_STORE_SCHEMA_VERSION=1",
         "geist_song_store.rs:SONG_STORE_SCHEMA_VERSION=1",
         "hosted_credentials.rs:SCHEMA_VERSION=1",
@@ -39,6 +42,7 @@ mod tests {
         "runtime_config.rs:DOCUMENT_SCHEMA_VERSION=1",
         "salience_value_store.rs:VALUE_STORE_SCHEMA_VERSION=1",
         "semantic_models.rs:SEMANTIC_INDEX_SCHEMA_VERSION=1",
+        "source_sync.rs:FILE_VIEWS_RECORD_SCHEMA_VERSION=1",
         "source_sync.rs:SOURCE_SYNC_SCHEMA_VERSION=1",
         "time_travel_store.rs:RESTORE_POINT_INDEX_SCHEMA_VERSION=1",
         "time_travel_types.rs:RESTORE_POINT_MANIFEST_SCHEMA_VERSION=2",
