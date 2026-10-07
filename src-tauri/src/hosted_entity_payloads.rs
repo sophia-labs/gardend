@@ -63,6 +63,9 @@ pub(super) fn normalize_entity_artifact_payload(
             "id".to_string(),
             serde_json::Value::String(artifact_id.to_string()),
         );
+        // A full replace, never the Files PATCH merge (`patch` is the cell's
+        // internal marker for `workspace.putArtifact`).
+        object.remove("patch");
         let data_base64 = object
             .remove("dataBase64")
             .or_else(|| object.remove("data_base64"))

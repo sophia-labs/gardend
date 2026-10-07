@@ -900,6 +900,123 @@ mod diff_oracle {
         write_out("rust-l5-delta.json", &json!(out));
     }
 
+    /// Files scope: real class survey/apply, intersected with exact subjects,
+    /// inside a named projection. This exercises the materializer primitive;
+    /// it does not certify golden validation, source receipts or crash recovery.
+    #[test]
+    fn emit_rust_files_delta() {
+        use crate::emporium::reconcile::{
+            apply_diff, class_diff, survey_class, ClassScope, Placement, SpanKey,
+        };
+        use oxigraph::store::Store;
+        let corpus = read_corpus("files-scope.json");
+        let scenarios = corpus.as_array().expect("Files scenario array");
+        assert_eq!(scenarios.len(), 4, "Files corpus cardinality changed");
+        let mut names = BTreeSet::new();
+        let mut out = Vec::new();
+        for sc in scenarios {
+            let name = sc["name"].as_str().expect("Files scenario name");
+            assert!(names.insert(name), "duplicate Files scenario");
+            let target = Placement::Named(sc["target"].as_str().unwrap().to_string());
+            let other_target = Placement::Named(sc["otherTarget"].as_str().unwrap().to_string());
+            assert_ne!(sc["target"], sc["otherTarget"], "foreign graph must differ");
+            let current = triples_of(&sc["current"]);
+            let desired = triples_of(&sc["desired"]);
+            let other_current = triples_of(&sc["otherCurrent"]);
+            let store = Store::new().expect("Files in-memory store");
+            apply_diff(
+                &store,
+                &target,
+                &TripleDiff {
+                    adds: current,
+                    removes: vec![],
+                },
+            )
+            .expect("seed Files target");
+            apply_diff(
+                &store,
+                &other_target,
+                &TripleDiff {
+                    adds: other_current,
+                    removes: vec![],
+                },
+            )
+            .expect("seed foreign graph");
+            let class = sc["cls"].as_str().unwrap().to_string();
+            let scope = ClassScope {
+                placement: target,
+                key: SpanKey::Fixed {
+                    rdf_type: class.clone(),
+                },
+                graph_id_conjunct: None,
+                subjects: Some(
+                    [sc["subject"].as_str().unwrap().to_string()]
+                        .into_iter()
+                        .collect(),
+                ),
+            };
+            let other_scope = ClassScope {
+                placement: other_target,
+                key: SpanKey::Fixed { rdf_type: class },
+                graph_id_conjunct: None,
+                subjects: None,
+            };
+            let sibling_scope = ClassScope {
+                placement: scope.placement.clone(),
+                key: scope.key.clone(),
+                graph_id_conjunct: None,
+                subjects: Some(
+                    triples_of(&sc["current"])
+                        .into_iter()
+                        .map(|t| t.0)
+                        .filter(|s| s != sc["subject"].as_str().unwrap())
+                        .collect(),
+                ),
+            };
+            let siblings_before =
+                survey_class(&store, &sibling_scope).expect("survey siblings before");
+            let before = survey_class(&store, &other_scope).expect("survey foreign before");
+            let delta = class_diff(&store, &scope, &desired).expect("native Files class diff");
+            let encoded = delta_json(&delta.removes, &delta.adds);
+            apply_diff(&store, &scope.placement, &delta).expect("apply native Files delta");
+            let after = survey_class(&store, &other_scope).expect("survey foreign after");
+            let siblings_after =
+                survey_class(&store, &sibling_scope).expect("survey siblings after");
+            assert_eq!(
+                delta_json(&[], &siblings_before),
+                delta_json(&[], &siblings_after),
+                "sibling changed in {name}"
+            );
+            assert_eq!(
+                delta_json(&[], &before),
+                delta_json(&[], &after),
+                "foreign graph changed in {name}"
+            );
+            let again = class_diff(&store, &scope, &desired).expect("repeat native Files diff");
+            // The wrong-type fixture deliberately retains old off-class facts;
+            // adding the Files type then brings them into scope on the next run.
+            if name != "files-wrong-type-is-outside-survey" {
+                assert!(again.is_empty(), "Files fixed point failed in {name}");
+            } else {
+                assert!(
+                    !again.is_empty(),
+                    "wrong-type fixture must expose the closure precondition"
+                );
+            }
+            out.push(json!({"name": name, "delta": encoded}));
+        }
+        assert_eq!(
+            names,
+            BTreeSet::from([
+                "files-create",
+                "files-update-preserves-sibling-and-other-graph",
+                "files-converged-zero-ops",
+                "files-wrong-type-is-outside-survey",
+            ])
+        );
+        write_out("rust-files-delta.json", &json!(out));
+    }
+
     /// The required-sweep axis — the RUNTIME `check` closure presence test
     /// (asserts.rs:269-288): for each required curie, is it among the
     /// instance's keys? Empty failure-list == complete.

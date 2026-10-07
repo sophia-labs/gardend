@@ -3592,6 +3592,22 @@ fn run_halt_journal_trace() {
 
 #[test]
 fn mcp_emporium_write_applies_a_chamber_proposed_vocabulary() {
+    // Its own profile under the process-wide serial lock, like every other
+    // case here: without it this case read whatever GARDEN_PROFILE_DIR a
+    // concurrent case had set (box judge of 7d50d8b: "open omphalos store
+    // .../garden-marks-order-flush-.../omphalos: lock hold by current process").
+    let _serial = env_serial().lock().unwrap_or_else(|p| p.into_inner());
+    let profile = temp_profile("chamber-write-lane");
+    std::env::set_var("GARDEN_PROFILE_DIR", &profile);
+    let result = std::panic::catch_unwind(run_chamber_write_lane);
+    std::env::remove_var("GARDEN_PROFILE_DIR");
+    let _ = std::fs::remove_dir_all(&profile);
+    if let Err(payload) = result {
+        std::panic::resume_unwind(payload);
+    }
+}
+
+fn run_chamber_write_lane() {
     let app = mock_app();
     let graph_id = "chamber-write-lane";
     seed_graph(&app, graph_id);

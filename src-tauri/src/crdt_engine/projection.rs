@@ -25,6 +25,7 @@ const BLOCK_TAGS: &[&str] = &[
     "image",
     "mathBlock",
     "queryBlock",
+    "opaqueBlock",
     "table",
     "tableRow",
     "tableHeader",
@@ -64,6 +65,7 @@ const BLOCK_PROJECTION_TAGS: &[&str] = &[
     "image",
     "mathBlock",
     "queryBlock",
+    "opaqueBlock",
 ];
 
 fn mark_name_to_tag(name: &str) -> &str {
@@ -341,8 +343,17 @@ fn any_to_json(any: &Any) -> Value {
 }
 
 fn marks_from_attrs(attrs: &Attrs) -> Vec<Value> {
+    // A text run's formatting comes back from yrs as a std HashMap, whose
+    // iteration order is different on every read of the same document. The
+    // store holds the marks as a set; the order a reader sees is the contract's
+    // (`canonical_mark_cmp`), so two reads always agree. A record's `tiptapJson`
+    // is the identity key `projection_semantics_match` compares it with a fresh
+    // projection by, and the store tests compare read-backs: both need this
+    // order to be a function of the mark set alone.
+    let mut entries: Vec<_> = attrs.iter().collect();
+    entries.sort_by(|a, b| super::block_contract::canonical_mark_cmp(a.0, b.0));
     let mut marks = Vec::new();
-    for (name, value) in attrs.iter() {
+    for (name, value) in entries {
         let mut mark = Map::new();
         mark.insert("type".into(), json!(name.to_string()));
         let attrs_json = any_to_json(value);
@@ -676,6 +687,7 @@ fn block_type_for_node(node: &TreeNode) -> &'static str {
         Some("image") => "image",
         Some("mathBlock") => "math",
         Some("queryBlock") => "query",
+        Some("opaqueBlock") => "opaque",
         Some("listItem") => match node.attributes.extra.get("listType").map(String::as_str) {
             Some("ordered") => "numbered",
             Some("task") => "todo",
@@ -844,6 +856,9 @@ fn atom_node_text(node: &TreeNode) -> Option<String> {
             .or_else(|| attrs.extra.get("title").cloned())
             .or_else(|| attrs.src.clone())
             .unwrap_or_default(),
+        // The block contract's wrapper for content it does not know: its
+        // display text is the block's text.
+        Some("opaqueBlock") => attrs.extra.get("text").cloned().unwrap_or_default(),
         Some("queryBlock") => {
             let parts: Vec<&String> = [attrs.extra.get("comment"), attrs.extra.get("query")]
                 .into_iter()

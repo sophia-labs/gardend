@@ -5,7 +5,8 @@ use crate::{
     loopback_ai_routes::loopback_ai_router, loopback_artifact_routes::loopback_artifact_router,
     loopback_core_routes::loopback_core_router, loopback_crdt_routes::loopback_crdt_router,
     loopback_document_routes::loopback_document_router,
-    loopback_entity_routes::loopback_entity_router, loopback_graph_routes::loopback_graph_router,
+    loopback_entity_routes::loopback_entity_router,
+    loopback_files_routes::loopback_files_router, loopback_graph_routes::loopback_graph_router,
     loopback_hocuspocus_routes::loopback_hocuspocus_router,
     loopback_mcp_routes::loopback_mcp_router,
     loopback_navigation_routes::loopback_navigation_router,
@@ -83,6 +84,7 @@ pub(super) fn loopback_router(state: Arc<LoopbackState>) -> Router {
         .merge(loopback_salience_router())
         .merge(loopback_artifact_router())
         .merge(loopback_navigation_router())
+        .merge(loopback_files_router())
         .merge(loopback_ai_router())
         .merge(loopback_wire_router())
         .merge(loopback_rdf_router())

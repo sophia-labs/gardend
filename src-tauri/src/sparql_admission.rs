@@ -205,7 +205,28 @@ pub(crate) async fn run_external_sparql_query(
 /// No deadline is accepted here until every Oxigraph update operation is
 /// cooperatively cancellable. This function awaits the real commit/failure,
 /// so a 200 response is truthful.
+/// Every external SPARQL update (the `sparql_update` tool and the
+/// `/api/sparql/update`, `/graphs/update`, `/api/graphs/update` routes). On a
+/// graph under source authority its effect is recorded in the source ledger,
+/// so a rebuild replays it instead of rewinding it
+/// (`source_sync::record_authored_write`); elsewhere it runs as before.
 pub(crate) async fn run_external_sparql_update(
+    app: AppHandle,
+    input: SparqlUpdateInput,
+) -> AppResult<MutationResult> {
+    let graph_id = input.graph_id.clone();
+    let recorder = app.clone();
+    crate::source_sync::record_authored_write(
+        &recorder,
+        &graph_id,
+        "sparqlUpdate",
+        crate::source_sync::AuthoredScope::UserGraphs,
+        run_external_sparql_update_unrecorded(app, input),
+    )
+    .await
+}
+
+async fn run_external_sparql_update_unrecorded(
     app: AppHandle,
     input: SparqlUpdateInput,
 ) -> AppResult<MutationResult> {

@@ -29,6 +29,7 @@ export const requestSchemaByRoute = {
   'POST /artifacts/{graph_id}/batch/prepare': 'BatchPrepareRequest',
   'POST /artifacts/{graph_id}/batch/register': 'BatchRegisterRequest',
   'PUT /navigation/{graph_id}/artifacts/{artifact_id}': 'ArtifactPutRequest',
+  'PATCH /navigation/{graph_id}/artifacts/{artifact_id}': 'ArtifactPatchRequest',
   'POST /artifacts/{graph_id}/{artifact_id}/import': 'ArtifactImportRequest',
   'POST /artifacts/{graph_id}/{artifact_id}/convert': 'ArtifactConvertRequest',
   'POST /graphs/{graph_id}/imports/clip': 'ClipUrlRequest',
@@ -127,6 +128,12 @@ export const responseSchemaByRoute = {
   'GET /navigation/{graph_id}/artifacts/{artifact_id}': 'Artifact',
   'PUT /navigation/{graph_id}/artifacts/{artifact_id}': 'Artifact',
   'DELETE /navigation/{graph_id}/artifacts/{artifact_id}': 'ArtifactDeleteResponse',
+  'PATCH /navigation/{graph_id}/artifacts/{artifact_id}': 'Artifact',
+  'POST /artifacts/{graph_id}/files': 'FilesUploadResponse',
+  'GET /navigation/{graph_id}/trash': 'FilesTrashList',
+  'POST /navigation/{graph_id}/trash/{artifact_id}/restore': 'Artifact',
+  'DELETE /navigation/{graph_id}/trash/{artifact_id}': 'FilesPurgeResponse',
+  'GET /navigation/{graph_id}/file-views': 'FileViewsRead',
   'POST /search': 'SemanticSearchResponse',
   'POST /search/blocks': 'BlockSearchResponse',
   'POST /search/hybrid': 'HybridSearchResponse',
@@ -179,12 +186,14 @@ export const successStatusByRoute = {
   'DELETE /v1/documents/{graph_id}/{doc_id}/snapshots/{snapshot_id}': 204,
   'POST /artifacts/{graph_id}/batch/prepare': 201,
   'POST /artifacts/{graph_id}/upload': 201,
+  'POST /artifacts/{graph_id}/files': 201,
   'POST /artifacts/{graph_id}/ingest/pdf-accurate': 202,
   'POST /artifacts/{graph_id}/images/upload': 201,
 }
 
 export const multipartRequestSchemaByRoute = {
   'POST /artifacts/{graph_id}/upload': 'DocumentUploadRequest',
+  'POST /artifacts/{graph_id}/files': 'FilesUploadRequest',
   'POST /artifacts/{graph_id}/ingest/pdf-accurate': 'PdfAccurateUploadRequest',
   'POST /artifacts/{graph_id}/images/upload': 'ImageUploadRequest',
   'POST /graphs/{graph_id}/imports/rdf': 'RdfImportRequest',
@@ -230,6 +239,22 @@ export const extraErrorResponsesByRoute = {
   'POST /artifacts/{graph_id}/ingest/pdf-accurate': {
     413: 'Uploaded PDF exceeds the local hard limit',
   },
+  'POST /artifacts/{graph_id}/files': {
+    409: 'artifactId already names different bytes, a trashed file, or a metadata-only artifact (code artifact_exists)',
+    413: 'File exceeds the 50 MiB Files cap (code file_too_large)',
+  },
+  'POST /artifacts/{graph_id}/{artifact_id}/revisions': {
+    413: 'Decoded file exceeds the 50 MiB Files cap (code file_too_large)',
+  },
+  'PUT /navigation/{graph_id}/artifacts/{artifact_id}': {
+    413: 'Inline file exceeds the 50 MiB Files cap (code file_too_large)',
+  },
+  'DELETE /navigation/{graph_id}/trash/{artifact_id}': {
+    409: 'The artifact is live in the workspace again (code artifact_live)',
+  },
+  'POST /navigation/{graph_id}/trash/{artifact_id}/restore': {
+    410: 'The trashed bytes are gone (code trash_bytes_missing)',
+  },
   'POST /artifacts/{graph_id}/images/upload': {
     413: 'Uploaded image exceeds the local hard limit',
     422: 'Uploaded image type is unsupported',
@@ -255,6 +280,28 @@ export const extraErrorResponsesByRoute = {
 }
 
 export const queryParametersByRoute = {
+  'GET /artifacts/{graph_id}/{artifact_id}/download': [
+    {
+      name: 'inline',
+      in: 'query',
+      required: false,
+      schema: { type: 'string', enum: ['1', 'true', 'yes'] },
+    },
+  ],
+  'GET /navigation/{graph_id}/file-views': [
+    {
+      name: 'folderKey',
+      in: 'query',
+      required: false,
+      schema: { type: 'string' },
+    },
+    {
+      name: 'viewId',
+      in: 'query',
+      required: false,
+      schema: { type: 'string' },
+    },
+  ],
   'GET /documents/{graph_id}/{document_id}/export': [
     {
       name: 'format',

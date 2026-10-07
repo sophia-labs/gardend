@@ -24,7 +24,7 @@ use crate::{
     storage::display_path,
 };
 use axum::{
-    extract::{Multipart, Path as AxumPath, State},
+    extract::{DefaultBodyLimit, Multipart, Path as AxumPath, Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -76,7 +76,13 @@ pub(super) fn loopback_artifact_router() -> Router<Arc<LoopbackState>> {
         )
         .route(
             "/artifacts/{graph_id}/{artifact_id}/revisions",
-            get(loopback_list_artifact_revisions).post(loopback_create_artifact_revision),
+            get(loopback_list_artifact_revisions)
+                .post(loopback_create_artifact_revision)
+                // One base64 file per request: bound the body to the encoded
+                // Files cap rather than the 516 MiB router default.
+                .layer(DefaultBodyLimit::max(
+                    crate::files_service::base64_route_body_limit(),
+                )),
         )
         .route(
             "/artifacts/{graph_id}/{artifact_id}/revisions/{revision_id}/download",
@@ -233,6 +239,13 @@ pub(super) async fn loopback_hosted_upload_artifact(
     let mut size_bytes: usize = 0;
     let mut parent_id: Option<String> = None;
     let mut batch_id: Option<String> = None;
+    // A hosted cell holds every file to the Files cap, this parsing route
+    // included; the desktop keeps its local import ceiling.
+    let max_bytes = if state.cell_graph.is_enabled() {
+        crate::runtime_config::FILES_MAX_UPLOAD_BYTES
+    } else {
+        LOCAL_UPLOAD_MAX_BYTES
+    };
 
     loop {
         let field = match multipart.next_field().await {
@@ -256,12 +269,18 @@ pub(super) async fn loopback_hosted_upload_artifact(
             let upload = match stream_field_to_pending_upload(
                 &graph_dir,
                 field,
-                LOCAL_UPLOAD_MAX_BYTES,
+                max_bytes,
                 "failed to read uploaded file",
             )
             .await
             {
                 Ok(upload) => upload,
+                Err(error) if error.status == StatusCode::PAYLOAD_TOO_LARGE => {
+                    if let Some(previous_path) = pending_original_path.take() {
+                        cleanup_pending_upload_file(&previous_path);
+                    }
+                    return crate::files_service::file_too_large_response(max_bytes);
+                }
                 Err(error) => return loopback_error(error.status, &error.message),
             };
             if let Some(previous_path) = pending_original_path.replace(upload.path) {
@@ -404,15 +423,23 @@ pub(super) async fn loopback_hosted_download_artifact(
     State(state): State<Arc<LoopbackState>>,
     headers: HeaderMap,
     AxumPath((graph_id, artifact_id)): AxumPath<(String, String)>,
+    Query(params): Query<std::collections::BTreeMap<String, String>>,
 ) -> Response {
     if let Err(response) = require_loopback_scope(&headers, &state, "artifacts.read") {
         return response;
     }
-    match read_artifact_original_file(&state.app, &graph_id, &artifact_id).and_then(
-        |(manifest, bytes)| {
-            original_file_download_response(&manifest, bytes, false).map_err(AppError::storage)
-        },
-    ) {
+    // Streamed from disk (a 50 MiB file is never held whole in cell memory).
+    // `?inline=1` is honoured only for PDF and raster images.
+    let inline = crate::original_file_service::query_bool(&params, "inline");
+    match crate::original_file_service::open_artifact_original_file(
+        &state.app,
+        &graph_id,
+        &artifact_id,
+    )
+    .and_then(|(manifest, path)| {
+        crate::original_file_service::original_file_stream_response(&manifest, &path, inline)
+            .map_err(AppError::storage)
+    }) {
         Ok(response) => response,
         Err(error) => loopback_original_file_error(error.message_ref()),
     }
@@ -437,6 +464,9 @@ pub(super) async fn loopback_create_artifact_revision(
 ) -> Response {
     if let Err(response) = require_loopback_scope(&headers, &state, "artifacts.write") {
         return response;
+    }
+    if let Err(refusal) = crate::files_service::refuse_oversized_base64(&input.data_base64) {
+        return refusal.into_response();
     }
     // Preserve the artifact's existing filename across edits when the client
     // doesn't supply one.

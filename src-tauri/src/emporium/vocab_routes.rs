@@ -568,11 +568,23 @@ async fn sweep_handler(
     if let Err(response) = require_loopback_scope(&headers, &state, "rdf.update") {
         return response;
     }
-    match crate::emporium::sweep::sweep_memory_conformance(
+    // Recorded in the source ledger on a graph under source authority
+    // (`source_sync::record_authored_write`); unchanged elsewhere.
+    let swept = crate::source_sync::record_authored_write(
         &state.app,
         &graph_id,
-        query.observer.as_deref().unwrap_or(""),
-    ) {
+        "emporiumSweep",
+        crate::source_sync::AuthoredScope::Authored,
+        async {
+            crate::emporium::sweep::sweep_memory_conformance(
+                &state.app,
+                &graph_id,
+                query.observer.as_deref().unwrap_or(""),
+            )
+        },
+    )
+    .await;
+    match swept {
         Ok(report) => (StatusCode::OK, Json(serde_json::json!(report))).into_response(),
         Err(error) => loopback_error(StatusCode::INTERNAL_SERVER_ERROR, &error),
     }
@@ -614,6 +626,32 @@ async fn heads_handler(
 fn object_error_response(e: crate::emporium::objects::ObjectError) -> Response {
     let status = StatusCode::from_u16(e.status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
     loopback_error(status, e.message())
+}
+
+/// Run one object mutation; on a graph under source authority its effect is
+/// recorded in the source ledger (`source_sync::record_authored_write`), so a
+/// rebuild replays it. Unchanged elsewhere.
+async fn recorded_object_response(
+    state: &Arc<LoopbackState>,
+    graph_id: &str,
+    origin: &'static str,
+    mutation: impl std::future::Future<
+        Output = Result<serde_json::Value, crate::emporium::objects::ObjectError>,
+    >,
+) -> Response {
+    let recorded = crate::source_sync::record_authored_write(
+        &state.app,
+        graph_id,
+        origin,
+        crate::source_sync::AuthoredScope::Authored,
+        async { Ok::<_, crate::app_error::AppError>(mutation.await) },
+    )
+    .await;
+    match recorded {
+        Ok(Ok(body)) => (StatusCode::OK, Json(body)).into_response(),
+        Ok(Err(e)) => object_error_response(e),
+        Err(error) => crate::loopback_http::loopback_app_error(error),
+    }
 }
 
 #[derive(Deserialize)]
@@ -668,10 +706,13 @@ async fn objects_create_handler(
         return response;
     }
     let records = body.get("records").cloned().unwrap_or(body);
-    match crate::emporium::objects::create_objects(&state.app, &graph_id, &vocab, records).await {
-        Ok(body) => (StatusCode::OK, Json(body)).into_response(),
-        Err(e) => object_error_response(e),
-    }
+    recorded_object_response(
+        &state,
+        &graph_id,
+        "emporiumObjectCreate",
+        crate::emporium::objects::create_objects(&state.app, &graph_id, &vocab, records),
+    )
+    .await
 }
 
 async fn objects_update_handler(
@@ -683,14 +724,15 @@ async fn objects_update_handler(
     if let Err(response) = require_loopback_scope(&headers, &state, "rdf.update") {
         return response;
     }
-    match crate::emporium::objects::update_object(
-        &state.app, &graph_id, &vocab, &class, &address, record,
+    recorded_object_response(
+        &state,
+        &graph_id,
+        "emporiumObjectUpdate",
+        crate::emporium::objects::update_object(
+            &state.app, &graph_id, &vocab, &class, &address, record,
+        ),
     )
     .await
-    {
-        Ok(body) => (StatusCode::OK, Json(body)).into_response(),
-        Err(e) => object_error_response(e),
-    }
 }
 
 async fn objects_delete_handler(
@@ -701,12 +743,13 @@ async fn objects_delete_handler(
     if let Err(response) = require_loopback_scope(&headers, &state, "rdf.update") {
         return response;
     }
-    match crate::emporium::objects::delete_object(&state.app, &graph_id, &vocab, &class, &address)
-        .await
-    {
-        Ok(body) => (StatusCode::OK, Json(body)).into_response(),
-        Err(e) => object_error_response(e),
-    }
+    recorded_object_response(
+        &state,
+        &graph_id,
+        "emporiumObjectDelete",
+        crate::emporium::objects::delete_object(&state.app, &graph_id, &vocab, &class, &address),
+    )
+    .await
 }
 
 async fn list_vocabs() -> Json<serde_json::Value> {

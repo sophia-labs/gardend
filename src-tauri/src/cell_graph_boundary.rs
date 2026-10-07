@@ -47,6 +47,12 @@ mod owned_restore_tests;
 #[cfg(all(test, feature = "headless"))]
 #[path = "loopback_manifest_secret_redaction_cell_tests.rs"]
 mod loopback_manifest_secret_redaction_cell_tests;
+#[cfg(all(test, feature = "headless"))]
+#[path = "files_rudiments_tests.rs"]
+mod files_rudiments_tests;
+#[cfg(all(test, feature = "headless"))]
+#[path = "source_authority_direct_writes_tests.rs"]
+mod source_authority_direct_writes_tests;
 const MCP_CATALOG_JSON: &str = include_str!("mcp_tool_catalog.json");
 const EFFECT_REGISTRY_JSON: &str = include_str!("../../parity/local-loopback-surface.json");
 

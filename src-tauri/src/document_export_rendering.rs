@@ -1,5 +1,7 @@
 use crate::{
-    crdt_engine::document_ops::tiptap_json_from_blocks,
+    crdt_engine::{
+        document_ops::tiptap_json_from_blocks, markdown_export::tiptap_json_to_markdown,
+    },
     document_block_rendering::{document_blocks_for_read, html_escape, render_block_content},
     document_service::DocumentRecord,
 };
@@ -17,7 +19,21 @@ pub(super) fn document_json(document: &DocumentRecord) -> Result<String, String>
         .map_err(|error| format!("serialize TipTap JSON export: {error}"))
 }
 
+/// Markdown face of a document, rendered from the canonical TipTap document
+/// (the same source `document_json` exports) so marks, links, list nesting,
+/// ordered numbering, quotes, tables and images survive. Legacy records with
+/// no TipTap JSON are rebuilt from their block projection first.
 pub(super) fn document_markdown(document: &DocumentRecord) -> String {
+    match document.tiptap_json.as_ref() {
+        Some(tiptap_json) => tiptap_json_to_markdown(tiptap_json),
+        None => legacy_blocks_markdown(document),
+    }
+}
+
+/// Block-projection rendering for records that carry no TipTap JSON (legacy
+/// documents): one Markdown line per projected block. It cannot see marks or
+/// structure, which is why it is only the fallback.
+fn legacy_blocks_markdown(document: &DocumentRecord) -> String {
     let blocks = document_blocks_for_read(document);
     blocks
         .iter()
@@ -26,16 +42,11 @@ pub(super) fn document_markdown(document: &DocumentRecord) -> String {
                 let level = block.level.unwrap_or(1).clamp(1, 6) as usize;
                 format!("{} {}", "#".repeat(level), block.content)
             }
-            "codeBlock" | "code_block" => {
+            "codeBlock" | "code_block" | "code" => {
                 let language = block.language.clone().unwrap_or_default();
                 format!("```{language}\n{}\n```", block.content)
             }
-            "code" => {
-                let language = block.language.clone().unwrap_or_default();
-                format!("```{language}\n{}\n```", block.content)
-            }
-            "blockquote" => format!("> {}", block.content),
-            "quote" => format!("> {}", block.content),
+            "blockquote" | "quote" => format!("> {}", block.content),
             "todo" => {
                 let marker = if block.checked.unwrap_or(false) {
                     "x"

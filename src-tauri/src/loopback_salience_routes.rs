@@ -1,5 +1,5 @@
 use crate::{
-    loopback_http::{loopback_error, loopback_result, require_loopback_scope},
+    loopback_http::{loopback_app_result, loopback_error, loopback_result, require_loopback_scope},
     loopback_state::LoopbackState,
     salience_route_service::{
         patch_local_salience_config, set_local_user_valuation, SalienceConfigPatch,
@@ -112,7 +112,20 @@ pub(super) async fn loopback_hosted_apply_valuations(
         "graph_id": graph_id,
         "valuations": input.valuations,
     });
-    loopback_result(mcp_local_value(state.app.clone(), &arguments))
+    // On a graph under source authority valuations are ledger events (the
+    // `value` tool's route), so a rebuild replays them. Elsewhere, exactly as
+    // before, under the source gate so a concurrent first `source_pull`
+    // checkpoints either before this write or after it.
+    let gate = crate::source_sync::acquire_source_gate(&graph_id).await;
+    if !crate::source_sync::source_authority_active(&state.app, &graph_id).unwrap_or(false) {
+        let response = loopback_result(mcp_local_value(state.app.clone(), &arguments));
+        drop(gate);
+        return response;
+    }
+    drop(gate);
+    loopback_app_result(
+        crate::source_sync::mcp_authoritative_value(state.app.clone(), &arguments).await,
+    )
 }
 
 pub(super) async fn loopback_hosted_user_valuation(
@@ -124,7 +137,16 @@ pub(super) async fn loopback_hosted_user_valuation(
     if let Err(response) = require_loopback_scope(&headers, &state, "salience.write") {
         return response;
     }
-    match set_local_user_valuation(state.app.clone(), &graph_id, input) {
+    let writer = state.app.clone();
+    let recorded = crate::source_sync::record_authored_write(
+        &state.app,
+        &graph_id,
+        "userValuation",
+        crate::source_sync::AuthoredScope::Values(String::new()),
+        async { set_local_user_valuation(writer, &graph_id, input) },
+    )
+    .await;
+    match recorded {
         Ok(value) => Json(value).into_response(),
         Err(error) if error.contains("must be one of") => {
             loopback_error(StatusCode::UNPROCESSABLE_ENTITY, &error)
@@ -142,9 +164,15 @@ pub(super) async fn loopback_hosted_salience_config_patch(
     if let Err(response) = require_loopback_scope(&headers, &state, "salience.write") {
         return response;
     }
-    loopback_result(patch_local_salience_config(
-        state.app.clone(),
-        &graph_id,
-        input,
-    ))
+    let writer = state.app.clone();
+    loopback_result(
+        crate::source_sync::record_authored_write(
+            &state.app,
+            &graph_id,
+            "salienceConfig",
+            crate::source_sync::AuthoredScope::Values(String::new()),
+            async { patch_local_salience_config(writer, &graph_id, input) },
+        )
+        .await,
+    )
 }

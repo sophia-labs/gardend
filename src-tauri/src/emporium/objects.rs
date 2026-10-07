@@ -449,6 +449,11 @@ pub(crate) async fn delete_object(
     class: &str,
     address: &str,
 ) -> Result<Value, ObjectError> {
+    if vocab == "garden-file-views" {
+        return Err(ObjectError::Conflict(
+            "garden-file-views cannot be deleted through projection CRUD; use source authority".to_string(),
+        ));
+    }
     let store = open_memory_store(app, graph_id).map_err(internal)?;
     let (contract, sink) = contract_and_sink(&store, graph_id, vocab)?;
     // The policy gate, declaration-driven: a vocab with lifecycle transitions

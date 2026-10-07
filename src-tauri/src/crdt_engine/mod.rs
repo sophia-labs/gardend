@@ -16,7 +16,11 @@ pub mod block_ops;
 pub mod builder;
 pub(crate) mod content_parity;
 pub(crate) mod content_parse;
+pub(crate) use content_parse::block_contract;
+#[cfg(test)]
+mod block_contract_tests;
 pub(crate) mod create_once;
+pub(crate) mod markdown_export;
 #[doc(hidden)]
 pub mod document_ops;
 pub(crate) mod executor;

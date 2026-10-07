@@ -1,0 +1,72 @@
+{
+  "name": "garden-file-views",
+  "version": "1.0.0",
+  "title": "Garden File Views",
+  "description": "Canonical current-state preferences and per-file placements for the Files workspace. Filesystem membership remains owned by the workspace; this pack stores presentation only.",
+  "namespaces": {
+    "view": "https://sophia-labs.ai/ontology/view#",
+    "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+    "prov": "http://www.w3.org/ns/prov#",
+    "xsd": "http://www.w3.org/2001/XMLSchema#"
+  },
+  "primary_prefix": "view",
+  "classes": {
+    "FolderView": {
+      "comment": "One saved presentation preference record for a qualified folder and view. It carries no filesystem membership or session camera state.",
+      "rdf_types": ["view:FolderView", "prov:Entity"],
+      "subject_rule": "{graph_subject}:projection:file-views:folder-view:{localId}",
+      "source_kind": "current-state",
+      "identity_kind": "logical-id",
+      "store_mode": "materialize",
+      "store_target": "projection:file-views",
+      "enforcement": "halt",
+      "reconciliation_strategy": "contested",
+      "dispatch_mode": "current-state-materialize",
+      "predicates": {
+        "view:schemaVersion": {"datatype": "integer", "multi": false, "required": true},
+        "view:ownerId": {"datatype": "string", "multi": false, "required": true},
+        "view:graphId": {"datatype": "string", "multi": false, "required": true},
+        "view:graphIncarnation": {"datatype": "string", "multi": false, "required": true},
+        "view:folderKey": {"datatype": "string", "multi": false, "required": true},
+        "view:viewId": {"datatype": "string", "multi": false, "required": true},
+        "view:audienceKind": {"datatype": "string", "multi": false, "required": true, "source": "enum: shared|personal"},
+        "view:audienceUserId": {"datatype": "string", "multi": false, "required": false},
+        "view:presentation": {"datatype": "string", "multi": false, "required": true, "source": "enum: canvas|list"},
+        "view:sort": {"datatype": "string", "multi": false, "required": true, "source": "enum: manual|name|type|modified"},
+        "view:direction": {"datatype": "string", "multi": false, "required": true, "source": "enum: asc|desc"},
+        "view:iconSize": {"datatype": "string", "multi": false, "required": true, "source": "enum: small|medium|large"},
+        "view:snapToGrid": {"datatype": "boolean", "multi": false, "required": true}
+      }
+    },
+    "FilePlacement": {
+      "comment": "One file's position in one qualified FolderView. This is presentation only; file identity and folder membership stay with the workspace.",
+      "rdf_types": ["view:FilePlacement", "prov:Entity"],
+      "subject_rule": "{graph_subject}:projection:file-views:file-placement:{localId}",
+      "source_kind": "current-state",
+      "identity_kind": "logical-id",
+      "store_mode": "materialize",
+      "store_target": "projection:file-views",
+      "enforcement": "halt",
+      "reconciliation_strategy": "contested",
+      "dispatch_mode": "current-state-materialize",
+      "predicates": {
+        "view:schemaVersion": {"datatype": "integer", "multi": false, "required": true},
+        "view:ownerId": {"datatype": "string", "multi": false, "required": true},
+        "view:graphId": {"datatype": "string", "multi": false, "required": true},
+        "view:graphIncarnation": {"datatype": "string", "multi": false, "required": true},
+        "view:folderKey": {"datatype": "string", "multi": false, "required": true},
+        "view:viewId": {"datatype": "string", "multi": false, "required": true},
+        "view:audienceKind": {"datatype": "string", "multi": false, "required": true, "source": "enum: shared|personal"},
+        "view:audienceUserId": {"datatype": "string", "multi": false, "required": false},
+        "view:fileKind": {"datatype": "string", "multi": false, "required": true, "source": "enum: folder|document|artifact"},
+        "view:fileId": {"datatype": "string", "multi": false, "required": true},
+        "view:coordinateSpace": {"datatype": "string", "multi": false, "required": true, "source": "enum: folder-canvas"},
+        "view:x": {"datatype": "float", "multi": false, "required": true},
+        "view:y": {"datatype": "float", "multi": false, "required": true}
+      }
+    }
+  },
+  "comanaged_forbidden": ["doc:", "mnemo:", "nfo:"],
+  "comment": "Built-in source-ledgered current-state pack. Both classes have separate logical identity spaces and preserve same-object conflicts as contests. Projection records never own workspace membership or PDF bytes.",
+  "write_target": "projection:file-views"
+}

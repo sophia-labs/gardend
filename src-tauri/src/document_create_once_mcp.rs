@@ -13,6 +13,10 @@ pub(crate) async fn create_document_once(
         .map_err(crate::app_error::AppError::message)?;
     let (graph_id, document_id, payload) = crate::crdt_engine::create_once::mcp_input(arguments)
         .map_err(|error| format!("create_document_once refused: {error}"))?;
+    let require_durable = arguments
+        .get("requireDurable")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     let outcome = enqueue_crdt_operation_outcome(
         app.clone(),
         EnqueueCrdtOperationInput {
@@ -55,7 +59,16 @@ pub(crate) async fn create_document_once(
         )
         .await
         .map_err(crate::app_error::AppError::message)?;
+        // An execution claim must survive cell replacement before the caller
+        // may send code to a kernel. The ordinary awaitDurable field only
+        // reports the current watermark; strict mode forces publication and
+        // refuses to acknowledge an unresolved or fenced write.
         let epoch = crate::cell_durability::current_write_epoch();
+        if require_durable {
+            tokio::task::spawn_blocking(crate::cell_durability::flush_registered_for_strict_write)
+                .await
+                .map_err(|error| format!("durable flush task failed: {error}"))??;
+        }
         let durability = write_durability_verdict(
             arguments
                 .get("awaitDurable")
@@ -65,6 +78,12 @@ pub(crate) async fn create_document_once(
             crate::cell_durability::durability_watermarks(),
             epoch,
         );
+        if require_durable && !durability.checked() {
+            return Err(format!(
+                "durable publication unresolved ({})",
+                durability.state()
+            ));
+        }
         let document = serde_json::to_value(
             crate::document_projection_service::hosted_document_response(
                 &app,

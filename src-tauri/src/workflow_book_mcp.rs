@@ -592,7 +592,43 @@ pub(super) async fn mcp_local_workflow_book_compose(
     .await
 }
 
+/// The workflow book's one write path (apply, compose, and the authoring
+/// session through compose). On a graph under source authority its RDF effect
+/// is recorded in the source ledger (`source_sync::record_authored_write`), so
+/// a rebuild replays it; elsewhere it runs as before.
 async fn apply_workflow_book_request(
+    app: AppHandle,
+    graph_id: &str,
+    workflow_name: Option<String>,
+    page_id: Option<String>,
+    request: WorkflowBookApplyRequest,
+    compose: Option<Value>,
+    apply_event: Option<WorkflowBookCompositionEventPlan>,
+    retained_memory_record: Option<MemoryRecordIn>,
+    intent: Option<&str>,
+) -> AppResult<Value> {
+    let recorder = app.clone();
+    crate::source_sync::record_authored_write(
+        &recorder,
+        graph_id,
+        "workflowBook",
+        crate::source_sync::AuthoredScope::UserGraphs,
+        apply_workflow_book_request_unrecorded(
+            app,
+            graph_id,
+            workflow_name,
+            page_id,
+            request,
+            compose,
+            apply_event,
+            retained_memory_record,
+            intent,
+        ),
+    )
+    .await
+}
+
+async fn apply_workflow_book_request_unrecorded(
     app: AppHandle,
     graph_id: &str,
     workflow_name: Option<String>,

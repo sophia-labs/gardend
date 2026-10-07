@@ -17,6 +17,55 @@ pub(crate) struct RuntimeCapabilities {
     provider_id: &'static str,
     hosted_available: bool,
     capabilities: Vec<Capability>,
+    /// Files rudiments contract v1 (CONTRACT-files §1, kept outside this
+    /// repository). A shell hides its Files pane when this is absent.
+    files: FilesCapability,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct FilesCapability {
+    version: u32,
+    max_upload_bytes: usize,
+    parsing: bool,
+    upload: &'static str,
+    download: &'static str,
+    update: &'static str,
+    trash: &'static str,
+    trash_list: &'static str,
+    restore: &'static str,
+    purge: &'static str,
+    folder_views: FolderViewsCapability,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct FolderViewsCapability {
+    vocab: &'static str,
+    version: &'static str,
+    read: &'static str,
+    write: &'static str,
+}
+
+pub(crate) fn files_capability() -> FilesCapability {
+    FilesCapability {
+        version: 1,
+        max_upload_bytes: crate::runtime_config::FILES_MAX_UPLOAD_BYTES,
+        parsing: false,
+        upload: "POST /artifacts/{graph_id}/files",
+        download: "GET /artifacts/{graph_id}/{artifact_id}/download",
+        update: "PATCH /navigation/{graph_id}/artifacts/{artifact_id}",
+        trash: "DELETE /navigation/{graph_id}/artifacts/{artifact_id}",
+        trash_list: "GET /navigation/{graph_id}/trash",
+        restore: "POST /navigation/{graph_id}/trash/{artifact_id}/restore",
+        purge: "DELETE /navigation/{graph_id}/trash/{artifact_id}",
+        folder_views: FolderViewsCapability {
+            vocab: "garden-file-views",
+            version: "1.0.0",
+            read: "GET /navigation/{graph_id}/file-views",
+            write: "mcp:source_push",
+        },
+    }
 }
 
 #[cfg_attr(feature = "desktop", tauri::command)]
@@ -114,5 +163,6 @@ pub(crate) fn get_capabilities() -> RuntimeCapabilities {
                 description: "Hosted graph provider will be added behind the provider boundary.",
             },
         ],
+        files: files_capability(),
     }
 }

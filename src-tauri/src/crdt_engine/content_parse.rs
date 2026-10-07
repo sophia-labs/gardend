@@ -15,10 +15,25 @@
 //!   decoded by pulldown-cmark but kept literal by marked; footnote
 //!   definitions whose content is a single word are treated as link-reference
 //!   definitions by both parsers but TS additionally records them as
-//!   footnotes; GFM tables are dropped by both (marked emits an unhandled
-//!   `table` token, we skip the events).
-//! - marked HTML-escapes code-span text (`escape(text, true)`); replicated in
-//!   `escape_marked_codespan` so inline code matches the TS byte-for-byte.
+//!   footnotes.
+//! - Deliberate divergences (hosted QA 2026-09-23, Markdown fidelity): GFM
+//!   tables become table/tableRow/tableHeader/tableCell nodes (the TS drops
+//!   them — marked's `table` token is unhandled) with column alignment on the
+//!   cell paragraphs' `textAlign`; `![alt](src "title")` becomes an `image`
+//!   block (the TS keeps only the alt text), hoisted out of its paragraph
+//!   because ImageBlock is a block node.
+//! - Intentionally lossy (schema limits, not parser limits): heading levels
+//!   are clamped to 1–3 because both editor schemas (Garden's
+//!   document-editor/tiptap-export-extensions and Shrubbery's editor-kernel)
+//!   configure `heading: { levels: [1, 2, 3] }` — TipTap would otherwise
+//!   render an unknown level as h1. Ordered-list `start` numbers are dropped
+//!   (the flat listItem has no `start` attr; export renumbers from 1). An
+//!   image wrapped in a link keeps the image, not the link. `[[wikilinks]]`
+//!   stay literal text (resolving them needs the graph).
+//! - marked HTML-escapes code-span text (`escape(text, true)`), so the TS
+//!   stores `a&lt;b` for `` `a<b` ``. That corrupts the text (the editor
+//!   shows the entity literally and it never round-trips), so the cell keeps
+//!   the code span verbatim — a deliberate divergence.
 //! - HTML content (explicit `format: "html"` or auto-detected) is parsed by
 //!   the Rust port of the TS path (prepareHtmlForTipTapImport + TipTap
 //!   generateJSON) in html_to_tiptap.rs, verified against fixtures generated
@@ -37,6 +52,12 @@
 // compile content_parse.rs standalone pull the HTML converter along with it.
 #[path = "html_to_tiptap.rs"]
 pub(crate) mod html_to_tiptap;
+
+// The canonical block vocabulary and the normaliser every JSON write path
+// runs. A child of the parser for the same reason as the HTML converter:
+// the #[path] shims compile it along with the parser.
+#[path = "block_contract.rs"]
+pub(crate) mod block_contract;
 
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -369,11 +390,17 @@ fn md_blocks(
                             FOOTNOTE_DEF_RE.is_match(src[range.clone()].trim_end());
                         let inlines = md_inlines(iter, src, &[], footnotes, TagEnd::Paragraph);
                         if !is_footnote_def {
-                            out.push(json!({"type": "paragraph", "content": inlines}));
+                            out.extend(paragraph_blocks_hoisting_images(inlines));
                         }
                     }
                     Tag::Heading { level, .. } => {
-                        let inlines = md_inlines(iter, src, &[], footnotes, TagEnd::Heading(level));
+                        let inlines = images_to_alt_text(md_inlines(
+                            iter,
+                            src,
+                            &[],
+                            footnotes,
+                            TagEnd::Heading(level),
+                        ));
                         out.push(json!({
                             "type": "heading",
                             "attrs": {"level": heading_level_number(level)},
@@ -392,9 +419,12 @@ fn md_blocks(
                         let html = collect_html(iter);
                         out.extend(html_markdown_block_to_nodes(&html));
                     }
-                    // marked emits a `table` token the TS does not handle
-                    // (it falls into the default branch and yields []).
-                    Tag::Table(_) => skip_until(iter, TagEnd::Table),
+                    // Divergence from the TS reference (marked's `table` token
+                    // is unhandled there and yields []): GFM tables become the
+                    // editor's table/tableRow/tableHeader/tableCell nodes.
+                    Tag::Table(alignments) => {
+                        out.push(md_table(iter, src, footnotes, &alignments));
+                    }
                     other => skip_until(iter, other.to_end()),
                 }
             }
@@ -493,6 +523,7 @@ fn md_list_item(
     let mut inline: Vec<Value> = Vec::new();
     let mut direct_blocks: Vec<Value> = Vec::new();
     let mut nested: Vec<Value> = Vec::new();
+    let mut trailing_blocks: Vec<Value> = Vec::new();
     let mut buf = String::new();
 
     while let Some((event, _range)) = iter.next() {
@@ -512,7 +543,13 @@ fn md_list_item(
             }
             Event::Start(Tag::Heading { level, .. }) => {
                 flush_text(&mut buf, &[], &mut inline);
-                let inlines = md_inlines(iter, src, &[], footnotes, TagEnd::Heading(level));
+                let inlines = images_to_alt_text(md_inlines(
+                    iter,
+                    src,
+                    &[],
+                    footnotes,
+                    TagEnd::Heading(level),
+                ));
                 direct_blocks.push(json!({
                     "type": "heading",
                     "attrs": {"level": heading_level_number(level)},
@@ -537,11 +574,25 @@ fn md_list_item(
                 let html = collect_html(iter);
                 direct_blocks.extend(html_markdown_block_to_nodes(&html));
             }
+            // Tables and images are not listItem content in the flat list
+            // model; they follow the item as sibling blocks (before any
+            // nested items), which is where the editor would place them.
+            Event::Start(Tag::Table(alignments)) => {
+                flush_text(&mut buf, &[], &mut inline);
+                trailing_blocks.push(md_table(iter, src, footnotes, &alignments));
+            }
             other => handle_inline_event(other, iter, src, footnotes, &[], &mut buf, &mut inline),
         }
     }
     flush_text(&mut buf, &[], &mut inline);
     let inline = split_footnote_refs(inline, footnotes);
+    let (inline, images) = take_inline_images(inline);
+    let inline = if images.is_empty() {
+        inline
+    } else {
+        trim_inline_edges(inline)
+    };
+    let mut trailing_blocks: Vec<Value> = images.into_iter().chain(trailing_blocks).collect();
 
     let paragraph = if inline.is_empty() {
         json!({"type": "paragraph"})
@@ -561,8 +612,158 @@ fn md_list_item(
     content.append(&mut direct_blocks);
 
     let mut out = vec![json!({"type": "listItem", "attrs": attrs, "content": content})];
+    out.append(&mut trailing_blocks);
     out.append(&mut nested);
     out
+}
+
+/// GFM table → TipTap `table > tableRow > (tableHeader|tableCell) >
+/// paragraph`. Column alignment rides on the cell paragraph's `textAlign`
+/// (the TextAlign extension is configured for paragraphs in both Garden's
+/// and Shrubbery's editor schemas); images inside a cell become image blocks
+/// in that cell.
+fn md_table(
+    iter: &mut MdIter,
+    src: &str,
+    footnotes: &Footnotes,
+    alignments: &[pulldown_cmark::Alignment],
+) -> Value {
+    let mut rows: Vec<Value> = Vec::new();
+    let mut cells: Vec<Value> = Vec::new();
+    let mut in_head = false;
+    while let Some((event, _)) = iter.next() {
+        match event {
+            Event::Start(Tag::TableHead) => {
+                in_head = true;
+                cells.clear();
+            }
+            Event::Start(Tag::TableRow) => cells.clear(),
+            Event::End(TagEnd::TableHead) | Event::End(TagEnd::TableRow) => {
+                rows.push(json!({"type": "tableRow", "content": std::mem::take(&mut cells)}));
+                in_head = false;
+            }
+            Event::Start(Tag::TableCell) => {
+                let column = cells.len();
+                let inlines = md_inlines(iter, src, &[], footnotes, TagEnd::TableCell);
+                let mut blocks = paragraph_blocks_hoisting_images(inlines);
+                if blocks.is_empty() {
+                    blocks.push(json!({"type": "paragraph"}));
+                }
+                let align = match alignments.get(column) {
+                    Some(pulldown_cmark::Alignment::Left) => Some("left"),
+                    Some(pulldown_cmark::Alignment::Center) => Some("center"),
+                    Some(pulldown_cmark::Alignment::Right) => Some("right"),
+                    _ => None,
+                };
+                if let Some(align) = align {
+                    for block in &mut blocks {
+                        if node_type_of(block) == "paragraph" {
+                            if let Some(obj) = block.as_object_mut() {
+                                obj.insert("attrs".into(), json!({"textAlign": align}));
+                            }
+                        }
+                    }
+                }
+                cells.push(json!({
+                    "type": if in_head { "tableHeader" } else { "tableCell" },
+                    "attrs": {"colspan": 1, "rowspan": 1, "colwidth": null},
+                    "content": blocks,
+                }));
+            }
+            Event::End(TagEnd::Table) => break,
+            _ => {}
+        }
+    }
+    json!({"type": "table", "content": rows})
+}
+
+fn is_image_node(node: &Value) -> bool {
+    node.get("type").and_then(Value::as_str) == Some("image")
+}
+
+/// Images are block nodes in the editor schema (`ImageBlock`, group
+/// `block`), while Markdown images are inline. A paragraph's inline run is
+/// split at each image: text before → paragraph, the image → image block,
+/// text after → paragraph. Whitespace-only fragments left by the split are
+/// dropped.
+fn paragraph_blocks_hoisting_images(inlines: Vec<Value>) -> Vec<Value> {
+    if !inlines.iter().any(is_image_node) {
+        return vec![json!({"type": "paragraph", "content": inlines})];
+    }
+    let mut blocks: Vec<Value> = Vec::new();
+    let mut run: Vec<Value> = Vec::new();
+    let flush = |run: &mut Vec<Value>, blocks: &mut Vec<Value>| {
+        let content = trim_inline_edges(std::mem::take(run));
+        if !content.is_empty() {
+            blocks.push(json!({"type": "paragraph", "content": content}));
+        }
+    };
+    for node in inlines {
+        if is_image_node(&node) {
+            flush(&mut run, &mut blocks);
+            blocks.push(node);
+        } else {
+            run.push(node);
+        }
+    }
+    flush(&mut run, &mut blocks);
+    blocks
+}
+
+fn take_inline_images(inlines: Vec<Value>) -> (Vec<Value>, Vec<Value>) {
+    inlines.into_iter().partition(|node| !is_image_node(node))
+}
+
+/// Headings only admit inline content, so an image there keeps the legacy
+/// behavior: its alt text.
+fn images_to_alt_text(inlines: Vec<Value>) -> Vec<Value> {
+    inlines
+        .into_iter()
+        .filter_map(|node| {
+            if !is_image_node(&node) {
+                return Some(node);
+            }
+            let alt = node
+                .pointer("/attrs/alt")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            (!alt.is_empty()).then(|| json!({"type": "text", "text": alt}))
+        })
+        .collect()
+}
+
+/// Trim whitespace at the start of the first and the end of the last
+/// unmarked text node, dropping nodes that become empty. Only used where an
+/// image split left a softbreak/space dangling at a fragment edge.
+fn trim_inline_edges(mut inlines: Vec<Value>) -> Vec<Value> {
+    fn trim(node: &mut Value, start: bool) -> bool {
+        if node.get("type").and_then(Value::as_str) != Some("text") || node.get("marks").is_some() {
+            return true;
+        }
+        let text = node.get("text").and_then(Value::as_str).unwrap_or_default();
+        let trimmed = if start {
+            text.trim_start()
+        } else {
+            text.trim_end()
+        }
+        .to_string();
+        let keep = !trimmed.is_empty();
+        node["text"] = json!(trimmed);
+        keep
+    }
+    while let Some(first) = inlines.first_mut() {
+        if trim(first, true) {
+            break;
+        }
+        inlines.remove(0);
+    }
+    while let Some(last) = inlines.last_mut() {
+        if trim(last, false) {
+            break;
+        }
+        inlines.pop();
+    }
+    inlines
 }
 
 fn md_inlines(
@@ -606,7 +807,7 @@ fn handle_inline_event(
             flush_text(buf, marks, out);
             let mut next = marks.to_vec();
             next.push(json!({"type": "code"}));
-            push_text_node(out, &escape_marked_codespan(&text), &next);
+            push_text_node(out, &text, &next);
         }
         Event::InlineHtml(html) | Event::Html(html) => {
             // TS: inline html tokens become markup-stripped text nodes.
@@ -646,13 +847,24 @@ fn handle_inline_event(
                     let next = with_mark(marks, "link", Some(attrs));
                     out.extend(md_inlines(iter, src, &next, footnotes, end));
                 }
-                Tag::Image { .. } => {
-                    // TS default branch: image token → its alt text.
+                Tag::Image {
+                    dest_url, title, ..
+                } => {
+                    // Divergence from the TS reference (image token → alt
+                    // text): emit an `image` node. It is inline here and is
+                    // hoisted to a block by the enclosing block context
+                    // (paragraph/list item/table cell), or reduced back to
+                    // its alt text where only inline content is allowed.
                     flush_text(buf, marks, out);
                     let alt = collect_image_alt(iter);
-                    if !alt.is_empty() {
-                        push_text_node(out, &alt, marks);
-                    }
+                    out.push(json!({
+                        "type": "image",
+                        "attrs": {
+                            "src": dest_url.as_ref(),
+                            "alt": alt,
+                            "title": if title.is_empty() { Value::Null } else { json!(title.as_ref()) },
+                        },
+                    }));
                 }
                 other => skip_until(iter, other.to_end()),
             }
@@ -735,23 +947,6 @@ fn split_footnote_refs(nodes: Vec<Value>, footnotes: &Footnotes) -> Vec<Value> {
             cursor = whole.end();
         }
         push_segment(&text[cursor..], &mut out);
-    }
-    out
-}
-
-/// marked escapes code-span text in its tokenizer (`escape(text, true)`);
-/// replicated so inline code matches the TS output byte-for-byte.
-fn escape_marked_codespan(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    for c in text.chars() {
-        match c {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '"' => out.push_str("&quot;"),
-            '\'' => out.push_str("&#39;"),
-            other => out.push(other),
-        }
     }
     out
 }
@@ -1081,16 +1276,8 @@ fn coerce_xml_attr_value(key: &str, value: &str) -> Value {
 // normalizeImportedTipTapJson — flat list model + block ids
 // ---------------------------------------------------------------------------
 
-const BLOCK_ID_TYPES: &[&str] = &[
-    "paragraph",
-    "heading",
-    "listItem",
-    "blockquote",
-    "codeBlock",
-    "horizontalRule",
-    "image",
-    "mathBlock",
-];
+/// The node types whose block id gardend mints: owned by the block contract.
+const BLOCK_ID_TYPES: &[&str] = block_contract::MINTED_BLOCK_IDS;
 const LIST_CONTAINERS: &[&str] = &["bulletList", "orderedList", "taskList"];
 const LIST_ITEM_BLOCKS: &[&str] = &["paragraph", "heading", "codeBlock", "blockquote"];
 

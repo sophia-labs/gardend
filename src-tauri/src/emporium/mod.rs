@@ -21,6 +21,7 @@ pub(crate) mod chamber;
 pub(crate) mod chamber_ontology;
 pub(crate) mod class_dispatch;
 pub(crate) mod content;
+pub(crate) mod folder_views;
 pub(crate) mod contract;
 #[cfg(test)]
 mod domain_kit_tests;

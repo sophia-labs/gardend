@@ -27,6 +27,11 @@ pub(crate) const LOCAL_JOB_INLINE_RESULT_MAX_BYTES: usize = 256 * 1024;
 pub(crate) const LOCAL_UPLOAD_MAX_BYTES: usize = 500 * 1024 * 1024;
 pub(crate) const LOCAL_UPLOAD_REQUEST_MAX_BYTES: usize = LOCAL_UPLOAD_MAX_BYTES + 16 * 1024 * 1024;
 pub(crate) const LOCAL_IMAGE_UPLOAD_MAX_BYTES: usize = 10 * 1024 * 1024;
+/// Per-file cap for the Files rudiments (Vera, 2026-10-05: "a per-file upload
+/// cap of 50 MB"), read as 50 MiB = 52,428,800 bytes: exactly this many bytes
+/// is accepted, one more is refused. Enforced on every file-byte ingress the
+/// Files contract names, in every mode, and on the parsing upload in cell mode.
+pub(crate) const FILES_MAX_UPLOAD_BYTES: usize = 50 * 1024 * 1024;
 pub(crate) const LOCAL_WEB_CLIP_MAX_BYTES: usize = 10 * 1024 * 1024;
 pub(crate) const LOCAL_OPENAPI_JSON: &str = include_str!("../../parity/local-openapi.json");
 pub(crate) const GRAPH_STATUS_ACTIVE: &str = "active";

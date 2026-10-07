@@ -1,0 +1,1075 @@
+{
+  "source": "shrubbery-private 9eece44 packages/editor-kernel kernelExtensions({collaborative:true})",
+  "topNode": "doc",
+  "nodes": [
+    {
+      "name": "paragraph",
+      "group": "block",
+      "content": "inline*",
+      "marks": null,
+      "inline": false,
+      "atom": false,
+      "attrs": {
+        "collapsed": {
+          "default": false,
+          "required": false
+        },
+        "data-block-id": {
+          "default": null,
+          "required": false
+        },
+        "data-pdf-anchor": {
+          "default": null,
+          "required": false
+        },
+        "data-pdf-page": {
+          "default": null,
+          "required": false
+        },
+        "data-pdf-role": {
+          "default": null,
+          "required": false
+        },
+        "data-source-approach": {
+          "default": null,
+          "required": false
+        },
+        "data-source-format": {
+          "default": null,
+          "required": false
+        },
+        "data-source-id": {
+          "default": null,
+          "required": false
+        },
+        "data-source-page": {
+          "default": null,
+          "required": false
+        },
+        "data-source-role": {
+          "default": null,
+          "required": false
+        },
+        "data-tag-expirations": {
+          "default": null,
+          "required": false
+        },
+        "data-tags": {
+          "default": null,
+          "required": false
+        },
+        "indent": {
+          "default": 0,
+          "required": false
+        },
+        "textAlign": {
+          "default": null,
+          "required": false
+        }
+      }
+    },
+    {
+      "name": "blockquote",
+      "group": "block",
+      "content": "block+",
+      "marks": null,
+      "inline": false,
+      "atom": false,
+      "attrs": {
+        "collapsed": {
+          "default": false,
+          "required": false
+        },
+        "data-block-id": {
+          "default": null,
+          "required": false
+        },
+        "data-pdf-anchor": {
+          "default": null,
+          "required": false
+        },
+        "data-pdf-page": {
+          "default": null,
+          "required": false
+        },
+        "data-pdf-role": {
+          "default": null,
+          "required": false
+        },
+        "data-source-approach": {
+          "default": null,
+          "required": false
+        },
+        "data-source-format": {
+          "default": null,
+          "required": false
+        },
+        "data-source-id": {
+          "default": null,
+          "required": false
+        },
+        "data-source-page": {
+          "default": null,
+          "required": false
+        },
+        "data-source-role": {
+          "default": null,
+          "required": false
+        },
+        "data-tag-expirations": {
+          "default": null,
+          "required": false
+        },
+        "data-tags": {
+          "default": null,
+          "required": false
+        },
+        "indent": {
+          "default": 0,
+          "required": false
+        }
+      }
+    },
+    {
+      "name": "doc",
+      "group": null,
+      "content": "block+",
+      "marks": null,
+      "inline": false,
+      "atom": false,
+      "attrs": {}
+    },
+    {
+      "name": "hardBreak",
+      "group": "inline",
+      "content": null,
+      "marks": null,
+      "inline": true,
+      "atom": false,
+      "attrs": {}
+    },
+    {
+      "name": "heading",
+      "group": "block",
+      "content": "inline*",
+      "marks": null,
+      "inline": false,
+      "atom": false,
+      "attrs": {
+        "collapsed": {
+          "default": false,
+          "required": false
+        },
+        "data-block-id": {
+          "default": null,
+          "required": false
+        },
+        "data-pdf-anchor": {
+          "default": null,
+          "required": false
+        },
+        "data-pdf-page": {
+          "default": null,
+          "required": false
+        },
+        "data-pdf-role": {
+          "default": null,
+          "required": false
+        },
+        "data-source-approach": {
+          "default": null,
+          "required": false
+        },
+        "data-source-format": {
+          "default": null,
+          "required": false
+        },
+        "data-source-id": {
+          "default": null,
+          "required": false
+        },
+        "data-source-page": {
+          "default": null,
+          "required": false
+        },
+        "data-source-role": {
+          "default": null,
+          "required": false
+        },
+        "data-tag-expirations": {
+          "default": null,
+          "required": false
+        },
+        "data-tags": {
+          "default": null,
+          "required": false
+        },
+        "indent": {
+          "default": 0,
+          "required": false
+        },
+        "level": {
+          "default": 1,
+          "required": false
+        },
+        "textAlign": {
+          "default": null,
+          "required": false
+        }
+      }
+    },
+    {
+      "name": "horizontalRule",
+      "group": "block",
+      "content": null,
+      "marks": null,
+      "inline": false,
+      "atom": false,
+      "attrs": {
+        "data-block-id": {
+          "default": null,
+          "required": false
+        },
+        "data-pdf-anchor": {
+          "default": null,
+          "required": false
+        },
+        "data-pdf-page": {
+          "default": null,
+          "required": false
+        },
+        "data-pdf-role": {
+          "default": null,
+          "required": false
+        },
+        "data-source-approach": {
+          "default": null,
+          "required": false
+        },
+        "data-source-format": {
+          "default": null,
+          "required": false
+        },
+        "data-source-id": {
+          "default": null,
+          "required": false
+        },
+        "data-source-page": {
+          "default": null,
+          "required": false
+        },
+        "data-source-role": {
+          "default": null,
+          "required": false
+        },
+        "data-tag-expirations": {
+          "default": null,
+          "required": false
+        },
+        "data-tags": {
+          "default": null,
+          "required": false
+        }
+      }
+    },
+    {
+      "name": "text",
+      "group": "inline",
+      "content": null,
+      "marks": null,
+      "inline": false,
+      "atom": false,
+      "attrs": {}
+    },
+    {
+      "name": "codeBlock",
+      "group": "block",
+      "content": "text*",
+      "marks": "",
+      "inline": false,
+      "atom": false,
+      "attrs": {
+        "data-block-id": {
+          "default": null,
+          "required": false
+        },
+        "data-pdf-anchor": {
+          "default": null,
+          "required": false
+        },
+        "data-pdf-page": {
+          "default": null,
+          "required": false
+        },
+        "data-pdf-role": {
+          "default": null,
+          "required": false
+        },
+        "data-source-approach": {
+          "default": null,
+          "required": false
+        },
+        "data-source-format": {
+          "default": null,
+          "required": false
+        },
+        "data-source-id": {
+          "default": null,
+          "required": false
+        },
+        "data-source-page": {
+          "default": null,
+          "required": false
+        },
+        "data-source-role": {
+          "default": null,
+          "required": false
+        },
+        "data-tag-expirations": {
+          "default": null,
+          "required": false
+        },
+        "data-tags": {
+          "default": null,
+          "required": false
+        },
+        "language": {
+          "default": null,
+          "required": false
+        }
+      }
+    },
+    {
+      "name": "table",
+      "group": "block",
+      "content": "tableRow+",
+      "marks": null,
+      "inline": false,
+      "atom": false,
+      "attrs": {
+        "collapsed": {
+          "default": false,
+          "required": false
+        },
+        "data-pdf-anchor": {
+          "default": null,
+          "required": false
+        },
+        "data-pdf-page": {
+          "default": null,
+          "required": false
+        },
+        "data-pdf-role": {
+          "default": null,
+          "required": false
+        },
+        "data-source-approach": {
+          "default": null,
+          "required": false
+        },
+        "data-source-format": {
+          "default": null,
+          "required": false
+        },
+        "data-source-id": {
+          "default": null,
+          "required": false
+        },
+        "data-source-page": {
+          "default": null,
+          "required": false
+        },
+        "data-source-role": {
+          "default": null,
+          "required": false
+        },
+        "indent": {
+          "default": 0,
+          "required": false
+        }
+      }
+    },
+    {
+      "name": "tableRow",
+      "group": null,
+      "content": "(tableCell | tableHeader)*",
+      "marks": null,
+      "inline": false,
+      "atom": false,
+      "attrs": {
+        "data-pdf-anchor": {
+          "default": null,
+          "required": false
+        },
+        "data-pdf-page": {
+          "default": null,
+          "required": false
+        },
+        "data-pdf-role": {
+          "default": null,
+          "required": false
+        },
+        "data-source-approach": {
+          "default": null,
+          "required": false
+        },
+        "data-source-format": {
+          "default": null,
+          "required": false
+        },
+        "data-source-id": {
+          "default": null,
+          "required": false
+        },
+        "data-source-page": {
+          "default": null,
+          "required": false
+        },
+        "data-source-role": {
+          "default": null,
+          "required": false
+        }
+      }
+    },
+    {
+      "name": "tableHeader",
+      "group": null,
+      "content": "block+",
+      "marks": null,
+      "inline": false,
+      "atom": false,
+      "attrs": {
+        "align": {
+          "default": null,
+          "required": false
+        },
+        "colspan": {
+          "default": 1,
+          "required": false
+        },
+        "colwidth": {
+          "default": null,
+          "required": false
+        },
+        "data-block-id": {
+          "default": null,
+          "required": false
+        },
+        "data-pdf-anchor": {
+          "default": null,
+          "required": false
+        },
+        "data-pdf-page": {
+          "default": null,
+          "required": false
+        },
+        "data-pdf-role": {
+          "default": null,
+          "required": false
+        },
+        "data-source-approach": {
+          "default": null,
+          "required": false
+        },
+        "data-source-format": {
+          "default": null,
+          "required": false
+        },
+        "data-source-id": {
+          "default": null,
+          "required": false
+        },
+        "data-source-page": {
+          "default": null,
+          "required": false
+        },
+        "data-source-role": {
+          "default": null,
+          "required": false
+        },
+        "rowspan": {
+          "default": 1,
+          "required": false
+        }
+      }
+    },
+    {
+      "name": "tableCell",
+      "group": null,
+      "content": "block+",
+      "marks": null,
+      "inline": false,
+      "atom": false,
+      "attrs": {
+        "align": {
+          "default": null,
+          "required": false
+        },
+        "colspan": {
+          "default": 1,
+          "required": false
+        },
+        "colwidth": {
+          "default": null,
+          "required": false
+        },
+        "data-block-id": {
+          "default": null,
+          "required": false
+        },
+        "data-pdf-anchor": {
+          "default": null,
+          "required": false
+        },
+        "data-pdf-page": {
+          "default": null,
+          "required": false
+        },
+        "data-pdf-role": {
+          "default": null,
+          "required": false
+        },
+        "data-source-approach": {
+          "default": null,
+          "required": false
+        },
+        "data-source-format": {
+          "default": null,
+          "required": false
+        },
+        "data-source-id": {
+          "default": null,
+          "required": false
+        },
+        "data-source-page": {
+          "default": null,
+          "required": false
+        },
+        "data-source-role": {
+          "default": null,
+          "required": false
+        },
+        "rowspan": {
+          "default": 1,
+          "required": false
+        }
+      }
+    },
+    {
+      "name": "listItem",
+      "group": "block",
+      "content": "(paragraph | heading | codeBlock | blockquote)+",
+      "marks": null,
+      "inline": false,
+      "atom": false,
+      "attrs": {
+        "checked": {
+          "default": false,
+          "required": false
+        },
+        "collapsed": {
+          "default": false,
+          "required": false
+        },
+        "data-block-id": {
+          "default": null,
+          "required": false
+        },
+        "data-pdf-anchor": {
+          "default": null,
+          "required": false
+        },
+        "data-pdf-page": {
+          "default": null,
+          "required": false
+        },
+        "data-pdf-role": {
+          "default": null,
+          "required": false
+        },
+        "data-source-approach": {
+          "default": null,
+          "required": false
+        },
+        "data-source-format": {
+          "default": null,
+          "required": false
+        },
+        "data-source-id": {
+          "default": null,
+          "required": false
+        },
+        "data-source-page": {
+          "default": null,
+          "required": false
+        },
+        "data-source-role": {
+          "default": null,
+          "required": false
+        },
+        "data-tag-expirations": {
+          "default": null,
+          "required": false
+        },
+        "data-tags": {
+          "default": null,
+          "required": false
+        },
+        "indent": {
+          "default": 0,
+          "required": false
+        },
+        "listType": {
+          "default": "bullet",
+          "required": false
+        }
+      }
+    },
+    {
+      "name": "footnote",
+      "group": "inline",
+      "content": null,
+      "marks": null,
+      "inline": true,
+      "atom": true,
+      "attrs": {
+        "content": {
+          "default": "",
+          "required": false
+        }
+      }
+    },
+    {
+      "name": "image",
+      "group": "block",
+      "content": null,
+      "marks": null,
+      "inline": false,
+      "atom": true,
+      "attrs": {
+        "alt": {
+          "default": "",
+          "required": false
+        },
+        "data-block-id": {
+          "default": null,
+          "required": false
+        },
+        "data-pdf-anchor": {
+          "default": null,
+          "required": false
+        },
+        "data-pdf-page": {
+          "default": null,
+          "required": false
+        },
+        "data-pdf-role": {
+          "default": null,
+          "required": false
+        },
+        "data-source-approach": {
+          "default": null,
+          "required": false
+        },
+        "data-source-format": {
+          "default": null,
+          "required": false
+        },
+        "data-source-id": {
+          "default": null,
+          "required": false
+        },
+        "data-source-page": {
+          "default": null,
+          "required": false
+        },
+        "data-source-role": {
+          "default": null,
+          "required": false
+        },
+        "data-tag-expirations": {
+          "default": null,
+          "required": false
+        },
+        "data-tags": {
+          "default": null,
+          "required": false
+        },
+        "size": {
+          "default": "large",
+          "required": false
+        },
+        "src": {
+          "default": null,
+          "required": false
+        },
+        "title": {
+          "default": null,
+          "required": false
+        }
+      }
+    },
+    {
+      "name": "calendarEvent",
+      "group": "block",
+      "content": null,
+      "marks": null,
+      "inline": false,
+      "atom": true,
+      "attrs": {
+        "allDay": {
+          "default": true,
+          "required": false
+        },
+        "annotation": {
+          "default": "",
+          "required": false
+        },
+        "externalEventId": {
+          "default": null,
+          "required": false
+        },
+        "id": {
+          "default": "",
+          "required": false
+        },
+        "location": {
+          "default": "",
+          "required": false
+        },
+        "source": {
+          "default": "manual",
+          "required": false
+        },
+        "timeEnd": {
+          "default": null,
+          "required": false
+        },
+        "timeStart": {
+          "default": null,
+          "required": false
+        },
+        "title": {
+          "default": "",
+          "required": false
+        }
+      }
+    },
+    {
+      "name": "queryBlock",
+      "group": "block",
+      "content": null,
+      "marks": null,
+      "inline": false,
+      "atom": true,
+      "attrs": {
+        "collapsed": {
+          "default": false,
+          "required": false
+        },
+        "comment": {
+          "default": "",
+          "required": false
+        },
+        "data-block-id": {
+          "default": null,
+          "required": false
+        },
+        "displayMode": {
+          "default": "auto",
+          "required": false
+        },
+        "maxRows": {
+          "default": 100,
+          "required": false
+        },
+        "query": {
+          "default": "SELECT ?s ?p ?o WHERE {\n  ?s ?p ?o .\n}\nLIMIT 25",
+          "required": false
+        },
+        "vegaLiteSpec": {
+          "default": "",
+          "required": false
+        },
+        "visualization": {
+          "default": "table",
+          "required": false
+        }
+      }
+    },
+    {
+      "name": "mathInline",
+      "group": "inline",
+      "content": null,
+      "marks": null,
+      "inline": true,
+      "atom": true,
+      "attrs": {
+        "src": {
+          "default": "",
+          "required": false
+        }
+      }
+    },
+    {
+      "name": "mathBlock",
+      "group": "block",
+      "content": null,
+      "marks": null,
+      "inline": false,
+      "atom": true,
+      "attrs": {
+        "data-block-id": {
+          "default": null,
+          "required": false
+        },
+        "data-pdf-anchor": {
+          "default": null,
+          "required": false
+        },
+        "data-pdf-page": {
+          "default": null,
+          "required": false
+        },
+        "data-pdf-role": {
+          "default": null,
+          "required": false
+        },
+        "data-source-approach": {
+          "default": null,
+          "required": false
+        },
+        "data-source-format": {
+          "default": null,
+          "required": false
+        },
+        "data-source-id": {
+          "default": null,
+          "required": false
+        },
+        "data-source-page": {
+          "default": null,
+          "required": false
+        },
+        "data-source-role": {
+          "default": null,
+          "required": false
+        },
+        "data-tag-expirations": {
+          "default": null,
+          "required": false
+        },
+        "data-tags": {
+          "default": null,
+          "required": false
+        },
+        "src": {
+          "default": "",
+          "required": false
+        }
+      }
+    },
+    {
+      "name": "wikilink",
+      "group": "inline",
+      "content": null,
+      "marks": null,
+      "inline": true,
+      "atom": true,
+      "attrs": {
+        "blockPreview": {
+          "default": null,
+          "required": false
+        },
+        "label": {
+          "default": "Untitled",
+          "required": false
+        },
+        "targetBlockId": {
+          "default": null,
+          "required": false
+        },
+        "targetDocId": {
+          "default": null,
+          "required": false
+        },
+        "targetGraphId": {
+          "default": null,
+          "required": false
+        },
+        "wireId": {
+          "default": null,
+          "required": false
+        }
+      }
+    },
+    {
+      "name": "citation",
+      "group": "inline",
+      "content": null,
+      "marks": null,
+      "inline": true,
+      "atom": true,
+      "attrs": {
+        "artifactId": {
+          "default": "",
+          "required": false
+        },
+        "citation": {
+          "default": "",
+          "required": false
+        },
+        "zoteroKey": {
+          "default": "",
+          "required": false
+        }
+      }
+    },
+    {
+      "name": "tagChip",
+      "group": "inline",
+      "content": null,
+      "marks": null,
+      "inline": true,
+      "atom": true,
+      "attrs": {
+        "date": {
+          "default": null,
+          "required": false
+        },
+        "name": {
+          "default": "",
+          "required": false
+        }
+      }
+    },
+    {
+      "name": "unsupportedBlock",
+      "group": "block",
+      "content": null,
+      "marks": null,
+      "inline": false,
+      "atom": true,
+      "attrs": {
+        "nodeName": {
+          "default": "",
+          "required": false
+        },
+        "text": {
+          "default": "",
+          "required": false
+        },
+        "yToken": {
+          "default": null,
+          "required": false
+        }
+      }
+    }
+  ],
+  "marks": [
+    {
+      "name": "link",
+      "excludes": null,
+      "inclusive": true,
+      "attrs": {
+        "class": {
+          "default": null,
+          "required": false
+        },
+        "href": {
+          "default": null,
+          "required": false
+        },
+        "rel": {
+          "default": "noopener noreferrer nofollow",
+          "required": false
+        },
+        "target": {
+          "default": "_blank",
+          "required": false
+        },
+        "title": {
+          "default": null,
+          "required": false
+        }
+      }
+    },
+    {
+      "name": "textStyle",
+      "excludes": null,
+      "inclusive": null,
+      "attrs": {
+        "fontFamily": {
+          "default": null,
+          "required": false
+        },
+        "fontSize": {
+          "default": null,
+          "required": false
+        }
+      }
+    },
+    {
+      "name": "bold",
+      "excludes": null,
+      "inclusive": null,
+      "attrs": {}
+    },
+    {
+      "name": "code",
+      "excludes": "_",
+      "inclusive": null,
+      "attrs": {}
+    },
+    {
+      "name": "italic",
+      "excludes": null,
+      "inclusive": null,
+      "attrs": {}
+    },
+    {
+      "name": "strike",
+      "excludes": null,
+      "inclusive": null,
+      "attrs": {}
+    },
+    {
+      "name": "underline",
+      "excludes": null,
+      "inclusive": null,
+      "attrs": {}
+    },
+    {
+      "name": "highlight",
+      "excludes": null,
+      "inclusive": null,
+      "attrs": {}
+    },
+    {
+      "name": "commentMark",
+      "excludes": null,
+      "inclusive": false,
+      "attrs": {
+        "commentId": {
+          "default": null,
+          "required": false
+        }
+      }
+    },
+    {
+      "name": "unsupportedMark",
+      "excludes": "",
+      "inclusive": false,
+      "attrs": {
+        "name": {
+          "default": "",
+          "required": false
+        },
+        "value": {
+          "default": null,
+          "required": false
+        }
+      }
+    }
+  ]
+}

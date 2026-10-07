@@ -210,7 +210,7 @@ mod tests {
         // The catalog serves every registered pack off the table-driven
         // `all_contracts()` — a registry ROW lights up the MCP surface with no
         // further wiring.
-        assert_eq!(vocabularies.len(), 23);
+        assert_eq!(vocabularies.len(), 24);
         let names: Vec<&str> = vocabularies
             .iter()
             .filter_map(|v| v.get("name").and_then(Value::as_str))
@@ -236,6 +236,7 @@ mod tests {
         assert!(names.contains(&"sophia-domain-dashboard"));
         assert!(names.contains(&"shrubbery-site"));
         assert!(names.contains(&"flow"));
+        assert!(names.contains(&"garden-file-views"));
         let wf = vocabularies
             .iter()
             .find(|v| v.get("name").and_then(Value::as_str) == Some("workflow"))

@@ -13,11 +13,12 @@ use crate::{
         loopback_hosted_navigation_artifacts, loopback_hosted_navigation_folder,
         loopback_hosted_navigation_folders, loopback_hosted_navigation_job_result,
     },
+    loopback_files_routes::{loopback_files_patch, loopback_files_trash},
     loopback_state::LoopbackState,
-    original_file_service::{delete_artifact_original_files, save_artifact_original_file},
+    original_file_service::save_artifact_original_file,
 };
 use axum::{
-    extract::{Path as AxumPath, State},
+    extract::{DefaultBodyLimit, Path as AxumPath, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::get,
@@ -50,7 +51,13 @@ pub(super) fn loopback_navigation_router() -> Router<Arc<LoopbackState>> {
             "/navigation/{graph_id}/artifacts/{artifact_id}",
             get(loopback_hosted_navigation_artifact)
                 .put(loopback_hosted_put_navigation_artifact)
-                .delete(loopback_hosted_delete_navigation_artifact),
+                .patch(loopback_files_patch)
+                .delete(loopback_hosted_delete_navigation_artifact)
+                // A PUT may carry one file as base64: bound the body to the
+                // encoded Files cap instead of the 516 MiB router default.
+                .layer(DefaultBodyLimit::max(
+                    crate::files_service::base64_route_body_limit(),
+                )),
         )
 }
 
@@ -141,6 +148,11 @@ pub(super) async fn loopback_hosted_put_navigation_artifact(
     }
     let (mut input, original_upload) = normalize_navigation_artifact_payload(input, &artifact_id);
     if let Some(original_upload) = original_upload {
+        if let Err(refusal) =
+            crate::files_service::refuse_oversized_base64(&original_upload.data_base64)
+        {
+            return refusal.into_response();
+        }
         match save_artifact_original_file(
             &state.app,
             &graph_id,
@@ -181,35 +193,9 @@ pub(super) async fn loopback_hosted_delete_navigation_artifact(
     headers: HeaderMap,
     AxumPath((graph_id, artifact_id)): AxumPath<(String, String)>,
 ) -> Response {
-    if let Err(response) = require_loopback_scopes(
-        &headers,
-        &state,
-        &["workspace.delete.crdt", "artifacts.delete"],
-    ) {
-        return response;
-    }
-    match enqueue_crdt_operation_outcome(
-        state.app.clone(),
-        EnqueueCrdtOperationInput {
-            kind: "workspace.deleteArtifact".to_string(),
-            graph_id: graph_id.clone(),
-            document_id: Some(artifact_id.clone()),
-            payload: serde_json::json!({ "artifactId": artifact_id.clone() }),
-        },
-    )
-    .await
-    {
-        Ok(outcome) => {
-            if let Err(error) = flush_graph_projection(state.app.clone(), &graph_id).await {
-                return loopback_error(StatusCode::BAD_REQUEST, &error);
-            }
-            if let Err(error) = delete_artifact_original_files(&state.app, &graph_id, &artifact_id)
-            {
-                return loopback_error(StatusCode::BAD_REQUEST, error.message_ref());
-            }
-            Json(outcome.value).into_response()
-        }
-        Err(error) if error.contains("not found") => loopback_error(StatusCode::NOT_FOUND, &error),
-        Err(error) => loopback_error(StatusCode::BAD_REQUEST, &error),
-    }
+    // Files rudiments (2026-10-05): delete is recoverable. The file leaves the
+    // workspace and keeps its bytes and entry in the trash until a purge
+    // (`DELETE /navigation/{graph_id}/trash/{artifact_id}`). This route used
+    // to remove the bytes for good.
+    loopback_files_trash(state, headers, graph_id, artifact_id).await
 }

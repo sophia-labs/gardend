@@ -1,0 +1,1132 @@
+[
+ {
+  "id": "n-bulletlist",
+  "title": "bulletList nested (senderos shape)",
+  "via": "write_document",
+  "body": {
+   "tiptapJson": {
+    "type": "doc",
+    "content": [
+     {
+      "type": "paragraph",
+      "attrs": {
+       "data-block-id": "anchor"
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "Anchor paragraph stays."
+       }
+      ]
+     },
+     {
+      "type": "bulletList",
+      "attrs": {
+       "data-block-id": "b1"
+      },
+      "content": [
+       {
+        "type": "listItem",
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "BULLET-A"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "listItem",
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "BULLET-B"
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ {
+  "id": "n-orderedlist",
+  "title": "orderedList nested",
+  "via": "write_document",
+  "body": {
+   "tiptapJson": {
+    "type": "doc",
+    "content": [
+     {
+      "type": "paragraph",
+      "attrs": {
+       "data-block-id": "anchor"
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "Anchor paragraph stays."
+       }
+      ]
+     },
+     {
+      "type": "orderedList",
+      "attrs": {
+       "data-block-id": "o1"
+      },
+      "content": [
+       {
+        "type": "listItem",
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "ORDERED-A"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "listItem",
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "ORDERED-B"
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ {
+  "id": "n-tasklist",
+  "title": "taskList/taskItem",
+  "via": "write_document",
+  "body": {
+   "tiptapJson": {
+    "type": "doc",
+    "content": [
+     {
+      "type": "paragraph",
+      "attrs": {
+       "data-block-id": "anchor"
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "Anchor paragraph stays."
+       }
+      ]
+     },
+     {
+      "type": "taskList",
+      "attrs": {
+       "data-block-id": "t1"
+      },
+      "content": [
+       {
+        "type": "taskItem",
+        "attrs": {
+         "checked": true
+        },
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "TASK-A"
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ {
+  "id": "n-flat-listitem",
+  "title": "flat listItem (web-native)",
+  "via": "write_document",
+  "body": {
+   "tiptapJson": {
+    "type": "doc",
+    "content": [
+     {
+      "type": "paragraph",
+      "attrs": {
+       "data-block-id": "anchor"
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "Anchor paragraph stays."
+       }
+      ]
+     },
+     {
+      "type": "listItem",
+      "attrs": {
+       "data-block-id": "l1",
+       "listType": "bullet",
+       "indent": 0
+      },
+      "content": [
+       {
+        "type": "paragraph",
+        "content": [
+         {
+          "type": "text",
+          "text": "FLAT-A"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ {
+  "id": "n-listitem-nested-list",
+  "title": "flat listItem containing bulletList",
+  "via": "write_document",
+  "body": {
+   "tiptapJson": {
+    "type": "doc",
+    "content": [
+     {
+      "type": "paragraph",
+      "attrs": {
+       "data-block-id": "anchor"
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "Anchor paragraph stays."
+       }
+      ]
+     },
+     {
+      "type": "listItem",
+      "attrs": {
+       "data-block-id": "l2",
+       "listType": "bullet",
+       "indent": 0
+      },
+      "content": [
+       {
+        "type": "paragraph",
+        "content": [
+         {
+          "type": "text",
+          "text": "OUTER"
+         }
+        ]
+       },
+       {
+        "type": "bulletList",
+        "content": [
+         {
+          "type": "listItem",
+          "content": [
+           {
+            "type": "paragraph",
+            "content": [
+             {
+              "type": "text",
+              "text": "INNER-NESTED"
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ {
+  "id": "n-table",
+  "title": "table (no ids)",
+  "via": "write_document",
+  "body": {
+   "tiptapJson": {
+    "type": "doc",
+    "content": [
+     {
+      "type": "paragraph",
+      "attrs": {
+       "data-block-id": "anchor"
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "Anchor paragraph stays."
+       }
+      ]
+     },
+     {
+      "type": "table",
+      "content": [
+       {
+        "type": "tableRow",
+        "content": [
+         {
+          "type": "tableHeader",
+          "content": [
+           {
+            "type": "paragraph",
+            "content": [
+             {
+              "type": "text",
+              "text": "TH-A"
+             }
+            ]
+           }
+          ]
+         },
+         {
+          "type": "tableHeader",
+          "content": [
+           {
+            "type": "paragraph",
+            "content": [
+             {
+              "type": "text",
+              "text": "TH-B"
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableRow",
+        "content": [
+         {
+          "type": "tableCell",
+          "content": [
+           {
+            "type": "paragraph",
+            "content": [
+             {
+              "type": "text",
+              "text": "TD-A"
+             }
+            ]
+           }
+          ]
+         },
+         {
+          "type": "tableCell",
+          "content": [
+           {
+            "type": "paragraph",
+            "content": [
+             {
+              "type": "text",
+              "text": "TD-B"
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ {
+  "id": "n-image-block",
+  "title": "image block",
+  "via": "write_document",
+  "body": {
+   "tiptapJson": {
+    "type": "doc",
+    "content": [
+     {
+      "type": "paragraph",
+      "attrs": {
+       "data-block-id": "anchor"
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "Anchor paragraph stays."
+       }
+      ]
+     },
+     {
+      "type": "image",
+      "attrs": {
+       "data-block-id": "i1",
+       "src": "https://example.org/x.png",
+       "alt": "IMAGE-ALT"
+      }
+     }
+    ]
+   }
+  }
+ },
+ {
+  "id": "n-image-inline",
+  "title": "image inline inside paragraph",
+  "via": "write_document",
+  "body": {
+   "tiptapJson": {
+    "type": "doc",
+    "content": [
+     {
+      "type": "paragraph",
+      "attrs": {
+       "data-block-id": "anchor"
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "Anchor paragraph stays."
+       }
+      ]
+     },
+     {
+      "type": "paragraph",
+      "attrs": {
+       "data-block-id": "pi"
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "INLINE-IMG-BEFORE "
+       },
+       {
+        "type": "image",
+        "attrs": {
+         "src": "https://example.org/y.png",
+         "alt": "INLINE-ALT"
+        }
+       },
+       {
+        "type": "text",
+        "text": " AFTER"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ {
+  "id": "n-footnote",
+  "title": "footnote inline atom",
+  "via": "write_document",
+  "body": {
+   "tiptapJson": {
+    "type": "doc",
+    "content": [
+     {
+      "type": "paragraph",
+      "attrs": {
+       "data-block-id": "anchor"
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "Anchor paragraph stays."
+       }
+      ]
+     },
+     {
+      "type": "paragraph",
+      "attrs": {
+       "data-block-id": "pf"
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "FOOTNOTE-HOST"
+       },
+       {
+        "type": "footnote",
+        "attrs": {
+         "content": "FOOTNOTE-BODY"
+        }
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ {
+  "id": "n-footnote-ref",
+  "title": "footnoteReference + footnotes (tiptap-footnotes shape)",
+  "via": "write_document",
+  "body": {
+   "tiptapJson": {
+    "type": "doc",
+    "content": [
+     {
+      "type": "paragraph",
+      "attrs": {
+       "data-block-id": "anchor"
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "Anchor paragraph stays."
+       }
+      ]
+     },
+     {
+      "type": "paragraph",
+      "attrs": {
+       "data-block-id": "pfr"
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "FNREF-HOST"
+       },
+       {
+        "type": "footnoteReference",
+        "attrs": {
+         "referenceNumber": "1",
+         "data-id": "fn1"
+        }
+       }
+      ]
+     },
+     {
+      "type": "footnotes",
+      "content": [
+       {
+        "type": "footnote",
+        "attrs": {
+         "id": "fn:1",
+         "data-id": "fn1"
+        },
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "FNLIST-BODY"
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ {
+  "id": "n-heading-h5",
+  "title": "heading level 5",
+  "via": "write_document",
+  "body": {
+   "tiptapJson": {
+    "type": "doc",
+    "content": [
+     {
+      "type": "paragraph",
+      "attrs": {
+       "data-block-id": "anchor"
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "Anchor paragraph stays."
+       }
+      ]
+     },
+     {
+      "type": "heading",
+      "attrs": {
+       "data-block-id": "h5",
+       "level": 5
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "HEADING-FIVE"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ {
+  "id": "n-details",
+  "title": "details/summary (unknown custom block)",
+  "via": "write_document",
+  "body": {
+   "tiptapJson": {
+    "type": "doc",
+    "content": [
+     {
+      "type": "paragraph",
+      "attrs": {
+       "data-block-id": "anchor"
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "Anchor paragraph stays."
+       }
+      ]
+     },
+     {
+      "type": "details",
+      "attrs": {
+       "data-block-id": "d1"
+      },
+      "content": [
+       {
+        "type": "detailsSummary",
+        "content": [
+         {
+          "type": "text",
+          "text": "DETAILS-SUMMARY"
+         }
+        ]
+       },
+       {
+        "type": "detailsContent",
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "DETAILS-BODY"
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ {
+  "id": "n-callout",
+  "title": "callout (unknown custom block)",
+  "via": "write_document",
+  "body": {
+   "tiptapJson": {
+    "type": "doc",
+    "content": [
+     {
+      "type": "paragraph",
+      "attrs": {
+       "data-block-id": "anchor"
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "Anchor paragraph stays."
+       }
+      ]
+     },
+     {
+      "type": "callout",
+      "attrs": {
+       "data-block-id": "c1",
+       "kind": "note"
+      },
+      "content": [
+       {
+        "type": "paragraph",
+        "content": [
+         {
+          "type": "text",
+          "text": "CALLOUT-BODY"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ {
+  "id": "n-mark-sub-sup",
+  "title": "subscript/superscript marks",
+  "via": "write_document",
+  "body": {
+   "tiptapJson": {
+    "type": "doc",
+    "content": [
+     {
+      "type": "paragraph",
+      "attrs": {
+       "data-block-id": "anchor"
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "Anchor paragraph stays."
+       }
+      ]
+     },
+     {
+      "type": "paragraph",
+      "attrs": {
+       "data-block-id": "pm"
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "PLAIN-BEFORE "
+       },
+       {
+        "type": "text",
+        "text": "SUPER",
+        "marks": [
+         {
+          "type": "superscript"
+         }
+        ]
+       },
+       {
+        "type": "text",
+        "text": " SUB",
+        "marks": [
+         {
+          "type": "subscript"
+         }
+        ]
+       },
+       {
+        "type": "text",
+        "text": " PLAIN-AFTER"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ {
+  "id": "n-mark-unknown",
+  "title": "unknown mark (kbd)",
+  "via": "write_document",
+  "body": {
+   "tiptapJson": {
+    "type": "doc",
+    "content": [
+     {
+      "type": "paragraph",
+      "attrs": {
+       "data-block-id": "anchor"
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "Anchor paragraph stays."
+       }
+      ]
+     },
+     {
+      "type": "paragraph",
+      "attrs": {
+       "data-block-id": "pk"
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "KBD-BEFORE "
+       },
+       {
+        "type": "text",
+        "text": "KBD",
+        "marks": [
+         {
+          "type": "kbd"
+         }
+        ]
+       },
+       {
+        "type": "text",
+        "text": " KBD-AFTER"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ {
+  "id": "n-mark-known",
+  "title": "known marks (bold italic strike code link highlight underline)",
+  "via": "write_document",
+  "body": {
+   "tiptapJson": {
+    "type": "doc",
+    "content": [
+     {
+      "type": "paragraph",
+      "attrs": {
+       "data-block-id": "anchor"
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "Anchor paragraph stays."
+       }
+      ]
+     },
+     {
+      "type": "paragraph",
+      "attrs": {
+       "data-block-id": "pkn"
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "B",
+        "marks": [
+         {
+          "type": "bold"
+         }
+        ]
+       },
+       {
+        "type": "text",
+        "text": "I",
+        "marks": [
+         {
+          "type": "italic"
+         }
+        ]
+       },
+       {
+        "type": "text",
+        "text": "S",
+        "marks": [
+         {
+          "type": "strike"
+         }
+        ]
+       },
+       {
+        "type": "text",
+        "text": "C",
+        "marks": [
+         {
+          "type": "code"
+         }
+        ]
+       },
+       {
+        "type": "text",
+        "text": "L",
+        "marks": [
+         {
+          "type": "link",
+          "attrs": {
+           "href": "https://x.org"
+          }
+         }
+        ]
+       },
+       {
+        "type": "text",
+        "text": "H",
+        "marks": [
+         {
+          "type": "highlight"
+         }
+        ]
+       },
+       {
+        "type": "text",
+        "text": "U",
+        "marks": [
+         {
+          "type": "underline"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ {
+  "id": "n-blockquote-hr-math",
+  "title": "blockquote, horizontalRule, mathBlock, mathInline",
+  "via": "write_document",
+  "body": {
+   "tiptapJson": {
+    "type": "doc",
+    "content": [
+     {
+      "type": "paragraph",
+      "attrs": {
+       "data-block-id": "anchor"
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "Anchor paragraph stays."
+       }
+      ]
+     },
+     {
+      "type": "blockquote",
+      "attrs": {
+       "data-block-id": "q1"
+      },
+      "content": [
+       {
+        "type": "paragraph",
+        "content": [
+         {
+          "type": "text",
+          "text": "QUOTE-BODY"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "horizontalRule",
+      "attrs": {
+       "data-block-id": "hr1"
+      }
+     },
+     {
+      "type": "mathBlock",
+      "attrs": {
+       "data-block-id": "mb1",
+       "src": "E=mc^2"
+      }
+     },
+     {
+      "type": "paragraph",
+      "attrs": {
+       "data-block-id": "pmi"
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "MATHI "
+       },
+       {
+        "type": "mathInline",
+        "attrs": {
+         "src": "x^2"
+        }
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ {
+  "id": "n-bulletlist-once",
+  "title": "bulletList via create_document_once",
+  "via": "create_document_once",
+  "body": {
+   "tiptapJson": {
+    "type": "doc",
+    "content": [
+     {
+      "type": "paragraph",
+      "attrs": {
+       "data-block-id": "anchor"
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "Anchor paragraph stays."
+       }
+      ]
+     },
+     {
+      "type": "bulletList",
+      "attrs": {
+       "data-block-id": "b9"
+      },
+      "content": [
+       {
+        "type": "listItem",
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "ONCE-BULLET"
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ {
+  "id": "i-bulletlist",
+  "title": "insert_blocks tiptapJson bulletList",
+  "via": "insert_blocks",
+  "body": {
+   "tiptapJson": {
+    "type": "doc",
+    "content": [
+     {
+      "type": "bulletList",
+      "attrs": {
+       "data-block-id": "ib1"
+      },
+      "content": [
+       {
+        "type": "listItem",
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "INSERTED-BULLET"
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ {
+  "id": "i-blocks-bulletlist",
+  "title": "insert_blocks blocks[] bulletList",
+  "via": "insert_blocks",
+  "body": {
+   "blocks": [
+    {
+     "type": "bulletList",
+     "content": [
+      {
+       "type": "listItem",
+       "content": [
+        {
+         "type": "paragraph",
+         "content": [
+          {
+           "type": "text",
+           "text": "BLOCKS-BULLET"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ },
+ {
+  "id": "m-md-fidelity",
+  "title": "markdown md-fidelity battery",
+  "via": "write_document",
+  "body": {
+   "content": "# MD fidelity\n\nParagraph with **bold**, *italic*, ~~strike~~, `code`, [link](https://x.org) and ==highlight== and H~2~O and x^2^.\n\n- md bullet one\n  - md nested bullet\n- md bullet two\n\n1. md ordered one\n2. md ordered two\n\n- [ ] md task open\n- [x] md task done\n\n| MDTH-A | MDTH-B |\n| --- | ---: |\n| MDTD-A | MDTD-B |\n\n![MD-IMG-ALT](https://example.org/z.png)\n\nInline image ![MD-INLINE-IMG](https://example.org/w.png) in text.\n\nFootnote here[^1].\n\n[^1]: MD-FOOTNOTE-BODY\n\n> md quote\n\n---\n\n$$\nE = mc^2\n$$\n\nInline $x^2$ math.\n\n```python\nprint(\"MD-CODE\")\n```\n\n<details><summary>MD-DETAILS</summary>MD-DETAILS-BODY</details>\n",
+   "format": "markdown"
+  }
+ },
+ {
+  "id": "m-insert-md",
+  "title": "insert_blocks markdown lists/tables",
+  "via": "insert_blocks",
+  "body": {
+   "content": "- ins bullet\n  - ins nested\n\n| IA | IB |\n|---|---|\n| I1 | I2 |\n\n[^n]: INS-FOOT\n\nx[^n]",
+   "format": "markdown"
+  }
+ },
+ {
+  "id": "h-html",
+  "title": "html content battery",
+  "via": "write_document",
+  "body": {
+   "content": "<h4>HTML-H4</h4><ul><li>HTML-LI</li></ul><p>H<sub>2</sub>O and x<sup>2</sup> and <u>U</u> and <mark>M</mark> and <kbd>K</kbd></p><table><tr><th>HTH</th></tr><tr><td>HTD</td></tr></table><img src='https://example.org/h.png' alt='HTML-IMG'><details><summary>HTML-SUM</summary><p>HTML-DET</p></details>",
+   "format": "html"
+  }
+ },
+ {
+  "id": "n-toplevel-text",
+  "title": "bare text node at doc level",
+  "via": "write_document",
+  "body": {
+   "tiptapJson": {
+    "type": "doc",
+    "content": [
+     {
+      "type": "paragraph",
+      "attrs": {
+       "data-block-id": "anchor"
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "Anchor paragraph stays."
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": "BARE-TOP-TEXT"
+     }
+    ]
+   }
+  }
+ }
+]

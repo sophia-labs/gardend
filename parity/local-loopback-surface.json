@@ -912,6 +912,15 @@
     },
     {
       "method": "POST",
+      "path": "/artifacts/{graph_id}/files",
+      "status": "implemented-files-rudiments",
+      "scopes": [
+        "artifacts.write",
+        "workspace.write.crdt"
+      ]
+    },
+    {
+      "method": "POST",
       "path": "/artifacts/{graph_id}/ingest/pdf-accurate",
       "status": "implemented-local-pdf-fast-path-job",
       "scopes": [
@@ -1035,10 +1044,53 @@
     {
       "method": "DELETE",
       "path": "/navigation/{graph_id}/artifacts/{artifact_id}",
-      "status": "implemented-crdt-queued-hosted-shaped",
+      "status": "implemented-files-rudiments-trash",
       "scopes": [
         "workspace.delete.crdt",
         "artifacts.delete"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/navigation/{graph_id}/artifacts/{artifact_id}",
+      "status": "implemented-files-rudiments",
+      "scopes": [
+        "workspace.write.crdt",
+        "artifacts.write"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/navigation/{graph_id}/trash",
+      "status": "implemented-files-rudiments",
+      "scopes": [
+        "artifacts.read"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/navigation/{graph_id}/trash/{artifact_id}",
+      "status": "implemented-files-rudiments",
+      "scopes": [
+        "workspace.delete.crdt",
+        "artifacts.delete"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/navigation/{graph_id}/trash/{artifact_id}/restore",
+      "status": "implemented-files-rudiments",
+      "scopes": [
+        "workspace.write.crdt",
+        "artifacts.write"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/navigation/{graph_id}/file-views",
+      "status": "implemented-files-rudiments",
+      "scopes": [
+        "workspace.read"
       ]
     },
     {

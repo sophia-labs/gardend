@@ -121,6 +121,29 @@ pub(crate) fn lookup(name: &str) -> Option<&'static McpToolEntry> {
     REGISTRY.iter().find(|entry| entry.name == name)
 }
 
+/// Run a direct writer so that, on a graph under source authority, what it
+/// writes is recorded in the source ledger and a rebuild replays it instead of
+/// rewinding it (`source_sync::record_authored_write`). On every other graph,
+/// and when no graph can be resolved, the writer runs exactly as before.
+fn recorded<'a>(
+    ctx: &'a McpCallCtx<'a>,
+    args: &'a Value,
+    origin: &'static str,
+    scope: crate::source_sync::AuthoredScope,
+    write: McpHandlerFut<'a>,
+) -> McpHandlerFut<'a> {
+    let app = ctx.app.clone();
+    Box::pin(async move {
+        match crate::mcp_utils::mcp_graph_id_or_default(&app, args) {
+            Ok(graph_id) => {
+                crate::source_sync::record_authored_write(&app, &graph_id, origin, scope, write)
+                    .await
+            }
+            Err(_) => write.await,
+        }
+    })
+}
+
 // Trampolines bridge each handler's call shape onto the uniform
 // `Fn(&McpCallCtx, &Value) -> AppResult<Value>` shape. Bodies stay
 // untouched. Legacy `Result<Value, String>` handlers are mapped through
@@ -148,20 +171,20 @@ fn tramp_context_bundle<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHand
 
 fn tramp_remember<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
     let app = ctx.app.clone();
-    Box::pin(async move {
+    recorded(ctx, args, "remember", crate::source_sync::AuthoredScope::UserGraphs, Box::pin(async move {
         mcp_local_remember(app, args)
             .await
             .map_err(AppError::internal)
-    })
+    }))
 }
 
 fn tramp_remember_batch<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
     let app = ctx.app.clone();
-    Box::pin(async move {
+    recorded(ctx, args, "rememberBatch", crate::source_sync::AuthoredScope::UserGraphs, Box::pin(async move {
         mcp_local_remember_batch(app, args)
             .await
             .map_err(AppError::internal)
-    })
+    }))
 }
 
 fn tramp_recall<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
@@ -174,12 +197,16 @@ fn tramp_propose_domain_ontology<'a>(
     args: &'a Value,
 ) -> McpHandlerFut<'a> {
     let app = ctx.app.clone();
-    Box::pin(async move { propose_domain_ontology(&app, args).await })
+    recorded(ctx, args, "proposeDomainOntology", crate::source_sync::AuthoredScope::Authored, Box::pin(async move {
+        propose_domain_ontology(&app, args).await
+    }))
 }
 
 fn tramp_care<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
     let app = ctx.app.clone();
-    Box::pin(async move { mcp_local_care_memories(app, args).map_err(AppError::internal) })
+    recorded(ctx, args, "care", crate::source_sync::AuthoredScope::UserGraphs, Box::pin(async move {
+        mcp_local_care_memories(app, args).map_err(AppError::internal)
+    }))
 }
 
 fn tramp_emporium_vocab<'a>(_ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
@@ -203,7 +230,9 @@ fn tramp_emporium_heads<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHand
 
 fn tramp_emporium_sweep<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
     let app = ctx.app.clone();
-    Box::pin(async move { mcp_local_emporium_sweep(app, args) })
+    recorded(ctx, args, "emporiumSweep", crate::source_sync::AuthoredScope::Authored, Box::pin(async move {
+        mcp_local_emporium_sweep(app, args)
+    }))
 }
 
 fn tramp_sparql_query_named<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
@@ -245,7 +274,9 @@ fn tramp_backfill_memory_projection<'a>(
 
 fn tramp_archive_memories<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
     let app = ctx.app.clone();
-    Box::pin(async move { mcp_local_archive_memories(app, args).map_err(AppError::internal) })
+    recorded(ctx, args, "archiveMemories", crate::source_sync::AuthoredScope::Authored, Box::pin(async move {
+        mcp_local_archive_memories(app, args).map_err(AppError::internal)
+    }))
 }
 
 fn tramp_music<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
@@ -255,7 +286,9 @@ fn tramp_music<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a
 
 fn tramp_sing<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
     let app = ctx.app.clone();
-    Box::pin(async move { mcp_local_sing(app, args).map_err(AppError::internal) })
+    recorded(ctx, args, "sing", crate::source_sync::AuthoredScope::Authored, Box::pin(async move {
+        mcp_local_sing(app, args).map_err(AppError::internal)
+    }))
 }
 
 fn tramp_surface<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
@@ -414,7 +447,11 @@ fn tramp_get_values<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerF
 
 fn tramp_revaluate<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
     let app = ctx.app.clone();
-    Box::pin(async move { mcp_local_revaluate(app, args).map_err(AppError::internal) })
+    let observer = crate::mcp_utils::mcp_arg_string(args, &["observer_agent_id", "observerAgentId"])
+        .unwrap_or_default();
+    recorded(ctx, args, "revaluate", crate::source_sync::AuthoredScope::Values(observer), Box::pin(async move {
+        mcp_local_revaluate(app, args).map_err(AppError::internal)
+    }))
 }
 
 fn tramp_get_block_values<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
@@ -561,7 +598,9 @@ fn tramp_agent_self_image<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHa
     Box::pin(crate::agent_self_image::mcp(ctx.app.clone(), args))
 }
 fn tramp_status<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
-    Box::pin(crate::agent_status::write(ctx.app.clone(), args))
+    recorded(ctx, args, "status", crate::source_sync::AuthoredScope::UserGraphs, Box::pin(
+        crate::agent_status::write(ctx.app.clone(), args),
+    ))
 }
 fn tramp_custom_css<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
     Box::pin(crate::custom_css::mcp_capability(ctx.app.clone(), args))
@@ -701,7 +740,9 @@ fn tramp_sparql_update<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandl
 
 fn tramp_rdf_load<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
     let app = ctx.app.clone();
-    Box::pin(async move { mcp_local_rdf_load(app, args) })
+    recorded(ctx, args, "rdfLoad", crate::source_sync::AuthoredScope::UserGraphs, Box::pin(async move {
+        mcp_local_rdf_load(app, args)
+    }))
 }
 
 fn tramp_rdf_dump<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {

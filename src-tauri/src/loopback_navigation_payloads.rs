@@ -46,6 +46,10 @@ pub(crate) fn normalize_navigation_artifact_payload(
         "id".to_string(),
         serde_json::Value::String(artifact_id.to_string()),
     );
+    // A PUT is a full replace. `patch` is the cell's own marker for the Files
+    // PATCH merge (`workspace.putArtifact` with `patch: true`); a client body
+    // must not be able to turn this route into that merge.
+    object.remove("patch");
     let data_base64 = object
         .remove("dataBase64")
         .or_else(|| object.remove("data_base64"))

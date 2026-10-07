@@ -201,11 +201,20 @@ pub(crate) fn mcp_input(arguments: &Value) -> Result<(String, String, Value), St
             "order",
             "parentId",
             "awaitDurable",
+            "requireDurable",
         ],
     )?;
     let graph_id = required_string(arguments, "graph_id")?.to_string();
     crate::ids::validate_local_id(&graph_id, "graph_id")?;
     let document_id = required_string(arguments, "document_id")?.to_string();
+    if arguments.get("requireDurable").is_some_and(|value| !value.is_boolean()) {
+        return Err("requireDurable must be a boolean".into());
+    }
+    if arguments.get("requireDurable") == Some(&Value::Bool(true))
+        && arguments.get("awaitDurable") == Some(&Value::Bool(false))
+    {
+        return Err("requireDurable requires awaitDurable".into());
+    }
     let mut payload = json!({
         "documentId": document_id, "title": arguments.get("title"),
         "tiptapJson": arguments.get("tiptapJson"), "order": arguments.get("order"),

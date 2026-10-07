@@ -2141,7 +2141,7 @@ pub(crate) async fn apply_classified(
     // Never bless a partial graph as completion-success.
     let mut documents_imported: usize = 0;
     let mut document_ids: Vec<String> = Vec::new();
-    let warnings = parsed.warnings.clone();
+    let mut warnings = parsed.warnings.clone();
     let documents_started = Instant::now();
     for (document_id, document_bytes) in &parsed.documents {
         #[cfg(test)]
@@ -2154,9 +2154,10 @@ pub(crate) async fn apply_classified(
             workspace_documents.get(document_id).cloned(),
             operation_id,
         ) {
-            Ok(saved_document_id) => {
+            Ok((saved_document_id, contract_audit)) => {
                 documents_imported += 1;
                 document_ids.push(saved_document_id);
+                warnings.extend(contract_audit);
             }
             Err(error) => {
                 return Err(ApplyOperationError::retryable_after_hot_commit(format!(
@@ -2316,9 +2317,42 @@ pub(crate) async fn apply_classified(
     Ok(envelope)
 }
 
+/// Most block-contract audit receipts reported per imported document.
+const CONTRACT_AUDIT_LIMIT: usize = 20;
+
+/// The block contract over an archived document, as an audit: an archive
+/// carries Y.Doc bytes (CRDT state with its history), not JSON, and a restore
+/// must reproduce them exactly (the cell-restore content-parity contract), so
+/// import never rewrites them. It reports what the normaliser WOULD rewrite
+/// on the document's next JSON write, so the exposure is visible at import.
+fn contract_audit(document_id: &str, tiptap_json: &Value) -> Vec<String> {
+    let nodes = tiptap_json
+        .get("content")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
+    let (_, receipts) = super::block_contract::normalise_doc_content(nodes, "archive-audit");
+    let rewrites: Vec<&String> = receipts
+        .iter()
+        .filter(|w| super::block_contract::is_rewrite_warning(w))
+        .collect();
+    let mut out: Vec<String> = rewrites
+        .iter()
+        .take(CONTRACT_AUDIT_LIMIT)
+        .map(|w| format!("document {document_id}: stored bytes unchanged; next JSON write would apply: {w}"))
+        .collect();
+    if rewrites.len() > CONTRACT_AUDIT_LIMIT {
+        out.push(format!(
+            "document {document_id}: {} more block-contract receipts not listed",
+            rewrites.len() - CONTRACT_AUDIT_LIMIT
+        ));
+    }
+    out
+}
+
 /// One archived document Y.Doc → create_document + save_document (the same
 /// internals the desktop frontend's bridge commands run). Returns the saved
-/// record's documentId.
+/// record's documentId and the block-contract audit receipts.
 fn import_one_document(
     app: &AppHandle,
     graph_id: &str,
@@ -2326,10 +2360,11 @@ fn import_one_document(
     document_bytes: &[u8],
     workspace_title: Option<String>,
     operation_id: &str,
-) -> Result<String, String> {
+) -> Result<(String, Vec<String>), String> {
     let doc = Doc::new();
     apply_full_update(&doc, document_bytes, "document")?;
     let snapshot = super::projection::materialize_ydoc(&doc, document_id);
+    let audit = contract_audit(document_id, &snapshot.tiptap_json);
     let tiptap_xml = super::projection::ydoc_to_tiptap_xml(&doc);
     let document_title = workspace_title.unwrap_or_else(|| document_id.to_string());
 
@@ -2366,7 +2401,7 @@ fn import_one_document(
                 .map_err(|error| format!("assemble save_document input: {error}"))?;
         crate::document_persistence_service::save_document_with_lease(app.clone(), save_input)?;
     }
-    Ok(document_id.to_string())
+    Ok((document_id.to_string(), audit))
 }
 
 /// Best-effort pending-archive cleanup (the TS .catch(console.warn) paths).

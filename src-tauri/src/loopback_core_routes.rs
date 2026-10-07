@@ -81,6 +81,9 @@ pub(crate) async fn loopback_health(State(state): State<Arc<LoopbackState>>) -> 
             "status": "ok",
             "surfacePolicy": if drift.is_empty() { "current" } else { "drift" },
             "surfaceDriftCount": drift.len(),
+            // The block vocabulary this cell normalises writes to; the SPA
+            // records the version it was built against.
+            "blockContract": crate::crdt_engine::block_contract::contract_status(),
         }))
         .into_response()
     }

@@ -345,7 +345,7 @@ fn publish(
     let update = format!("DELETE WHERE {{ GRAPH <{target}> {{ <{key}> ?p ?o }} }}; INSERT DATA {{ GRAPH <{target}> {{ <{key}> <{TYPE}> <urn:sophia:agent-status:Report> ; <http://mnemosyne.dev/agent#ofAgent> <urn:sophia:agent:{}> ; <{REPORT}> {literal} . }} }}", report.input.agent_id);
     crate::rdf_query_service::execute_sparql_update(store, &update).map_err(AppError::rdf)?;
     Ok(
-        json!({"ok":true,"report":report_value(&report),"identityCaveat":"Editable graph testimony, not authenticated seat identity or runtime liveness"}),
+        json!({"ok":true,"report":report_value(&report),"identityCaveat":"Editable graph testimony, not authenticated seat identity or runtime liveness","blockContract":crate::crdt_engine::block_contract::contract_status()}),
     )
 }
 pub(crate) async fn read(app: AppHandle, args: &Value) -> AppResult<Value> {

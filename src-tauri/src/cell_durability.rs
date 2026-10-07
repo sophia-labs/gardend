@@ -454,6 +454,24 @@ pub fn set_durable_dirs(profile_dir: PathBuf, durable_dir: PathBuf) {
     let _ = DURABLE_DIRS.set(Some((profile_dir, durable_dir)));
 }
 
+/// Publish a strict write before its caller performs an external effect.
+/// Desktop profiles are already the durable ground. A headless cell without
+/// registered durable dirs must fail closed, including during startup.
+pub(crate) fn flush_registered_for_strict_write() -> Result<(), String> {
+    let Some(Some((profile_dir, durable_dir))) = DURABLE_DIRS.get() else {
+        return if durable_plane_semantics() {
+            Err("durable plane is not configured".into())
+        } else {
+            Ok(())
+        };
+    };
+    match flush_forced_detailed(profile_dir, durable_dir)? {
+        (_, FlushAttemptOutcome::Published | FlushAttemptOutcome::ConfirmedClean) => Ok(()),
+        (_, FlushAttemptOutcome::Deferred) => Err("durable flush deferred".into()),
+        (_, FlushAttemptOutcome::Fenced) => Err("durable flush fenced".into()),
+    }
+}
+
 /// RAII marker: a heavy import is running in this process.
 ///
 /// Created at the top of a heavy operation (held for its whole duration on the

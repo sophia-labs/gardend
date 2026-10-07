@@ -1068,7 +1068,7 @@
     },
     {
       "name": "create_document_once",
-      "description": "Attempt first creation of a root-level document under the managed graph execution lease. Requires explicit stable block IDs and order. Refuses every existing, deleted, partial or previously admitted ID, including the same recovered operation. Partial failures retain admission and require inspection, never automatic resend. Ordinary write_document is not a fallback. Success reports actual durability watermarks; it does not force publication or promise off-host recovery.",
+      "description": "Attempt first creation of a root-level document under the managed graph execution lease. Requires explicit stable block IDs and order. Refuses every existing, deleted, partial or previously admitted ID, including the same recovered operation. Partial failures retain admission and require inspection, never automatic resend. Ordinary write_document is not a fallback. With requireDurable:true, success requires a published snapshot on the configured durable plane (or local disk on desktop); off-host backup remains a separate process. Otherwise success reports the current durability watermark without forcing publication.",
       "inputSchema": {
         "type": "object",
         "additionalProperties": false,
@@ -1082,7 +1082,8 @@
           "tiptapJson": { "type": "object" },
           "order": { "type": "number" },
           "parentId": { "type": "null" },
-          "awaitDurable": { "type": "boolean", "default": true }
+          "awaitDurable": { "type": "boolean", "default": true },
+          "requireDurable": { "type": "boolean", "default": false, "description": "Force durable publication and fail closed unless the new document is confirmed in the durable plane. Use before external effects such as notebook execution." }
         }
       }
     },

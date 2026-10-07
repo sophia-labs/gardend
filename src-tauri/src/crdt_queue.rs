@@ -242,14 +242,24 @@ fn normalize_payload_ids(kind: &str, payload: &mut serde_json::Value, enqueue_ti
             inject_updated_at_if_absent(obj, enqueue_timestamp);
         }
         "workspace.putArtifact" => {
-            inject_order_if_absent(obj, enqueue_timestamp);
+            // A Files patch (rename/move) merges named fields only; an
+            // injected order would move the file in its folder.
+            let patch = obj
+                .get("patch")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false);
+            if !patch {
+                inject_order_if_absent(obj, enqueue_timestamp);
+            }
             inject_updated_at_if_absent(obj, enqueue_timestamp);
         }
         "workspace.refreshWire" => {
             inject_updated_at_if_absent(obj, enqueue_timestamp);
         }
         "document.write" => {
-            inject_order_if_absent(obj, enqueue_timestamp);
+            // No injected `order`: the executor files a NEW document at the
+            // same journal-recorded enqueue timestamp, and an absent order is
+            // how it knows a content write must not reorder an existing one.
             inject_updated_at_if_absent(obj, enqueue_timestamp);
         }
         "document.editComment" => {
@@ -860,11 +870,14 @@ mod tests {
     }
 
     #[test]
-    fn normalize_injects_order_for_document_write_when_absent() {
+    fn normalize_leaves_document_write_order_to_the_executor() {
+        // The executor derives a new document's order from the same
+        // journal-recorded enqueue timestamp; an injected order would be
+        // indistinguishable from a caller's and reorder existing documents.
         let mut payload = serde_json::json!({ "documentId": "doc-a", "content": "# Hi" });
         normalize_payload_ids("document.write", &mut payload, FIXED_TS);
-        let order = payload["order"].as_u64().expect("order injected");
-        assert_eq!(order, 1_700_000_000_000u64);
+        assert!(payload.get("order").is_none(), "{payload}");
+        assert_eq!(payload["updatedAt"].as_u64(), Some(1_700_000_000_000u64));
     }
 
     #[test]

@@ -1,0 +1,705 @@
+{
+  "contractVersion": 1,
+  "derivedFrom": "shrubbery-private 9eece44 packages/editor-kernel kernelExtensions({collaborative:true}) document profile, plus opaqueBlock",
+  "losslessMeans": "markdown -> store -> markdown keeps the node, its text and its semantic attributes (level, listType, indent, checked, language, src, alt, title, href). Block ids, source/PDF provenance, tags, outline state and presentation attributes (textAlign, size, colwidth, font) are never carried by Markdown.",
+  "marks": [
+    {
+      "attrs": [
+        "class",
+        "href",
+        "rel",
+        "target",
+        "title"
+      ],
+      "excludes": null,
+      "markdown": {
+        "form": "[text](href \"title\")",
+        "lossless": true
+      },
+      "name": "link",
+      "state": "authorable"
+    },
+    {
+      "attrs": [
+        "fontFamily",
+        "fontSize"
+      ],
+      "excludes": null,
+      "markdown": {
+        "form": "(text only)",
+        "lossless": false
+      },
+      "name": "textStyle",
+      "state": "authorable"
+    },
+    {
+      "attrs": [],
+      "excludes": null,
+      "markdown": {
+        "form": "**text**",
+        "lossless": true
+      },
+      "name": "bold",
+      "state": "authorable"
+    },
+    {
+      "attrs": [],
+      "excludes": "_",
+      "markdown": {
+        "form": "`text`",
+        "lossless": true
+      },
+      "name": "code",
+      "state": "authorable"
+    },
+    {
+      "attrs": [],
+      "excludes": null,
+      "markdown": {
+        "form": "*text*",
+        "lossless": true
+      },
+      "name": "italic",
+      "state": "authorable"
+    },
+    {
+      "attrs": [],
+      "excludes": null,
+      "markdown": {
+        "form": "~~text~~",
+        "lossless": true
+      },
+      "name": "strike",
+      "state": "authorable"
+    },
+    {
+      "attrs": [],
+      "excludes": null,
+      "markdown": {
+        "form": "(text only)",
+        "lossless": false
+      },
+      "name": "underline",
+      "state": "authorable"
+    },
+    {
+      "attrs": [],
+      "excludes": null,
+      "markdown": {
+        "form": "(text only)",
+        "lossless": false
+      },
+      "name": "highlight",
+      "state": "authorable"
+    },
+    {
+      "attrs": [
+        "commentId"
+      ],
+      "excludes": null,
+      "markdown": {
+        "form": "(text only)",
+        "lossless": false
+      },
+      "name": "commentMark",
+      "state": "authorable"
+    },
+    {
+      "attrs": [
+        "name",
+        "value"
+      ],
+      "excludes": "",
+      "markdown": {
+        "form": "(text only; the editor binding's placeholder for an unknown mark)",
+        "lossless": false
+      },
+      "name": "unsupportedMark",
+      "state": "render-only"
+    }
+  ],
+  "nodes": [
+    {
+      "atom": false,
+      "attrs": [],
+      "blockId": "none",
+      "content": "block+",
+      "group": null,
+      "inline": false,
+      "markdown": {
+        "form": "document",
+        "lossless": true
+      },
+      "marks": null,
+      "name": "doc",
+      "state": "authorable"
+    },
+    {
+      "atom": false,
+      "attrs": [
+        "collapsed",
+        "data-block-id",
+        "data-pdf-anchor",
+        "data-pdf-page",
+        "data-pdf-role",
+        "data-source-approach",
+        "data-source-format",
+        "data-source-id",
+        "data-source-page",
+        "data-source-role",
+        "data-tag-expirations",
+        "data-tags",
+        "indent",
+        "textAlign"
+      ],
+      "blockId": "minted",
+      "content": "inline*",
+      "group": "block",
+      "inline": false,
+      "markdown": {
+        "form": "paragraph",
+        "lossless": true
+      },
+      "marks": null,
+      "name": "paragraph",
+      "state": "authorable"
+    },
+    {
+      "atom": false,
+      "attrs": [
+        "collapsed",
+        "data-block-id",
+        "data-pdf-anchor",
+        "data-pdf-page",
+        "data-pdf-role",
+        "data-source-approach",
+        "data-source-format",
+        "data-source-id",
+        "data-source-page",
+        "data-source-role",
+        "data-tag-expirations",
+        "data-tags",
+        "indent"
+      ],
+      "blockId": "minted",
+      "content": "block+",
+      "group": "block",
+      "inline": false,
+      "markdown": {
+        "form": "> quote",
+        "lossless": true
+      },
+      "marks": null,
+      "name": "blockquote",
+      "state": "authorable"
+    },
+    {
+      "atom": false,
+      "attrs": [],
+      "blockId": "none",
+      "content": null,
+      "group": "inline",
+      "inline": true,
+      "markdown": {
+        "form": "backslash line break",
+        "lossless": true
+      },
+      "marks": null,
+      "name": "hardBreak",
+      "state": "authorable"
+    },
+    {
+      "atom": false,
+      "attrs": [
+        "collapsed",
+        "data-block-id",
+        "data-pdf-anchor",
+        "data-pdf-page",
+        "data-pdf-role",
+        "data-source-approach",
+        "data-source-format",
+        "data-source-id",
+        "data-source-page",
+        "data-source-role",
+        "data-tag-expirations",
+        "data-tags",
+        "indent",
+        "level",
+        "textAlign"
+      ],
+      "blockId": "minted",
+      "content": "inline*",
+      "group": "block",
+      "inline": false,
+      "markdown": {
+        "form": "ATX heading (levels 4-6 import as 3: the editor schema has levels 1-3)",
+        "lossless": false
+      },
+      "marks": null,
+      "name": "heading",
+      "state": "authorable"
+    },
+    {
+      "atom": false,
+      "attrs": [
+        "data-block-id",
+        "data-pdf-anchor",
+        "data-pdf-page",
+        "data-pdf-role",
+        "data-source-approach",
+        "data-source-format",
+        "data-source-id",
+        "data-source-page",
+        "data-source-role",
+        "data-tag-expirations",
+        "data-tags"
+      ],
+      "blockId": "minted",
+      "content": null,
+      "group": "block",
+      "inline": false,
+      "markdown": {
+        "form": "---",
+        "lossless": true
+      },
+      "marks": null,
+      "name": "horizontalRule",
+      "state": "authorable"
+    },
+    {
+      "atom": false,
+      "attrs": [],
+      "blockId": "none",
+      "content": null,
+      "group": "inline",
+      "inline": false,
+      "markdown": {
+        "form": "text (escaped)",
+        "lossless": true
+      },
+      "marks": null,
+      "name": "text",
+      "state": "authorable"
+    },
+    {
+      "atom": false,
+      "attrs": [
+        "data-block-id",
+        "data-pdf-anchor",
+        "data-pdf-page",
+        "data-pdf-role",
+        "data-source-approach",
+        "data-source-format",
+        "data-source-id",
+        "data-source-page",
+        "data-source-role",
+        "data-tag-expirations",
+        "data-tags",
+        "language"
+      ],
+      "blockId": "minted",
+      "content": "text*",
+      "group": "block",
+      "inline": false,
+      "markdown": {
+        "form": "fenced code block with language",
+        "lossless": true
+      },
+      "marks": "",
+      "name": "codeBlock",
+      "state": "authorable"
+    },
+    {
+      "atom": false,
+      "attrs": [
+        "collapsed",
+        "data-pdf-anchor",
+        "data-pdf-page",
+        "data-pdf-role",
+        "data-source-approach",
+        "data-source-format",
+        "data-source-id",
+        "data-source-page",
+        "data-source-role",
+        "indent"
+      ],
+      "blockId": "none",
+      "content": "tableRow+",
+      "group": "block",
+      "inline": false,
+      "markdown": {
+        "form": "GFM table (no spans; first row becomes the header; multi-block cells joined)",
+        "lossless": false
+      },
+      "marks": null,
+      "name": "table",
+      "state": "authorable"
+    },
+    {
+      "atom": false,
+      "attrs": [
+        "data-pdf-anchor",
+        "data-pdf-page",
+        "data-pdf-role",
+        "data-source-approach",
+        "data-source-format",
+        "data-source-id",
+        "data-source-page",
+        "data-source-role"
+      ],
+      "blockId": "none",
+      "content": "(tableCell | tableHeader)*",
+      "group": null,
+      "inline": false,
+      "markdown": {
+        "form": "GFM table row",
+        "lossless": false
+      },
+      "marks": null,
+      "name": "tableRow",
+      "state": "authorable"
+    },
+    {
+      "atom": false,
+      "attrs": [
+        "align",
+        "colspan",
+        "colwidth",
+        "data-block-id",
+        "data-pdf-anchor",
+        "data-pdf-page",
+        "data-pdf-role",
+        "data-source-approach",
+        "data-source-format",
+        "data-source-id",
+        "data-source-page",
+        "data-source-role",
+        "rowspan"
+      ],
+      "blockId": "carried",
+      "content": "block+",
+      "group": null,
+      "inline": false,
+      "markdown": {
+        "form": "GFM header cell",
+        "lossless": false
+      },
+      "marks": null,
+      "name": "tableHeader",
+      "state": "authorable"
+    },
+    {
+      "atom": false,
+      "attrs": [
+        "align",
+        "colspan",
+        "colwidth",
+        "data-block-id",
+        "data-pdf-anchor",
+        "data-pdf-page",
+        "data-pdf-role",
+        "data-source-approach",
+        "data-source-format",
+        "data-source-id",
+        "data-source-page",
+        "data-source-role",
+        "rowspan"
+      ],
+      "blockId": "carried",
+      "content": "block+",
+      "group": null,
+      "inline": false,
+      "markdown": {
+        "form": "GFM cell",
+        "lossless": false
+      },
+      "marks": null,
+      "name": "tableCell",
+      "state": "authorable"
+    },
+    {
+      "atom": false,
+      "attrs": [
+        "checked",
+        "collapsed",
+        "data-block-id",
+        "data-pdf-anchor",
+        "data-pdf-page",
+        "data-pdf-role",
+        "data-source-approach",
+        "data-source-format",
+        "data-source-id",
+        "data-source-page",
+        "data-source-role",
+        "data-tag-expirations",
+        "data-tags",
+        "indent",
+        "listType"
+      ],
+      "blockId": "minted",
+      "content": "(paragraph | heading | codeBlock | blockquote)+",
+      "group": "block",
+      "inline": false,
+      "markdown": {
+        "form": "flat list item: - / 1. / - [ ] nested by indent (ordered start renumbers from 1)",
+        "lossless": true
+      },
+      "marks": null,
+      "name": "listItem",
+      "state": "authorable"
+    },
+    {
+      "atom": true,
+      "attrs": [
+        "content"
+      ],
+      "blockId": "none",
+      "content": null,
+      "group": "inline",
+      "inline": true,
+      "markdown": {
+        "form": "[^n] + definition (imports as a link)",
+        "lossless": false
+      },
+      "marks": null,
+      "name": "footnote",
+      "state": "authorable"
+    },
+    {
+      "atom": true,
+      "attrs": [
+        "alt",
+        "data-block-id",
+        "data-pdf-anchor",
+        "data-pdf-page",
+        "data-pdf-role",
+        "data-source-approach",
+        "data-source-format",
+        "data-source-id",
+        "data-source-page",
+        "data-source-role",
+        "data-tag-expirations",
+        "data-tags",
+        "size",
+        "src",
+        "title"
+      ],
+      "blockId": "minted",
+      "content": null,
+      "group": "block",
+      "inline": false,
+      "markdown": {
+        "form": "![alt](src \"title\")",
+        "lossless": true
+      },
+      "marks": null,
+      "name": "image",
+      "state": "authorable"
+    },
+    {
+      "atom": true,
+      "attrs": [
+        "allDay",
+        "annotation",
+        "externalEventId",
+        "id",
+        "location",
+        "source",
+        "timeEnd",
+        "timeStart",
+        "title"
+      ],
+      "blockId": "none",
+      "content": null,
+      "group": "block",
+      "inline": false,
+      "markdown": {
+        "form": "(not exported)",
+        "lossless": false
+      },
+      "marks": null,
+      "name": "calendarEvent",
+      "state": "authorable"
+    },
+    {
+      "atom": true,
+      "attrs": [
+        "collapsed",
+        "comment",
+        "data-block-id",
+        "displayMode",
+        "maxRows",
+        "query",
+        "vegaLiteSpec",
+        "visualization"
+      ],
+      "blockId": "carried",
+      "content": null,
+      "group": "block",
+      "inline": false,
+      "markdown": {
+        "form": "(not exported)",
+        "lossless": false
+      },
+      "marks": null,
+      "name": "queryBlock",
+      "state": "authorable"
+    },
+    {
+      "atom": true,
+      "attrs": [
+        "src"
+      ],
+      "blockId": "none",
+      "content": null,
+      "group": "inline",
+      "inline": true,
+      "markdown": {
+        "form": "$src$ (imports as text)",
+        "lossless": false
+      },
+      "marks": null,
+      "name": "mathInline",
+      "state": "authorable"
+    },
+    {
+      "atom": true,
+      "attrs": [
+        "data-block-id",
+        "data-pdf-anchor",
+        "data-pdf-page",
+        "data-pdf-role",
+        "data-source-approach",
+        "data-source-format",
+        "data-source-id",
+        "data-source-page",
+        "data-source-role",
+        "data-tag-expirations",
+        "data-tags",
+        "src"
+      ],
+      "blockId": "minted",
+      "content": null,
+      "group": "block",
+      "inline": false,
+      "markdown": {
+        "form": "$$ src $$ (imports as text)",
+        "lossless": false
+      },
+      "marks": null,
+      "name": "mathBlock",
+      "state": "authorable"
+    },
+    {
+      "atom": true,
+      "attrs": [
+        "blockPreview",
+        "label",
+        "targetBlockId",
+        "targetDocId",
+        "targetGraphId",
+        "wireId"
+      ],
+      "blockId": "none",
+      "content": null,
+      "group": "inline",
+      "inline": true,
+      "markdown": {
+        "form": "[[label]] (target not carried)",
+        "lossless": false
+      },
+      "marks": null,
+      "name": "wikilink",
+      "state": "authorable"
+    },
+    {
+      "atom": true,
+      "attrs": [
+        "artifactId",
+        "citation",
+        "zoteroKey"
+      ],
+      "blockId": "none",
+      "content": null,
+      "group": "inline",
+      "inline": true,
+      "markdown": {
+        "form": "(not exported)",
+        "lossless": false
+      },
+      "marks": null,
+      "name": "citation",
+      "state": "authorable"
+    },
+    {
+      "atom": true,
+      "attrs": [
+        "date",
+        "name"
+      ],
+      "blockId": "none",
+      "content": null,
+      "group": "inline",
+      "inline": true,
+      "markdown": {
+        "form": "#name (imports as text)",
+        "lossless": false
+      },
+      "marks": null,
+      "name": "tagChip",
+      "state": "authorable"
+    },
+    {
+      "atom": true,
+      "attrs": [
+        "nodeName",
+        "text",
+        "yToken"
+      ],
+      "blockId": "none",
+      "content": null,
+      "group": "block",
+      "inline": false,
+      "markdown": {
+        "form": "(never stored: the editor binding's placeholder for a Y element its schema rejects)",
+        "lossless": false
+      },
+      "marks": null,
+      "name": "unsupportedBlock",
+      "state": "render-only"
+    },
+    {
+      "atom": true,
+      "attrs": [
+        "contractVersion",
+        "data-block-id",
+        "originalJson",
+        "originalType",
+        "text"
+      ],
+      "blockId": "minted",
+      "content": null,
+      "group": "block",
+      "inline": false,
+      "markdown": {
+        "form": "```json fenced block holding originalJson verbatim",
+        "lossless": true
+      },
+      "marks": null,
+      "name": "opaqueBlock",
+      "state": "render-only"
+    }
+  ],
+  "opaqueBlock": {
+    "attrs": {
+      "contractVersion": "the contract version that wrapped it",
+      "originalJson": "the node's exact JSON serialization, kept byte-exact",
+      "originalType": "the unknown node's type",
+      "text": "plain text for display"
+    },
+    "rdfType": "http://mnemosyne.dev/doc#OpaqueBlock"
+  },
+  "schema": "sophia.block-contract.v1",
+  "sha256": "044ca21dac59168bba00d963c839e9cb893b10500cb1ad6b83eef33324f2e18a",
+  "unknownMarks": "preserved verbatim, never wrapped"
+}

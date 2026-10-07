@@ -91,6 +91,13 @@ pub(crate) fn gather_and_plan(
     graph_id: &str,
     request: &IngestRequest,
 ) -> AppResult<Planned> {
+    // This pack's writes need the producer's observed base and ledger lifetime.
+    // Generic ingest/HTTP CRUD has neither; validation previews remain useful.
+    if request.vocab == "garden-file-views" && !request.dry_run {
+        return Err(AppError::validation(
+            "garden-file-views requires source_push with graphIncarnation and the observed baseVersion",
+        ));
+    }
     // ── memory family (vocab "mem*", IngestPayload::Memory) ──
     // The additive path: select the memory contract, read the live memory
     // projection (NOT user:rdf), and run the pure memory planner. The wf/campaign

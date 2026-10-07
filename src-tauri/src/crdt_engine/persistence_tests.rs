@@ -3,7 +3,7 @@ use super::{
     document_ops::{
         document_write, document_write_classified, materialize_room_document,
         persist_materialized_room_document, persist_room_document,
-        reconcile_matching_document_projection,
+        rebuild_room_document_projection, reconcile_matching_document_projection,
     },
     executor::ApplyOperationError,
     rooms::{run_projection_flush_for_test, Room, RoomRegistry},
@@ -3759,6 +3759,381 @@ fn workspace_rename_updates_document_record_and_workspace_rdf() {
                     .expect("title binding")
                     .to_string(),
                 "\"New title\""
+            );
+        });
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Records saved before marks were read back in the contract's order
+// ---------------------------------------------------------------------------
+//
+// `marks_from_attrs` now sorts a text run's marks into the contract's canonical
+// order, but yrs handed them back in HashMap order before that, so a
+// `document.json` saved by an older build can hold any order. The Y.Doc is the
+// authority and the stored `tiptapJson` is the key a flush, a retried write and
+// the source-sync rebuild compare against a fresh projection of it
+// (`projection_semantics_match`): an old order must not read as another document.
+
+const STACKED_TITLE: &str = "Stacked Marks";
+
+/// The `document.write` that creates the stacked-marks document: one paragraph
+/// whose only text run names its marks as [italic, link, bold], which is neither
+/// the contract's order ([link, bold, italic]) nor its reverse.
+fn stacked_marks_write(
+    graph_id: &str,
+    document_id: &str,
+    expected_revision: Option<u64>,
+) -> CrdtOperation {
+    let mut payload = json!({
+        "title": STACKED_TITLE,
+        "tiptapJson": {
+            "type": "doc",
+            "content": [{
+                "type": "paragraph",
+                "attrs": { "data-block-id": "stacked-block" },
+                "content": [{
+                    "type": "text",
+                    "text": "stacked",
+                    "marks": [
+                        { "type": "italic" },
+                        { "type": "link", "attrs": { "href": "https://example.org/" } },
+                        { "type": "bold" }
+                    ]
+                }]
+            }]
+        }
+    });
+    if let Some(expected) = expected_revision {
+        payload["expectedRevision"] = json!(expected);
+    }
+    CrdtOperation {
+        operation_id: format!("seed-{graph_id}"),
+        kind: "document.write".to_string(),
+        graph_id: graph_id.to_string(),
+        document_id: Some(document_id.to_string()),
+        payload,
+        enqueue_timestamp: "1".to_string(),
+    }
+}
+
+/// A graph with one document whose only text run carries three marks, written
+/// through the real `document.write` path, so the Y.Doc, its sidecar and the
+/// record are exactly what a flush leaves. Returns (graph dir, manifest path).
+async fn seed_stacked_marks_document(
+    app: &crate::app_runtime::AppHandle,
+    graph_id: &str,
+    document_id: &str,
+) -> (PathBuf, PathBuf) {
+    create_graph_service(
+        app,
+        CreateGraphInput {
+            title: "Stacked Marks".to_string(),
+            graph_id: Some(graph_id.to_string()),
+            description: None,
+            operation_id: None,
+        },
+    )
+    .expect("create graph");
+    document_write(app, &stacked_marks_write(graph_id, document_id, None))
+        .await
+        .expect("seed document");
+    let graph_dir = existing_graph_dir(app, graph_id).expect("graph dir");
+    let manifest = document_dir(&graph_dir, document_id)
+        .expect("document dir")
+        .join("document.json");
+    (graph_dir, manifest)
+}
+
+/// Leave the stored record as an older build could have: the run's marks in the
+/// REVERSE of the canonical order (yrs returned them in HashMap order, so any
+/// order was possible), then `edit` applied for the cases that must still
+/// differ. The Y.Doc is untouched. Returns the manifest's bytes as stored.
+fn store_record_with_old_mark_order(
+    manifest: &std::path::Path,
+    edit: impl FnOnce(&mut Value),
+) -> Vec<u8> {
+    let mut record: Value = crate::storage::read_json(manifest).expect("manifest json");
+    let names = |marks: &Value| -> Vec<String> {
+        marks
+            .as_array()
+            .expect("marks array")
+            .iter()
+            .map(|mark| mark["type"].as_str().expect("mark type").to_string())
+            .collect()
+    };
+    let marks = &mut record["tiptapJson"]["content"][0]["content"][0]["marks"];
+    assert_eq!(
+        names(&*marks),
+        ["link", "bold", "italic"],
+        "premise: the write path stored the run's marks in the canonical order"
+    );
+    marks.as_array_mut().expect("marks array").reverse();
+    assert_eq!(names(&*marks), ["italic", "bold", "link"]);
+    edit(&mut record);
+    crate::storage::write_json(manifest, &record).expect("write old-order record");
+    std::fs::read(manifest).expect("read old-order record")
+}
+
+#[test]
+fn projection_reconcile_does_not_save_an_unchanged_document_whose_record_has_old_mark_order() {
+    with_profile("garden-marks-order-reconcile", || {
+        crate::app_runtime::async_runtime::block_on(async {
+            let app = crate::tauri_runtime::build_mock_app_for_tests(true);
+            let graph_id = "marks-order-reconcile";
+            let document_id = "marks-order-document";
+            let (graph_dir, manifest) =
+                seed_stacked_marks_document(&app, graph_id, document_id).await;
+            let record = read_document_record(&graph_dir, &manifest).expect("seeded record");
+            let revision = record.revision;
+            // What a fresh projection of the unchanged Y.Doc looks like today.
+            let candidate = serde_json::to_value(&record).expect("candidate");
+            let stored = store_record_with_old_mark_order(&manifest, |_| {});
+
+            let reconciled =
+                reconcile_matching_document_projection(&app, graph_id, document_id, &candidate)
+                    .expect("reconcile the unchanged document")
+                    .expect("an unchanged document reconciles against its record, not a new save");
+            assert_eq!(reconciled["revision"], revision);
+            assert_eq!(
+                std::fs::read(&manifest).expect("record after reconcile"),
+                stored,
+                "reconciling an unchanged document must not rewrite document.json"
+            );
+        });
+    });
+}
+
+#[test]
+fn projection_replay_accepts_a_retried_write_whose_record_has_old_mark_order() {
+    with_profile("garden-marks-order-replay", || {
+        crate::app_runtime::async_runtime::block_on(async {
+            let app = crate::tauri_runtime::build_mock_app_for_tests(true);
+            let graph_id = "marks-order-replay";
+            let document_id = "marks-order-document";
+            let (graph_dir, manifest) =
+                seed_stacked_marks_document(&app, graph_id, document_id).await;
+            let record = read_document_record(&graph_dir, &manifest).expect("seeded record");
+            let revision = record.revision;
+            assert!(revision >= 1, "the seed write reached revision {revision}");
+            let stored = store_record_with_old_mark_order(&manifest, |_| {});
+
+            // The same write retried after it already reached `revision`: it
+            // names the revision before it, and its content is the document's own.
+            let mut retry = serde_json::to_value(&record).expect("retried write");
+            retry["expectedRevision"] = json!(revision - 1);
+            let replayed =
+                reconcile_matching_document_projection(&app, graph_id, document_id, &retry)
+                    .expect("an idempotent replay is not a revision conflict")
+                    .expect("an applied replay reconciles against its record");
+            assert_eq!(replayed["revision"], revision);
+            assert_eq!(
+                std::fs::read(&manifest).expect("record after replay"),
+                stored,
+                "an idempotent replay must not rewrite document.json"
+            );
+        });
+    });
+}
+
+#[test]
+fn projection_flush_of_a_restarted_room_does_not_rewrite_a_record_with_old_mark_order() {
+    with_profile("garden-marks-order-flush", || {
+        crate::app_runtime::async_runtime::block_on(async {
+            let app = crate::tauri_runtime::build_mock_app_for_tests(true);
+            let graph_id = "marks-order-flush";
+            let document_id = "marks-order-document";
+            let (graph_dir, manifest) =
+                seed_stacked_marks_document(&app, graph_id, document_id).await;
+            let revision = read_document_record(&graph_dir, &manifest)
+                .expect("seeded record")
+                .revision;
+            let stored = store_record_with_old_mark_order(&manifest, |_| {});
+
+            // A process restart: a brand-new registry hydrates a brand-new Doc
+            // from the sidecar, and its first flush meets the old-order record.
+            let restarted_registry = RoomRegistry::default();
+            let restarted_room = restarted_registry
+                .get_or_create(
+                    &format!("doc:{graph_id}:{document_id}"),
+                    document_ydoc_state_path(&graph_dir, document_id),
+                )
+                .await
+                .expect("hydrate restarted room");
+            assert!(restarted_room.needs_projection_flush());
+            let flushed = persist_room_document(
+                &app,
+                graph_id,
+                document_id,
+                STACKED_TITLE,
+                &restarted_room,
+                "marks-order-flush",
+            )
+            .await
+            .expect("flush the unchanged document");
+
+            assert_eq!(
+                flushed["revision"], revision,
+                "an unchanged document must not take a new revision"
+            );
+            assert!(!restarted_room.needs_projection_flush());
+            assert_eq!(
+                std::fs::read(&manifest).expect("record after flush"),
+                stored,
+                "an unchanged document must not be rewritten"
+            );
+        });
+    });
+}
+
+/// `rebuild_room_document_projection`, the per-document step of the sweep behind
+/// source push, pull and rebuild, run by a restarted room against the record
+/// `edit` leaves behind once the run's marks are in an old order.
+async fn rebuild_against_old_order_record(
+    app: &crate::app_runtime::AppHandle,
+    graph_id: &str,
+    edit: impl FnOnce(&mut Value),
+) -> Result<bool, String> {
+    let document_id = "marks-order-document";
+    let (graph_dir, manifest) = seed_stacked_marks_document(app, graph_id, document_id).await;
+    let stored = store_record_with_old_mark_order(&manifest, edit);
+    let restarted_registry = RoomRegistry::default();
+    let restarted_room = restarted_registry
+        .get_or_create(
+            &format!("doc:{graph_id}:{document_id}"),
+            document_ydoc_state_path(&graph_dir, document_id),
+        )
+        .await
+        .expect("hydrate restarted room");
+    // The sweep marks every room it visits before it rebuilds it.
+    restarted_room.force_projection_rebuild();
+    let rebuilt = rebuild_room_document_projection(
+        app,
+        graph_id,
+        document_id,
+        STACKED_TITLE,
+        &restarted_room,
+        "marks-order-rebuild",
+    )
+    .await;
+    assert_eq!(
+        std::fs::read(&manifest).expect("record after rebuild"),
+        stored,
+        "a projection replay never rewrites document.json"
+    );
+    rebuilt
+}
+
+#[test]
+fn projection_rebuild_judges_a_stored_run_by_its_mark_set_and_not_its_mark_order() {
+    with_profile("garden-marks-order-rebuild", || {
+        crate::app_runtime::async_runtime::block_on(async {
+            let app = crate::tauri_runtime::build_mock_app_for_tests(true);
+
+            // Only the order differs: the sweep takes the record as its own
+            // document's instead of aborting on a source mismatch.
+            let rebuilt = rebuild_against_old_order_record(&app, "marks-order-rebuild", |_| {})
+                .await
+                .expect("an old mark order is not a source mismatch");
+            assert!(rebuilt);
+
+            // Controls: an old order AND another difference is still a
+            // different document, and the sweep still refuses it.
+            let refused = |what: &str, result: Result<bool, String>| {
+                let error = result.expect_err(what);
+                assert!(error.contains("source mismatch"), "{what}: {error}");
+            };
+            refused(
+                "a run that lost a mark",
+                rebuild_against_old_order_record(&app, "marks-order-rebuild-fewer", |record| {
+                    record["tiptapJson"]["content"][0]["content"][0]["marks"]
+                        .as_array_mut()
+                        .expect("marks array")
+                        .retain(|mark| mark["type"] != "bold");
+                })
+                .await,
+            );
+            refused(
+                "a link to another href",
+                rebuild_against_old_order_record(&app, "marks-order-rebuild-href", |record| {
+                    for mark in record["tiptapJson"]["content"][0]["content"][0]["marks"]
+                        .as_array_mut()
+                        .expect("marks array")
+                    {
+                        if mark["type"] == "link" {
+                            mark["attrs"]["href"] = json!("https://example.org/elsewhere");
+                        }
+                    }
+                })
+                .await,
+            );
+            refused(
+                "a run with other text",
+                rebuild_against_old_order_record(&app, "marks-order-rebuild-text", |record| {
+                    record["tiptapJson"]["content"][0]["content"][0]["text"] = json!("stackeD");
+                })
+                .await,
+            );
+        });
+    });
+}
+
+#[test]
+fn projection_retried_write_naming_its_marks_in_another_order_is_an_idempotent_replay() {
+    with_profile("garden-marks-order-retry", || {
+        crate::app_runtime::async_runtime::block_on(async {
+            let app = crate::tauri_runtime::build_mock_app_for_tests(true);
+            let graph_id = "marks-order-retry";
+            let document_id = "marks-order-document";
+            create_graph_service(
+                &app,
+                CreateGraphInput {
+                    title: "Marks Order Retry".to_string(),
+                    graph_id: Some(graph_id.to_string()),
+                    description: None,
+                    operation_id: None,
+                },
+            )
+            .expect("create graph");
+            // The write names the run's marks as [italic, link, bold]; the store
+            // holds them in the contract's order, [link, bold, italic].
+            let write = stacked_marks_write(graph_id, document_id, Some(0));
+            document_write(&app, &write)
+                .await
+                .expect("the write applies at revision 0");
+            let graph_dir = existing_graph_dir(&app, graph_id).expect("graph dir");
+            let manifest = document_dir(&graph_dir, document_id)
+                .expect("document dir")
+                .join("document.json");
+            let revision = || {
+                read_document_record(&graph_dir, &manifest)
+                    .expect("document record")
+                    .revision
+            };
+            assert_eq!(revision(), 1);
+
+            // The same operation again, as the journal replays one whose tail
+            // failed after the hot commit: it names the revision before the one it
+            // reached, and its content is the document's own, in the caller's order.
+            document_write(&app, &write)
+                .await
+                .expect("a retried write is an idempotent replay, not a revision conflict");
+            assert_eq!(
+                revision(),
+                1,
+                "a retried write must not invent a second revision"
+            );
+
+            // And against a record saved by an older build, whose run holds yet
+            // another order than the write's and the Y.Doc's.
+            let _old_order_record = store_record_with_old_mark_order(&manifest, |_| {});
+            document_write(&app, &write)
+                .await
+                .expect("a retried write against an old-order record is an idempotent replay");
+            assert_eq!(
+                revision(),
+                1,
+                "a retried write must not invent a second revision"
             );
         });
     });

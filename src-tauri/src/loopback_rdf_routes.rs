@@ -24,7 +24,20 @@ pub(super) async fn loopback_rdf_load(
     if let Err(response) = require_loopback_scope(&headers, &state, "rdf.load") {
         return response;
     }
-    loopback_app_result(load_rdf_service(state.app.clone(), input))
+    // Recorded in the source ledger on a graph under source authority
+    // (`source_sync::record_authored_write`); unchanged elsewhere.
+    let graph_id = input.graph_id.clone();
+    let writer = state.app.clone();
+    loopback_app_result(
+        crate::source_sync::record_authored_write(
+            &state.app,
+            &graph_id,
+            "rdfLoad",
+            crate::source_sync::AuthoredScope::UserGraphs,
+            async { load_rdf_service(writer, input) },
+        )
+        .await,
+    )
 }
 
 pub(super) async fn loopback_rdf_dump(

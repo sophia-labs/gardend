@@ -81,6 +81,7 @@ mod document_types;
 mod document_ydoc_projection;
 mod emporium;
 mod emporium_mcp_surface;
+mod files_service;
 mod flow_board;
 mod flow_board_mcp;
 mod flow_board_reconcile;
@@ -170,6 +171,7 @@ mod loopback_document_history_routes;
 mod loopback_document_inputs;
 mod loopback_document_routes;
 mod loopback_entity_routes;
+mod loopback_files_routes;
 mod loopback_graph_export_routes;
 mod loopback_graph_inputs;
 mod loopback_graph_job_routes;
@@ -351,6 +353,14 @@ mod source_sync;
 mod source_pull_budget;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod ludus_source_tests;
+#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
+mod block_contract_store_tests;
+#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
+mod markdown_fidelity_store_tests;
+#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
+mod json_text_face_store_tests;
+#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
+mod write_placement_store_tests;
 mod graph_incarnation_admission;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod ludus_incarnation_tests;

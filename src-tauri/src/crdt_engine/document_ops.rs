@@ -175,13 +175,24 @@ async fn preflight_document_write_revision(
         ));
     };
     let desired = projection::materialize_tiptap_json(desired_tiptap_json, document_id);
+    // A run's marks are a set: the order a write names them in is the caller's
+    // (a markdown nesting, an agent's JSON), the order the store holds is the
+    // contract's, and a record saved by an older build may hold any. All three
+    // are compared in the canonical order, or a retried write that names two
+    // marks in another order than the contract's conflicts with its own
+    // already-applied result.
+    let desired_in_order = super::block_contract::canonical_mark_order(&desired.tiptap_json);
+    let record_in_order = record
+        .tiptap_json
+        .as_ref()
+        .map(super::block_contract::canonical_mark_order);
     let cold_matches = record.title == title
-        && record.tiptap_json.as_ref() == Some(&desired.tiptap_json)
+        && record_in_order.as_ref() == Some(&desired_in_order)
         && record.body.eq(&desired.body);
     let hot_matches = room
         .with_doc(|doc| {
             let current = projection::materialize_ydoc(doc, document_id);
-            current.tiptap_json.eq(&desired.tiptap_json)
+            super::block_contract::canonical_mark_order(&current.tiptap_json) == desired_in_order
                 && current.body.eq(&desired.body)
                 && supplied_comments_match(doc, comments)
         })
@@ -215,8 +226,17 @@ pub(crate) async fn document_write_classified(
         .or_else(|| str_field(&payload, "documentId"))
         .ok_or_else(|| "write document operation is missing documentId".to_string())?;
 
-    let parent_id = str_field(&payload, "parentId");
-    let order = num_field(&payload, "order")
+    // Placement is the caller's to change, not a side effect of writing
+    // content. A payload that names `parentId` (a folder, or an explicit null
+    // for the root) or `order` moves the document; one that names neither —
+    // every MCP `write_document`, Hoja, Choreograph — leaves an existing
+    // workspace entry where it is. The fallbacks below only file a document
+    // the write is creating. (Hosted Hoja QA 2026-09-23: every content write
+    // refiled the document at the root with a fresh order.)
+    let parent_named = payload.contains_key("parentId") || payload.contains_key("parent_id");
+    let parent_id = str_field(&payload, "parentId").or_else(|| str_field(&payload, "parent_id"));
+    let explicit_order = num_field(&payload, "order");
+    let order = explicit_order
         .or_else(|| operation.enqueue_timestamp.parse::<f64>().ok())
         .unwrap_or(0.0);
 
@@ -231,6 +251,9 @@ pub(crate) async fn document_write_classified(
     // caller supplies `tiptapJson` or `blocks` they own the ids and we must
     // not touch them.
     let mut from_parsed_content = false;
+    // Receipt paths name the caller's own carrier: `content[i]` for a
+    // TipTap document, `blocks[i]` for a blocks array.
+    let mut receipt_prefix = "content";
     let tiptap_json: Value = if let Some(tj) = payload.get("tiptapJson").filter(|v| v.is_object()) {
         tj.clone()
     } else if let Some(content) = payload.get("content").and_then(Value::as_str) {
@@ -245,7 +268,27 @@ pub(crate) async fn document_write_classified(
         from_parsed_content = true;
         parsed.tiptap_json
     } else {
-        tiptap_json_from_blocks(payload.get("blocks"))
+        receipt_prefix = "blocks";
+        let (tiptap_json, notes) = tiptap_json_from_blocks_array(payload.get("blocks"));
+        warnings.extend(notes);
+        tiptap_json
+    };
+    // The block contract: every JSON write path stores canonical nodes.
+    // Known-equivalent shapes are rewritten deterministically, unknown nodes
+    // are wrapped byte-exact as opaqueBlock, and every rewrite is a receipt.
+    let tiptap_json = {
+        let nodes = tiptap_json
+            .get("content")
+            .and_then(Value::as_array)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        let (nodes, receipts) = super::block_contract::normalise_doc_content_at(
+            nodes,
+            &operation.operation_id,
+            receipt_prefix,
+        );
+        warnings.extend(receipts);
+        json!({"type": "doc", "content": nodes})
     };
 
     let graph_dir = existing_graph_dir(app, &graph_id)?;
@@ -410,6 +453,8 @@ pub(crate) async fn document_write_classified(
             "title": title,
             "parentId": parent_id,
             "order": order,
+            "preserveParent": !parent_named,
+            "preserveOrder": explicit_order.is_none(),
             "updatedAt": operation.enqueue_timestamp.parse::<f64>().ok(),
             "readOnly": payload.get("readOnly").and_then(Value::as_bool).unwrap_or(false),
         }),
@@ -452,7 +497,7 @@ pub(crate) async fn document_write_classified(
         "documentId": document_id,
         "id": document_id,
         "title": title,
-        "parentId": parent_id,
+        "parentId": workspace.get("parentId").cloned().unwrap_or(json!(parent_id)),
         "workspace": workspace,
         "blockCount": blocks.len(),
         "rdfTripleCount": record_value.get("rdfTripleCount").cloned().unwrap_or(json!(0)),
@@ -465,19 +510,10 @@ pub(crate) async fn document_write_classified(
     }))
 }
 
-/// Top-level TipTap node types that carry a `data-block-id` (mirrors
-/// `content_parse::BLOCK_ID_TYPES`, the set `ensure_block_ids` stamps). Only
-/// these participate in positional id reuse.
-const BLOCK_ID_NODE_TYPES: &[&str] = &[
-    "paragraph",
-    "heading",
-    "listItem",
-    "blockquote",
-    "codeBlock",
-    "horizontalRule",
-    "image",
-    "mathBlock",
-];
+/// Top-level TipTap node types that carry a `data-block-id` (the set
+/// `ensure_block_ids` stamps, owned by the block contract). Only these
+/// participate in positional id reuse.
+const BLOCK_ID_NODE_TYPES: &[&str] = super::block_contract::MINTED_BLOCK_IDS;
 
 /// Overwrite each freshly-minted top-level block id with the prior fragment's
 /// id at the SAME position, so an in-place rewrite (same block structure,
@@ -656,6 +692,59 @@ pub(crate) fn tiptap_json_from_blocks(value: Option<&Value>) -> Value {
             .collect::<Result<Vec<_>, String>>()
             .unwrap_or_default(),
     })
+}
+
+/// Block types the simplified `blocks` array maps (blockToTipTapNode).
+const SIMPLIFIED_BLOCK_TYPES: &[&str] = &[
+    "paragraph", "heading", "bullet", "numbered", "todo", "quote", "code", "divider",
+];
+
+/// A `blocks` entry that is a TipTap node rather than a simplified block:
+/// its `content` is an array, or it carries `attrs`. A simplified block
+/// (`{id, type, content: string, marks}`) has neither. Before the block
+/// contract a TipTap node here lost its content (it became an empty
+/// paragraph); now it goes through the contract normaliser like any other
+/// TipTap JSON.
+pub(crate) fn is_tiptap_shaped_block(value: &Value) -> bool {
+    value.get("content").is_some_and(Value::is_array)
+        || value.get("attrs").is_some_and(Value::is_object)
+}
+
+/// The nodes of a `blocks` array: TipTap nodes verbatim (the contract
+/// normaliser runs next), simplified blocks through blockToTipTapNode. A
+/// simplified type outside the blocks vocabulary keeps the historical
+/// paragraph fallback, now with a receipt.
+pub(crate) fn nodes_from_blocks_array(blocks: &[Value]) -> Result<(Vec<Value>, Vec<String>), String> {
+    let mut nodes = Vec::with_capacity(blocks.len());
+    let mut warnings = Vec::new();
+    for (index, block) in blocks.iter().enumerate() {
+        if is_tiptap_shaped_block(block) {
+            nodes.push(block.clone());
+            continue;
+        }
+        if let Some(block_type) = block.get("type").and_then(Value::as_str) {
+            if !SIMPLIFIED_BLOCK_TYPES.contains(&block_type) {
+                warnings.push(format!(
+                    "block-contract fallback blocks[{index}]: block type {block_type} is not a blocks-array type; stored as a paragraph (text kept)"
+                ));
+            }
+        }
+        nodes.push(block_to_tiptap_node(block)?);
+    }
+    Ok((nodes, warnings))
+}
+
+/// `tiptap_json_from_blocks` for a write: TipTap-shaped entries kept for the
+/// normaliser, plus the fallback receipts.
+fn tiptap_json_from_blocks_array(value: Option<&Value>) -> (Value, Vec<String>) {
+    let blocks = value.and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
+    if blocks.is_empty() {
+        return (json!({ "type": "doc", "content": [{ "type": "paragraph" }] }), Vec::new());
+    }
+    match nodes_from_blocks_array(blocks) {
+        Ok((nodes, warnings)) => (json!({ "type": "doc", "content": nodes }), warnings),
+        Err(_) => (json!({ "type": "doc", "content": [] }), Vec::new()),
+    }
 }
 
 /// Port of blockToTipTapNode (native-local-runtime.ts:3862).
@@ -1329,9 +1418,17 @@ fn projection_semantics_match(record: &Value, candidate: &Value) -> Result<bool,
     // byte identical. Body is retained as a defensive semantic cross-check.
     // Comments are authoritative non-TipTap semantics, but raw CRDT update
     // bytes are not: equal visible state can have different Yjs histories.
-    let content_matches = ["title", "body", "tiptapJson", "documentKind"]
+    // A text run's marks are a set, and the ORDER stored in a record is not
+    // part of the document: yrs returned a run's formatting in HashMap order
+    // until `marks_from_attrs` began sorting its reads with the contract's
+    // `canonical_mark_cmp`, so a record saved before that holds any order while
+    // a fresh projection of its own Y.Doc holds the canonical one. `tiptapJson`
+    // is therefore compared with both sides in the canonical mark order; title,
+    // body and documentKind stay exact.
+    let content_matches = ["title", "body", "documentKind"]
         .into_iter()
-        .all(|field| record.get(field) == candidate.get(field));
+        .all(|field| record.get(field) == candidate.get(field))
+        && tiptap_json_matches(record.get("tiptapJson"), candidate.get("tiptapJson"));
     if !content_matches {
         return Ok(false);
     }
@@ -1352,6 +1449,21 @@ fn projection_semantics_match(record: &Value, candidate: &Value) -> Result<bool,
     Ok(canonical_projection_comments(record)? == canonical_projection_comments(candidate)?)
 }
 
+/// One record's `tiptapJson` against a candidate's: equal, or equal once every
+/// text run's marks are in the canonical order (`canonical_mark_order`: same
+/// marks, same attrs, same everything else). An absent field and a present one
+/// still differ, and `null` (a flow board's) is compared as itself.
+fn tiptap_json_matches(record: Option<&Value>, candidate: Option<&Value>) -> bool {
+    match (record, candidate) {
+        (Some(record), Some(candidate)) => {
+            record == candidate
+                || super::block_contract::canonical_mark_order(record)
+                    == super::block_contract::canonical_mark_order(candidate)
+        }
+        (record, candidate) => record == candidate,
+    }
+}
+
 /// The value-canonical board content of one save-candidate/record JSON: the
 /// deterministic form-C export of its inline Y.Doc state. An empty/absent
 /// inline payload canonicalizes to `""` — distinct from every real export
@@ -1367,6 +1479,210 @@ fn canonical_board_projection(value: &Value) -> Result<String, String> {
     }
     let doc = crate::flow_board::board_doc_from_update_base64(encoded)?;
     Ok(crate::flow_board::board_export_json(&doc, None).json)
+}
+
+/// `projection_semantics_match` and the order of a text run's marks: a record
+/// saved before the projection sorted its reads may hold the marks in any order,
+/// and must still be recognised as the document its own Y.Doc projects. The
+/// negative controls pin that nothing else became loose.
+#[cfg(test)]
+mod semantics_match_mark_order_tests {
+    use super::*;
+
+    fn mark(name: &str) -> Value {
+        json!({ "type": name })
+    }
+
+    fn link(href: &str) -> Value {
+        json!({ "type": "link", "attrs": { "href": href } })
+    }
+
+    /// A record (or a save candidate) of one paragraph whose only text run
+    /// carries `marks`, in that order. `body` is the same for every caller so a
+    /// difference in `tiptapJson` is the only difference between two of these.
+    fn paragraph_doc(title: &str, text: &str, marks: &[Value]) -> Value {
+        json!({
+            "title": title,
+            "body": "stacked",
+            "tiptapJson": {
+                "type": "doc",
+                "content": [{
+                    "type": "paragraph",
+                    "attrs": { "data-block-id": "p" },
+                    "content": [{ "type": "text", "text": text, "marks": marks }],
+                }],
+            },
+        })
+    }
+
+    fn matches(record: &Value, candidate: &Value) -> bool {
+        projection_semantics_match(record, candidate).expect("the two documents are comparable")
+    }
+
+    /// The pair from the build box: a record saved by an older build holds
+    /// [superscript, bold]; a fresh projection of its own Y.Doc reads
+    /// [bold, superscript].
+    #[test]
+    fn a_record_with_marks_in_an_old_order_matches_the_canonical_projection_of_its_doc() {
+        let old = paragraph_doc("Doc", "stacked", &[mark("superscript"), mark("bold")]);
+        let fresh = paragraph_doc("Doc", "stacked", &[mark("bold"), mark("superscript")]);
+        assert!(
+            matches(&old, &fresh),
+            "[superscript, bold] against [bold, superscript]"
+        );
+        assert!(matches(&fresh, &old), "the comparison is symmetric");
+        assert!(matches(&old, &old), "a record matches itself");
+        assert!(matches(&fresh, &fresh), "a canonical record matches itself");
+    }
+
+    #[test]
+    fn marks_stacked_in_any_old_order_match_the_canonical_one() {
+        let canonical = vec![
+            link("https://example.org/"),
+            mark("bold"),
+            mark("italic"),
+            mark("abbr"),
+            mark("superscript"),
+        ];
+        let fresh = paragraph_doc("Doc", "stacked", &canonical);
+        for shift in 0..canonical.len() {
+            let mut rotated = canonical.clone();
+            rotated.rotate_left(shift);
+            let old = paragraph_doc("Doc", "stacked", &rotated);
+            assert!(matches(&old, &fresh), "rotated by {shift}");
+        }
+        let mut reversed = canonical.clone();
+        reversed.reverse();
+        let old = paragraph_doc("Doc", "stacked", &reversed);
+        assert!(matches(&old, &fresh), "reversed");
+    }
+
+    /// A record of a paragraph inside a blockquote: the second of its two text
+    /// runs carries `marks`.
+    fn quoted_doc(marks: &[Value]) -> Value {
+        json!({
+            "title": "Doc",
+            "body": "stacked",
+            "tiptapJson": {
+                "type": "doc",
+                "content": [{
+                    "type": "blockquote",
+                    "attrs": { "data-block-id": "q" },
+                    "content": [{
+                        "type": "paragraph",
+                        "attrs": { "data-block-id": "p" },
+                        "content": [
+                            { "type": "text", "text": "plain " },
+                            { "type": "text", "text": "stacked", "marks": marks },
+                        ],
+                    }],
+                }],
+            },
+        })
+    }
+
+    #[test]
+    fn marks_in_an_old_order_inside_nested_blocks_match() {
+        let old = quoted_doc(&[mark("italic"), mark("bold")]);
+        let fresh = quoted_doc(&[mark("bold"), mark("italic")]);
+        assert!(matches(&old, &fresh));
+        assert!(!matches(&old, &quoted_doc(&[mark("bold")])));
+    }
+
+    // ---- negative controls: these must stay false -------------------------
+
+    #[test]
+    fn a_different_mark_set_still_differs() {
+        let record = paragraph_doc("Doc", "stacked", &[mark("superscript"), mark("bold")]);
+        let others: [Vec<Value>; 4] = [
+            vec![mark("bold"), mark("italic")],
+            vec![mark("bold")],
+            vec![mark("bold"), mark("superscript"), mark("italic")],
+            vec![],
+        ];
+        for other in others {
+            let candidate = paragraph_doc("Doc", "stacked", &other);
+            assert!(!matches(&record, &candidate), "{other:?}");
+            assert!(
+                !matches(&candidate, &record),
+                "{other:?}, the other way round"
+            );
+        }
+    }
+
+    #[test]
+    fn a_mark_with_different_attrs_still_differs() {
+        let record = paragraph_doc(
+            "Doc",
+            "stacked",
+            &[link("https://example.org/a"), mark("bold")],
+        );
+        // The control: the same marks and attrs in the other order are a match.
+        let reordered = paragraph_doc(
+            "Doc",
+            "stacked",
+            &[mark("bold"), link("https://example.org/a")],
+        );
+        assert!(matches(&record, &reordered));
+        // The same marks in the other order with another href are not.
+        let other_href = paragraph_doc(
+            "Doc",
+            "stacked",
+            &[mark("bold"), link("https://example.org/b")],
+        );
+        assert!(!matches(&record, &other_href));
+        assert!(!matches(&other_href, &record));
+    }
+
+    #[test]
+    fn different_text_still_differs_even_when_the_mark_order_differs_too() {
+        let record = paragraph_doc("Doc", "stacked", &[mark("superscript"), mark("bold")]);
+        let other_text = paragraph_doc("Doc", "stackeD", &[mark("bold"), mark("superscript")]);
+        assert!(!matches(&record, &other_text));
+        let same_order_other_text =
+            paragraph_doc("Doc", "stackeD", &[mark("superscript"), mark("bold")]);
+        assert!(!matches(&record, &same_order_other_text));
+    }
+
+    #[test]
+    fn a_different_title_still_differs() {
+        let record = paragraph_doc("Doc", "stacked", &[mark("superscript"), mark("bold")]);
+        let other_title = paragraph_doc(
+            "Another title",
+            "stacked",
+            &[mark("bold"), mark("superscript")],
+        );
+        assert!(!matches(&record, &other_title));
+        // The control: the same candidate under the record's title matches.
+        let same_title = paragraph_doc("Doc", "stacked", &[mark("bold"), mark("superscript")]);
+        assert!(matches(&record, &same_title));
+    }
+
+    #[test]
+    fn a_different_body_or_document_kind_still_differs() {
+        let record = paragraph_doc("Doc", "stacked", &[mark("superscript"), mark("bold")]);
+        let mut other_body = paragraph_doc("Doc", "stacked", &[mark("bold"), mark("superscript")]);
+        other_body["body"] = json!("another body");
+        assert!(!matches(&record, &other_body));
+        let mut other_kind = paragraph_doc("Doc", "stacked", &[mark("bold"), mark("superscript")]);
+        other_kind["documentKind"] = json!("tabula");
+        assert!(!matches(&record, &other_kind));
+    }
+
+    #[test]
+    fn a_null_or_absent_tiptap_json_is_still_compared_exactly() {
+        // A flow board's record carries `tiptapJson: null` by construction.
+        let board = json!({ "title": "Doc", "body": "stacked", "tiptapJson": null });
+        assert!(matches(&board, &board.clone()));
+        let text = paragraph_doc("Doc", "stacked", &[mark("bold")]);
+        assert!(!matches(&board, &text));
+        assert!(!matches(&text, &board));
+        // Absent is not null, as before.
+        let absent = json!({ "title": "Doc", "body": "stacked" });
+        assert!(!matches(&absent, &board));
+        assert!(!matches(&board, &absent));
+        assert!(matches(&absent, &absent.clone()));
+    }
 }
 
 pub(super) fn reconcile_matching_document_projection(
@@ -2564,12 +2880,18 @@ pub(crate) async fn ingest_markdown_original_steps_classified(
         .get_or_create(&format!("doc:{graph_id}:{document_id}"), state_path)
         .await
         .map_err(ApplyOperationError::retryable_after_hot_commit)?;
-    let content_nodes: Vec<Value> = parsed
-        .tiptap_json
-        .get("content")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
+    // Parsed markdown is already canonical; the contract normaliser runs on
+    // every JSON write path regardless (a no-op here unless the converter
+    // emitted a node the contract does not know).
+    let (content_nodes, contract_warnings) = super::block_contract::normalise_doc_content(
+        parsed
+            .tiptap_json
+            .get("content")
+            .and_then(Value::as_array)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]),
+        &operation.operation_id,
+    );
     room.update_doc(move |_doc, txn| {
         let fragment = txn.get_or_insert_xml_fragment("content");
         let len = fragment.len(txn);
@@ -2606,6 +2928,7 @@ pub(crate) async fn ingest_markdown_original_steps_classified(
     stats.insert("block_count".to_string(), json!(block_count));
     let mut warnings = js_string_array(payload.get("warnings"));
     warnings.extend(parsed.warnings.clone());
+    warnings.extend(contract_warnings);
 
     Ok(json!({
         "documentId": document_id,

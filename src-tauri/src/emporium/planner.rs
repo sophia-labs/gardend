@@ -2357,6 +2357,12 @@ pub(crate) fn plan_generic_compute(
     let mut seen_subjects: BTreeSet<String> = BTreeSet::new();
 
     for (idx, record) in records.iter().enumerate() {
+        if contract.name == "garden-file-views" {
+            let value = serde_json::to_value(record)
+                .map_err(|error| PlanError(format!("folder view record: {error}")))?;
+            crate::emporium::folder_views::validate_folder_view_record(&value, graph_id)
+                .map_err(PlanError)?;
+        }
         let class_name = &record.kind;
         let spec = contract.classes.get(class_name).ok_or_else(|| {
             PlanError(format!(

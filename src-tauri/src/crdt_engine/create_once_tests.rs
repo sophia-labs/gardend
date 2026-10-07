@@ -96,6 +96,11 @@ fn create_once_strict_input_preserves_explicit_order_and_rejects_old_flags() {
     let (_, _, payload) = mcp_input(&arguments()).unwrap();
     assert_eq!(payload["order"], 10);
     assert_eq!(payload["parentId"], Value::Null);
+    let mut strict = arguments();
+    strict["requireDurable"] = json!(true);
+    assert!(mcp_input(&strict).is_ok());
+    strict["awaitDurable"] = json!(false);
+    assert!(mcp_input(&strict).is_err());
     for key in [
         "expectedRevision",
         "operationId",
@@ -113,12 +118,33 @@ fn create_once_strict_input_preserves_explicit_order_and_rejects_old_flags() {
         ("parentId", json!("a-folder")),
         ("title", json!(" padded ")),
         ("awaitDurable", json!("true")),
+        ("requireDurable", json!("true")),
         ("tiptapJson", json!({"type":"doc","content":[]})),
     ] {
         let mut input = arguments();
         input[key] = value;
         assert!(mcp_input(&input).is_err(), "accepted malformed {key}");
     }
+}
+
+#[cfg(feature = "headless")]
+#[test]
+fn create_once_strict_durability_without_plane_keeps_admission_and_refuses_replay() {
+    fixture(|app, graph_dir| {
+        crate::app_runtime::async_runtime::block_on(async {
+            let mut input = arguments();
+            input["requireDurable"] = json!(true);
+            let error = crate::document_create_once_mcp::create_document_once(app.clone(), &input)
+                .await
+                .unwrap_err();
+            assert!(error.contains("durable plane is not configured"), "{error}");
+            assert!(admission_path(&graph_dir, DOCUMENT).unwrap().is_file());
+            let retry = crate::document_create_once_mcp::create_document_once(app, &input)
+                .await
+                .unwrap_err();
+            assert!(retry.contains("prior admission"), "{retry}");
+        })
+    });
 }
 
 #[test]

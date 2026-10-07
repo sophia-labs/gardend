@@ -1,7 +1,7 @@
 {
-  "restSurfaceSha256": "d42039d7a4c9f8a3c71024ce7c4e02ba260db42ad57533406abb881798144203",
+  "restSurfaceSha256": "0eaf7d8deab7c059e7448ebde890dd4b40e9b3e497bcadd3c10ddb78eb867386",
   "mcpSurfaceSha256": "3d707b231f79b17463dd5fc227b4ee0d226ab06e11610b8a5beddae100ac8bce",
-  "effectRegistrySha256": "3fa908f8fa8a058be9cff7799597f28c8944acc0d27e747762bb303c5ed5a374",
+  "effectRegistrySha256": "51cd7bacbfa0dc95794062affd07989d1603de096b56d8e55ab1f5013b5ae2ea",
   "restGlobal": [
     "GET /api/artifacts/ingestion/approaches",
     "GET /api/artifacts/ingestion/docling/status",
@@ -134,7 +134,13 @@
     "PUT /graphs/{graph_id}",
     "PUT /navigation/{graph_id}/artifacts/{artifact_id}",
     "PUT /navigation/{graph_id}/folders/{folder_id}",
-    "PUT /salience/{graph_id}/blocks/user-value"
+    "PUT /salience/{graph_id}/blocks/user-value",
+    "POST /artifacts/{graph_id}/files",
+    "PATCH /navigation/{graph_id}/artifacts/{artifact_id}",
+    "GET /navigation/{graph_id}/trash",
+    "DELETE /navigation/{graph_id}/trash/{artifact_id}",
+    "POST /navigation/{graph_id}/trash/{artifact_id}/restore",
+    "GET /navigation/{graph_id}/file-views"
   ],
   "restBodyGraph": [
     "POST /api/graphs/query",

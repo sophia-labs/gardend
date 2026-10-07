@@ -19,7 +19,8 @@ pub(super) use crate::original_file_access_tokens::{
     image_access_token_matches, write_image_access_token,
 };
 pub(super) use crate::original_file_http::{
-    image_file_response, original_file_download_response, query_bool,
+    image_file_response, original_file_download_response, original_file_stream_response,
+    query_bool,
 };
 pub(super) use crate::original_file_storage::{
     rewrite_original_manifest_local_path, rewrite_original_manifests_under,
@@ -283,6 +284,30 @@ pub(super) fn read_artifact_original_file(
     let graph_dir = existing_graph_dir(app, graph_id).map_err(AppError::storage)?;
     let original_dir = artifact_original_dir(&graph_dir, artifact_id).map_err(AppError::storage)?;
     read_original_file_from_dir(&original_dir).map_err(AppError::storage)
+}
+
+/// The stored original's manifest and the path of its bytes, without reading
+/// them (the download route streams them).
+pub(super) fn open_artifact_original_file(
+    app: &AppHandle,
+    graph_id: &str,
+    artifact_id: &str,
+) -> AppResult<(OriginalFileManifest, std::path::PathBuf)> {
+    let graph_dir = existing_graph_dir(app, graph_id).map_err(AppError::storage)?;
+    let original_dir = artifact_original_dir(&graph_dir, artifact_id).map_err(AppError::storage)?;
+    let manifest = crate::original_file_manifest_store::read_original_manifest(&original_dir)
+        .map_err(AppError::storage)?;
+    let path = crate::original_file_manifest_store::original_manifest_file_path(
+        &original_dir,
+        &manifest.filename,
+    )
+    .map_err(AppError::storage)?;
+    if !path.is_file() {
+        return Err(AppError::storage(format!(
+            "original file not found for artifact {artifact_id}"
+        )));
+    }
+    Ok((manifest, path))
 }
 
 pub(super) fn delete_artifact_original_files(

@@ -113,13 +113,18 @@ pub(super) async fn loopback_hosted_import_rdf(
     };
 
     let started_at_ms = epoch_millis();
-    let result = import_rdf_into_graph(
-        state.app.clone(),
-        graph_id.clone(),
-        filename,
-        mime_type,
-        bytes,
-    );
+    // Recorded in the source ledger on a graph under source authority
+    // (`source_sync::record_authored_write`); unchanged elsewhere.
+    let writer = state.app.clone();
+    let import_graph_id = graph_id.clone();
+    let result = crate::source_sync::record_authored_write(
+        &state.app,
+        &graph_id,
+        "rdfImport",
+        crate::source_sync::AuthoredScope::UserGraphs,
+        async { import_rdf_into_graph(writer, import_graph_id, filename, mime_type, bytes) },
+    )
+    .await;
     cleanup_pending_upload_file(&pending_path);
     let record = match state.jobs.insert_finished(
         "import_rdf",

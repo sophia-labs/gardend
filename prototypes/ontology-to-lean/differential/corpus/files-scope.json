@@ -1,0 +1,244 @@
+[
+  {
+    "name": "files-create",
+    "target": "urn:graph:fixture:projection:file-views",
+    "otherTarget": "urn:graph:fixture:projection:workspace",
+    "cls": "https://sophia-labs.ai/ontology/view#FolderView",
+    "subject": "urn:files:folder-view:fv-a",
+    "current": [],
+    "desired": [
+      [
+        "urn:files:folder-view:fv-a",
+        "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+        {
+          "k": "uri",
+          "v": "https://sophia-labs.ai/ontology/view#FolderView"
+        }
+      ],
+      [
+        "urn:files:folder-view:fv-a",
+        "https://sophia-labs.ai/ontology/view#presentation",
+        {
+          "k": "lit",
+          "v": "canvas"
+        }
+      ]
+    ],
+    "otherCurrent": []
+  },
+  {
+    "name": "files-update-preserves-sibling-and-other-graph",
+    "target": "urn:graph:fixture:projection:file-views",
+    "otherTarget": "urn:graph:fixture:projection:workspace",
+    "cls": "https://sophia-labs.ai/ontology/view#FolderView",
+    "subject": "urn:files:folder-view:fv-a",
+    "current": [
+      [
+        "urn:files:folder-view:fv-a",
+        "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+        {
+          "k": "uri",
+          "v": "https://sophia-labs.ai/ontology/view#FolderView"
+        }
+      ],
+      [
+        "urn:files:folder-view:fv-a",
+        "https://sophia-labs.ai/ontology/view#presentation",
+        {
+          "k": "lit",
+          "v": "list"
+        }
+      ],
+      [
+        "urn:files:folder-view:fv-b",
+        "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+        {
+          "k": "uri",
+          "v": "https://sophia-labs.ai/ontology/view#FolderView"
+        }
+      ],
+      [
+        "urn:files:folder-view:fv-b",
+        "https://sophia-labs.ai/ontology/view#presentation",
+        {
+          "k": "lit",
+          "v": "list"
+        }
+      ]
+    ],
+    "desired": [
+      [
+        "urn:files:folder-view:fv-a",
+        "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+        {
+          "k": "uri",
+          "v": "https://sophia-labs.ai/ontology/view#FolderView"
+        }
+      ],
+      [
+        "urn:files:folder-view:fv-a",
+        "https://sophia-labs.ai/ontology/view#presentation",
+        {
+          "k": "lit",
+          "v": "canvas"
+        }
+      ]
+    ],
+    "otherCurrent": [
+      [
+        "urn:files:folder-view:fv-a",
+        "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+        {
+          "k": "uri",
+          "v": "https://sophia-labs.ai/ontology/view#FolderView"
+        }
+      ],
+      [
+        "urn:files:folder-view:fv-a",
+        "urn:evidence:protected",
+        {
+          "k": "lit",
+          "v": "keep"
+        }
+      ]
+    ]
+  },
+  {
+    "name": "files-converged-zero-ops",
+    "target": "urn:graph:fixture:projection:file-views",
+    "otherTarget": "urn:graph:fixture:projection:workspace",
+    "cls": "https://sophia-labs.ai/ontology/view#FolderView",
+    "subject": "urn:files:folder-view:fv-a",
+    "current": [
+      [
+        "urn:files:folder-view:fv-a",
+        "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+        {
+          "k": "uri",
+          "v": "https://sophia-labs.ai/ontology/view#FolderView"
+        }
+      ],
+      [
+        "urn:files:folder-view:fv-a",
+        "https://sophia-labs.ai/ontology/view#presentation",
+        {
+          "k": "lit",
+          "v": "canvas"
+        }
+      ],
+      [
+        "urn:files:folder-view:fv-b",
+        "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+        {
+          "k": "uri",
+          "v": "https://sophia-labs.ai/ontology/view#FolderView"
+        }
+      ],
+      [
+        "urn:files:folder-view:fv-b",
+        "https://sophia-labs.ai/ontology/view#presentation",
+        {
+          "k": "lit",
+          "v": "list"
+        }
+      ]
+    ],
+    "desired": [
+      [
+        "urn:files:folder-view:fv-a",
+        "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+        {
+          "k": "uri",
+          "v": "https://sophia-labs.ai/ontology/view#FolderView"
+        }
+      ],
+      [
+        "urn:files:folder-view:fv-a",
+        "https://sophia-labs.ai/ontology/view#presentation",
+        {
+          "k": "lit",
+          "v": "canvas"
+        }
+      ]
+    ],
+    "otherCurrent": [
+      [
+        "urn:files:folder-view:fv-a",
+        "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+        {
+          "k": "uri",
+          "v": "https://sophia-labs.ai/ontology/view#FolderView"
+        }
+      ],
+      [
+        "urn:files:folder-view:fv-a",
+        "urn:evidence:protected",
+        {
+          "k": "lit",
+          "v": "keep"
+        }
+      ]
+    ]
+  },
+  {
+    "name": "files-wrong-type-is-outside-survey",
+    "target": "urn:graph:fixture:projection:file-views",
+    "otherTarget": "urn:graph:fixture:projection:workspace",
+    "cls": "https://sophia-labs.ai/ontology/view#FolderView",
+    "subject": "urn:files:folder-view:fv-a",
+    "current": [
+      [
+        "urn:files:folder-view:fv-a",
+        "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+        {
+          "k": "uri",
+          "v": "urn:evidence:Claim"
+        }
+      ],
+      [
+        "urn:files:folder-view:fv-a",
+        "urn:evidence:protected",
+        {
+          "k": "lit",
+          "v": "keep"
+        }
+      ]
+    ],
+    "desired": [
+      [
+        "urn:files:folder-view:fv-a",
+        "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+        {
+          "k": "uri",
+          "v": "https://sophia-labs.ai/ontology/view#FolderView"
+        }
+      ],
+      [
+        "urn:files:folder-view:fv-a",
+        "https://sophia-labs.ai/ontology/view#presentation",
+        {
+          "k": "lit",
+          "v": "canvas"
+        }
+      ]
+    ],
+    "otherCurrent": [
+      [
+        "urn:files:folder-view:fv-a",
+        "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+        {
+          "k": "uri",
+          "v": "https://sophia-labs.ai/ontology/view#FolderView"
+        }
+      ],
+      [
+        "urn:files:folder-view:fv-a",
+        "urn:evidence:protected",
+        {
+          "k": "lit",
+          "v": "keep"
+        }
+      ]
+    ]
+  }
+]

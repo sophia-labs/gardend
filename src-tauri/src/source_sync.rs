@@ -57,6 +57,10 @@ use crate::runtime_config::RDF_TYPE;
 use crate::semantic_search_projection::semantic_block_sources;
 use crate::storage::{read_json, write_json};
 
+#[path = "source_sync_authored.rs"]
+mod authored;
+pub(crate) use authored::{record_authored_write, AuthoredScope};
+
 const SOURCE_SYNC_SCHEMA_VERSION: u32 = 1;
 const SOURCE_SYNC_DIR: &str = "source-sync";
 const SOURCE_SYNC_LEDGER_FILE: &str = "ledger.json";
@@ -68,15 +72,29 @@ const XSD_NS: &str = "http://www.w3.org/2001/XMLSchema#";
 const MAX_OPERATION_ID_LEN: usize = 160;
 const MAX_SOURCE_BATCH: usize = 1_000;
 
-static SOURCE_GATES: OnceLock<StdMutex<BTreeMap<String, Arc<AsyncMutex<()>>>>> = OnceLock::new();
+type GraphGates = OnceLock<StdMutex<BTreeMap<String, Arc<AsyncMutex<()>>>>>;
+
+static SOURCE_GATES: GraphGates = OnceLock::new();
+/// Serializes folder-view preference reads and writes per graph. Separate from
+/// the source gate: preferences live outside the source ledger and must not
+/// wait behind a whole-graph source rebuild.
+static FILE_VIEWS_GATES: GraphGates = OnceLock::new();
 
 pub(crate) struct SourceGateGuard {
     _guard: OwnedMutexGuard<()>,
 }
 
 pub(crate) async fn acquire_source_gate(graph_id: &str) -> SourceGateGuard {
+    acquire_graph_gate(&SOURCE_GATES, graph_id).await
+}
+
+async fn acquire_file_views_gate(graph_id: &str) -> SourceGateGuard {
+    acquire_graph_gate(&FILE_VIEWS_GATES, graph_id).await
+}
+
+async fn acquire_graph_gate(gates: &'static GraphGates, graph_id: &str) -> SourceGateGuard {
     let gate = {
-        let mut gates = SOURCE_GATES
+        let mut gates = gates
             .get_or_init(|| StdMutex::new(BTreeMap::new()))
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -109,6 +127,10 @@ struct SourceLedger {
     workflow_fold_triples: Vec<TripleWire>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     checkpoint: Option<SourceCheckpoint>,
+    /// What direct writers changed since activation (`authored`): replayed
+    /// after the ledger by every rebuild. Absent until the first direct write.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    authored: Option<authored::AuthoredOverlay>,
 }
 
 impl SourceLedger {
@@ -121,6 +143,7 @@ impl SourceLedger {
             operations: BTreeMap::new(),
             workflow_fold_triples: Vec::new(),
             checkpoint: None,
+            authored: None,
         }
     }
 }
@@ -600,11 +623,58 @@ fn capture_checkpoint_inner(graph_dir: &Path, store: &oxigraph::store::Store, le
     })
 }
 
+/// Re-take the migration floor of a ledger that has accepted no operation.
+///
+/// Nothing has been replayed over such a floor, so moving it to the live store
+/// loses nothing and cannot let a rebuild "pass by restoring its own derived
+/// answer" (`ensure_checkpoint`). This is what keeps direct writes made while
+/// the ledger was empty: they are not recorded (`authored`), exactly as on a
+/// graph that was never activated, and the first ledger write takes them into
+/// its floor. The caller writes the ledger, then removes the superseded files
+/// (`remove_superseded_checkpoint`). Returns the superseded checkpoint.
+fn refloor_empty_ledger(
+    graph_dir: &Path,
+    store: &oxigraph::store::Store,
+    ledger: &mut SourceLedger,
+    pull_limited: bool,
+) -> AppResult<Option<SourceCheckpoint>> {
+    if ledger.checkpoint.is_none() {
+        return Ok(None);
+    }
+    let fresh = capture_checkpoint_inner(graph_dir, store, ledger.revision, pull_limited)?;
+    ledger.authored = None;
+    Ok(ledger.checkpoint.replace(fresh))
+}
+
+/// Remove the files of a superseded floor once the ledger naming its successor
+/// is on disk. Files the successor shares (same digest) are kept. Best effort:
+/// a leftover file is only disk, never a wrong floor.
+fn remove_superseded_checkpoint(
+    graph_dir: &Path,
+    superseded: Option<SourceCheckpoint>,
+    current: Option<&SourceCheckpoint>,
+) {
+    let (Some(old), Some(current)) = (superseded, current) else {
+        return;
+    };
+    if old.rdf_digest != current.rdf_digest {
+        let _ = crate::storage::remove_file_if_exists(&rdf_checkpoint_path(graph_dir, &old.rdf_digest));
+    }
+    if old.value_stores_digest != current.value_stores_digest {
+        let _ = crate::storage::remove_file_if_exists(&values_checkpoint_path(
+            graph_dir,
+            &old.value_stores_digest,
+        ));
+    }
+}
+
 /// Establish the immutable migration floor exactly once, before this ledger
 /// accepts its first new source operation. It captures pre-source-sync
 /// authorities so upgraded graphs remain rebuildable, but it must never
 /// advance to include projections produced by later ledger operations: doing
-/// so would let a "rebuild" pass by restoring its own derived answer.
+/// so would let a "rebuild" pass by restoring its own derived answer. (While
+/// the ledger holds no operation there are no such projections: see
+/// `refloor_empty_ledger`.)
 fn ensure_checkpoint(
     graph_dir: &Path,
     store: &oxigraph::store::Store,
@@ -896,6 +966,12 @@ fn validate_generic_source(
     expected_kind: SourceKind,
 ) -> AppResult<()> {
     validate_stable_id(object_id, "objectId/eventId")?;
+    if vocab == "garden-file-views" {
+        // Validate the producer's actual wire shape before the generic legacy
+        // normalizer can fill/replace kind or localId.
+        crate::emporium::folder_views::validate_folder_view_record(record, graph_id)
+            .map_err(AppError::validation)?;
+    }
     let contract = get_vocabulary(vocab)
         .ok_or_else(|| AppError::validation(format!("unknown embedded vocabulary '{vocab}'")))?;
     let signature = contract
@@ -1183,10 +1259,14 @@ fn fold_current_objects(ledger: &SourceLedger) -> AppResult<Vec<CurrentFold>> {
             break;
         }
 
+        // `visited` holds every version the walk reached, including the
+        // version a reached resolution minted: a write based on the resolved
+        // head (the face's sourceVersion) extends the chain; it is no orphan.
         let known_versions = all_candidates
             .iter()
             .map(|candidate| candidate.source_version.clone())
             .chain(std::iter::once(ROOT_VERSION.to_string()))
+            .chain(visited.iter().cloned())
             .collect::<BTreeSet<_>>();
         let missing_base_candidates = all_candidates
             .iter()
@@ -1587,6 +1667,14 @@ fn validate_source_operation(
                     "causalOrder must be within the JS safe-integer range (±(2^53−1))",
                 ));
             }
+            if vocab == "garden-file-views"
+                && record.get("graphIncarnation").and_then(Value::as_str)
+                    != Some(ledger.graph_incarnation.as_str())
+            {
+                return Err(AppError::validation(
+                    "folder view record graphIncarnation does not match the graph's live incarnation",
+                ));
+            }
             validate_generic_source(
                 graph_id,
                 vocab,
@@ -1613,17 +1701,28 @@ fn validate_source_operation(
                     "resolveCurrent requires exactly one of chosenOperationId or record",
                 ));
             }
-            let conflict_exists = fold_current_objects(ledger)?
-                .iter()
-                .filter_map(|fold| fold.conflict.as_ref())
-                .any(|conflict| {
-                    conflict.object_key == *object_key && conflict.conflict_id == *conflict_id
-                });
-            if !conflict_exists {
+            let folds = fold_current_objects(ledger)?;
+            let current = folds.iter().find(|fold| fold.conflict.as_ref().is_some_and(|conflict| {
+                conflict.object_key == *object_key && conflict.conflict_id == *conflict_id
+            }));
+            if current.is_none() {
                 return Err(AppError::conflict(format!(
                     "sync conflict '{conflict_id}' is not current for object '{object_key}'"
                 ))
                 .with_code(app_error_codes::STALE_SYNC_CONFLICT));
+            }
+            if let (Some(current), Some(record)) = (current, record) {
+                if current.face.vocab == "garden-file-views" {
+                    if record.get("graphIncarnation").and_then(Value::as_str)
+                        != Some(ledger.graph_incarnation.as_str())
+                    {
+                        return Err(AppError::validation(
+                            "folder view resolution graphIncarnation does not match the graph's live incarnation",
+                        ));
+                    }
+                    validate_generic_source(graph_id, &current.face.vocab, &current.face.class,
+                        &current.face.object_id, record, SourceKind::CurrentState)?;
+                }
             }
             Ok(())
         }
@@ -2623,6 +2722,9 @@ async fn rebuild_source_projections(
     let graph_dir = existing_graph_dir(app, graph_id).map_err(AppError::storage)?;
     ensure_graph_store_seeded(&graph_dir).map_err(AppError::rdf)?;
     let store = open_graph_store(&graph_dir).map_err(AppError::rdf)?;
+    // What direct writers left live, before the checkpoint rewinds it: the
+    // authored overlay is checked against it at the end (`authored`).
+    let live_authored = authored::capture_live(&store, &graph_dir, graph_id)?;
     let seed_replay = crate::rdf_seed_service::begin_seed_replay(&graph_dir).map_err(AppError::rdf)?;
     let checkpoint_revision = ledger
         .checkpoint
@@ -2687,7 +2789,26 @@ async fn rebuild_source_projections(
         expected.extend(desired);
     }
     let conflict_operations = materialize_conflicts(&store, graph_id, &conflicts)?;
+    // Subjects the ledger materializes stay under ledger authority: a rebuild
+    // never adopts a live difference on them (`authored::replay_and_adopt`).
+    let mut owned_subjects = expected
+        .iter()
+        .chain(ledger.workflow_fold_triples.iter())
+        .map(|triple| triple.subject.clone())
+        .collect::<BTreeSet<_>>();
     let workflow_fold_operations = materialize_workflow_fold(&store, graph_id, ledger)?;
+    owned_subjects.extend(
+        ledger
+            .workflow_fold_triples
+            .iter()
+            .map(|triple| triple.subject.clone()),
+    );
+    owned_subjects.extend(ledger.operations.values().filter_map(|record| {
+        match &record.operation {
+            SourceOperation::Retraction { subject, .. } => Some(subject.clone()),
+            _ => None,
+        }
+    }));
     let memory = materialize_memory_sources(&store, graph_id, ledger)?;
     let valuation = crate::salience_mcp_valuation::rebuild_value_store_from_source_events(
         app,
@@ -2697,6 +2818,16 @@ async fn rebuild_source_projections(
     )
     .map_err(AppError::internal)?;
     let retractions = materialize_retractions(app, graph_id, ledger).await?;
+    // Direct writes made under source authority (and any live difference the
+    // ledger did not see) replay last, over everything the ledger produced.
+    let authored_report = authored::replay_and_adopt(
+        &store,
+        &graph_dir,
+        graph_id,
+        ledger,
+        &live_authored,
+        &owned_subjects,
+    )?;
     // The graph record is a durable current-state authority outside Oxigraph.
     // Checkpoint restore intentionally rewinds the projection store, so finish
     // every replay by deriving this face from the current record. Do this last:
@@ -2723,6 +2854,7 @@ async fn rebuild_source_projections(
         "memory": memory,
         "valuation": valuation,
         "retractions": retractions,
+        "authored": authored_report,
         "graphRecordRdfOperations": graph_record_diff.op_count(),
         "expectedGenericTripleHash": value_digest(&serde_json::to_value(expected)
             .map_err(|error| AppError::serialization(format!("serialize expected triples: {error}")))?)?,
@@ -3275,6 +3407,11 @@ pub(crate) async fn mcp_local_source_push(app: AppHandle, arguments: &Value) -> 
             "source_push requires 1..={MAX_SOURCE_BATCH} operations"
         )));
     }
+    // Folder-view preferences never enter the source ledger (H1, option c):
+    // no checkpoint, no activation, no projection rebuild.
+    if file_views_batch(&input.operations)? {
+        return mcp_file_views_push(&app, input).await;
+    }
     let _source_gate = acquire_source_gate(&input.graph_id).await;
     let coordinator = app.state::<GraphPersistenceCoordinator>();
     let identity_lease = coordinator
@@ -3286,10 +3423,16 @@ pub(crate) async fn mcp_local_source_push(app: AppHandle, arguments: &Value) -> 
     let mut ledger = read_ledger(&graph_dir, &input.graph_id, &graph_incarnation)?;
     ensure_graph_store_seeded(&graph_dir).map_err(AppError::rdf)?;
     let checkpoint_store = open_graph_store(&graph_dir).map_err(AppError::rdf)?;
+    let superseded = if ledger.operations.is_empty() {
+        refloor_empty_ledger(&graph_dir, &checkpoint_store, &mut ledger, false)?
+    } else {
+        None
+    };
     ensure_checkpoint(&graph_dir, &checkpoint_store, &mut ledger)?;
     drop(checkpoint_store);
     import_external_memory_events(&app, &input.graph_id, &mut ledger)?;
     write_ledger(&graph_dir, &ledger)?;
+    remove_superseded_checkpoint(&graph_dir, superseded, ledger.checkpoint.as_ref());
 
     let mut staged = ledger.clone();
     let mut duplicates = BTreeSet::new();
@@ -3573,6 +3716,14 @@ pub(crate) async fn mcp_source_emporium_write(
         .ok_or_else(|| AppError::validation("graphId is required"))?;
     let vocab = source_argument_string(arguments, &["vocab"])
         .ok_or_else(|| AppError::validation("vocab is required"))?;
+    // This function is the APPLY-only bridge; the public MCP dispatcher keeps
+    // dry-run in the validated planner lane. Do not interpret preview aliases
+    // here, where they could accidentally permit a fresh-base replacement.
+    if vocab == "garden-file-views" {
+        return Err(AppError::validation(
+            "garden-file-views requires source_push with graphIncarnation and the observed baseVersion",
+        ));
+    }
     let records = arguments
         .get("records")
         .and_then(Value::as_array)
@@ -3624,17 +3775,37 @@ pub(crate) async fn mcp_source_emporium_write(
     // "unknown embedded vocabulary" (observed on the canary cell 2026-09-04
     // and on Sirin 2026-09-15).
     if get_vocabulary(&vocab).is_none() {
-        let mut applied = crate::emporium::write::emporium_write(
+        // Not a ledger operation, so recorded as a direct write (`authored`):
+        // a rebuild keeps it. The source gate is taken before any lifecycle
+        // lease, never while one is held.
+        drop(preparation_lease);
+        let writer = app.clone();
+        let mut applied = record_authored_write(
             &app,
             &graph_id,
-            &vocab,
-            &records,
-            false,
-            publish,
-            observer.as_deref(),
+            "chamberEmporiumWrite",
+            AuthoredScope::Authored,
+            async {
+                let _lifetime = crate::graph_incarnation_admission::acquire_expected_lifetime(
+                    &writer,
+                    &graph_id,
+                    expected.as_deref(),
+                )
+                .await?;
+                crate::emporium::write::emporium_write(
+                    &writer,
+                    &graph_id,
+                    &vocab,
+                    &records,
+                    false,
+                    publish,
+                    observer.as_deref(),
+                )
+                .await
+                .map_err(source_object_error)
+            },
         )
-        .await
-        .map_err(source_object_error)?;
+        .await?;
         if let Some(object) = applied.as_object_mut() {
             object.insert("dryRun".to_string(), Value::Bool(false));
             object.insert("sourceLedgered".to_string(), Value::Bool(false));
@@ -3985,6 +4156,480 @@ pub(crate) async fn mcp_source_emporium_retract(
     }))
 }
 
+/// The Files rudiments' folder-view pack (CONTRACT-files §7, kept outside
+/// this repository).
+pub(crate) const FILE_VIEWS_VOCAB: &str = "garden-file-views";
+
+// ── Folder-view preferences: a per-graph record outside the source ledger ──
+//
+// Vera's ruling on H1 (2026-10-06, option c). Preferences are written on every
+// canvas drag. Kept in the source ledger, the first one activated source
+// authority for the whole graph, and every later `source_push` restored the
+// checkpoint and replayed the graph, rewinding the writers that bypass the
+// ledger (`sparql_update`, `rdf_load`, `revaluate`, user-value writes). So
+// they live in a record of their own:
+//
+// * `{graph}/file-views/record.json`, under the graph lifetime (deleting or
+//   recreating the graph removes it), carried by the durable flush and the
+//   graph backups like every other file of the graph directory;
+// * the same operations, validator, identity and fold as the ledger
+//   (`validate_source_operation`, `fold_current_objects`, `stable_outcome`),
+//   so applied, contested and resolved outcomes, retries and operation-id
+//   reuse behave as the contract says;
+// * no checkpoint, no RDF face, no projection rebuild: a write reads the
+//   record, appends, and replaces the file atomically.
+//
+// A graph whose ledger already holds garden-file-views operations (the 10-02
+// prototype candidate wrote them there) is read from the ledger until its
+// first write here, which seeds the record from them. Nothing here writes the
+// source ledger.
+
+const FILE_VIEWS_RECORD_DIR: &str = "file-views";
+const FILE_VIEWS_RECORD_FILE: &str = "record.json";
+const FILE_VIEWS_RECORD_SCHEMA_VERSION: u32 = 1;
+
+/// Upper bound on the stored record. Every accepted operation is kept (the
+/// fold walks the version chain from `root`), about 1.2 KiB each, so this holds
+/// roughly 14,000 writes. Past it, writes are refused with
+/// `source_bundle_too_large` and the read says `available: false`
+/// (CONTRACT-files §7.1). Compacting superseded heads is a named follow-up.
+pub(crate) const MAX_FILE_VIEWS_RECORD_BYTES: usize = 16 * 1024 * 1024;
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FileViewsRecord {
+    schema_version: u32,
+    graph_id: String,
+    graph_incarnation: String,
+    revision: u64,
+    #[serde(default)]
+    operations: BTreeMap<String, LedgerOperation>,
+    #[serde(default)]
+    seeded_from_ledger_revision: Option<u64>,
+}
+
+/// The same record, borrowed for writing.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FileViewsRecordOut<'a> {
+    schema_version: u32,
+    graph_id: &'a str,
+    graph_incarnation: &'a str,
+    revision: u64,
+    operations: &'a BTreeMap<String, LedgerOperation>,
+    /// The source-ledger revision the record was seeded from, when the graph
+    /// held garden-file-views operations in its ledger.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    seeded_from_ledger_revision: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FileViewsOrigin {
+    /// `{graph}/file-views/record.json`.
+    Record,
+    /// Nothing written to the record yet; read from the garden-file-views
+    /// operations the 10-02 prototype left in the source ledger.
+    SourceLedger,
+    /// No preferences anywhere.
+    Empty,
+}
+
+impl FileViewsOrigin {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Record => "record",
+            Self::SourceLedger => "source-ledger",
+            Self::Empty => "empty",
+        }
+    }
+}
+
+struct LoadedFileViews {
+    /// The record's operations in the shape the shared validator and fold
+    /// take. It never carries a checkpoint and is never written as a ledger.
+    ledger: SourceLedger,
+    origin: FileViewsOrigin,
+    seeded_from_ledger_revision: Option<u64>,
+    /// Bytes of the stored record, or of the record a first write would seed.
+    stored_bytes: usize,
+}
+
+fn file_views_record_path(graph_dir: &Path) -> PathBuf {
+    graph_dir
+        .join(FILE_VIEWS_RECORD_DIR)
+        .join(FILE_VIEWS_RECORD_FILE)
+}
+
+fn is_file_views_operation(operation: &SourceOperation) -> bool {
+    match operation {
+        SourceOperation::CurrentState { vocab, .. } | SourceOperation::EventLog { vocab, .. } => {
+            vocab == FILE_VIEWS_VOCAB
+        }
+        SourceOperation::ResolveCurrent { object_key, .. } => {
+            object_key.split('\u{1f}').next() == Some(FILE_VIEWS_VOCAB)
+        }
+        _ => false,
+    }
+}
+
+/// `true` when every operation is a folder-view preference, `false` when none
+/// is. A batch that mixes the two is refused whole: preferences are stored
+/// outside the source ledger, and a batch is atomic.
+fn file_views_batch(operations: &[SourceOperation]) -> AppResult<bool> {
+    let preferences = operations
+        .iter()
+        .filter(|operation| is_file_views_operation(operation))
+        .count();
+    if preferences == 0 {
+        return Ok(false);
+    }
+    if preferences == operations.len() {
+        return Ok(true);
+    }
+    Err(AppError::validation(format!(
+        "{FILE_VIEWS_VOCAB} operations are stored outside the source ledger; push them in a batch of their own"
+    )))
+}
+
+fn file_views_object_key(operation: &SourceOperation) -> Option<String> {
+    match operation {
+        SourceOperation::CurrentState {
+            vocab,
+            class,
+            object_id,
+            ..
+        } => Some(object_key(vocab, class, object_id)),
+        SourceOperation::ResolveCurrent { object_key, .. } => Some(object_key.clone()),
+        _ => None,
+    }
+}
+
+/// The operations of one object, in the ledger shape. Folding, validation and
+/// outcomes are per object (`fold_current_objects` groups by object key and a
+/// resolution names its key), so evaluating an operation against its object's
+/// operations gives the same answer as against the whole record, at a cost
+/// that does not grow with the other objects.
+fn object_scoped_ledger(ledger: &SourceLedger, key: &str) -> SourceLedger {
+    let mut scoped = SourceLedger::empty(&ledger.graph_id, &ledger.graph_incarnation);
+    scoped.revision = ledger.revision;
+    scoped.operations = ledger
+        .operations
+        .iter()
+        .filter(|(_, operation)| {
+            file_views_object_key(&operation.operation).as_deref() == Some(key)
+        })
+        .map(|(operation_id, operation)| (operation_id.clone(), operation.clone()))
+        .collect();
+    scoped
+}
+
+fn serialize_file_views_record(
+    ledger: &SourceLedger,
+    seeded_from_ledger_revision: Option<u64>,
+) -> AppResult<Vec<u8>> {
+    serde_json::to_vec(&FileViewsRecordOut {
+        schema_version: FILE_VIEWS_RECORD_SCHEMA_VERSION,
+        graph_id: &ledger.graph_id,
+        graph_incarnation: &ledger.graph_incarnation,
+        revision: ledger.revision,
+        operations: &ledger.operations,
+        seeded_from_ledger_revision,
+    })
+    .map_err(|error| AppError::serialization(format!("serialize folder-view record: {error}")))
+}
+
+fn file_views_capacity_error(max_bytes: usize) -> AppError {
+    AppError::capacity(format!(
+        "this graph's folder-view preferences have reached their {max_bytes}-byte bound; \
+         the stored preferences are unchanged and this change was not stored"
+    ))
+    .with_code(app_error_codes::SOURCE_BUNDLE_TOO_LARGE)
+}
+
+/// Read the preferences of one graph incarnation: the record when it exists,
+/// otherwise any garden-file-views operations left in the source ledger.
+/// Reads only; never writes either file.
+fn load_file_views(
+    graph_dir: &Path,
+    graph_id: &str,
+    graph_incarnation: &str,
+) -> AppResult<LoadedFileViews> {
+    let path = file_views_record_path(graph_dir);
+    let mut ledger = SourceLedger::empty(graph_id, graph_incarnation);
+    if path.is_file() {
+        let bytes = crate::storage::read_bytes(&path)?;
+        let record = serde_json::from_slice::<FileViewsRecord>(&bytes).map_err(|error| {
+            AppError::serialization(format!("parse {}: {error}", path.display()))
+        })?;
+        if record.schema_version != FILE_VIEWS_RECORD_SCHEMA_VERSION {
+            return Err(AppError::conflict(format!(
+                "unsupported folder-view record schema {} (expected {})",
+                record.schema_version, FILE_VIEWS_RECORD_SCHEMA_VERSION
+            ))
+            .with_code(app_error_codes::LEDGER_INTEGRITY));
+        }
+        if record.graph_id != graph_id || record.graph_incarnation != graph_incarnation {
+            return Err(AppError::conflict(
+                "folder-view record identity does not match the active graph incarnation",
+            )
+            .with_code(app_error_codes::STALE_GRAPH_INCARNATION));
+        }
+        if let Some(stray) = record
+            .operations
+            .values()
+            .find(|operation| !is_file_views_operation(&operation.operation))
+        {
+            return Err(AppError::conflict(format!(
+                "folder-view record holds operation '{}', which is not a folder-view preference",
+                stray.operation.operation_id()
+            ))
+            .with_code(app_error_codes::LEDGER_INTEGRITY));
+        }
+        ledger.revision = record.revision;
+        ledger.operations = record.operations;
+        return Ok(LoadedFileViews {
+            ledger,
+            origin: FileViewsOrigin::Record,
+            seeded_from_ledger_revision: record.seeded_from_ledger_revision,
+            stored_bytes: bytes.len(),
+        });
+    }
+
+    // `read_ledger` returns an empty ledger, and writes nothing, when the
+    // graph was never under source authority.
+    let source = read_ledger(graph_dir, graph_id, graph_incarnation)?;
+    let operations = source
+        .operations
+        .into_iter()
+        .filter(|(_, operation)| is_file_views_operation(&operation.operation))
+        .map(|(operation_id, mut operation)| {
+            // Stored here, a preference has no projection still to run.
+            operation.status = ReceiptStatus::Applied;
+            operation.effect_error = None;
+            (operation_id, operation)
+        })
+        .collect::<BTreeMap<_, _>>();
+    if operations.is_empty() {
+        return Ok(LoadedFileViews {
+            ledger,
+            origin: FileViewsOrigin::Empty,
+            seeded_from_ledger_revision: None,
+            stored_bytes: 0,
+        });
+    }
+    // Keep the revision the shell last read, so it never goes backwards.
+    ledger.revision = source.revision;
+    ledger.operations = operations;
+    let stored_bytes = serialize_file_views_record(&ledger, Some(source.revision))?.len();
+    Ok(LoadedFileViews {
+        ledger,
+        origin: FileViewsOrigin::SourceLedger,
+        seeded_from_ledger_revision: Some(source.revision),
+        stored_bytes,
+    })
+}
+
+/// Admit a batch of folder-view operations into the record: all or nothing,
+/// with the ledger's validation, identity and outcomes. A batch of pure
+/// replays writes nothing. The caller holds the graph's file-views gate and
+/// lifecycle, and has checked the batch's graph incarnation.
+fn push_file_views_operations(
+    graph_dir: &Path,
+    graph_id: &str,
+    graph_incarnation: &str,
+    operations: &[SourceOperation],
+    max_bytes: usize,
+) -> AppResult<Value> {
+    let LoadedFileViews {
+        mut ledger,
+        seeded_from_ledger_revision,
+        ..
+    } = load_file_views(graph_dir, graph_id, graph_incarnation)?;
+    let mut duplicates = BTreeSet::new();
+    let mut accepted = 0usize;
+    for operation in operations {
+        let Some(key) = file_views_object_key(operation)
+            .filter(|_| is_file_views_operation(operation))
+        else {
+            return Err(AppError::validation(format!(
+                "{FILE_VIEWS_VOCAB} preferences are current-state objects: only currentState and \
+                 resolveCurrent operations are accepted"
+            )));
+        };
+        let operation_id = operation.operation_id();
+        let digest = operation_digest(operation)?;
+        validate_stable_id(operation_id, "operationId")?;
+        if let Some(existing) = ledger.operations.get(operation_id) {
+            if existing.digest != digest {
+                return Err(AppError::conflict(format!(
+                    "operationId '{operation_id}' was reused with different content"
+                ))
+                .with_code(app_error_codes::OPERATION_ID_REUSED));
+            }
+            duplicates.insert(operation_id.to_string());
+            continue;
+        }
+        validate_source_operation(
+            graph_id,
+            &object_scoped_ledger(&ledger, &key),
+            operation,
+            &digest,
+        )?;
+        ledger.revision = ledger.revision.saturating_add(1);
+        ledger.operations.insert(
+            operation_id.to_string(),
+            LedgerOperation {
+                digest,
+                accepted_revision: ledger.revision,
+                // The record is the preference's only authority: once the
+                // record is written, the operation is applied.
+                status: ReceiptStatus::Applied,
+                operation: operation.clone(),
+                outcome: json!({ "outcome": "accepted" }),
+                effect_error: None,
+            },
+        );
+        let outcome = stable_outcome(operation, &object_scoped_ledger(&ledger, &key))?;
+        ledger
+            .operations
+            .get_mut(operation_id)
+            .expect("just inserted")
+            .outcome = outcome;
+        accepted += 1;
+    }
+    if accepted > 0 {
+        let bytes = serialize_file_views_record(&ledger, seeded_from_ledger_revision)?;
+        if bytes.len() > max_bytes {
+            return Err(file_views_capacity_error(max_bytes));
+        }
+        crate::storage::write_bytes(&file_views_record_path(graph_dir), &bytes)?;
+    }
+    let receipts = operations
+        .iter()
+        .map(|operation| {
+            let operation_id = operation.operation_id();
+            receipt_from(
+                operation_id,
+                ledger
+                    .operations
+                    .get(operation_id)
+                    .expect("every operation was accepted or replayed"),
+                duplicates.contains(operation_id),
+            )
+        })
+        .collect::<Vec<_>>();
+    Ok(json!({
+        "ok": receipts.iter().all(|receipt| receipt.status == ReceiptStatus::Applied),
+        "graphId": graph_id,
+        "graphIncarnation": graph_incarnation,
+        "revision": ledger.revision,
+        "receipts": receipts,
+        "store": FileViewsOrigin::Record.label(),
+    }))
+}
+
+/// `source_push` for a batch of folder-view preferences (routed here by
+/// `mcp_local_source_push`). Same input and receipts as the ledger path.
+async fn mcp_file_views_push(app: &AppHandle, input: SourcePushInput) -> AppResult<Value> {
+    let _file_views_gate = acquire_file_views_gate(&input.graph_id).await;
+    let coordinator = app.state::<GraphPersistenceCoordinator>();
+    let _identity_lease = coordinator
+        .acquire_lifecycle_shared(&input.graph_id)
+        .await
+        .map_err(AppError::internal)?;
+    let (graph_dir, graph_incarnation) =
+        active_graph_identity(app, &input.graph_id, Some(&input.graph_incarnation))?;
+    // A plain-file persistence transaction: a durable flush waits for it, and
+    // its completion wakes the dirty-driven flusher. No RDF store is touched.
+    let _flush_guard = crate::cell_durability::write_guard();
+    push_file_views_operations(
+        &graph_dir,
+        &input.graph_id,
+        &graph_incarnation,
+        &input.operations,
+        MAX_FILE_VIEWS_RECORD_BYTES,
+    )
+}
+
+/// Read-only view of the folder-view faces for the Files shell. Unlike
+/// `source_pull` it ships no graph content (no RDF snapshot, no file bytes), so
+/// it answers on graphs of any size and needs only workspace read. It writes
+/// nothing: a graph with no preferences yet reads as revision 0.
+pub(crate) async fn read_file_views(
+    app: &AppHandle,
+    graph_id: &str,
+    folder_key: Option<&str>,
+    view_id: Option<&str>,
+) -> AppResult<Value> {
+    let _file_views_gate = acquire_file_views_gate(graph_id).await;
+    let coordinator = app.state::<GraphPersistenceCoordinator>();
+    let _identity_lease = coordinator
+        .acquire_lifecycle_shared(graph_id)
+        .await
+        .map_err(AppError::internal)?;
+    let (graph_dir, graph_incarnation) = active_graph_identity(app, graph_id, None)?;
+    let loaded = load_file_views(&graph_dir, graph_id, &graph_incarnation)?;
+    file_views_body(
+        graph_id,
+        &graph_incarnation,
+        &loaded,
+        folder_key,
+        view_id,
+        MAX_FILE_VIEWS_RECORD_BYTES,
+    )
+}
+
+fn file_views_body(
+    graph_id: &str,
+    graph_incarnation: &str,
+    loaded: &LoadedFileViews,
+    folder_key: Option<&str>,
+    view_id: Option<&str>,
+    max_bytes: usize,
+) -> AppResult<Value> {
+    let available = loaded.stored_bytes < max_bytes;
+    let selected = |record: &Value| {
+        folder_key.is_none_or(|key| record.get("folderKey").and_then(Value::as_str) == Some(key))
+            && view_id.is_none_or(|view| record.get("viewId").and_then(Value::as_str) == Some(view))
+    };
+    let mut current = Vec::new();
+    let mut conflicts = Vec::new();
+    for fold in fold_current_objects(&loaded.ledger)? {
+        if fold.face.vocab != FILE_VIEWS_VOCAB || !selected(&fold.face.record) {
+            continue;
+        }
+        if let Some(conflict) = fold.conflict {
+            conflicts.push(serde_json::to_value(conflict).map_err(|error| {
+                AppError::serialization(format!("serialize folder-view conflict: {error}"))
+            })?);
+        }
+        current.push(serde_json::to_value(fold.face).map_err(|error| {
+            AppError::serialization(format!("serialize folder-view face: {error}"))
+        })?);
+    }
+    let registry = match source_registry()? {
+        Value::Array(entries) => entries
+            .into_iter()
+            .filter(|entry| entry["vocab"] == FILE_VIEWS_VOCAB)
+            .collect::<Vec<_>>(),
+        _ => Vec::new(),
+    };
+    let mut body = json!({
+        "graphId": graph_id,
+        "graphIncarnation": graph_incarnation,
+        "revision": loaded.ledger.revision,
+        "available": available,
+        "store": loaded.origin.label(),
+        "sourceRegistry": registry,
+        "currentState": current,
+        "conflicts": conflicts,
+    });
+    if !available {
+        body["code"] = json!(app_error_codes::SOURCE_BUNDLE_TOO_LARGE);
+    }
+    Ok(body)
+}
+
 fn source_registry() -> AppResult<Value> {
     let mut classes = Vec::new();
     for (vocab_name, _, _) in crate::emporium::vocabs::VOCAB_REGISTRY.iter() {
@@ -4200,12 +4845,24 @@ pub(crate) async fn mcp_local_source_pull(app: AppHandle, arguments: &Value) -> 
     let mut ledger = read_ledger(&graph_dir, &input.graph_id, &graph_incarnation)?;
     ensure_graph_store_seeded(&graph_dir).map_err(AppError::rdf)?;
     let checkpoint_store = open_graph_store(&graph_dir).map_err(AppError::rdf)?;
+    let empty_floor_to_retake = ledger.operations.is_empty() && ledger.checkpoint.is_some();
     if ledger.checkpoint.is_none() {
         ledger.checkpoint = Some(capture_checkpoint_inner(&graph_dir, &checkpoint_store, ledger.revision, true)?);
     }
     drop(checkpoint_store);
     let imported_memory_events = import_external_memory_events(&app, &input.graph_id, &mut ledger)?;
+    // A pull that imports events rebuilds below. If the ledger held no
+    // operation before, re-take its floor first (`refloor_empty_ledger`); a
+    // pull that does not rebuild leaves the floor alone, so opening a graph
+    // never rewrites its checkpoint.
+    let superseded = if empty_floor_to_retake && imported_memory_events > 0 {
+        let floor_store = open_graph_store(&graph_dir).map_err(AppError::rdf)?;
+        refloor_empty_ledger(&graph_dir, &floor_store, &mut ledger, true)?
+    } else {
+        None
+    };
     write_ledger(&graph_dir, &ledger)?;
+    remove_superseded_checkpoint(&graph_dir, superseded, ledger.checkpoint.as_ref());
     drop(identity_lease);
     let individual_repair = repair_individual_effects(
         &app,
@@ -4644,10 +5301,16 @@ pub(crate) async fn mcp_local_source_rebuild(
     let mut ledger = read_ledger(&graph_dir, &input.graph_id, &graph_incarnation)?;
     ensure_graph_store_seeded(&graph_dir).map_err(AppError::rdf)?;
     let checkpoint_store = open_graph_store(&graph_dir).map_err(AppError::rdf)?;
+    let superseded = if ledger.operations.is_empty() {
+        refloor_empty_ledger(&graph_dir, &checkpoint_store, &mut ledger, false)?
+    } else {
+        None
+    };
     ensure_checkpoint(&graph_dir, &checkpoint_store, &mut ledger)?;
     drop(checkpoint_store);
     import_external_memory_events(&app, &input.graph_id, &mut ledger)?;
     write_ledger(&graph_dir, &ledger)?;
+    remove_superseded_checkpoint(&graph_dir, superseded, ledger.checkpoint.as_ref());
     let before_store = open_graph_store(&graph_dir).map_err(AppError::rdf)?;
     let projection_before = rdf_dataset_identity(&before_store)?;
     drop(before_store);
@@ -4677,6 +5340,12 @@ pub(crate) async fn mcp_local_source_rebuild(
     let second_report = rebuild_source_projections(&app, &input.graph_id, &mut ledger).await?;
     let second_store = open_graph_store(&graph_dir).map_err(AppError::rdf)?;
     let projection_after_second = rdf_dataset_identity(&second_store)?;
+    // A rebuild that had to adopt a live difference into the ledger did not
+    // reproduce the projection from its sources: report it (the difference is
+    // now recorded, so the next rebuild reproduces it).
+    let authored_adopted = [&report, &second_report]
+        .iter()
+        .any(|replay| replay["authored"]["adopted"].as_bool().unwrap_or(false));
     for operation in ledger.operations.values_mut() {
         if !operation.operation.requires_individual_effect() {
             operation.status = ReceiptStatus::Applied;
@@ -4693,7 +5362,9 @@ pub(crate) async fn mcp_local_source_rebuild(
     Ok(json!({
         "ok": before_fold_hash == after_fold_hash
             && projection_before == projection_after_first
-            && projection_after_first == projection_after_second,
+            && projection_after_first == projection_after_second
+            && !authored_adopted,
+        "authoredAdopted": authored_adopted,
         "graphId": input.graph_id,
         "graphIncarnation": graph_incarnation,
         "revision": ledger.revision,
@@ -4878,6 +5549,303 @@ mod tests {
             );
         }
         ledger
+    }
+
+    fn folder_placement(operation_id: &str, base_version: &str, file_id: &str, x: f64) -> SourceOperation {
+        let key = format!("owner/g/inc/root/files-default/shared/artifact/{file_id}");
+        let object_id = format!("fp-{}", sha256_bytes(key.as_bytes()));
+        SourceOperation::CurrentState {
+            operation_id: operation_id.to_string(), vocab: "garden-file-views".to_string(),
+            class: "FilePlacement".to_string(), object_id: object_id.clone(), base_version: base_version.to_string(),
+            record: json!({"kind":"FilePlacement","localId":object_id,"schemaVersion":1,
+                "ownerId":"owner","graphId":"g","graphIncarnation":"inc","folderKey":"root",
+                "viewId":"files-default","audienceKind":"shared","fileKind":"artifact","fileId":file_id,
+                "coordinateSpace":"folder-canvas","x":x,"y":20.0}),
+            causal_order: None, client_id: None, evidence_weight: None,
+        }
+    }
+
+    #[test]
+    fn folder_view_actual_source_admission_checks_scope_identity_types_and_lifetime() {
+        let ledger = SourceLedger::empty("g", "inc");
+        let healthy = folder_placement("placement-a", ROOT_VERSION, "one", 10.0);
+        assert!(validate_source_operation("g", &ledger, &healthy, &operation_digest(&healthy).unwrap()).is_ok());
+        for (field, bad) in [("graphIncarnation", json!("retired")), ("graphId", json!("foreign")),
+            ("kind", json!("FolderView")),
+            ("coordinateSpace", json!("pdf-user-space")), ("x", json!("10")), ("localId", json!("fp-forged"))] {
+            let mut changed = healthy.clone();
+            if let SourceOperation::CurrentState { record, .. } = &mut changed { record[field] = bad; }
+            assert!(validate_source_operation("g", &ledger, &changed, &operation_digest(&changed).unwrap()).is_err(),
+                "actual admission accepted bad {field}");
+        }
+        assert_eq!(ledger.revision, 0);
+        assert!(ledger.operations.is_empty());
+    }
+
+    #[test]
+    fn folder_view_source_retry_and_changed_payload_use_native_digest_gate() {
+        let initial = folder_placement("placement-a", ROOT_VERSION, "one", 10.0);
+        let ledger = ledger_with(vec![initial.clone()]);
+        assert!(validate_source_operation("g", &ledger, &initial, &operation_digest(&initial).unwrap()).is_ok());
+        let changed = folder_placement("placement-a", ROOT_VERSION, "one", 99.0);
+        assert!(validate_source_operation("g", &ledger, &changed, &operation_digest(&changed).unwrap()).is_err());
+        assert_eq!(ledger.operations.len(), 1);
+    }
+
+    #[test]
+    fn folder_view_native_same_object_contest_and_disjoint_independence() {
+        let a = folder_placement("placement-a", ROOT_VERSION, "one", 10.0);
+        let b = folder_placement("placement-b", ROOT_VERSION, "one", 99.0);
+        let ab = fold_current_objects(&ledger_with(vec![a.clone(), b.clone()])).unwrap();
+        let ba = fold_current_objects(&ledger_with(vec![b, a.clone()])).unwrap();
+        assert_eq!(serde_json::to_value(&ab).unwrap(), serde_json::to_value(&ba).unwrap());
+        assert_eq!(ab.len(), 1);
+        assert!(ab[0].face.conflict_id.is_some());
+        let disjoint = fold_current_objects(&ledger_with(vec![a, folder_placement("placement-other", ROOT_VERSION, "two", 50.0)])).unwrap();
+        assert_eq!(disjoint.len(), 2);
+        assert!(disjoint.iter().all(|fold| fold.face.conflict_id.is_none()));
+    }
+
+    #[test]
+    fn folder_view_missing_base_retains_explicit_contest() {
+        let folds = fold_current_objects(&ledger_with(vec![
+            folder_placement("placement-a", ROOT_VERSION, "one", 10.0),
+            folder_placement("placement-orphan", "unobserved-base", "one", 99.0),
+        ])).unwrap();
+        assert!(folds[0].face.conflict_id.is_some());
+        assert!(folds[0].conflict.as_ref().unwrap().reason.contains("unavailable base"));
+    }
+
+    #[test]
+    fn folder_view_ledger_file_roundtrip_preserves_candidates_and_faces() {
+        let dir = std::env::temp_dir().join(format!("files-ledger-{}", Uuid::new_v4()));
+        let before = ledger_with(vec![folder_placement("placement-a", ROOT_VERSION, "one", 10.0),
+            folder_placement("placement-b", ROOT_VERSION, "one", 99.0)]);
+        write_ledger(&dir, &before).unwrap();
+        let restored = read_ledger(&dir, "g", "inc").unwrap();
+        assert_eq!(serde_json::to_value(fold_current_objects(&before).unwrap()).unwrap(),
+            serde_json::to_value(fold_current_objects(&restored).unwrap()).unwrap());
+        assert_eq!(before.operations.len(), restored.operations.len());
+        assert!(read_ledger(&dir, "g", "retired").is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn folder_view_real_materializer_repeats_idempotently_and_preserves_foreign_spans() {
+        let store = oxigraph::store::Store::new().unwrap();
+        let foreign = "<urn:filesystem> <http://mnemosyne.dev/doc#parent> <urn:folder> <urn:filesystem> .\n<urn:evidence> <http://mnemosyne.dev/doc#title> \"keep\" <urn:evidence> .\n";
+        store.load_from_slice(RdfFormat::NQuads, foreign.as_bytes()).unwrap();
+        let operation = folder_placement("placement-a", ROOT_VERSION, "one", 10.0);
+        let SourceOperation::CurrentState { vocab, class, object_id, record, .. } = operation else { unreachable!() };
+        let (first_ops, desired) = materialize_record(&store, "g", &vocab, &class, &object_id, &record).unwrap();
+        assert!(first_ops > 0);
+        assert!(!desired.is_empty());
+        let first = rdf_dataset_identity(&store).unwrap();
+        let (repeat_ops, repeated_desired) = materialize_record(&store, "g", &vocab, &class, &object_id, &record).unwrap();
+        assert_eq!(repeat_ops, 0);
+        assert_eq!(desired, repeated_desired);
+        assert_eq!(first, rdf_dataset_identity(&store).unwrap());
+        let actual = crate::rdf_query_service::dump_rdf_from_store(&store, "nquads", None, None).unwrap().data;
+        for line in foreign.lines() { assert!(actual.contains(line), "foreign filesystem/evidence span erased"); }
+        let rebuilt = oxigraph::store::Store::new().unwrap();
+        rebuilt.load_from_slice(RdfFormat::NQuads, foreign.as_bytes()).unwrap();
+        materialize_record(&rebuilt, "g", &vocab, &class, &object_id, &record).unwrap();
+        assert_eq!(first, rdf_dataset_identity(&rebuilt).unwrap());
+    }
+
+    /// A ledger with no operation re-takes its floor from the live store; the
+    /// superseded files go once the successor is named, and a file the two
+    /// floors share stays.
+    #[test]
+    fn refloor_retakes_the_floor_of_an_empty_ledger_and_removes_superseded_files() {
+        let root = std::env::temp_dir().join(format!("refloor-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let store = oxigraph::store::Store::new().unwrap();
+        store
+            .load_from_slice(RdfFormat::NQuads, b"<urn:a> <urn:p> \"floor\" <urn:g> .\n".as_slice())
+            .unwrap();
+        let mut ledger = SourceLedger::empty("g", "inc");
+        ledger.checkpoint = Some(capture_checkpoint(&root, &store, 0).unwrap());
+        let first = ledger.checkpoint.clone().unwrap();
+        store
+            .load_from_slice(RdfFormat::NQuads, b"<urn:b> <urn:p> \"direct\" <urn:g> .\n".as_slice())
+            .unwrap();
+        let superseded = refloor_empty_ledger(&root, &store, &mut ledger, false).unwrap();
+        let current = ledger.checkpoint.clone().unwrap();
+        assert_eq!(superseded.as_ref().map(|old| old.rdf_digest.clone()), Some(first.rdf_digest.clone()));
+        assert_ne!(current.rdf_digest, first.rdf_digest);
+        assert_eq!(current.rdf_quad_count, 2);
+        assert_eq!(current.value_stores_digest, first.value_stores_digest);
+        assert!(ledger.authored.is_none());
+        remove_superseded_checkpoint(&root, superseded, Some(&current));
+        assert!(!rdf_checkpoint_path(&root, &first.rdf_digest).exists());
+        assert!(rdf_checkpoint_path(&root, &current.rdf_digest).is_file());
+        assert!(values_checkpoint_path(&root, &current.value_stores_digest).is_file());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // ── the folder-view preferences record (H1, option c) ──
+
+    fn folder_view(operation_id: &str, base_version: &str, presentation: &str) -> SourceOperation {
+        let object_id = format!("fv-{}", sha256_bytes(b"owner/g/inc/root/files-default/shared"));
+        SourceOperation::CurrentState {
+            operation_id: operation_id.to_string(), vocab: FILE_VIEWS_VOCAB.to_string(),
+            class: "FolderView".to_string(), object_id: object_id.clone(), base_version: base_version.to_string(),
+            record: json!({"kind":"FolderView","localId":object_id,"schemaVersion":1,
+                "ownerId":"owner","graphId":"g","graphIncarnation":"inc","folderKey":"root",
+                "viewId":"files-default","audienceKind":"shared","presentation":presentation,"sort":"name",
+                "direction":"asc","iconSize":"medium","snapToGrid":true}),
+            causal_order: None, client_id: None, evidence_weight: None,
+        }
+    }
+
+    fn graph_metadata(operation_id: &str) -> SourceOperation {
+        SourceOperation::GraphMetadata {
+            operation_id: operation_id.to_string(), title: Some("Title".to_string()), description: None,
+        }
+    }
+
+    fn head_of(ledger: &SourceLedger, operation: &SourceOperation) -> CurrentObjectFace {
+        let key = file_views_object_key(operation).unwrap();
+        fold_current_objects(ledger).unwrap().into_iter()
+            .find(|fold| fold.face.object_key == key).unwrap().face
+    }
+
+    fn temp_graph_dir(label: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("files-record-{label}-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn folder_view_record_outcomes_scoped_to_one_object_match_the_whole_record() {
+        let a1 = folder_placement("a-1", ROOT_VERSION, "one", 1.0);
+        let b1 = folder_placement("b-1", ROOT_VERSION, "two", 2.0);
+        let v1 = folder_view("v-1", ROOT_VERSION, "canvas");
+        let a_head = head_of(&ledger_with(vec![a1.clone()]), &a1).source_version;
+        let b2 = folder_placement("b-2", &head_of(&ledger_with(vec![b1.clone()]), &b1).source_version, "two", 5.0);
+        let a2 = folder_placement("a-2", &a_head, "one", 3.0);
+        let a3 = folder_placement("a-3", &a_head, "one", 4.0);
+        let contested = ledger_with(vec![a1.clone(), b1.clone(), v1.clone(), b2.clone(), a2.clone(), a3.clone()]);
+        let conflict_id = head_of(&contested, &a1).conflict_id.expect("a-2 and a-3 contest one base");
+        let resolve = SourceOperation::ResolveCurrent {
+            operation_id: "a-resolve".to_string(), object_key: file_views_object_key(&a1).unwrap(),
+            conflict_id, chosen_operation_id: Some("a-3".to_string()), record: None,
+        };
+        let operations = vec![a1, b1, v1, b2, a2, a3, resolve];
+        let whole = ledger_with(operations.clone());
+        for operation in &operations {
+            let key = file_views_object_key(operation).unwrap();
+            let scoped = object_scoped_ledger(&whole, &key);
+            assert_eq!(stable_outcome(operation, &whole).unwrap(), stable_outcome(operation, &scoped).unwrap(),
+                "outcome of {} differs when scoped to its object", operation.operation_id());
+            let whole_fold = fold_current_objects(&whole).unwrap().into_iter()
+                .filter(|fold| fold.face.object_key == key).collect::<Vec<_>>();
+            assert_eq!(serde_json::to_value(whole_fold).unwrap(),
+                serde_json::to_value(fold_current_objects(&scoped).unwrap()).unwrap());
+        }
+        assert!(head_of(&whole, &operations[0]).conflict_id.is_none(), "the resolution closed the contest");
+    }
+
+    #[test]
+    fn folder_view_record_push_is_atomic_bounded_and_never_writes_the_ledger() {
+        let dir = temp_graph_dir("push");
+        let record_path = file_views_record_path(&dir);
+        let first = push_file_views_operations(&dir, "g", "inc",
+            &[folder_placement("p-1", ROOT_VERSION, "one", 1.0)], MAX_FILE_VIEWS_RECORD_BYTES).unwrap();
+        assert_eq!(first["ok"], true, "{first}");
+        assert_eq!(first["receipts"][0]["outcome"]["outcome"], "applied", "{first}");
+        assert_eq!(first["receipts"][0]["status"], "applied", "{first}");
+        assert!(record_path.is_file());
+        assert!(!ledger_path(&dir).exists(), "a preference write created the source ledger");
+        assert!(!checkpoint_dir(&dir).exists(), "a preference write took a checkpoint");
+        let stored = std::fs::read(&record_path).unwrap();
+
+        // One invalid operation refuses the whole batch.
+        let mut bad = folder_placement("p-bad", ROOT_VERSION, "two", 2.0);
+        if let SourceOperation::CurrentState { record, .. } = &mut bad { record["x"] = json!("not a number"); }
+        assert!(push_file_views_operations(&dir, "g", "inc",
+            &[folder_placement("p-2", ROOT_VERSION, "three", 3.0), bad], MAX_FILE_VIEWS_RECORD_BYTES).is_err());
+        assert_eq!(std::fs::read(&record_path).unwrap(), stored);
+
+        // A pure replay answers from the record and writes nothing.
+        let replay = push_file_views_operations(&dir, "g", "inc",
+            &[folder_placement("p-1", ROOT_VERSION, "one", 1.0)], MAX_FILE_VIEWS_RECORD_BYTES).unwrap();
+        assert_eq!(replay["receipts"][0]["duplicate"], true, "{replay}");
+        assert_eq!(replay["receipts"][0]["outcome"], first["receipts"][0]["outcome"]);
+        assert_eq!(std::fs::read(&record_path).unwrap(), stored);
+        let reused = push_file_views_operations(&dir, "g", "inc",
+            &[folder_placement("p-1", ROOT_VERSION, "one", 99.0)], MAX_FILE_VIEWS_RECORD_BYTES).unwrap_err();
+        assert_eq!(reused.code(), Some(app_error_codes::OPERATION_ID_REUSED));
+
+        // Past the bound: refused, nothing stored, and the read says unavailable.
+        let full = push_file_views_operations(&dir, "g", "inc",
+            &[folder_placement("p-3", ROOT_VERSION, "four", 4.0)], stored.len() + 16).unwrap_err();
+        assert_eq!(full.code(), Some(app_error_codes::SOURCE_BUNDLE_TOO_LARGE), "{full}");
+        assert_eq!(std::fs::read(&record_path).unwrap(), stored);
+        let loaded = load_file_views(&dir, "g", "inc").unwrap();
+        assert_eq!(loaded.origin, FileViewsOrigin::Record);
+        assert_eq!(loaded.stored_bytes, stored.len());
+        let at_bound = file_views_body("g", "inc", &loaded, None, None, stored.len()).unwrap();
+        assert_eq!(at_bound["available"], false);
+        assert_eq!(at_bound["code"], app_error_codes::SOURCE_BUNDLE_TOO_LARGE);
+        let body = file_views_body("g", "inc", &loaded, None, None, MAX_FILE_VIEWS_RECORD_BYTES).unwrap();
+        assert_eq!(body["available"], true);
+        assert_eq!(body["revision"], 1);
+        assert_eq!(body["currentState"].as_array().unwrap().len(), 1);
+        assert!(body.get("code").is_none());
+
+        // Another incarnation's record is never read as this one's.
+        assert_eq!(load_file_views(&dir, "g", "retired").err().and_then(|error| error.code()),
+            Some(app_error_codes::STALE_GRAPH_INCARNATION));
+        // Only current-state operations; a mix with ledger operations is refused.
+        let event = SourceOperation::EventLog { operation_id: "e-1".to_string(), event_id: "e-1".to_string(),
+            vocab: FILE_VIEWS_VOCAB.to_string(), class: "FilePlacement".to_string(), record: json!({}) };
+        assert!(push_file_views_operations(&dir, "g", "inc", &[event], MAX_FILE_VIEWS_RECORD_BYTES).is_err());
+        assert!(file_views_batch(&[folder_placement("m-1", ROOT_VERSION, "one", 1.0), graph_metadata("m-2")]).is_err());
+        assert!(!file_views_batch(&[graph_metadata("m-3")]).unwrap());
+        assert!(file_views_batch(&[SourceOperation::ResolveCurrent { operation_id: "r-1".to_string(),
+            object_key: file_views_object_key(&folder_placement("m-4", ROOT_VERSION, "one", 1.0)).unwrap(),
+            conflict_id: "conflict-x".to_string(), chosen_operation_id: Some("m-4".to_string()), record: None }]).unwrap());
+        assert!(!ledger_path(&dir).exists());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn folder_view_record_seeds_from_preferences_left_in_the_ledger_without_writing_it() {
+        let dir = temp_graph_dir("legacy");
+        let placement = folder_placement("legacy-a", ROOT_VERSION, "one", 1.0);
+        let mut legacy = ledger_with(vec![placement.clone(), graph_metadata("legacy-meta"),
+            folder_view("legacy-v", ROOT_VERSION, "list")]);
+        legacy.revision = 7;
+        write_ledger(&dir, &legacy).unwrap();
+        let ledger_bytes = std::fs::read(ledger_path(&dir)).unwrap();
+
+        let loaded = load_file_views(&dir, "g", "inc").unwrap();
+        assert_eq!(loaded.origin, FileViewsOrigin::SourceLedger);
+        assert_eq!(loaded.ledger.revision, 7);
+        assert_eq!(loaded.ledger.operations.keys().cloned().collect::<Vec<_>>(), vec!["legacy-a", "legacy-v"]);
+        assert!(loaded.ledger.operations.values().all(|operation| operation.status == ReceiptStatus::Applied));
+        assert_eq!(serde_json::to_value(fold_current_objects(&legacy).unwrap()).unwrap(),
+            serde_json::to_value(fold_current_objects(&loaded.ledger).unwrap()).unwrap());
+        let body = file_views_body("g", "inc", &loaded, Some("root"), None, MAX_FILE_VIEWS_RECORD_BYTES).unwrap();
+        assert_eq!(body["store"], "source-ledger");
+        assert_eq!(body["currentState"].as_array().unwrap().len(), 2);
+        assert!(!file_views_record_path(&dir).exists(), "reading wrote the record");
+
+        let head = head_of(&legacy, &placement).source_version;
+        let pushed = push_file_views_operations(&dir, "g", "inc",
+            &[folder_placement("after-a", &head, "one", 9.0)], MAX_FILE_VIEWS_RECORD_BYTES).unwrap();
+        assert_eq!(pushed["receipts"][0]["outcome"]["outcome"], "applied", "{pushed}");
+        assert_eq!(pushed["revision"], 8);
+        assert_eq!(std::fs::read(ledger_path(&dir)).unwrap(), ledger_bytes, "the source ledger was written");
+
+        let reloaded = load_file_views(&dir, "g", "inc").unwrap();
+        assert_eq!(reloaded.origin, FileViewsOrigin::Record);
+        assert_eq!(reloaded.seeded_from_ledger_revision, Some(7));
+        assert_eq!(reloaded.ledger.operations.keys().cloned().collect::<Vec<_>>(), vec!["after-a", "legacy-a", "legacy-v"]);
+        assert_eq!(head_of(&reloaded.ledger, &placement).record["x"], 9.0);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
@@ -5483,6 +6451,79 @@ mod tests {
         assert_eq!(conflict.projected_operation_id, "chain-1");
         assert_eq!(conflict.candidates.len(), 2);
         assert_eq!(fold[0].face.record["title"], json!("chain-head"));
+    }
+
+    #[test]
+    fn a_write_from_a_resolved_head_extends_the_chain() {
+        // After a resolveCurrent the face's sourceVersion is the version the
+        // resolution minted, and a writer bases its next write on the face's
+        // sourceVersion. That base is no candidate's version; it must still
+        // count as observed, or the write is taken for an orphan and the
+        // object is contested again (box judge of ced0a25,
+        // files_rudiments_tests.rs:1317, fp-c-next).
+        let a = bookmark("client-a", ROOT_VERSION, "A");
+        let b = bookmark("client-b", ROOT_VERSION, "B");
+        let contested = fold_current_objects(&ledger_with(vec![a.clone(), b.clone()])).unwrap();
+        let conflict_id = contested[0]
+            .face
+            .conflict_id
+            .clone()
+            .expect("two writes from one base contest");
+        let resolve = SourceOperation::ResolveCurrent {
+            operation_id: "resolve-1".to_string(),
+            object_key: object_key("emporium-bookmark", "Bookmark", "same"),
+            conflict_id,
+            chosen_operation_id: Some("client-a".to_string()),
+            record: None,
+        };
+        let resolved =
+            fold_current_objects(&ledger_with(vec![a.clone(), b.clone(), resolve.clone()]))
+                .unwrap();
+        assert!(resolved[0].face.conflict_id.is_none());
+        let resolved_version = resolved[0].face.source_version.clone();
+
+        let next = bookmark("client-a:2", &resolved_version, "A2");
+        let ledger = ledger_with(vec![a.clone(), b.clone(), resolve.clone(), next.clone()]);
+        let fold = fold_current_objects(&ledger).unwrap();
+        assert_eq!(fold.len(), 1);
+        assert!(
+            fold[0].conflict.is_none(),
+            "a write from the resolved head was contested: {:?}",
+            fold[0].conflict
+        );
+        assert!(fold[0].face.conflict_id.is_none());
+        assert_eq!(fold[0].face.operation_id, "client-a:2");
+        assert_eq!(fold[0].face.record["title"], json!("A2"));
+        assert_eq!(
+            stable_outcome(&next, &ledger).unwrap()["outcome"],
+            "applied"
+        );
+
+        // Delivery order does not matter: the successor may arrive first.
+        let reordered = ledger_with(vec![next.clone(), resolve.clone(), b.clone(), a.clone()]);
+        assert_eq!(
+            serde_json::to_value(&fold).unwrap(),
+            serde_json::to_value(fold_current_objects(&reordered).unwrap()).unwrap()
+        );
+
+        // Only a resolution the fold reaches makes its version observed: a
+        // third write from the old base reopens the contest under a new
+        // conflict id, and the write from the old resolved head is kept as a
+        // candidate in it, not dropped.
+        let c = bookmark("client-c", ROOT_VERSION, "C");
+        let reopened = fold_current_objects(&ledger_with(vec![a, b, c, resolve, next])).unwrap();
+        let conflict = reopened[0]
+            .conflict
+            .as_ref()
+            .expect("a third write reopens the contest");
+        assert!(
+            conflict
+                .candidates
+                .iter()
+                .any(|candidate| candidate.operation_id == "client-a:2"),
+            "{conflict:?}"
+        );
+        assert!(conflict.reason.contains("unavailable base"), "{conflict:?}");
     }
 
     #[test]

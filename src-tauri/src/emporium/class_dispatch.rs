@@ -180,6 +180,8 @@ mod tests {
             ("flow", "TradeLink", "simple-projection"),
             ("flow", "Workflow", "simple-projection"),
             ("flow", "WorkflowLink", "simple-projection"),
+            ("garden-file-views", "FilePlacement", "simple-projection"),
+            ("garden-file-views", "FolderView", "simple-projection"),
             ("garden-pdf-source", "PdfOriginal", "simple-projection"),
             ("garden-pdf-source", "PdfPageSelector", "simple-projection"),
             ("garden-pdf-source", "PdfRegion", "simple-projection"),
@@ -541,7 +543,7 @@ mod tests {
             .map(|(pack, _json, _sha)| get_vocabulary(pack).unwrap().classes.len())
             .sum();
         assert_eq!(
-            total, 164,
+            total, 166,
             "VOCAB_REGISTRY class count drifted from the snapshot above"
         );
     }

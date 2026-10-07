@@ -1175,10 +1175,26 @@ pub fn update_block_attributes(
 /// Deviation: the TS helper swallowed content-parse failures into an empty
 /// list (surfacing as "no parsable blocks"); here parse errors propagate with
 /// their own message.
+///
+/// Every carrier then goes through the block contract normaliser: the
+/// returned nodes are canonical, and the receipts name each rewrite with its
+/// path in the caller's carrier (`content[i]` for TipTap JSON and parsed
+/// content, `blocks[i]` for a blocks array).
 fn blocks_from_insert_payload(
     payload: &Map<String, Value>,
     operation_id: &str,
-) -> Result<Vec<Value>, String> {
+) -> Result<(Vec<Value>, Vec<String>), String> {
+    let (nodes, mut warnings, prefix) = raw_blocks_from_insert_payload(payload, operation_id)?;
+    let (nodes, receipts) =
+        super::block_contract::normalise_doc_content_at(&nodes, operation_id, prefix);
+    warnings.extend(receipts);
+    Ok((nodes, warnings))
+}
+
+fn raw_blocks_from_insert_payload(
+    payload: &Map<String, Value>,
+    operation_id: &str,
+) -> Result<(Vec<Value>, Vec<String>, &'static str), String> {
     if let Some(content) = payload.get("content").and_then(Value::as_str) {
         if !content.is_empty() {
             let parsed = super::content_parse::parse_write_content_for_operation(
@@ -1186,12 +1202,16 @@ fn blocks_from_insert_payload(
                 payload.get("format").and_then(Value::as_str),
                 operation_id,
             )?;
-            return Ok(parsed
-                .tiptap_json
-                .get("content")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default());
+            return Ok((
+                parsed
+                    .tiptap_json
+                    .get("content")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default(),
+                parsed.warnings,
+                "content",
+            ));
         }
     }
     if let Some(raw) = coalesce(payload, &["tiptapJson", "tiptap_json"]) {
@@ -1200,17 +1220,15 @@ fn blocks_from_insert_payload(
             || object.get("content").map(Value::is_array).unwrap_or(false);
         if qualifies {
             if let Some(content) = object.get("content").and_then(Value::as_array) {
-                return Ok(content.clone());
+                return Ok((content.clone(), Vec::new(), "content"));
             }
         }
     }
     if let Some(blocks) = payload.get("blocks").and_then(Value::as_array) {
-        return blocks
-            .iter()
-            .map(super::document_ops::block_to_tiptap_node)
-            .collect();
+        let (nodes, warnings) = super::document_ops::nodes_from_blocks_array(blocks)?;
+        return Ok((nodes, warnings, "blocks"));
     }
-    Ok(Vec::new())
+    Ok((Vec::new(), Vec::new(), "content"))
 }
 
 pub struct BlockUpdateEdit {
@@ -1461,7 +1479,7 @@ async fn finish_ledger_guarded(
 async fn block_insert(app: &AppHandle, operation: &CrdtOperation) -> ApplyOperationResult<Value> {
     let document_id = require_document_id(operation, "block.insert")?;
     let payload = obj(&operation.payload);
-    let blocks = blocks_from_insert_payload(&payload, &operation.operation_id)?;
+    let (blocks, contract_warnings) = blocks_from_insert_payload(&payload, &operation.operation_id)?;
     if blocks.is_empty() {
         return Err(ApplyOperationError::terminal(
             "block.insert: no parsable blocks in payload",
@@ -1549,6 +1567,7 @@ async fn block_insert(app: &AppHandle, operation: &CrdtOperation) -> ApplyOperat
                 "blocks_existing": existing_block_ids.len(),
                 "existing_block_ids": existing_block_ids,
                 "block_count": fragment.len(txn),
+                "warnings": contract_warnings,
             });
             write_ledger_entry(
                 txn,
@@ -1587,10 +1606,22 @@ async fn block_update(app: &AppHandle, operation: &CrdtOperation) -> ApplyOperat
             let block_index = index_blocks_in_fragment(txn, &fragment);
             let mut updated: Vec<String> = Vec::new();
             let mut missing: Vec<String> = Vec::new();
+            let mut warnings: Vec<String> = Vec::new();
             for edit in &edits {
                 match block_index.get(&edit.block_id) {
                     None => missing.push(edit.block_id.clone()),
                     Some((element, _)) => {
+                        let tag = element.tag().to_string();
+                        if let Some(allowed) = super::block_contract::allowed_attrs(&tag) {
+                            for key in edit.attrs.keys() {
+                                if !allowed.contains(&key.as_str()) {
+                                    warnings.push(format!(
+                                        "block-contract preserved {}: attr {key} is not in the contract for {tag}; stored verbatim",
+                                        edit.block_id
+                                    ));
+                                }
+                            }
+                        }
                         update_block_attributes(txn, element, &edit.attrs);
                         updated.push(edit.block_id.clone());
                     }
@@ -1614,15 +1645,15 @@ async fn block_update(app: &AppHandle, operation: &CrdtOperation) -> ApplyOperat
                         .collect(),
                 )
             };
-            Ok((updated, missing, previews))
+            Ok((updated, missing, previews, warnings))
         })
         .await?;
-    let (updated, missing, previews) = (updated.0, updated.1, updated.2);
+    let (updated, missing, previews, warnings) = (updated.0, updated.1, updated.2, updated.3);
 
     persist_document(app, &ctx, operation)
         .await
         .map_err(ApplyOperationError::retryable_after_hot_commit)?;
-    Ok(json!({ "success": true, "updated": updated, "blocks": previews, "missing": missing }))
+    Ok(json!({ "success": true, "updated": updated, "blocks": previews, "missing": missing, "warnings": warnings }))
 }
 
 /// Port of applyBlockEditText.

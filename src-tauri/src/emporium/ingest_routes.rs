@@ -122,29 +122,46 @@ pub(crate) async fn ingest_handler(
     // Per-graph write gate: survey→plan→apply is a read-modify-write; hold the
     // gate across both phases so concurrent mutating ingests serialize (the
     // dry-run path above is read-only and deliberately ungated).
-    let _write_gate = crate::emporium::write_gate::acquire_write_gate(&graph_id).await;
-    let planned = match gather_and_plan(&state.app, &graph_id, &request) {
-        Ok(planned) => planned,
-        Err(error) => return ingest_error_response(error),
-    };
-    // The contract is now PLAN-DERIVED (the spine selected wf vs memory). The
-    // apply-dispatch fork inside `apply_and_assert` routes by `plan.vocab`, so the
-    // memory kind is not forced through the wf contract/applier.
-    let report = apply_and_assert(
+    //
+    // On a graph under source authority the apply is recorded in the source
+    // ledger (`source_sync::record_authored_write`), so a rebuild replays it;
+    // the source gate is taken before the write gate. Unchanged elsewhere.
+    let recorded = crate::source_sync::record_authored_write(
         &state.app,
         &graph_id,
-        &planned.plan,
-        planned.contract,
-        &request,
+        "emporiumIngest",
+        crate::source_sync::AuthoredScope::Authored,
+        async {
+            let _write_gate = crate::emporium::write_gate::acquire_write_gate(&graph_id).await;
+            let planned = match gather_and_plan(&state.app, &graph_id, &request) {
+                Ok(planned) => planned,
+                Err(error) => return Ok::<Response, AppError>(ingest_error_response(error)),
+            };
+            // The contract is now PLAN-DERIVED (the spine selected wf vs memory). The
+            // apply-dispatch fork inside `apply_and_assert` routes by `plan.vocab`, so the
+            // memory kind is not forced through the wf contract/applier.
+            let report = apply_and_assert(
+                &state.app,
+                &graph_id,
+                &planned.plan,
+                planned.contract,
+                &request,
+            )
+            .await;
+            let status = if report.ok {
+                StatusCode::OK
+            } else {
+                // A loud halt is a 422: the request was well-formed but a step failed.
+                StatusCode::UNPROCESSABLE_ENTITY
+            };
+            Ok((status, Json(report)).into_response())
+        },
     )
     .await;
-    let status = if report.ok {
-        StatusCode::OK
-    } else {
-        // A loud halt is a 422: the request was well-formed but a step failed.
-        StatusCode::UNPROCESSABLE_ENTITY
-    };
-    (status, Json(report)).into_response()
+    match recorded {
+        Ok(response) => response,
+        Err(error) => loopback_app_error(error),
+    }
 }
 
 /// Map a survey error to a clean HTTP response. `existing_graph_dir` failure on

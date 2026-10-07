@@ -133,7 +133,8 @@ pub(crate) const BOOKMARK_GOLDEN_SHA: &str =
 
 /// Read-only PDF-source model. Native document projection is its only writer;
 /// the served pack intentionally omits top-level write_target.
-pub(crate) const PDF_SOURCE_GOLDEN_JSON: &str = include_str!("vocabs/garden-pdf-source.golden.json");
+pub(crate) const PDF_SOURCE_GOLDEN_JSON: &str =
+    include_str!("vocabs/garden-pdf-source.golden.json");
 pub(crate) const PDF_SOURCE_GOLDEN_SHA: &str =
     "1c68bf40562e97fa8a944f39e5e3687e5a4e72303d991733b88de01282ec4b9b";
 
@@ -276,6 +277,13 @@ pub(crate) const WORKFLOW_UI_GOLDEN_JSON: &str = include_str!("vocabs/workflow-u
 pub(crate) const WORKFLOW_UI_GOLDEN_SHA: &str =
     "db3f7913b3a062a73023c12f983baad3a304a938fb8f7f53fb143b917d4611b8";
 
+/// Canonical source-ledgered presentation records for the Files workspace.
+pub(crate) const GARDEN_FILE_VIEWS_GOLDEN_JSON: &str =
+    include_str!("vocabs/garden-file-views.golden.json");
+/// Pinned sha256 over the exact checked-in pack bytes.
+pub(crate) const GARDEN_FILE_VIEWS_GOLDEN_SHA: &str =
+    "8e06fd415a21ce63fbaa9088bd3e9f5a3c23eec77d36cf2a0bb43f00467d6206";
+
 /// The `nomos` omphalos constitution retrofit contract. This is NOT a served
 /// pack — it validates the deployment-level constitution authored into the
 /// omphalos store. It stays embedded + sha-pinned like the other internal
@@ -393,7 +401,11 @@ pub(crate) const FLOW_GOLDEN_SHA: &str =
 /// `"name"` field (asserted by `registry_names_match_golden_names`).
 pub(crate) const VOCAB_REGISTRY: &[(&str, &str, &str)] = &[
     ("ludus-core", LUDUS_CORE_GOLDEN_JSON, LUDUS_CORE_GOLDEN_SHA),
-    ("garden-pdf-source", PDF_SOURCE_GOLDEN_JSON, PDF_SOURCE_GOLDEN_SHA),
+    (
+        "garden-pdf-source",
+        PDF_SOURCE_GOLDEN_JSON,
+        PDF_SOURCE_GOLDEN_SHA,
+    ),
     ("workflow", WORKFLOW_GOLDEN_JSON, WORKFLOW_GOLDEN_SHA),
     (
         "sophia-memory-core",
@@ -442,6 +454,11 @@ pub(crate) const VOCAB_REGISTRY: &[(&str, &str, &str)] = &[
         "workflow-ui",
         WORKFLOW_UI_GOLDEN_JSON,
         WORKFLOW_UI_GOLDEN_SHA,
+    ),
+    (
+        "garden-file-views",
+        GARDEN_FILE_VIEWS_GOLDEN_JSON,
+        GARDEN_FILE_VIEWS_GOLDEN_SHA,
     ),
     (
         "lex-scotus-core",
@@ -531,6 +548,15 @@ pub(crate) const VOCAB_JURISDICTIONS: &[VocabJurisdiction] = &[
         public_jurisdiction: "pdf-source",
         canonical_ontology: "garden-pdf-source",
         canonical_pack: "garden-pdf-source",
+        status: RegistryStatus::DomainPack,
+        slug_aliases: &[],
+        compatibility_aliases: &[],
+    },
+    VocabJurisdiction {
+        name: "garden-file-views",
+        public_jurisdiction: "files",
+        canonical_ontology: "garden-file-views",
+        canonical_pack: "garden-file-views",
         status: RegistryStatus::DomainPack,
         slug_aliases: &[],
         compatibility_aliases: &[],
@@ -1002,7 +1028,10 @@ mod tests {
             computed, FLOW_GOLDEN_SHA,
             "embedded flow golden bytes drifted from the pinned sha"
         );
-        assert_eq!(find_contract("flow", "latest").unwrap().sha, FLOW_GOLDEN_SHA);
+        assert_eq!(
+            find_contract("flow", "latest").unwrap().sha,
+            FLOW_GOLDEN_SHA
+        );
     }
 
     #[test]
@@ -1144,6 +1173,7 @@ mod tests {
             ("kg-ultra-intuition", "1.1.0", KG_ULTRA_INTUITION_GOLDEN_SHA),
             ("lme-labeled-memory", "0.1.0", LME_LABELED_MEMORY_GOLDEN_SHA),
             ("workflow-ui", "1.0.0", WORKFLOW_UI_GOLDEN_SHA),
+            ("garden-file-views", "1.0.0", GARDEN_FILE_VIEWS_GOLDEN_SHA),
             ("lex-scotus-core", "1.0.0", LEX_SCOTUS_CORE_GOLDEN_SHA),
             ("sophia-machine-core", "0.1.0", MACHINE_CORE_GOLDEN_SHA),
             ("emporium-observatory", "0.2.0", OBSERVATORY_GOLDEN_SHA),
@@ -1242,6 +1272,7 @@ mod tests {
                         | "workflow"
                         | "koch"
                         | "ludus"
+                        | "files"
                         | "pdf-source"
                         | "internal-substrate"
                 ),
@@ -1335,6 +1366,15 @@ mod tests {
         assert_eq!(contract.canonical_pack, "koch-morse");
     }
 
+    #[test]
+    fn garden_file_views_is_a_first_class_domain_pack() {
+        let contract = find_contract("garden-file-views", "latest").unwrap();
+        assert_eq!(contract.registry_status, "domain-pack");
+        assert_eq!(contract.public_jurisdiction, "files");
+        assert_eq!(contract.canonical_ontology, "garden-file-views");
+        assert_eq!(contract.canonical_pack, "garden-file-views");
+    }
+
     // The retrofit contracts must stay OUT of the served catalog — they are a
     // shapes source, not a published emporium pack.
     #[test]
@@ -1387,6 +1427,7 @@ mod tests {
                 "kg-ultra-intuition",
                 "lme-labeled-memory",
                 "workflow-ui",
+                "garden-file-views",
                 "lex-scotus-core",
                 "sophia-machine-core",
                 "emporium-observatory",
@@ -1488,6 +1529,16 @@ mod tests {
         let contract = find_contract("workflow-ui", "latest").unwrap();
         assert_eq!(contract.sha, WORKFLOW_UI_GOLDEN_SHA);
         assert_eq!(contract.namespace, WORKFLOW_UI_NS);
+    }
+
+    #[test]
+    fn embedded_garden_file_views_sha_is_pinned() {
+        let computed = sha256_hex(GARDEN_FILE_VIEWS_GOLDEN_JSON.as_bytes());
+        assert_eq!(computed, GARDEN_FILE_VIEWS_GOLDEN_SHA);
+        let contract = find_contract("garden-file-views", "latest").unwrap();
+        assert_eq!(contract.sha, GARDEN_FILE_VIEWS_GOLDEN_SHA);
+        assert_eq!(contract.namespace, "https://sophia-labs.ai/ontology/view#");
+        assert_eq!(contract.version, "1.0.0");
     }
 
     #[test]

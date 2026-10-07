@@ -654,11 +654,23 @@ pub(super) fn write_workspace_document(
             .to_string()
     })?;
     let documents = txn.get_or_insert_map("documents");
+    let existed = documents.get(&*txn, &document_id).is_some();
     let document_map = child_map(&documents, txn, &document_id);
+    // `preserveParent` / `preserveOrder` (set by document.write when the
+    // caller named no placement) keep an EXISTING entry's parent and order;
+    // a new entry is filed with the payload's values as before.
+    let preserve_parent = existed && boolean_value(value.get("preserveParent"), false);
+    let preserve_order = existed
+        && boolean_value(value.get("preserveOrder"), false)
+        && map_number(&*txn, &document_map, "order").is_some();
     document_map.insert(txn, "title", title.as_str());
-    document_map.insert(txn, "parentId", opt_string_any(parent_id.clone()));
+    if !preserve_parent {
+        document_map.insert(txn, "parentId", opt_string_any(parent_id.clone()));
+    }
     document_map.insert(txn, "section", "documents");
-    document_map.insert(txn, "order", Any::Number(order));
+    if !preserve_order {
+        document_map.insert(txn, "order", Any::Number(order));
+    }
     let created_at = map_number(&*txn, &document_map, "createdAt").unwrap_or(now);
     document_map.insert(txn, "createdAt", Any::Number(created_at));
     document_map.insert(txn, "updatedAt", Any::Number(now));
@@ -736,6 +748,16 @@ pub(super) fn write_workspace_document(
     if let Some(file_type) = file_type {
         document_map.insert(txn, "sf_fileType", file_type.as_str());
     }
+    let parent_id = if preserve_parent {
+        map_string(&*txn, &document_map, "parentId")
+    } else {
+        parent_id
+    };
+    let order = if preserve_order {
+        map_number(&*txn, &document_map, "order").unwrap_or(order)
+    } else {
+        order
+    };
     Ok(json!({
         "documentId": document_id,
         "id": document_id,
@@ -1283,6 +1305,9 @@ pub(crate) fn put_workspace_artifact(
     artifact_id: &str,
     value: &JsonMap<String, Value>,
 ) -> Result<Value, String> {
+    if value.get("patch").and_then(Value::as_bool).unwrap_or(false) {
+        return patch_workspace_artifact(txn, graph_id, artifact_id, value);
+    }
     let artifacts = txn.get_or_insert_map("artifacts");
     let updated_at_ms = finite_number(value.get("updatedAt")).ok_or_else(|| {
         "workspace.putArtifact: updatedAt is required — normalize_payload_ids must inject it from enqueueTimestamp (A2 item 11)"
@@ -1373,6 +1398,79 @@ pub(crate) fn put_workspace_artifact(
         artifact_id,
         &data,
     ))
+}
+
+/// `workspace.putArtifact` with `patch: true` (Files rename/move): merge only
+/// the named fields into an EXISTING artifact inside the room transaction, so a
+/// concurrent rename and move both land. Absent fields are untouched (a full
+/// put clears them); `parentId: null` moves to the root; a non-null parent
+/// must be an artifacts-section folder, where the tree can show the file.
+/// `normalize_payload_ids` injects no `order` for a patch.
+fn patch_workspace_artifact(
+    txn: &mut TransactionMut<'_>,
+    graph_id: &str,
+    artifact_id: &str,
+    value: &JsonMap<String, Value>,
+) -> Result<Value, String> {
+    let updated_at_ms = finite_number(value.get("updatedAt")).ok_or_else(|| {
+        "workspace.putArtifact patch: updatedAt is required — normalize_payload_ids must inject it from enqueueTimestamp"
+            .to_string()
+    })?;
+    let artifacts = txn.get_or_insert_map("artifacts");
+    let artifact_map = match artifacts.get(&*txn, artifact_id) {
+        Some(Out::YMap(map)) => map,
+        _ => return Err(format!("artifact not found: {artifact_id}")),
+    };
+    let label = match value.get("label") {
+        None => None,
+        Some(Value::String(label)) if !label.trim().is_empty() => Some(label.trim().to_string()),
+        Some(_) => {
+            return Err("workspace.putArtifact patch: label must be a non-empty string".to_string())
+        }
+    };
+    let parent = match value.get("parentId") {
+        None => None,
+        Some(Value::Null) => Some(None),
+        Some(Value::String(parent_id)) if !parent_id.is_empty() => {
+            let folders = txn.get_or_insert_map("folders");
+            let section = match folders.get(&*txn, parent_id) {
+                Some(Out::YMap(folder)) => map_string(&*txn, &folder, "section"),
+                _ => None,
+            };
+            if section.as_deref() != Some("artifacts") {
+                return Err(format!(
+                    "workspace.putArtifact patch: parent folder not found in the artifacts section: {parent_id}"
+                ));
+            }
+            Some(Some(parent_id.clone()))
+        }
+        Some(_) => {
+            return Err(
+                "workspace.putArtifact patch: parentId must be a folder id or null".to_string(),
+            )
+        }
+    };
+    let order = match value.get("order") {
+        None | Some(Value::Null) => None,
+        Some(order) => Some(finite_number(Some(order)).ok_or_else(|| {
+            "workspace.putArtifact patch: order must be a finite number".to_string()
+        })?),
+    };
+    if label.is_none() && parent.is_none() && order.is_none() {
+        return Err("workspace.putArtifact patch: nothing to change".to_string());
+    }
+    if let Some(label) = label {
+        artifact_map.insert(txn, "name", label.as_str());
+    }
+    if let Some(parent) = parent {
+        artifact_map.insert(txn, "parentId", opt_string_any(parent));
+    }
+    if let Some(order) = order {
+        artifact_map.insert(txn, "order", Any::Number(order));
+    }
+    artifact_map.insert(txn, "updatedAt", epoch_ms_to_iso(updated_at_ms).as_str());
+    let data = artifact_data_from_map(&*txn, &artifact_map);
+    Ok(create_hosted_artifact_response(graph_id, artifact_id, &data))
 }
 
 fn delete_workspace_artifact_in_doc(

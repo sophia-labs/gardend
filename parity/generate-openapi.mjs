@@ -959,8 +959,80 @@ const components = {
       required: ['id', 'graphId', 'status'],
       properties: {
         id: { type: 'string' },
+        artifactId: { type: 'string' },
         graphId: { type: 'string' },
-        status: { type: 'string', enum: ['deleted'] },
+        status: { type: 'string', enum: ['trashed'] },
+        trashed: { type: 'boolean' },
+        trashedAt: { type: 'string' },
+        alreadyTrashed: { type: 'boolean' },
+      },
+      additionalProperties: true,
+    },
+    ArtifactPatchRequest: {
+      type: 'object',
+      properties: {
+        label: { type: 'string' },
+        parentId: { type: ['string', 'null'] },
+        order: { type: 'number' },
+      },
+      additionalProperties: false,
+    },
+    FilesUploadRequest: {
+      type: 'object',
+      required: ['file'],
+      properties: {
+        file: { type: 'string', format: 'binary' },
+        parentId: { type: ['string', 'null'] },
+        label: { type: ['string', 'null'] },
+        artifactId: { type: ['string', 'null'] },
+      },
+      additionalProperties: true,
+    },
+    FilesUploadResponse: {
+      allOf: [
+        { $ref: '#/components/schemas/Artifact' },
+        {
+          type: 'object',
+          required: ['sha256', 'replayed'],
+          properties: {
+            sha256: { type: 'string' },
+            replayed: { type: 'boolean' },
+          },
+        },
+      ],
+    },
+    FilesTrashList: {
+      type: 'object',
+      required: ['graphId', 'items', 'count'],
+      properties: {
+        graphId: { type: 'string' },
+        items: { type: 'array', items: { $ref: '#/components/schemas/JsonObject' } },
+        count: { type: 'integer' },
+      },
+      additionalProperties: true,
+    },
+    FilesPurgeResponse: {
+      type: 'object',
+      required: ['artifactId', 'graphId', 'purged'],
+      properties: {
+        artifactId: { type: 'string' },
+        graphId: { type: 'string' },
+        purged: { type: 'boolean' },
+      },
+      additionalProperties: true,
+    },
+    FileViewsRead: {
+      type: 'object',
+      required: ['graphId', 'graphIncarnation', 'revision', 'available', 'sourceRegistry', 'currentState', 'conflicts'],
+      properties: {
+        graphId: { type: 'string' },
+        graphIncarnation: { type: 'string' },
+        revision: { type: 'integer' },
+        available: { type: 'boolean' },
+        code: { type: 'string' },
+        sourceRegistry: { type: 'array', items: { $ref: '#/components/schemas/JsonObject' } },
+        currentState: { type: 'array', items: { $ref: '#/components/schemas/JsonObject' } },
+        conflicts: { type: 'array', items: { $ref: '#/components/schemas/JsonObject' } },
       },
       additionalProperties: true,
     },
