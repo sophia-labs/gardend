@@ -1,0 +1,29 @@
+[package]
+name = "sophia-shell"
+version = "0.1.0"
+description = "Sophia: a native window onto a Sophia place (hosted today, a local gardend later)"
+edition = "2021"
+license = "LicenseRef-PolyForm-Noncommercial-1.0.0"
+publish = false
+
+[[bin]]
+name = "sophia"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2.5.6", features = [] }
+
+[dependencies]
+tauri = { version = "2.10.3", features = ["devtools"] }
+tauri-plugin-opener = "2"
+tauri-plugin-window-state = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
+
+[profile.release]
+codegen-units = 16
+lto = false
+strip = true
+
+[workspace]
