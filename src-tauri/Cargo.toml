@@ -1,6 +1,6 @@
 [package]
 name = "garden"
-version = "0.1.2"
+version = "0.1.3"
 description = "Garden — local-first native knowledge-graph desktop"
 authors = ["Veronica Chambers"]
 repository = "https://github.com/sophia-labs/gardend"

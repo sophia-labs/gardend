@@ -230,8 +230,9 @@ The answer should include `"auth":"cloudflare-access"`. Then, on your phone, ope
 should ask for your email before anything else. **If Sophia opens without asking, stop, and fix the Access application
 (7.2) before you go on.** Otherwise enter your email and the code Cloudflare sends you, and Sophia opens.
 
-From now on, open Sophia at `https://sophia.example.com` on every device, this computer included. The `127.0.0.1` link stops
-working in the browser once Access is on, because the app now expects Cloudflare's login.
+From now on, open Sophia at `https://sophia.example.com` on your phone and your other computers. On this computer, the
+`127.0.0.1` link from step 4 keeps working: there the app uses its key, not Cloudflare's login. (That needs gardend 0.1.3 or
+newer. With 0.1.2, the `127.0.0.1` link stops working once Access is on, so use your address on this computer too.)
 
 ## 8. Family
 
@@ -297,8 +298,8 @@ sophia-mcp --version
 
 The Client ID ends in `.access`. Cloudflare checks the token, and gardend reads who is calling from Cloudflare's signed
 pass. While `GARDEN_CF_ACCESS_ADMIN_EMAILS` is set, an agent has a member's rights (step 8); without it, an admin's. No
-Sophia key is needed. If you do set `SOPHIA_MCP_TOKEN` as well, gardend goes by that key instead, so it must be one with
-every right (see below).
+Sophia key is needed. If you do set `SOPHIA_MCP_TOKEN` as well, gardend goes by that key instead, and the agent gets that
+key's rights (see below).
 
 - `--cf-access-client-id` and `--cf-access-client-secret` work too, but the settings above keep the secret off the
   computer's process list.
@@ -307,12 +308,14 @@ every right (see below).
 **On the computer that runs Sophia**, an agent can talk to gardend directly, without Cloudflare. Make it a token of its own:
 
 ```bash
-gardend token create --label my-agent --grant session-all --expires-days 365 --profile-dir ~/sophia
+gardend token create --label my-agent --grant member --expires-days 365 --profile-dir ~/sophia
 ```
 
 It prints the token once. Use `"args": ["--backend", "http://127.0.0.1:7674/mcp"]` and
-`"env": { "SOPHIA_MCP_TOKEN": "<the token>" }`. Only `session-all` tokens can use Sophia's tools: `read-only` and
-`authoring` tokens cannot. `gardend token list --profile-dir ~/sophia` shows your tokens, and
+`"env": { "SOPHIA_MCP_TOKEN": "<the token>" }`. A `member` token has a member's rights (step 8), Sophia's tools included.
+An agent that must also delete things or load RDF needs `--grant session-all`, which has every right. `read-only` and
+`authoring` tokens cannot use Sophia's tools. `--grant member` needs gardend 0.1.3 or newer: with 0.1.2, use
+`--grant session-all`. `gardend token list --profile-dir ~/sophia` shows your tokens, and
 `gardend token revoke <id> --profile-dir ~/sophia` turns one off at once. In `token` commands, `--grant` (or `--profile`)
 is the level of access, and `--profile-dir` is the folder.
 
@@ -345,14 +348,32 @@ systemctl --user start gardend
 gardend has no backup command of its own, and a copy taken while Sophia runs can catch a file half-written. Restore points are kept inside the same folder, so they are not
 a backup. To restore, stop Sophia, put the copy back at `~/sophia`, and start it.
 
-**Update gardend** by replacing the whole `~/gardend` folder. Make a backup first. Then, in one Terminal window, download
-and check the new version with step 3's first block (with the new number in `V`), and unpack it:
+**Update gardend** with `gardend update`. Make a backup first. `gardend --check-update` says whether a newer version
+exists. Sophia must be stopped while it updates. On a Mac:
 
 ```bash
-tar -xzf gardend-$V-$T.tar.gz
+launchctl bootout gui/$(id -u)/dev.sophia.gardend
+gardend update
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.sophia.gardend.plist
+gardend --version
 ```
 
-Then stop Sophia, swap the folder, and start it again. On a Mac:
+On Linux:
+
+```bash
+systemctl --user stop gardend
+gardend update
+systemctl --user start gardend
+gardend --version
+```
+
+`gardend update` downloads the newest release, checks it against the release's checksums, and replaces the `gardend`
+program and the `ui` folder beside it. If it says Sophia is still running, wait a moment and run it again. It refuses a
+release that stores gardens in a new format: then the release notes say what to do.
+
+**If `gardend --version` says 0.1.2**, its `gardend update` replaces only the program and leaves the `ui` folder as it
+was. This once, update by replacing the whole `~/gardend` folder instead. Download and check the new version with step 3's
+first block (with the new number in `V`), and unpack it with `tar -xzf gardend-$V-$T.tar.gz`. Then, on a Mac:
 
 ```bash
 launchctl bootout gui/$(id -u)/dev.sophia.gardend
@@ -370,8 +391,7 @@ systemctl --user start gardend
 gardend --version
 ```
 
-`gardend update` also exists, but it replaces only the `gardend` program and not the `ui` folder beside it, so swap the
-folder instead. Keep cloudflared up to date too: `brew upgrade cloudflared` on a Mac, your package manager on Linux.
+Keep cloudflared up to date too: `brew upgrade cloudflared` on a Mac, your package manager on Linux.
 
 ## 11. Troubleshooting
 
@@ -381,8 +401,9 @@ folder instead. Keep cloudflared up to date too: `brew upgrade cloudflared` on a
 | macOS says gardend cannot be opened | The download flag (step 3) | `xattr -dr com.apple.quarantine ~/gardend` |
 | `port 7674 on 127.0.0.1 is not free` | Sophia is already running (perhaps as the service), or another program uses the port | `gardend service status`; or pick another port with `--port` |
 | The link opens an empty page, and gardend's ready message says `none found` beside `ui` | The `ui` folder is not beside the `gardend` program | Check `ls ~/gardend`; unpack the release again |
-| "Cloudflare Access let you in, but this Sophia did not accept the sign-in", at `127.0.0.1` | Access is on (step 7) | Use `https://sophia.example.com` |
+| "Cloudflare Access let you in, but this Sophia did not accept the sign-in", at `127.0.0.1` | Access is on (step 7), and gardend is 0.1.2 | Update gardend (step 10), or use `https://sophia.example.com` |
 | The same message at your address | The team domain or AUD tag does not match | Check both in `~/.config/sophia/env`, then rerun `. ~/.config/sophia/env && gardend service install --profile ~/sophia` |
+| `127.0.0.1` asks for your link, or says the key was not accepted | This browser has no key, or an old one | Open the link `gardend url --profile ~/sophia` prints |
 | Changes do not save; "invalid origin" | `GARDEN_PUBLIC_BASE_URL` is missing, or differs from the address you typed | Fix it in `~/.config/sophia/env` and rerun the install line |
 | Sophia opens at your address without asking for an email | No Access application covers that hostname | Fix 7.2 at once |
 | Cloudflare error 1033, or the tunnel is not Healthy | cloudflared is not running, or the computer is asleep or offline | Wake the computer; check **Networking → Tunnels** |

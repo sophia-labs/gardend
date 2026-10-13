@@ -197,7 +197,7 @@ impl ServePlan {
         out.push_str(
             "The key in that link opens everything in this profile; keep it to yourself.\n\
              Give other people and agents their own token:\n  \
-             gardend token create --label <name> --profile authoring\n\
+             gardend token create --label <name> --grant member\n\
              Stop with Ctrl-C (gardend flushes before it exits). Keep it running in the \
              background: gardend service install\n",
         );
@@ -307,6 +307,10 @@ mod tests {
         let terminal = plan.ready_banner(true);
         assert!(terminal.contains(&format!("  Open Sophia: http://127.0.0.1:7803/#key={key}\n")));
         assert!(terminal.contains("none found: API and MCP only"));
+        assert!(
+            terminal.contains("gardend token create --label <name> --grant member\n"),
+            "agents are told to take the member grant, which reaches the MCP tools"
+        );
         let log = plan.ready_banner(false);
         assert!(!log.contains(&key), "a service log must not carry the key");
         assert!(log.contains("Open Sophia: http://127.0.0.1:7803/#key=…"));

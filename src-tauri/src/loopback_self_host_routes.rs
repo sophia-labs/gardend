@@ -471,6 +471,72 @@ mod tests {
         });
     }
 
+    /// `gardend token create --grant member` is what a local agent gets: it
+    /// reaches the MCP tools with no self-host knob set, and each tool still
+    /// checks its own scopes. `authoring` cannot call tools at all.
+    #[test]
+    fn a_member_token_calls_mcp_tools_and_an_authoring_token_cannot() {
+        with_profile("selfhost-member-token", |root| {
+            crate::app_runtime::async_runtime::block_on(async {
+                let app = crate::tauri_runtime::build_mock_app_for_tests(true);
+                let state = state(app, root, SelfHost::default());
+                let issue = |profile: &str| {
+                    create_client_token(
+                        &state.app,
+                        CreateLoopbackClientTokenInput {
+                            label: Some(format!("agent {profile}")),
+                            grant_profile_id: Some(profile.into()),
+                            scopes: None,
+                            expires_in_days: None,
+                        },
+                    )
+                    .unwrap()
+                    .token
+                };
+                let member = issue("member");
+                let authoring = issue("authoring");
+                let mcp = |token: &str, call: serde_json::Value| {
+                    let headers = vec![
+                        ("authorization", format!("Bearer {token}")),
+                        ("content-type", "application/json".to_string()),
+                    ];
+                    let state = state.clone();
+                    async move {
+                        let (status, _, body) = send_with(
+                            &state,
+                            "POST",
+                            "/mcp",
+                            &headers,
+                            Body::from(serde_json::to_vec(&call).unwrap()),
+                        )
+                        .await;
+                        (status, String::from_utf8_lossy(&body).to_string())
+                    }
+                };
+                let list = serde_json::json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" });
+                let update = serde_json::json!({
+                    "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                    "params": { "name": "sparql_update", "arguments": { "graph_id": "g", "query": "INSERT DATA {}" } },
+                });
+
+                let (status, body) = mcp(member.as_str(), list.clone()).await;
+                assert_eq!(status, StatusCode::OK, "{body}");
+                let listed: serde_json::Value = serde_json::from_str(&body).unwrap();
+                assert!(listed["result"]["tools"]
+                    .as_array()
+                    .is_some_and(|tools| !tools.is_empty()));
+                let (status, body) = mcp(member.as_str(), update.clone()).await;
+                assert_eq!(status, StatusCode::OK, "{body}");
+                assert!(body.contains("missing required scope rdf.update"), "{body}");
+
+                let (status, body) = mcp(authoring.as_str(), list).await;
+                assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+                let (status, body) = mcp(authoring.as_str(), update).await;
+                assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+            });
+        });
+    }
+
     #[test]
     fn ui_is_served_with_an_spa_fallback_and_the_api_is_untouched() {
         with_profile("selfhost-ui", |root| {

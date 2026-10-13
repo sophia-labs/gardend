@@ -16,8 +16,11 @@ use std::path::Path;
 /// The audit log's actor for tokens minted or revoked from the command line.
 const CLI_ACTOR: &str = "gardend-cli";
 
-/// The grant profiles a token can carry (`loopback_token_grants`).
-pub(crate) const GRANT_PROFILES: &[&str] = &["read-only", "authoring", "rdf-admin", "session-all"];
+/// The grant profiles a token can carry (`loopback_token_grants`). `member`
+/// is the one to give agents and other people: the grant Cloudflare Access
+/// members get.
+pub(crate) const GRANT_PROFILES: &[&str] =
+    &["read-only", "authoring", "member", "rdf-admin", "session-all"];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TokenCreateArgs {
@@ -75,7 +78,7 @@ pub(crate) fn list(profile_dir: &Path, json: bool) -> Result<String, String> {
     }
     if tokens.is_empty() {
         return Ok(format!(
-            "No client tokens in {}. Create one with: gardend token create --label <name> --profile authoring\n",
+            "No client tokens in {}. Create one with: gardend token create --label <name> --grant member\n",
             profile_dir.display()
         ));
     }
@@ -264,6 +267,30 @@ mod tests {
             .contains("no profile at"));
         assert!(revoke(&profile, "nope").unwrap_err().contains("no token with id"));
         assert!(list(&profile, false).unwrap().starts_with("No client tokens"));
+    }
+
+    #[test]
+    fn a_member_token_holds_the_access_member_grant() {
+        let profile = tempdir("tokens-member");
+        let (secret, _) = secret_of(&create(&profile, &args("claude", "member", true)).unwrap());
+        let scopes = resolve_loopback_client_token_in(&profile, &secret)
+            .unwrap()
+            .expect("a member token resolves");
+        let held = |scope: &str| scopes.iter().any(|held| held == scope);
+        for scope in ["mcp.tools.read", "mcp.tools.call", "documents.read", "documents.write.crdt", "rdf.query"] {
+            assert!(held(scope), "a member token holds {scope}");
+        }
+        for scope in ["documents.delete.crdt", "graphs.write", "rdf.load", "rdf.update", "time-travel.restore"] {
+            assert!(!held(scope), "a member token lacks {scope}");
+        }
+        let access_member = crate::loopback_token_grants::session_all_token_grant()
+            .grant_profiles
+            .into_iter()
+            .find(|grant| grant.id == crate::loopback_self_host::MEMBER_GRANT)
+            .expect("the grant Access members get")
+            .scopes;
+        assert_eq!(scopes, access_member);
+        assert!(list(&profile, false).unwrap().contains("member"));
     }
 
     #[test]

@@ -134,8 +134,8 @@ Sophia is ready.
   reaches a server log; the app stores it and strips it. The link carries the
   master key (not a minted client token) so its owner has every scope. The live
   editor's WebSocket rooms also accept a scoped token that holds the room's write
-  scope (`authoring` does). Give other people and agents scoped tokens (below),
-  never this link.
+  scope (`authoring` and `member` do). Give other people and agents scoped
+  tokens (below, `--grant member`), never this link.
 - **The app:** when `GARDEN_UI_DIR` is unset and a `ui/` folder with an
   `index.html` sits next to the gardend binary (as invoked, or with symlinks
   resolved), `serve` sets `GARDEN_UI_DIR` to it. Without one, Sophia serves its
@@ -152,16 +152,20 @@ Ctrl-C (SIGTERM) stops it after the final flush.
 ### `gardend token`
 
 ```sh
-gardend token create --label lucy-phone --profile authoring --expires-days 365
+gardend token create --label my-agent --grant member --expires-days 365
 gardend token list
 gardend token revoke <id>        # the full id, or the 8 characters `list` shows
 ```
 
 Scoped, expiring client tokens for the profile, sent as
 `Authorization: Bearer <token>` to the REST API and `/mcp`. In `token`
-commands `--profile` is the **grant** (alias `--grant`): `read-only` (the
-default), `authoring`, `rdf-admin` or `session-all`; the profile directory is
-`--profile-dir`, else `GARDEN_PROFILE_DIR`, else the default above.
+commands `--grant` is the grant (`--profile` is an alias): `read-only` (the
+default), `authoring`, `member`, `rdf-admin` or `session-all`; the profile
+directory is `--profile-dir`, else `GARDEN_PROFILE_DIR`, else the default above.
+Give agents and other people **`member`**: the grant Cloudflare Access members
+get (below), which is every read, the `authoring` writes and MCP tool calls.
+`read-only` and `authoring` cannot call MCP tools (`mcp.tools.call`), and
+`authoring` lacks most reads.
 `--expires-days` is 1 to 365 (default 30). `create` prints the secret once
 (`--json` for scripts); the profile keeps only its SHA-256 hash in
 `loopback-client-tokens.json`, and every create and revoke is appended to
@@ -253,10 +257,11 @@ What they do:
   An Access login is refused from an origin that is not loopback, Tauri or
   allowed, from `Origin: null`, and on `Sec-Fetch-Site: cross-site`. Identity
   comes from the token alone; an `X-User-ID` header is never read for it.
-- **The member grant** (non-admins while an admin list is set): every read
-  scope, the `authoring` profile's writes (documents, workspace, artifacts,
-  images, wires, entities, web imports) and MCP calls, each tool still checking
-  its own scopes. Not: deletes, creating, importing or restoring graphs, loading
+- **The member grant** (non-admins while an admin list is set; the same
+  `member` grant profile `gardend token create --grant member` mints): every
+  read scope, the `authoring` profile's writes (documents, workspace,
+  artifacts, images, wires, entities, web imports) and MCP calls, each tool
+  still checking its own scopes. Not: deletes, creating, importing or restoring graphs, loading
   or updating RDF (`graphs.write`, `rdf.load`, `rdf.update`, ...), memory and
   index writes, time-travel writes, service, model and token administration.
 - **Origins and CORS.** While any knob is set, CORS answers only the origins
@@ -282,7 +287,12 @@ Containers update by pulling a new `ghcr.io/sophia-labs/gardend:<version>`
 image. Bare-binary installs run `gardend --check-update` / `gardend update`:
 the tarball is verified against the release's `SHA256SUMS`, the new binary's
 `--version --json` must match the release manifest, and the replacement is an
-atomic rename. `update` refuses while any gardend is serving (stop it first —
+atomic rename. When a `ui/` folder sits next to the binary (symlinks of the
+binary resolved) and the release archive carries `ui/` beside its binary, the
+UI is replaced too: the new `ui/` is unpacked beside the old one and renamed
+into place with the binary, and a failed step puts the old ones back. With no
+`ui/` folder there, only the binary is replaced. (gardend 0.1.2's updater
+replaces only the binary.) `update` refuses while any gardend is serving (stop it first —
 SIGTERM runs the forced final durable flush) and refuses a release whose
 `storageFormat` differs from the running binary's
 (`src-tauri/src/storage_format.rs`).

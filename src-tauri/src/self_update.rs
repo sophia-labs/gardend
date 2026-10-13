@@ -7,6 +7,12 @@
 //! * `release.json` — `{"name","version","storageFormat","assets":{"<triple>":"<file>"}}`
 //! * `SHA256SUMS` — `sha256sum` output over every tarball
 //! * `gardend-v<version>-<target>.tar.gz` — contains the `gardend` binary
+//!   and, from 0.1.2 on, the self-host web UI as `ui/` beside it
+//!
+//! The binary is always replaced. A `ui/` folder next to the installed binary
+//! (what `gardend serve` serves) is replaced too when the archive carries one;
+//! with no `ui/` folder there, only the binary changes. Both are unpacked
+//! beside their targets and renamed into place.
 //!
 //! The newest manifest comes from `{base}/releases/latest/download/release.json`,
 //! assets from `{base}/releases/download/v{version}/…`. No GitHub API.
@@ -25,7 +31,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub const DEFAULT_RELEASE_BASE: &str = "https://github.com/sophia-labs/gardend";
@@ -33,6 +39,9 @@ pub const BIN_NAME: &str = "gardend";
 pub const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const CHECK_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
 const MAX_DOWNLOAD_BYTES: u64 = 1 << 30;
+/// The folder beside the binary, in an install and in a release archive, that
+/// holds the self-host web UI.
+pub const UI_DIR_NAME: &str = "ui";
 
 /// A release's manifest (`release.json`), also the shape of `gardend --version --json`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -148,6 +157,12 @@ pub fn storage_format_gate(manifest: &ReleaseManifest) -> Result<(), String> {
 }
 
 pub fn extract_binary(tarball: &[u8], bin_name: &str) -> Result<Vec<u8>, String> {
+    find_binary(tarball, bin_name).map(|(_, bytes)| bytes)
+}
+
+/// The binary's path inside the archive (e.g. `gardend-v0.1.2-<target>/gardend`)
+/// and its bytes.
+fn find_binary(tarball: &[u8], bin_name: &str) -> Result<(PathBuf, Vec<u8>), String> {
     let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(tarball));
     for entry in archive
         .entries()
@@ -163,13 +178,88 @@ pub fn extract_binary(tarball: &[u8], bin_name: &str) -> Result<Vec<u8>, String>
             if out.is_empty() {
                 return Err(format!("{bin_name} in the tarball is empty"));
             }
-            return Ok(out);
+            return Ok((path, out));
         }
     }
     Err(format!("tarball does not contain {bin_name}"))
 }
 
+/// Unpack the archive's `ui_root` folder (the `ui/` beside the binary in the
+/// archive) into `dest`, which should not exist yet. `Ok(false)`: the archive
+/// carries no such folder. Only plain files and folders are taken, under
+/// plain relative names; a carried UI must hold an `index.html`.
+fn extract_ui(tarball: &[u8], ui_root: &Path, dest: &Path) -> Result<bool, String> {
+    let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(tarball));
+    let mut carried = false;
+    for entry in archive
+        .entries()
+        .map_err(|e| format!("reading tarball: {e}"))?
+    {
+        let mut entry = entry.map_err(|e| format!("reading tarball: {e}"))?;
+        let path = entry.path().map_err(|e| e.to_string())?.into_owned();
+        let Ok(relative) = path.strip_prefix(ui_root) else {
+            continue;
+        };
+        if relative
+            .components()
+            .any(|part| !matches!(part, Component::Normal(_)))
+        {
+            return Err(format!(
+                "refusing suspicious path {} in the tarball",
+                path.display()
+            ));
+        }
+        let into = dest.join(relative);
+        let kind = entry.header().entry_type();
+        if kind.is_dir() {
+            std::fs::create_dir_all(&into)
+                .map_err(|e| format!("unpacking {}: {e}", into.display()))?;
+        } else if kind.is_file() {
+            if let Some(parent) = into.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| format!("unpacking {}: {e}", parent.display()))?;
+            }
+            entry
+                .unpack(&into)
+                .map_err(|e| format!("unpacking {}: {e}", into.display()))?;
+        } else {
+            // Links and the like have no place in a static UI build.
+            continue;
+        }
+        carried = true;
+    }
+    if carried && !dest.join("index.html").is_file() {
+        return Err(format!(
+            "the release's {} has no index.html: refusing to replace the installed one",
+            ui_root.display()
+        ));
+    }
+    Ok(carried)
+}
+
+/// The `ui/` folder next to the installed binary (symlinks of the binary
+/// resolved), when there is a real folder there.
+pub fn installed_ui_dir(exe: &Path) -> Option<PathBuf> {
+    let exe = std::fs::canonicalize(exe).unwrap_or_else(|_| exe.to_path_buf());
+    let ui = exe.parent()?.join(UI_DIR_NAME);
+    std::fs::symlink_metadata(&ui)
+        .is_ok_and(|meta| meta.is_dir())
+        .then_some(ui)
+}
+
 pub fn download_verified(
+    base: &str,
+    manifest: &ReleaseManifest,
+    target: &str,
+) -> Result<Vec<u8>, String> {
+    extract_binary(
+        &download_verified_archive(base, manifest, target)?,
+        BIN_NAME,
+    )
+}
+
+/// The release archive for `target`, checked against the release's `SHA256SUMS`.
+pub fn download_verified_archive(
     base: &str,
     manifest: &ReleaseManifest,
     target: &str,
@@ -200,7 +290,7 @@ pub fn download_verified(
             "checksum mismatch for {asset}: expected {expected}, got {actual}"
         ));
     }
-    extract_binary(&tarball, BIN_NAME)
+    Ok(tarball)
 }
 
 /// Replace `exe` with `bytes` atomically, after the new binary's own
@@ -211,6 +301,21 @@ pub fn replace_executable(
     manifest: &ReleaseManifest,
 ) -> Result<(), String> {
     let exe = std::fs::canonicalize(exe).unwrap_or_else(|_| exe.to_path_buf());
+    let staged = stage_executable(&exe, bytes, manifest)?;
+    std::fs::rename(&staged, &exe).map_err(|e| {
+        let _ = std::fs::remove_file(&staged);
+        format!("replacing {}: {e}", exe.display())
+    })
+}
+
+/// Write `bytes` beside `exe` (a canonical path) and check the staged
+/// binary's own `--version --json` against the manifest. The caller renames
+/// the returned path into place; on `Err` nothing is left behind.
+fn stage_executable(
+    exe: &Path,
+    bytes: &[u8],
+    manifest: &ReleaseManifest,
+) -> Result<PathBuf, String> {
     let dir = exe
         .parent()
         .ok_or_else(|| format!("{} has no parent directory", exe.display()))?;
@@ -247,12 +352,85 @@ pub fn replace_executable(
                 reported.version, reported.storage_format, manifest.version, manifest.storage_format
             ));
             }
-            std::fs::rename(&staged, &exe).map_err(|e| format!("replacing {}: {e}", exe.display()))
+            Ok(())
         })();
-    if result.is_err() {
-        let _ = std::fs::remove_file(&staged);
+    match result {
+        Ok(()) => Ok(staged),
+        Err(error) => {
+            let _ = std::fs::remove_file(&staged);
+            Err(error)
+        }
     }
-    result
+}
+
+/// Install a verified release archive over `exe`. The binary is always
+/// replaced ([`replace_executable`]'s checks). When a `ui/` folder sits next
+/// to the binary and the archive carries one, the UI is replaced with it:
+/// the new UI and binary are first unpacked beside their targets, then renamed
+/// into place (old `ui/` aside, new `ui/` in, binary in), and a failed rename
+/// puts the old ones back. Returns the replaced `ui/`, if any. With no `ui/`
+/// folder next to the binary this is exactly [`replace_executable`].
+pub fn install_release(
+    exe: &Path,
+    tarball: &[u8],
+    manifest: &ReleaseManifest,
+) -> Result<Option<PathBuf>, String> {
+    let exe = std::fs::canonicalize(exe).unwrap_or_else(|_| exe.to_path_buf());
+    let (binary_path, bytes) = find_binary(tarball, BIN_NAME)?;
+    let Some(ui) = installed_ui_dir(&exe) else {
+        replace_executable(&exe, &bytes, manifest)?;
+        return Ok(None);
+    };
+    let dir = exe
+        .parent()
+        .ok_or_else(|| format!("{} has no parent directory", exe.display()))?;
+    let pid = std::process::id();
+    let staged_ui = dir.join(format!(".{UI_DIR_NAME}.update-{pid}"));
+    let old_ui = dir.join(format!(".{UI_DIR_NAME}.old-{pid}"));
+    let _ = std::fs::remove_dir_all(&staged_ui);
+    let _ = std::fs::remove_dir_all(&old_ui);
+    let archive_ui = binary_path
+        .parent()
+        .unwrap_or_else(|| Path::new(""))
+        .join(UI_DIR_NAME);
+    match extract_ui(tarball, &archive_ui, &staged_ui) {
+        Ok(true) => {}
+        Ok(false) => {
+            // An archive without ui/ (before 0.1.2): the binary only, as before.
+            let _ = std::fs::remove_dir_all(&staged_ui);
+            replace_executable(&exe, &bytes, manifest)?;
+            return Ok(None);
+        }
+        Err(error) => {
+            let _ = std::fs::remove_dir_all(&staged_ui);
+            return Err(error);
+        }
+    }
+    let staged_bin = match stage_executable(&exe, &bytes, manifest) {
+        Ok(staged) => staged,
+        Err(error) => {
+            let _ = std::fs::remove_dir_all(&staged_ui);
+            return Err(error);
+        }
+    };
+    let abandon = |error: String| {
+        let _ = std::fs::remove_dir_all(&staged_ui);
+        let _ = std::fs::remove_file(&staged_bin);
+        error
+    };
+    std::fs::rename(&ui, &old_ui)
+        .map_err(|e| abandon(format!("moving {} aside: {e}", ui.display())))?;
+    if let Err(e) = std::fs::rename(&staged_ui, &ui) {
+        let _ = std::fs::rename(&old_ui, &ui);
+        return Err(abandon(format!("replacing {}: {e}", ui.display())));
+    }
+    if let Err(e) = std::fs::rename(&staged_bin, &exe) {
+        let _ = std::fs::rename(&ui, &staged_ui);
+        let _ = std::fs::rename(&old_ui, &ui);
+        return Err(abandon(format!("replacing {}: {e}", exe.display())));
+    }
+    let _ = std::fs::remove_dir_all(&old_ui);
+    Ok(Some(ui))
 }
 
 // ------------------------------------------------------------- serving gate
@@ -345,6 +523,8 @@ pub enum UpdateOutcome {
     Installed {
         latest: String,
         path: PathBuf,
+        /// The `ui/` folder next to the binary, when it was replaced too.
+        ui: Option<PathBuf>,
     },
 }
 
@@ -379,11 +559,12 @@ pub fn run_update(
         ));
     }
     let target = current_target().ok_or("no gardend release builds for this platform")?;
-    let bytes = download_verified(base, &manifest, target)?;
-    replace_executable(exe, &bytes, &manifest)?;
+    let tarball = download_verified_archive(base, &manifest, target)?;
+    let ui = install_release(exe, &tarball, &manifest)?;
     Ok(UpdateOutcome::Installed {
         latest: manifest.version,
         path: exe.to_path_buf(),
+        ui,
     })
 }
 
@@ -512,6 +693,18 @@ mod tests {
     /// Publish release `version` whose "binary" is a script answering
     /// `--version --json` with `reports_format`; the manifest declares `declared_format`.
     fn publish(root: &Path, version: &str, declared_format: Option<u32>, reports_format: u32) {
+        publish_with_ui(root, version, declared_format, reports_format, &[]);
+    }
+
+    /// [`publish`], with `ui` files (relative path, contents) packed as `ui/`
+    /// beside the binary, as release archives carry them from 0.1.2.
+    fn publish_with_ui(
+        root: &Path,
+        version: &str,
+        declared_format: Option<u32>,
+        reports_format: u32,
+        ui: &[(&str, &str)],
+    ) {
         let target = current_target().unwrap();
         let asset = format!("gardend-v{version}-{target}.tar.gz");
         let script = format!(
@@ -531,6 +724,18 @@ mod tests {
             script.as_bytes(),
         )
         .unwrap();
+        for (name, contents) in ui {
+            let mut header = tar::Header::new_gnu();
+            header.set_size(contents.len() as u64);
+            header.set_mode(0o644);
+            header.set_cksum();
+            tar.append_data(
+                &mut header,
+                format!("gardend-v{version}-{target}/ui/{name}"),
+                contents.as_bytes(),
+            )
+            .unwrap();
+        }
         let tarball = tar.into_inner().unwrap().finish().unwrap();
         let digest: String = Sha256::digest(&tarball)
             .iter()
@@ -613,6 +818,143 @@ mod tests {
             1,
             "no staging debris"
         );
+    }
+
+    fn ui_at(dir: &Path, files: &[(&str, &str)]) {
+        for (name, contents) in files {
+            let path = dir.join("ui").join(name);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, contents).unwrap();
+        }
+    }
+
+    fn reports_version(exe: &Path, version: &str) -> bool {
+        let out = std::process::Command::new(exe).output().unwrap();
+        String::from_utf8_lossy(&out.stdout).contains(&format!("\"version\":\"{version}\""))
+    }
+
+    fn names(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    /// The release archive carries `ui/` and the install has one: both the
+    /// binary and the UI are replaced, and nothing is left beside them.
+    #[cfg(unix)]
+    #[test]
+    fn update_refreshes_the_selfhost_ui_beside_the_binary() {
+        let root = tempdir("rel-ui");
+        let new_ui = [
+            ("index.html", "<title>new</title>"),
+            ("assets/index-N3w.js", "new()"),
+        ];
+        publish_with_ui(
+            &root,
+            "9.9.9",
+            Some(STORAGE_FORMAT),
+            STORAGE_FORMAT,
+            &new_ui,
+        );
+        let base = serve(root);
+        let dir = tempdir("inst-ui");
+        let exe = installed(&dir);
+        ui_at(
+            &dir,
+            &[
+                ("index.html", "<title>old</title>"),
+                ("assets/index-0ld.js", "old()"),
+            ],
+        );
+
+        let manifest = fetch_latest(&base, Duration::from_secs(5)).unwrap();
+        let tarball =
+            download_verified_archive(&base, &manifest, current_target().unwrap()).unwrap();
+        let ui = install_release(&exe, &tarball, &manifest).unwrap();
+
+        let real = std::fs::canonicalize(&dir).unwrap();
+        assert_eq!(ui, Some(real.join("ui")));
+        assert!(reports_version(&exe, "9.9.9"));
+        assert_eq!(
+            std::fs::read_to_string(dir.join("ui/index.html")).unwrap(),
+            "<title>new</title>"
+        );
+        assert!(dir.join("ui/assets/index-N3w.js").is_file());
+        assert!(
+            !dir.join("ui/assets/index-0ld.js").exists(),
+            "the old UI is gone, not merged"
+        );
+        assert_eq!(names(&dir), ["gardend", "ui"], "no staging debris");
+    }
+
+    /// Without a `ui/` folder next to the binary, an update is what it always
+    /// was: the binary only, even from an archive that carries `ui/`. With one,
+    /// an archive without `ui/` (an older release) leaves it alone, and an
+    /// archive whose `ui/` has no index.html changes nothing at all.
+    #[cfg(unix)]
+    #[test]
+    fn update_without_a_selfhost_ui_folder_replaces_only_the_binary() {
+        let root = tempdir("rel-noui");
+        publish_with_ui(
+            &root,
+            "9.9.9",
+            Some(STORAGE_FORMAT),
+            STORAGE_FORMAT,
+            &[("index.html", "new")],
+        );
+        let base = serve(root);
+        let manifest = fetch_latest(&base, Duration::from_secs(5)).unwrap();
+        let target = current_target().unwrap();
+        let carrying = download_verified_archive(&base, &manifest, target).unwrap();
+
+        let dir = tempdir("inst-noui");
+        let exe = installed(&dir);
+        assert_eq!(install_release(&exe, &carrying, &manifest).unwrap(), None);
+        assert!(reports_version(&exe, "9.9.9"));
+        assert_eq!(names(&dir), ["gardend"]);
+
+        let bare_root = tempdir("rel-bare");
+        publish(&bare_root, "9.9.9", Some(STORAGE_FORMAT), STORAGE_FORMAT);
+        let bare_base = serve(bare_root);
+        let bare = download_verified_archive(&bare_base, &manifest, target).unwrap();
+        let dir = tempdir("inst-keepui");
+        let exe = installed(&dir);
+        ui_at(&dir, &[("index.html", "old")]);
+        assert_eq!(install_release(&exe, &bare, &manifest).unwrap(), None);
+        assert!(reports_version(&exe, "9.9.9"));
+        assert_eq!(
+            std::fs::read_to_string(dir.join("ui/index.html")).unwrap(),
+            "old"
+        );
+        assert_eq!(names(&dir), ["gardend", "ui"]);
+
+        let broken_root = tempdir("rel-broken-ui");
+        publish_with_ui(
+            &broken_root,
+            "9.9.9",
+            Some(STORAGE_FORMAT),
+            STORAGE_FORMAT,
+            &[("app.js", "x")],
+        );
+        let broken_base = serve(broken_root);
+        let broken = download_verified_archive(&broken_base, &manifest, target).unwrap();
+        let dir = tempdir("inst-brokenui");
+        let exe = installed(&dir);
+        ui_at(&dir, &[("index.html", "old")]);
+        let err = install_release(&exe, &broken, &manifest).unwrap_err();
+        assert!(err.contains("no index.html"), "{err}");
+        assert_eq!(
+            std::fs::read_to_string(&exe).unwrap(),
+            "#!/bin/sh\necho old\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.join("ui/index.html")).unwrap(),
+            "old"
+        );
+        assert_eq!(names(&dir), ["gardend", "ui"]);
     }
 
     #[test]

@@ -135,11 +135,14 @@ fn run_command(args: &[String]) -> Option<i32> {
             }
             Some(0)
         }
-        Ok(UpdateOutcome::Installed { latest, path }) => {
+        Ok(UpdateOutcome::Installed { latest, path, ui }) => {
             println!(
                 "gardend updated {current} -> {latest} at {}",
                 path.display()
             );
+            if let Some(ui) = ui {
+                println!("the Sophia app beside it is updated too: {}", ui.display());
+            }
             Some(0)
         }
         Err(error) => {

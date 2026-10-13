@@ -176,7 +176,7 @@ jobs:
           gh release create "$GITHUB_REF_NAME" dist/* \
             --repo "$GITHUB_REPOSITORY" \
             --title "gardend $GITHUB_REF_NAME" \
-            --notes "Each archive holds the gardend binary and ui/, the web UI that \`gardend serve\` opens; keep ui/ next to the binary. Bare-binary installs: \`gardend update\` (checksum-verified; refuses while serving or across a storage-format change; it replaces the binary only, so download the archive again for a newer ui/). Containers (the engine only): \`docker pull ghcr.io/sophia-labs/gardend:${GITHUB_REF_NAME#v}\`. Run your own Sophia: docs/self-host-cloudflare-tunnel.md. The engine: docs/headless-gardend.md."
+            --notes "Each archive holds the gardend binary and ui/, the web UI that \`gardend serve\` opens; keep ui/ next to the binary. Bare-binary installs: \`gardend update\` (checksum-verified; refuses while serving or across a storage-format change; it replaces the binary and the ui/ beside it; 0.1.2's updater replaces the binary only, so from 0.1.2 download the archive once more for the new ui/). Containers (the engine only): \`docker pull ghcr.io/sophia-labs/gardend:${GITHUB_REF_NAME#v}\`. Run your own Sophia: docs/self-host-cloudflare-tunnel.md. The engine: docs/headless-gardend.md."
 
   image:
     name: container image (linux/amd64)

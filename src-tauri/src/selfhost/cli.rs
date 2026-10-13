@@ -37,11 +37,12 @@ gardend: the Sophia engine. Run your own Sophia with it.
       Run Sophia on http://127.0.0.1:7674 and print the link to open.
   gardend url [--profile <dir>] [--port <n>]
       Print that link again (it carries the profile's key).
-  gardend token create --label <name> [--profile read-only|authoring|rdf-admin|session-all]
+  gardend token create --label <name> [--grant read-only|authoring|member|rdf-admin|session-all]
                        [--expires-days <n>] [--profile-dir <dir>] [--json]
   gardend token list [--profile-dir <dir>] [--json]
   gardend token revoke <id> [--profile-dir <dir>]
-      Scoped, expiring tokens for other people, devices and agents.
+      Scoped, expiring tokens for other people, devices and agents
+      (give agents --grant member).
   gardend service install [--profile <dir>] [--port <n>] [--print]
   gardend service uninstall | status
       Keep `gardend serve` running in the background (launchd on macOS,
@@ -69,9 +70,10 @@ Runs Sophia for one profile on 127.0.0.1 and, once it is ready, prints
 
 The key is the profile's master key, kept in <profile>/selfhost-key.json so
 the link survives restarts (delete the file and restart to rotate it). It opens
-everything; hand out `gardend token create` tokens instead. A `ui/` folder next
-to the gardend binary is served as the app when GARDEN_UI_DIR is unset; without
-one, Sophia serves its API and MCP only. Ctrl-C stops it after a final flush.
+everything; give agents and other people `gardend token create --grant member`
+tokens instead. A `ui/` folder next to the gardend binary is served as the app
+when GARDEN_UI_DIR is unset; without one, Sophia serves its API and MCP only.
+Ctrl-C stops it after a final flush.
 ";
 
 const URL_HELP: &str = "\
@@ -82,16 +84,19 @@ one serves the profile, else the port it would use and the profile's key.
 ";
 
 const TOKEN_HELP: &str = "\
-gardend token create --label <name> [--profile <grant>] [--expires-days <n>]
+gardend token create --label <name> [--grant <grant>] [--expires-days <n>]
                      [--profile-dir <dir>] [--json]
 gardend token list [--profile-dir <dir>] [--json]
 gardend token revoke <id> [--profile-dir <dir>]
 
 Client tokens for one profile, sent as \"Authorization: Bearer <token>\" to the
 REST API and /mcp. `create` prints the secret once; the profile keeps only its
-hash. Grants (--profile, also --grant):
+hash. Grants (--grant, also --profile):
   read-only    read graphs, documents, search, RDF queries (the default)
-  authoring    read and write documents, workspace, artifacts, wires
+  authoring    read and write documents, workspace, artifacts, wires; no MCP tools
+  member       every read, authoring's writes and MCP tools; no deletes, graph
+               creation, imports or restores, RDF loads or updates. For agents:
+               the grant Cloudflare Access members get
   rdf-admin    query, load, update and dump RDF
   session-all  every scope, like the master key
 --expires-days: 1 to 365 (default 30). `revoke` takes the id or the first
@@ -259,7 +264,9 @@ fn parse_token(rest: &[String]) -> Result<Option<Command>, String> {
                 })?;
             let grant = match (parsed.value("--profile"), parsed.value("--grant")) {
                 (Some(_), Some(_)) => {
-                    return Err(format!("give --profile or --grant, not both\n\n{TOKEN_HELP}"))
+                    return Err(format!(
+                        "give --grant or --profile (the same thing), not both\n\n{TOKEN_HELP}"
+                    ))
                 }
                 (one, other) => one.or(other).unwrap_or_else(|| "read-only".to_string()),
             };
@@ -501,6 +508,21 @@ mod tests {
             panic!("token create --grant");
         };
         assert_eq!(by_alias.grant, "rdf-admin");
+        let Some(Command::TokenCreate(member)) =
+            parse(&argv(&["token", "create", "--label", "claude", "--grant", "member"])).unwrap()
+        else {
+            panic!("token create --grant member");
+        };
+        assert_eq!(member.grant, "member");
+        let Some(Command::TokenCreate(member)) =
+            parse(&argv(&["token", "create", "--label", "claude", "--profile=member"])).unwrap()
+        else {
+            panic!("token create --profile member");
+        };
+        assert_eq!(member.grant, "member", "--profile stays an alias of --grant");
+        assert!(parse(&argv(&["token", "create", "--label", "a", "--grant", "member", "--profile", "member"]))
+            .unwrap_err()
+            .contains("not both"));
         assert!(parse(&argv(&["token", "create"])).unwrap_err().contains("--label"));
         assert!(parse(&argv(&["token", "create", "--label", "a", "--profile", "root"]))
             .unwrap_err()
@@ -560,5 +582,6 @@ mod tests {
         for grant in GRANT_PROFILES {
             assert!(help_text(Some("token")).contains(grant), "{grant}");
         }
+        assert!(help.contains("--grant member"), "the overview tells agents which grant to use");
     }
 }

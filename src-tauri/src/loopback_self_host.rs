@@ -25,7 +25,7 @@
 //! | `GARDEN_CF_ACCESS_ADMIN_EMAILS` | Optional comma list. Set: those people get `session-all`, everyone else Access admits gets the member grant ([`MEMBER_GRANT`]: every read, the `authoring` writes, MCP calls). Unset: everyone Access admits gets `session-all`. |
 //! | `GARDEN_ALLOWED_ORIGINS` | Comma list of extra origins to accept. Unset with Access configured: the origin of `GARDEN_PUBLIC_BASE_URL`. |
 
-use crate::loopback_token_grants::session_all_token_grant;
+use crate::loopback_token_grants::{session_all_token_grant, MEMBER_GRANT_PROFILE};
 use axum::http::{header, request::Parts, HeaderMap, HeaderName, HeaderValue};
 use jsonwebtoken::{Algorithm, DecodingKey, Validation};
 use serde::Deserialize;
@@ -331,13 +331,12 @@ pub(crate) enum AccessIdentity {
 /// list is set.
 pub(crate) const ADMIN_GRANT: &str = "session-all";
 /// The grant of everyone else Access admits while an admin list is set (and
-/// of service tokens then): every read scope, the `authoring` profile's
-/// writes, and MCP calls, each tool still checking its own scopes. Not:
-/// deletes, creating, importing or restoring graphs, loading or updating RDF,
-/// memory and index writes, time-travel writes, service and model
-/// administration, token management. `authoring` alone could not reach
-/// `/mcp` at all and lacked most reads, which left the UI unusable.
-pub(crate) const MEMBER_GRANT: &str = "member";
+/// of service tokens then): the `member` grant profile
+/// ([`MEMBER_GRANT_PROFILE`]: every read scope, the `authoring` profile's
+/// writes, and MCP calls, each tool still checking its own scopes), the same
+/// one `gardend token create --grant member` mints. `authoring` alone could
+/// not reach `/mcp` at all and lacked most reads, which left the UI unusable.
+pub(crate) const MEMBER_GRANT: &str = MEMBER_GRANT_PROFILE;
 
 /// A verified Access login and the grant it maps to.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -360,35 +359,22 @@ impl AccessGrant {
     }
 }
 
+/// The scopes of a grant profile (`loopback_token_grants`), the same lists a
+/// client token minted with that profile carries.
 fn access_grant_scopes(grant: &str) -> Vec<String> {
     static GRANTS: OnceLock<HashMap<&'static str, Vec<String>>> = OnceLock::new();
     GRANTS
         .get_or_init(|| {
-            let profiles = session_all_token_grant().grant_profiles;
-            let profile = |id: &str| {
-                profiles
-                    .iter()
-                    .find(|profile| profile.id == id)
-                    .map(|profile| profile.scopes.clone())
-                    .unwrap_or_default()
-            };
-            let mut member = BTreeSet::new();
-            member.extend(profile("read-only"));
-            member.extend(profile("authoring"));
-            member.insert("mcp.tools.call");
-            HashMap::from([
-                (
-                    ADMIN_GRANT,
-                    profile("session-all")
-                        .into_iter()
-                        .map(str::to_string)
-                        .collect(),
-                ),
-                (
-                    MEMBER_GRANT,
-                    member.into_iter().map(str::to_string).collect(),
-                ),
-            ])
+            session_all_token_grant()
+                .grant_profiles
+                .into_iter()
+                .map(|profile| {
+                    (
+                        profile.id,
+                        profile.scopes.into_iter().map(str::to_string).collect(),
+                    )
+                })
+                .collect()
         })
         .get(grant)
         .cloned()
@@ -883,6 +869,22 @@ mod tests {
             assert!(has(&admin, scope), "an admin holds {scope}");
         }
         assert!(member.iter().all(|scope| has(&admin, scope)));
+
+        // One definition: an Access member holds exactly what a
+        // `gardend token create --grant member` token holds.
+        let minted = session_all_token_grant()
+            .grant_profiles
+            .into_iter()
+            .find(|profile| profile.id == MEMBER_GRANT_PROFILE)
+            .expect("the member grant profile")
+            .scopes;
+        assert_eq!(
+            member,
+            minted
+                .iter()
+                .map(|scope| scope.to_string())
+                .collect::<Vec<_>>()
+        );
     }
 
     #[tokio::test]
