@@ -90,7 +90,6 @@ const DERIVED_PROJECTION_FAMILIES: &[&str] = &[
     "salience",
     "sync-conflicts",
     "file-views",
-    "ludus",
     "semantic",
     "kg-ultra",
     "lme-labeled-memory",

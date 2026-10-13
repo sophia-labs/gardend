@@ -526,12 +526,49 @@ async fn patch(
     Ok(files_service::artifact_value(&entity, graph_id))
 }
 
-/// `DELETE /navigation/{graph_id}/artifacts/{artifact_id}`: to the trash.
+/// Which kind of resource a trash route means: `?kind=document|artifact`, or,
+/// without it, whichever the id names (a live file or a trashed file wins; a
+/// document is meant only when no file of that id is in play).
+async fn trash_target_is_document(
+    state: &Arc<LoopbackState>,
+    graph_id: &str,
+    id: &str,
+    kind: Option<&str>,
+    live_only: bool,
+) -> Result<bool, FilesError> {
+    match kind {
+        Some("document") => return Ok(true),
+        Some("artifact") => return Ok(false),
+        Some(other) => {
+            return Err(FilesError::uncoded(
+                StatusCode::BAD_REQUEST,
+                format!("kind must be document or artifact, not {other}"),
+            ))
+        }
+        None => {}
+    }
+    if live_only {
+        files_service::flush_projection(&state.app, graph_id).await?;
+        if files_service::find_artifact_entity(&state.app, graph_id, id)?.is_some()
+            || files_service::artifact_in_trash(&state.app, graph_id, id)
+        {
+            return Ok(false);
+        }
+        return Ok(crate::document_trash_service::document_is_live(&state.app, graph_id, id).await?
+            || crate::document_trash_service::document_in_trash(&state.app, graph_id, id));
+    }
+    Ok(!files_service::artifact_in_trash(&state.app, graph_id, id)
+        && crate::document_trash_service::document_in_trash(&state.app, graph_id, id))
+}
+
+/// `DELETE /navigation/{graph_id}/artifacts/{artifact_id}[?kind=document]`: to
+/// the trash. The id may name a document (One tree, 2026-10-08).
 pub(super) async fn loopback_files_trash(
     state: Arc<LoopbackState>,
     headers: HeaderMap,
     graph_id: String,
     artifact_id: String,
+    kind: Option<String>,
 ) -> Response {
     if let Err(response) = require_loopback_scopes(
         &headers,
@@ -540,13 +577,19 @@ pub(super) async fn loopback_files_trash(
     ) {
         return response;
     }
-    match files_service::trash_artifact(&state.app, &graph_id, &artifact_id).await {
+    let result = match trash_target_is_document(&state, &graph_id, &artifact_id, kind.as_deref(), true).await {
+        Ok(true) => crate::document_trash_service::trash_document(&state.app, &graph_id, &artifact_id).await,
+        Ok(false) => files_service::trash_artifact(&state.app, &graph_id, &artifact_id).await,
+        Err(error) => Err(error),
+    };
+    match result {
         Ok(value) => Json(value).into_response(),
         Err(error) => error.into_response(),
     }
 }
 
-/// `GET /navigation/{graph_id}/trash`.
+/// `GET /navigation/{graph_id}/trash`: files and documents together; each item
+/// carries `kind` (`artifact` | `document`) and `id`.
 pub(super) async fn loopback_files_trash_list(
     State(state): State<Arc<LoopbackState>>,
     headers: HeaderMap,
@@ -561,11 +604,12 @@ pub(super) async fn loopback_files_trash_list(
     }
 }
 
-/// `POST /navigation/{graph_id}/trash/{artifact_id}/restore`.
+/// `POST /navigation/{graph_id}/trash/{artifact_id}/restore[?kind=document]`.
 pub(super) async fn loopback_files_restore(
     State(state): State<Arc<LoopbackState>>,
     headers: HeaderMap,
     AxumPath((graph_id, artifact_id)): AxumPath<(String, String)>,
+    Query(params): Query<BTreeMap<String, String>>,
 ) -> Response {
     if let Err(response) = require_loopback_scopes(
         &headers,
@@ -574,17 +618,25 @@ pub(super) async fn loopback_files_restore(
     ) {
         return response;
     }
-    match files_service::restore_artifact(&state.app, &graph_id, &artifact_id).await {
+    let result = match trash_target_is_document(&state, &graph_id, &artifact_id, params.get("kind").map(String::as_str), false).await {
+        Ok(true) => crate::document_trash_service::restore_document(&state.app, &graph_id, &artifact_id).await,
+        Ok(false) => files_service::restore_artifact(&state.app, &graph_id, &artifact_id).await,
+        Err(error) => Err(error),
+    };
+    match result {
         Ok(value) => Json(value).into_response(),
         Err(error) => error.into_response(),
     }
 }
 
-/// `DELETE /navigation/{graph_id}/trash/{artifact_id}`: delete for good.
+/// `DELETE /navigation/{graph_id}/trash/{artifact_id}[?kind=document]`: delete
+/// for good. A document goes through the document delete path and is gone with
+/// its history.
 pub(super) async fn loopback_files_purge(
     State(state): State<Arc<LoopbackState>>,
     headers: HeaderMap,
     AxumPath((graph_id, artifact_id)): AxumPath<(String, String)>,
+    Query(params): Query<BTreeMap<String, String>>,
 ) -> Response {
     if let Err(response) = require_loopback_scopes(
         &headers,
@@ -593,7 +645,12 @@ pub(super) async fn loopback_files_purge(
     ) {
         return response;
     }
-    match files_service::purge_artifact(&state.app, &graph_id, &artifact_id).await {
+    let result = match trash_target_is_document(&state, &graph_id, &artifact_id, params.get("kind").map(String::as_str), false).await {
+        Ok(true) => crate::document_trash_service::purge_document(&state.app, &graph_id, &artifact_id).await,
+        Ok(false) => files_service::purge_artifact(&state.app, &graph_id, &artifact_id).await,
+        Err(error) => Err(error),
+    };
+    match result {
         Ok(value) => Json(value).into_response(),
         Err(error) => error.into_response(),
     }

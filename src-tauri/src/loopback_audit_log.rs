@@ -106,7 +106,7 @@ fn read_loopback_audit_events(
     Ok(events.into_iter().skip(skip).collect())
 }
 
-fn append_loopback_audit_event_to_path(
+pub(crate) fn append_loopback_audit_event_to_path(
     path: &std::path::Path,
     event: &LoopbackAuditEvent,
 ) -> Result<(), String> {

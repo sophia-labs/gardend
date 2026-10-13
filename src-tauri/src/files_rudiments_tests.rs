@@ -97,6 +97,7 @@ fn state_for(profile: &std::path::Path) -> Arc<LoopbackState> {
         services: Arc::new(crate::local_service_host::LocalServiceHost::default()),
         lifecycle: Arc::new(crate::cell_lifecycle::CellLifecycle::new()),
         cell_graph: boundary,
+        self_host: Default::default(),
     })
 }
 
@@ -314,6 +315,9 @@ fn files_rudiments_capability_advertises_files_v1() {
         assert_eq!(files["maxUploadBytes"], CAP as u64);
         assert_eq!(files["parsing"], false);
         assert_eq!(files["upload"], "POST /artifacts/{graph_id}/files");
+        assert_eq!(files["anyFolder"], true);
+        assert_eq!(files["documentTrash"], true);
+        assert_eq!(files["trashDocument"], "DELETE /navigation/{graph_id}/documents/{document_id}");
         assert_eq!(files["folderViews"]["vocab"], "garden-file-views");
         assert_eq!(files["folderViews"]["version"], "1.0.0");
     });
@@ -578,9 +582,10 @@ fn files_rudiments_rename_move_trash_restore_and_purge() {
         assert_eq!(navigation_artifact(&navigation, "file-report").unwrap()["parentId"], "folder-files");
 
         // Refusals.
-        let into_docs = send_json(&state, "PATCH", &format!("/navigation/{GRAPH}/artifacts/file-report"), json!({"parentId": "folder-docs"})).await;
-        assert_eq!(into_docs.status, StatusCode::NOT_FOUND);
-        assert_eq!(into_docs.json()["code"], "folder_not_found");
+        // One tree: a documents-born folder takes a file too (and a missing one still refuses).
+        let ghost_folder = send_json(&state, "PATCH", &format!("/navigation/{GRAPH}/artifacts/file-report"), json!({"parentId": "folder-ghost"})).await;
+        assert_eq!(ghost_folder.status, StatusCode::NOT_FOUND);
+        assert_eq!(ghost_folder.json()["code"], "folder_not_found");
         let nothing = send_json(&state, "PATCH", &format!("/navigation/{GRAPH}/artifacts/file-report"), json!({})).await;
         assert_eq!(nothing.status, StatusCode::BAD_REQUEST);
         assert_eq!(nothing.json()["code"], "invalid_patch");
@@ -1427,5 +1432,222 @@ fn files_rudiments_bytes_survive_reopen_and_durable_round_trip() {
         assert!(download.body == bytes, "bytes differ after the durable round trip");
         let navigation = get(&state, &format!("/navigation/{GRAPH}")).await.json();
         assert!(navigation_artifact(&navigation, &id).is_some(), "the file is listed after restart");
+    });
+}
+
+// ── One tree (2026-10-08): any folder holds any resource; documents have a Trash ──
+
+fn nav_ids(navigation: &Value, key: &str) -> Vec<String> {
+    navigation[key]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item["id"].as_str().unwrap().to_string())
+        .collect()
+}
+
+async fn make_document(state: &Arc<LoopbackState>, id: &str, title: &str, parent: Option<&str>, text: &str) {
+    crate::mcp_workspace_crdt_service::mcp_local_create_document(
+        state.app.clone(),
+        &json!({"graphId": GRAPH, "documentId": id, "title": title, "parentId": parent}),
+    )
+    .await
+    .unwrap();
+    crate::document_mutation_service::mcp_local_write_document(
+        state.app.clone(),
+        &json!({"graph_id": GRAPH, "document_id": id, "content": text, "format": "markdown"}),
+    )
+    .await
+    .unwrap();
+}
+
+fn document_markdown(state: &Arc<LoopbackState>, id: &str) -> String {
+    crate::document_mcp_service::mcp_local_read_document(
+        state.app.clone(),
+        &json!({"graph_id": GRAPH, "document_id": id, "format": "markdown", "maxChars": 100000}),
+    )
+    .unwrap()["content"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
+fn searchable(state: &Arc<LoopbackState>, query: &str) -> (usize, usize) {
+    let by_title = crate::mcp_search_service::mcp_local_search_documents(
+        state.app.clone(),
+        &json!({"graph_id": GRAPH, "query": query}),
+    )
+    .unwrap()["results"]
+        .as_array()
+        .unwrap()
+        .len();
+    let by_block = crate::mcp_search_service::mcp_local_search_blocks(
+        state.app.clone(),
+        &json!({"graph_id": GRAPH, "query": query, "mode": "lexical"}),
+    )
+    .unwrap()["results"]
+        .as_array()
+        .map(Vec::len)
+        .unwrap_or(0);
+    (by_title, by_block)
+}
+
+#[test]
+fn one_tree_a_file_uploads_and_moves_into_a_documents_born_folder() {
+    with_profile("one-tree-files", |root| async move {
+        let state = state_for(&profile_of(&root));
+        let folder = send_json(&state, "PUT", &format!("/navigation/{GRAPH}/folders/folder-born-docs"), json!({"label": "Born a documents folder"})).await;
+        assert_eq!(folder.status, StatusCode::OK, "{}", String::from_utf8_lossy(&folder.body));
+
+        let uploaded = upload(&state, "a.zip", "application/zip", &binary_fixture(64), &[("artifactId", "file-in"), ("parentId", "folder-born-docs")]).await;
+        assert_eq!(uploaded.status, StatusCode::CREATED, "{}", String::from_utf8_lossy(&uploaded.body));
+        assert_eq!(uploaded.json()["parentId"], "folder-born-docs");
+
+        let loose = upload(&state, "b.zip", "application/zip", &binary_fixture(65), &[("artifactId", "file-moved")]).await;
+        assert_eq!(loose.status, StatusCode::CREATED);
+        let moved = send_json(&state, "PATCH", &format!("/navigation/{GRAPH}/artifacts/file-moved"), json!({"parentId": "folder-born-docs"})).await;
+        assert_eq!(moved.status, StatusCode::OK, "{}", String::from_utf8_lossy(&moved.body));
+        assert_eq!(moved.json()["parentId"], "folder-born-docs");
+
+        // The workspace tree shows both under the folder, once.
+        let graph_dir = graph_dir_of(&state);
+        let snapshot = crate::document_service::read_workspace_record(&graph_dir, GRAPH).unwrap().snapshot.unwrap();
+        let tree = &snapshot["tree"]["documents"];
+        let node = tree.as_array().unwrap().iter().find(|node| node["id"] == "folder-born-docs").expect("folder in the tree");
+        let children: Vec<&str> = node["children"].as_array().unwrap().iter().map(|child| child["id"].as_str().unwrap()).collect();
+        assert!(children.contains(&"file-in") && children.contains(&"file-moved"), "{children:?}");
+        let in_artifacts_tree = snapshot["tree"]["artifacts"].to_string();
+        assert!(!in_artifacts_tree.contains("file-in") && !in_artifacts_tree.contains("file-moved"));
+    });
+}
+
+#[test]
+fn one_tree_document_trash_restore_and_delete_forever() {
+    with_profile("one-tree-doc-trash", |root| async move {
+        let state = state_for(&profile_of(&root));
+        let folder = send_json(&state, "PUT", &format!("/navigation/{GRAPH}/folders/folder-keep"), json!({"label": "Keep"})).await;
+        assert_eq!(folder.status, StatusCode::OK);
+        make_document(&state, "doc-quokka", "Quokka notes", Some("folder-keep"), "The quokka smiles at the zebra.").await;
+        make_document(&state, "doc-other", "Other notes", None, "Nothing to see.").await;
+        let graph_dir = graph_dir_of(&state);
+
+        let navigation = get(&state, &format!("/navigation/{GRAPH}")).await.json();
+        assert!(nav_ids(&navigation, "documents").contains(&"doc-quokka".to_string()));
+        assert_eq!(searchable(&state, "quokka").0, 1);
+        assert!(searchable(&state, "zebra").1 >= 1);
+
+        // Trash by the explicit kind.
+        let trashed = call(&state, "DELETE", &format!("/navigation/{GRAPH}/artifacts/doc-quokka?kind=document"), "editor", None, Vec::new()).await;
+        assert_eq!(trashed.status, StatusCode::OK, "{}", String::from_utf8_lossy(&trashed.body));
+        assert_eq!(trashed.json()["kind"], "document");
+        assert_eq!(trashed.json()["status"], "trashed");
+        let again = call(&state, "DELETE", &format!("/navigation/{GRAPH}/artifacts/doc-quokka?kind=document"), "editor", None, Vec::new()).await;
+        assert_eq!(again.json()["alreadyTrashed"], true);
+
+        // Gone from the tree, the navigation listing, the document list and search; content kept.
+        let navigation = get(&state, &format!("/navigation/{GRAPH}")).await.json();
+        assert!(!nav_ids(&navigation, "documents").contains(&"doc-quokka".to_string()));
+        assert!(nav_ids(&navigation, "documents").contains(&"doc-other".to_string()));
+        let snapshot = crate::document_service::read_workspace_record(&graph_dir, GRAPH).unwrap().snapshot.unwrap();
+        assert!(!snapshot["tree"].to_string().contains("doc-quokka"));
+        assert_eq!(searchable(&state, "quokka"), (0, 0));
+        assert_eq!(searchable(&state, "zebra"), (0, 0));
+        let listed = crate::document_mcp_service::mcp_local_list_documents(state.app.clone(), &json!({"graph_id": GRAPH, "graphId": GRAPH})).unwrap();
+        assert!(!listed.to_string().contains("doc-quokka"));
+        assert!(document_markdown(&state, "doc-quokka").contains("quokka smiles"), "trashed content is kept");
+        assert!(graph_dir.join("documents").join("doc-quokka").join("trash.json").is_file());
+
+        // The Trash lists it.
+        let trash = get(&state, &format!("/navigation/{GRAPH}/trash")).await.json();
+        let items = trash["items"].as_array().unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["kind"], "document");
+        assert_eq!(items[0]["id"], "doc-quokka");
+        assert_eq!(items[0]["label"], "Quokka notes");
+        assert_eq!(items[0]["parentId"], "folder-keep");
+
+        // Restore: back in its folder, listed and searchable, content intact.
+        let restored = call(&state, "POST", &format!("/navigation/{GRAPH}/trash/doc-quokka/restore"), "editor", None, Vec::new()).await;
+        assert_eq!(restored.status, StatusCode::OK, "{}", String::from_utf8_lossy(&restored.body));
+        assert_eq!(restored.json()["restoredToParentId"], "folder-keep");
+        let navigation = get(&state, &format!("/navigation/{GRAPH}")).await.json();
+        let back = navigation["documents"].as_array().unwrap().iter().find(|d| d["id"] == "doc-quokka").expect("restored");
+        assert_eq!(back["parentId"], "folder-keep");
+        assert_eq!(searchable(&state, "quokka").0, 1);
+        assert!(document_markdown(&state, "doc-quokka").contains("quokka smiles"));
+        let snapshot = crate::document_service::read_workspace_record(&graph_dir, GRAPH).unwrap().snapshot.unwrap();
+        assert!(snapshot["tree"]["documents"].to_string().contains("doc-quokka"));
+        assert!(get(&state, &format!("/navigation/{GRAPH}/trash")).await.json()["items"].as_array().unwrap().is_empty());
+        assert!(!graph_dir.join("documents").join("doc-quokka").join("trash.json").exists());
+
+        // Trash again (the id alone names the document), then delete forever.
+        let auto = call(&state, "DELETE", &format!("/navigation/{GRAPH}/artifacts/doc-quokka"), "editor", None, Vec::new()).await;
+        assert_eq!(auto.status, StatusCode::OK, "{}", String::from_utf8_lossy(&auto.body));
+        assert_eq!(auto.json()["kind"], "document");
+        let purged = call(&state, "DELETE", &format!("/navigation/{GRAPH}/trash/doc-quokka"), "editor", None, Vec::new()).await;
+        assert_eq!(purged.status, StatusCode::OK, "{}", String::from_utf8_lossy(&purged.body));
+        assert_eq!(purged.json()["purged"], true);
+        assert!(!graph_dir.join("documents").join("doc-quokka").exists(), "delete forever removes the content");
+        assert!(crate::document_tombstone_store::document_is_tombstoned(&graph_dir, "doc-quokka").unwrap());
+        assert!(get(&state, &format!("/navigation/{GRAPH}/trash")).await.json()["items"].as_array().unwrap().is_empty());
+        let gone = call(&state, "POST", &format!("/navigation/{GRAPH}/trash/doc-quokka/restore"), "editor", None, Vec::new()).await;
+        assert_eq!(gone.status, StatusCode::NOT_FOUND);
+        assert_eq!(gone.json()["code"], "not_in_trash");
+        // A live document cannot be deleted forever from the Trash route.
+        let live = call(&state, "DELETE", &format!("/navigation/{GRAPH}/trash/doc-other?kind=document"), "editor", None, Vec::new()).await;
+        assert_eq!(live.status, StatusCode::NOT_FOUND);
+        // A viewer cannot trash.
+        let denied = call(&state, "DELETE", &format!("/navigation/{GRAPH}/artifacts/doc-other?kind=document"), "viewer", None, Vec::new()).await;
+        assert_eq!(denied.status, StatusCode::FORBIDDEN);
+    });
+}
+
+#[test]
+fn one_tree_trash_lists_documents_and_files_together() {
+    with_profile("one-tree-mixed-trash", |root| async move {
+        let state = state_for(&profile_of(&root));
+        make_document(&state, "doc-mixed", "Mixed doc", None, "Words.").await;
+        let file = upload(&state, "m.zip", "application/zip", &binary_fixture(32), &[("artifactId", "file-mixed")]).await;
+        assert_eq!(file.status, StatusCode::CREATED);
+
+        assert_eq!(call(&state, "DELETE", &format!("/navigation/{GRAPH}/artifacts/file-mixed"), "editor", None, Vec::new()).await.json()["status"], "trashed");
+        assert_eq!(call(&state, "DELETE", &format!("/navigation/{GRAPH}/artifacts/doc-mixed"), "editor", None, Vec::new()).await.json()["kind"], "document");
+
+        let trash = get(&state, &format!("/navigation/{GRAPH}/trash")).await.json();
+        assert_eq!(trash["count"], 2);
+        let kinds: std::collections::BTreeMap<String, String> = trash["items"].as_array().unwrap().iter()
+            .map(|item| (item["id"].as_str().unwrap().to_string(), item["kind"].as_str().unwrap().to_string()))
+            .collect();
+        assert_eq!(kinds.get("file-mixed").map(String::as_str), Some("artifact"));
+        assert_eq!(kinds.get("doc-mixed").map(String::as_str), Some("document"));
+
+        // Each restores through the one route, by its id.
+        for id in ["file-mixed", "doc-mixed"] {
+            let restored = call(&state, "POST", &format!("/navigation/{GRAPH}/trash/{id}/restore"), "editor", None, Vec::new()).await;
+            assert_eq!(restored.status, StatusCode::OK, "{id}: {}", String::from_utf8_lossy(&restored.body));
+        }
+        assert!(get(&state, &format!("/navigation/{GRAPH}/trash")).await.json()["items"].as_array().unwrap().is_empty());
+    });
+}
+
+#[test]
+fn one_tree_documents_route_trashes_and_trash_routes_take_kind() {
+    with_profile("one-tree-doc-route", |root| async move {
+        let state = state_for(&profile_of(&root));
+        make_document(&state, "doc-route", "Route doc", None, "Routed words.").await;
+        let trashed = call(&state, "DELETE", &format!("/navigation/{GRAPH}/documents/doc-route"), "editor", None, Vec::new()).await;
+        assert_eq!(trashed.status, StatusCode::OK, "{}", String::from_utf8_lossy(&trashed.body));
+        assert_eq!(trashed.json()["kind"], "document");
+        let trash = get(&state, &format!("/navigation/{GRAPH}/trash")).await.json();
+        assert_eq!(trash["items"][0]["title"], "Route doc");
+        assert_eq!(trash["items"][0]["documentId"], "doc-route");
+        let restored = call(&state, "POST", &format!("/navigation/{GRAPH}/trash/doc-route/restore?kind=document"), "editor", None, Vec::new()).await;
+        assert_eq!(restored.status, StatusCode::OK, "{}", String::from_utf8_lossy(&restored.body));
+        assert_eq!(call(&state, "DELETE", &format!("/navigation/{GRAPH}/documents/doc-route"), "editor", None, Vec::new()).await.status, StatusCode::OK);
+        let purged = call(&state, "DELETE", &format!("/navigation/{GRAPH}/trash/doc-route?kind=document"), "editor", None, Vec::new()).await;
+        assert_eq!(purged.json()["purged"], true);
+        let missing = call(&state, "DELETE", &format!("/navigation/{GRAPH}/documents/doc-ghost"), "editor", None, Vec::new()).await;
+        assert_eq!(missing.status, StatusCode::NOT_FOUND);
+        assert_eq!(missing.json()["code"], "document_not_found");
     });
 }

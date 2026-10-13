@@ -19,7 +19,7 @@
 use crate::{
     local_job_types::local_job_graph_id,
     loopback_http::{
-        bearer_token, loopback_error, loopback_master_token_presented, origin_ok,
+        bearer_token, loopback_error, loopback_master_token_presented, origin_allowed,
         require_loopback_scopes,
     },
     loopback_scopes::crdt_operation_scopes,
@@ -685,7 +685,7 @@ impl CellGraphBoundary {
                 }
             }
             "bearer-or-signed-url" => {
-                if !origin_ok(headers) {
+                if !origin_allowed(headers, state) {
                     return Err(loopback_error(StatusCode::FORBIDDEN, "invalid origin"));
                 }
                 if bearer_token(headers).is_none() {

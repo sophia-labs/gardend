@@ -1,6 +1,6 @@
 [package]
 name = "garden"
-version = "0.1.1"
+version = "0.1.2"
 description = "Garden — local-first native knowledge-graph desktop"
 authors = ["Veronica Chambers"]
 repository = "https://github.com/sophia-labs/gardend"
@@ -105,6 +105,11 @@ shacl_validation = { version = "0.2.12", default-features = false }
 shacl_ir = "=0.2.9"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 sha2 = "0.10"
+# Self-host Cloudflare Access login (loopback_self_host.rs): verifies the
+# RS256 `Cf-Access-Jwt-Assertion` against the team's published keys. No
+# default features: the keys arrive as JWK (n, e) components, so the PEM
+# parsers are not needed, and the RSA maths is the `ring` already in the tree.
+jsonwebtoken = { version = "9.3.1", default-features = false }
 tauri = { version = "2.10.3", default-features = false, features = [], optional = true }
 tauri-plugin-log = { version = "2", optional = true }
 tauri-plugin-opener = { version = "2", optional = true }
@@ -138,6 +143,10 @@ rusqlite = { version = "0.37", features = ["bundled"] }
 # declared directly so tests can drive a real Router end-to-end with
 # `ServiceExt::oneshot` instead of hand-constructing axum's internal `Next`.
 tower = { version = "0.5", features = ["util"] }
+
+# Self-host Access tests sign real RS256 tokens with an RSA key generated in
+# the test (ring verifies but cannot generate RSA keys).
+rsa = "0.9"
 
 # macOS-only: runtime title-bar style tweaks (transparent titlebar / hidden
 # title / full-size content view) for the Minimal window mode, applied live via

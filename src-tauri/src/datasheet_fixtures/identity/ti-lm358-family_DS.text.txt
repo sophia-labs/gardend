@@ -1,0 +1,42 @@
+=== PAGE 1 ===
+
+<!-- image -->
+
+## Industry-Standard Dual Operational Amplifiers
+
+## 1 Features
+
+- Wide supply range of 3V to 36V (B, BA versions)
+- Quiescent current: 300µA/ch (B, BA versions)
+- Unity-gain bandwidth of 1.2MHz (B, BA versions)
+- Common-mode input voltage range includes ground, enabling direct sensing near ground
+- 2mV input offset voltage maximum at 25°C (BA version)
+- 3mV input offset voltage maximum at 25°C (A, B versions)
+- Internal RF and EMI filter (B, BA versions)
+- On products compliant to MIL-PRF-38535, all parameters are tested unless otherwise noted. On all other products, production processing does not necessarily include testing of all parameters.
+
+## 2 Applications
+
+- [Merchant network and server power supply units](https://www.ti.com/solution/merchant-network-server-psu)
+- [Multi-function printers](https://www.ti.com/solution/multifunction-printer)
+- [Power supplies and mobile chargers](https://www.ti.com/solution/mobile-wall-charger-design)
+- [Motor control: AC induction, brushed DC, brushless DC, high-voltage, low-voltage, permanent magnet, and stepper motor](https://www.ti.com/applications/industrial/motor-drives/overview.html)
+- [Desktop PC and motherboard](https://www.ti.com/applications/personal-electronics/pc-notebooks/overview.html)
+- [Indoor and outdoor air conditioners](https://www.ti.com/solution/air-conditioner-indoor-unit)
+- [Washers, dryers, and refrigerators](https://www.ti.com/solution/washer-dryer)
+- [AC inverters, string inverters, central inverters, and voltage frequency drives](https://www.ti.com/solution/central-inverter)
+- [Uninterruptible power supplies](https://www.ti.com/applications/industrial/power-delivery/overview.html)
+- [Electronic point-of-sale systems](https://www.ti.com/applications/industrial/epos/overview.html)
+
+## 3 Description
+
+
+[... excerpt: the rest of page 1 omitted ...]
+=== PAGE 4 ===
+www.ti.com
+=== PAGE 6 ===
+www.ti.com
+=== PAGE 7 ===
+[www.ti.com](https://www.ti.com/)
+=== PAGE 8 ===
+www.ti.com

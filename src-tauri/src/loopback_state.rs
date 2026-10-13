@@ -2,7 +2,8 @@ use crate::app_runtime::AppHandle;
 use crate::{
     cell_graph_boundary::CellGraphBoundary, cell_lifecycle::CellLifecycle,
     local_jobs::LocalJobRegistry, local_service_host::LocalServiceHost,
-    loopback_scopes::LoopbackScopeDetail, loopback_token_grants::LoopbackGrantProfile,
+    loopback_scopes::LoopbackScopeDetail, loopback_self_host::SelfHost,
+    loopback_token_grants::LoopbackGrantProfile,
 };
 use serde::Serialize;
 use std::sync::Arc;
@@ -120,4 +121,7 @@ pub(crate) struct LoopbackState {
     pub(crate) services: Arc<LocalServiceHost>,
     pub(crate) lifecycle: Arc<CellLifecycle>,
     pub(crate) cell_graph: Arc<CellGraphBoundary>,
+    /// Self-host knobs (UI, Cloudflare Access, allowed origins); off by
+    /// default, and always off in hosted cells.
+    pub(crate) self_host: Arc<SelfHost>,
 }

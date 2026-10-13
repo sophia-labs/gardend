@@ -239,6 +239,10 @@ fn visit_graph_documents_cold(
         if crate::document_tombstone_store::document_is_tombstoned(graph_dir, &document_id)? {
             continue;
         }
+        // In the trash: kept whole, out of every walk (listings, search, index).
+        if crate::document_trash_service::document_is_trashed(graph_dir, &document_id) {
+            continue;
+        }
         visit(read_document_record_cold(graph_dir, &manifest_path)?);
     }
     Ok(())

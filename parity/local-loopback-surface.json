@@ -1051,6 +1051,15 @@
       ]
     },
     {
+      "method": "DELETE",
+      "path": "/navigation/{graph_id}/documents/{document_id}",
+      "status": "implemented-document-trash",
+      "scopes": [
+        "workspace.delete.crdt",
+        "artifacts.delete"
+      ]
+    },
+    {
       "method": "PATCH",
       "path": "/navigation/{graph_id}/artifacts/{artifact_id}",
       "status": "implemented-files-rudiments",
@@ -1607,6 +1616,21 @@
       "status": "implemented",
       "scopes": [
         "rdf.update"
+      ]
+    },
+    {
+      "name": "datasheet_import",
+      "status": "implemented",
+      "scopes": [
+        "artifacts.read",
+        "rdf.update"
+      ]
+    },
+    {
+      "name": "datasheet_facts",
+      "status": "implemented",
+      "scopes": [
+        "rdf.query"
       ]
     },
     {

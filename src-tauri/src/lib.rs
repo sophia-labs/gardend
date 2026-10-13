@@ -5,6 +5,9 @@ mod app_error;
 mod app_error_codes;
 pub mod app_runtime;
 pub mod self_update;
+/// `gardend serve|url|token|service`: running your own Sophia.
+#[cfg(not(feature = "desktop"))]
+pub mod selfhost;
 pub mod storage_format;
 mod artifact_ingest_payloads;
 mod artifact_ingest_service;
@@ -16,6 +19,10 @@ mod artifact_text_service;
 mod agent_status;
 mod agent_self_image;
 mod custom_css;
+mod datasheet_facts;
+mod datasheet_identity;
+mod datasheet_import;
+mod datasheet_keyvalues;
 mod loopback_custom_css_routes;
 mod artifact_upload_service;
 #[cfg(feature = "headless")]
@@ -76,6 +83,7 @@ mod document_rendering;
 mod document_service;
 mod document_sidecar_store;
 mod document_tombstone_store;
+mod document_trash_service;
 mod document_body_availability;
 mod document_types;
 mod document_ydoc_projection;
@@ -205,6 +213,8 @@ mod loopback_salience_routes;
 mod loopback_scope_catalog;
 mod loopback_scope_types;
 mod loopback_scopes;
+mod loopback_self_host;
+mod loopback_self_host_routes;
 mod loopback_semantic_routes;
 mod loopback_server;
 mod loopback_service_routes;
@@ -352,8 +362,6 @@ mod semantic_service;
 mod source_sync;
 mod source_pull_budget;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
-mod ludus_source_tests;
-#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod block_contract_store_tests;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod markdown_fidelity_store_tests;
@@ -362,8 +370,6 @@ mod json_text_face_store_tests;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod write_placement_store_tests;
 mod graph_incarnation_admission;
-#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
-mod ludus_incarnation_tests;
 mod sparql_admission;
 mod storage;
 mod storage_atomic;

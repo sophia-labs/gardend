@@ -2,10 +2,13 @@
 # the private repo (no private-repo GitHub CI, per the Rampart ruling); the
 # export assembly places it at .github/workflows/release.yml in the public tree.
 #
-# On a v* tag: build gardend for each target, then publish a GitHub Release
-# with one tar.gz per target, SHA256SUMS, and release.json (the manifest
-# `gardend update` reads, carrying the binary's storageFormat), and push the
-# container image ghcr.io/sophia-labs/gardend:<version> + :latest.
+# On a v* tag: build the self-host UI once (public Shrubbery at the commit
+# shrubbery-ui.lock.json names, `build:selfhost`), build gardend for each
+# target, then publish a GitHub Release with one tar.gz per target (the binary
+# with the UI beside it as `ui/`, which `gardend serve` uses when GARDEN_UI_DIR
+# is unset), SHA256SUMS, and release.json (the manifest `gardend update` reads,
+# carrying the binary's storageFormat), and push the container image
+# ghcr.io/sophia-labs/gardend:<version> + :latest (the engine only).
 name: Release
 
 on:
@@ -19,8 +22,55 @@ env:
   CARGO_TERM_COLOR: never
 
 jobs:
+  ui:
+    name: self-host UI (public Shrubbery at the lock)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Resolve the Shrubbery lock
+        id: lock
+        run: node scripts/resolve-shrubbery-lock.mjs --github-output "$GITHUB_OUTPUT"
+
+      - name: Check out public Shrubbery at the lock
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.lock.outputs.repository }}
+          ref: ${{ steps.lock.outputs.commit }}
+          path: shrubbery
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "9.0.0"
+          package_json_file: shrubbery/package.json
+
+      - name: Build the self-host UI
+        working-directory: shrubbery
+        env:
+          PACKAGE: ${{ steps.lock.outputs.package }}
+          DIST: ${{ steps.lock.outputs.dist }}
+        run: |
+          test "$(git rev-parse HEAD)" = "${{ steps.lock.outputs.commit }}"
+          pnpm install --frozen-lockfile
+          pnpm --filter "$PACKAGE" build:selfhost
+          ui="$(dirname "$DIST")/dist-selfhost"
+          test -f "$ui/index.html"
+          mkdir -p ../ui-build && cp -R "$ui/." ../ui-build/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ui
+          path: ui-build
+          if-no-files-found: error
+
   build:
     name: build ${{ matrix.target }}
+    needs: ui
     runs-on: ${{ matrix.os }}
     timeout-minutes: 150
     strategy:
@@ -59,6 +109,11 @@ jobs:
           --manifest-path src-tauri/Cargo.toml
           --no-default-features --features headless --example gardend
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: ui
+          path: ui-build
+
       - name: Package
         shell: bash
         run: |
@@ -66,6 +121,8 @@ jobs:
           bin="src-tauri/target/${{ matrix.target }}/release/examples/gardend"
           mkdir -p "dist/$name"
           cp "$bin" LICENSE NOTICE.md THIRD-PARTY-RUST.md README.md "dist/$name/"
+          cp -R ui-build "dist/$name/ui"
+          test -f "dist/$name/ui/index.html"
           tar -C dist -czf "dist/$name.tar.gz" "$name"
           rm -rf "dist/$name"
           if [ "${{ matrix.native }}" = "true" ]; then
@@ -119,7 +176,7 @@ jobs:
           gh release create "$GITHUB_REF_NAME" dist/* \
             --repo "$GITHUB_REPOSITORY" \
             --title "gardend $GITHUB_REF_NAME" \
-            --notes "Bare-binary installs: \`gardend update\` (checksum-verified; refuses while serving or across a storage-format change). Containers: \`docker pull ghcr.io/sophia-labs/gardend:${GITHUB_REF_NAME#v}\`. See docs/headless-gardend.md."
+            --notes "Each archive holds the gardend binary and ui/, the web UI that \`gardend serve\` opens; keep ui/ next to the binary. Bare-binary installs: \`gardend update\` (checksum-verified; refuses while serving or across a storage-format change; it replaces the binary only, so download the archive again for a newer ui/). Containers (the engine only): \`docker pull ghcr.io/sophia-labs/gardend:${GITHUB_REF_NAME#v}\`. See docs/headless-gardend.md."
 
   image:
     name: container image (linux/amd64)

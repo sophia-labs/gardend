@@ -5411,10 +5411,10 @@ mod tests {
     }
 
     #[test]
-    fn ludus_checkpoint_replay_validates_before_effects_and_preserves_public_refusal() {
-        let root = std::env::temp_dir().join(format!("ludus-checkpoint-{}", Uuid::new_v4()));
+    fn checkpoint_replay_validates_before_effects_and_preserves_public_refusal() {
+        let root = std::env::temp_dir().join(format!("replay-checkpoint-{}", Uuid::new_v4()));
         let store = oxigraph::store::Store::new().unwrap();
-        let graph_id = "ludus-checkpoint";
+        let graph_id = "replay-checkpoint";
         let initial = "<urn:before> <urn:predicate> \"keep existing RDF\" <urn:before-graph> .\n";
         store.load_from_slice(RdfFormat::NQuads, initial.as_bytes()).unwrap();
         let old_values = root.join("values/old/block-values.json");
@@ -5452,7 +5452,7 @@ mod tests {
         assert_eq!(canonicalize_nquads(&actual.data), canonicalize_nquads(&reserved));
         assert!(!old_values.exists());
         assert_eq!(std::fs::read(root.join("values/new/block-values.json")).unwrap(), b"{\"restored\":true}");
-        println!("LUDUS_CHECKPOINT_DISPOSABLE_FIXTURE={}", root.display());
+        println!("REPLAY_CHECKPOINT_DISPOSABLE_FIXTURE={}", root.display());
     }
 
     #[test]

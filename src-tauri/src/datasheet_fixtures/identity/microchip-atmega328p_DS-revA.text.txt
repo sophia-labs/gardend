@@ -1,0 +1,120 @@
+=== PAGE 1 ===
+
+<!-- image -->
+
+## Introduction
+
+## ATmega48A/PA/88A/PA/168A/PA/328/P
+
+## megaAVR ® Data Sheet
+
+The ATmega48A/PA/88A/PA/168A/PA/328/P is a low power, CMOS 8-bit microcontrollers based on the AVR ® enhanced RISC architecture. By executing instructions in a single clock cycle, the devices achieve CPU throughput approaching one million instructions per second (MIPS) per megahertz, allowing the system designer to optimize power consumption versus processing speed.
+
+## Features
+
+λ
+
+- λ Advanced RISC Architecture
+
+̶
+
+- 131 Powerful Instructions - Most Single Clock Cycle Execution
+
+̶
+
+- 32 x 8 General Purpose Working Registers
+
+̶
+
+- Fully Static Operation
+
+̶
+
+- Up to 20 MIPS Throughput at 20MHz
+
+̶
+
+- On-chip 2-cycle Multiplier
+- λ High Endurance Non-volatile Memory Segments
+
+̶
+
+- 4/8/16/32KBytes of In-System Self-Programmable Flash program memory
+
+̶
+
+- 256/512/512/1KBytes EEPROM
+
+̶
+
+- 512/1K/1K/2KBytes Internal SRAM
+
+̶
+
+- Write/Erase Cycles: 10,000 Flash/100,000 EEPROM
+
+̶
+
+- Data retention: 20 years at 85°C/100 years at 25°C (1)
+
+̶
+
+- Optional Boot Code Section with Independent Lock Bits
+- λ In-System Programming by On-chip Boot Program
+- λ True Read-While-Write Operation
+
+̶
+
+- Programming Lock for Software Security
+- λ QTouch ® library support
+
+̶
+
+- Capacitive touch buttons, sliders and wheels
+
+̶
+
+- QTouch and QMatrix™ acquisition
+
+̶
+
+- Up to 64 sense channels
+- λ Peripheral Features
+
+̶
+
+- Two 8-bit Timer/Counters with Separate Prescaler and Compare Mode
+
+̶
+
+- One 16-bit Timer/Counter with Separate Prescaler, Compare Mode, and Capture Mode
+
+® 8-Bit Microcontroller Family
+
+<!-- alternative reading: pypdf — the two text readers disagree on this page; check the PDF -->
+ 2018 Microchip Technology Inc.                     Data Sheet Complete DS40002061A-page 1
+Features
+λ High Performance, Low Power AVR® 8-Bit Microcontroller Family
+λ Advanced RISC Architecture
+̶ 131 Powerful Instructions – Most Single Clock Cycle Execution
+̶ 32 x 8 General Purpose Working Registers
+̶ Fully Static Operation
+̶ Up to 20 MIPS Throughput at 20MHz
+̶ On-chip 2-cycle Multiplier
+λ High Endurance Non-volatile Memory Segments
+
+[... excerpt: the rest of page 1 omitted ...]
+=== PAGE 2 ===
+ 2018 Microchip Technology Inc.                                                  Data Sheet Complete DS40002061A-page 2
+=== PAGE 3 ===
+ 2018 Microchip Technology Inc.                                                  Data Sheet Complete DS40002061A-page 3
+=== PAGE 4 ===
+ 2018 Microchip Technology Inc.                                                  Data Sheet Complete DS40002061A-page 4
+=== PAGE 5 ===
+ 2018 Microchip Technology Inc.                                                  Data Sheet Complete DS40002061A-page 5
+=== PAGE 6 ===
+ 2018 Microchip Technology Inc.                                                  Data Sheet Complete DS40002061A-page 6
+=== PAGE 7 ===
+ 2018 Microchip Technology Inc.                                                  Data Sheet Complete DS40002061A-page 7
+=== PAGE 8 ===
+ 2018 Microchip Technology Inc.                                                  Data Sheet Complete DS40002061A-page 8

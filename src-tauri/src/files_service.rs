@@ -19,7 +19,7 @@
 use crate::app_runtime::AppHandle;
 use crate::{
     crdt_queue::{enqueue_crdt_operation_outcome, EnqueueCrdtOperationInput},
-    hosted_navigation_projection::{hosted_artifact_value, hosted_folder_value},
+    hosted_navigation_projection::hosted_artifact_value,
     ids::validate_local_id,
     original_file_manifest_store::{original_manifest_file_path, read_original_manifest},
     original_file_types::OriginalFileManifest,
@@ -88,6 +88,10 @@ impl FilesError {
             message: message.into(),
             max_bytes: None,
         }
+    }
+
+    pub(crate) fn message(&self) -> &str {
+        &self.message
     }
 
     pub(crate) fn internal(message: impl Into<String>) -> Self {
@@ -167,7 +171,7 @@ pub(crate) fn require_artifact_id(artifact_id: &str) -> Result<(), FilesError> {
 
 // ── workspace reads ─────────────────────────────────────────────────────────
 
-fn workspace_snapshot(app: &AppHandle, graph_id: &str) -> Result<Option<Value>, FilesError> {
+pub(crate) fn workspace_snapshot(app: &AppHandle, graph_id: &str) -> Result<Option<Value>, FilesError> {
     let graph_dir = existing_graph_dir(app, graph_id)
         .map_err(|message| FilesError::uncoded(StatusCode::NOT_FOUND, message))?;
     let record = crate::workspace_record_store::read_workspace_record(&graph_dir, graph_id)
@@ -203,18 +207,17 @@ fn live_artifact_ids(app: &AppHandle, graph_id: &str) -> Result<BTreeSet<String>
         .unwrap_or_default())
 }
 
-/// Files live only under folders of the artifacts section: the workspace tree
-/// shows an artifact whose parent is a documents folder at the artifacts root.
+/// One tree (2026-10-08): a file may live under any folder, whichever kind of
+/// resource first made it. The folder's legacy `section` is not consulted.
 pub(crate) fn artifacts_folder_exists(
     app: &AppHandle,
     graph_id: &str,
     folder_id: &str,
 ) -> Result<bool, FilesError> {
     let snapshot = workspace_snapshot(app, graph_id)?;
-    Ok(workspace_folders(snapshot.as_ref()).iter().any(|folder| {
-        let value = hosted_folder_value(folder, graph_id);
-        value["id"] == folder_id && value["section"] == "artifacts"
-    }))
+    Ok(workspace_folders(snapshot.as_ref())
+        .iter()
+        .any(|folder| workspace_entity_id(folder).as_deref() == Some(folder_id)))
 }
 
 pub(crate) fn artifact_value(entity: &Value, graph_id: &str) -> Value {
@@ -486,7 +489,7 @@ pub(crate) async fn trash_artifact(
     Ok(trashed_body(graph_id, &record, false))
 }
 
-/// Trashed files of a graph, newest first. A record whose id is live again
+/// Trashed files and documents of a graph, newest first (`kind` tells them apart). A record whose id is live again
 /// (a crash between restore's two steps) is not listed.
 pub(crate) fn list_trash(app: &AppHandle, graph_id: &str) -> Result<Value, FilesError> {
     let graph_dir = existing_graph_dir(app, graph_id)
@@ -497,7 +500,9 @@ pub(crate) fn list_trash(app: &AppHandle, graph_id: &str) -> Result<Value, Files
     let entries = match std::fs::read_dir(&root) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(json!({ "graphId": graph_id, "items": [], "count": 0 }));
+            let items = crate::document_trash_service::list_trashed_documents(app, graph_id)?;
+            let count = items.len();
+            return Ok(json!({ "graphId": graph_id, "items": items, "count": count }));
         }
         Err(error) => return Err(FilesError::internal(format!("read artifacts dir: {error}"))),
     };
@@ -510,6 +515,8 @@ pub(crate) fn list_trash(app: &AppHandle, graph_id: &str) -> Result<Value, Files
         }
         match read_trash(&graph_dir, &id) {
             Ok(Some(record)) => items.push(json!({
+                "kind": "artifact",
+                "id": record.artifact_id,
                 "artifactId": record.artifact_id,
                 "label": record.value["label"],
                 "originalFilename": record.value["originalFilename"],
@@ -526,6 +533,9 @@ pub(crate) fn list_trash(app: &AppHandle, graph_id: &str) -> Result<Value, Files
             ),
         }
     }
+    items.extend(crate::document_trash_service::list_trashed_documents(
+        app, graph_id,
+    )?);
     items.sort_by(|left, right| {
         right["trashedAt"]
             .as_str()
@@ -534,6 +544,14 @@ pub(crate) fn list_trash(app: &AppHandle, graph_id: &str) -> Result<Value, Files
     });
     let count = items.len();
     Ok(json!({ "graphId": graph_id, "items": items, "count": count }))
+}
+
+/// Whether a file of this id is in the trash.
+pub(crate) fn artifact_in_trash(app: &AppHandle, graph_id: &str, artifact_id: &str) -> bool {
+    existing_graph_dir(app, graph_id)
+        .ok()
+        .and_then(|dir| read_trash(&dir, artifact_id).ok().flatten())
+        .is_some()
 }
 
 fn restore_payload(record: &TrashRecord, parent_id: Option<&str>) -> Value {

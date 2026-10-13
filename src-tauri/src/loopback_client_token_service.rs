@@ -1,25 +1,42 @@
 use crate::app_runtime::AppHandle;
 use crate::{
     clock::{epoch_millis, timestamp},
-    loopback_audit_log::append_loopback_audit_event,
+    loopback_audit_log::append_loopback_audit_event_to_path,
     loopback_client_token_audit::token_audit_event,
     loopback_client_token_records::{
         expires_at_from_days, hash_loopback_token, token_record_matches, token_summary,
     },
     loopback_client_token_scope_resolution::resolve_requested_scopes,
-    loopback_client_token_store::{read_token_store, write_token_store},
+    loopback_client_token_store::{read_token_store_in, write_token_store_in},
     loopback_client_token_types::{
         CreateLoopbackClientTokenInput, CreateLoopbackClientTokenResponse,
         LoopbackClientTokenRecord, LoopbackClientTokenSummary, RevokeLoopbackClientTokenInput,
     },
+    paths::profile_dir,
+    profile_paths::LOOPBACK_AUDIT_LOG_FILE,
 };
+use std::path::Path;
 use uuid::Uuid;
+
+/// Who minted or revoked a token, as the audit log records it.
+const TAURI_ACTOR: &str = "tauri";
+
+// The store is a file in the profile directory and every request re-reads it
+// (`resolve_loopback_client_token`), so a token created or revoked by any
+// writer (the desktop app, or `gardend token ...` against the profile of a
+// running gardend) takes effect on the next request with no restart.
 
 pub(crate) fn list_client_tokens(
     app: &AppHandle,
 ) -> Result<Vec<LoopbackClientTokenSummary>, String> {
+    list_client_tokens_in(&profile_dir(app)?)
+}
+
+pub(crate) fn list_client_tokens_in(
+    profile_dir: &Path,
+) -> Result<Vec<LoopbackClientTokenSummary>, String> {
     let now = epoch_millis();
-    Ok(read_token_store(app)?
+    Ok(read_token_store_in(profile_dir)?
         .tokens
         .iter()
         .map(|record| token_summary(record, now))
@@ -29,6 +46,14 @@ pub(crate) fn list_client_tokens(
 pub(crate) fn create_client_token(
     app: &AppHandle,
     input: CreateLoopbackClientTokenInput,
+) -> Result<CreateLoopbackClientTokenResponse, String> {
+    create_client_token_in(&profile_dir(app)?, input, TAURI_ACTOR)
+}
+
+pub(crate) fn create_client_token_in(
+    profile_dir: &Path,
+    input: CreateLoopbackClientTokenInput,
+    actor: &str,
 ) -> Result<CreateLoopbackClientTokenResponse, String> {
     let CreateLoopbackClientTokenInput {
         label,
@@ -55,10 +80,10 @@ pub(crate) fn create_client_token(
         revoked_at: None,
     };
 
-    let mut store = read_token_store(app)?;
+    let mut store = read_token_store_in(profile_dir)?;
     store.tokens.push(record.clone());
-    write_token_store(app, &store)?;
-    append_token_audit_best_effort(app, "create", &record);
+    write_token_store_in(profile_dir, &store)?;
+    append_token_audit_best_effort(profile_dir, actor, "create", "succeeded", &record);
 
     Ok(CreateLoopbackClientTokenResponse {
         token,
@@ -70,7 +95,15 @@ pub(crate) fn revoke_client_token(
     app: &AppHandle,
     input: RevokeLoopbackClientTokenInput,
 ) -> Result<LoopbackClientTokenSummary, String> {
-    let mut store = read_token_store(app)?;
+    revoke_client_token_in(&profile_dir(app)?, input, TAURI_ACTOR)
+}
+
+pub(crate) fn revoke_client_token_in(
+    profile_dir: &Path,
+    input: RevokeLoopbackClientTokenInput,
+    actor: &str,
+) -> Result<LoopbackClientTokenSummary, String> {
+    let mut store = read_token_store_in(profile_dir)?;
     let token_id = input.token_id.trim();
     let Some(record) = store
         .tokens
@@ -87,25 +120,22 @@ pub(crate) fn revoke_client_token(
     if record.revoked_at.is_none() {
         record.revoked_at = Some(timestamp());
     }
-    let summary = token_summary(record, epoch_millis());
-    let audit_event = token_audit_event("revoke", outcome, record);
-    write_token_store(app, &store)?;
-    if let Err(error) = append_loopback_audit_event(app, &audit_event) {
-        log::debug!(
-            "failed to append loopback token revoke audit event for {}: {error}",
-            summary.token_id
-        );
-    }
-    Ok(summary)
+    let record = record.clone();
+    write_token_store_in(profile_dir, &store)?;
+    append_token_audit_best_effort(profile_dir, actor, "revoke", outcome, &record);
+    Ok(token_summary(&record, epoch_millis()))
 }
 
 fn append_token_audit_best_effort(
-    app: &AppHandle,
+    profile_dir: &Path,
+    actor: &str,
     action: &str,
+    outcome: &str,
     record: &LoopbackClientTokenRecord,
 ) {
+    let event = token_audit_event(actor, action, outcome, record);
     if let Err(error) =
-        append_loopback_audit_event(app, &token_audit_event(action, "succeeded", record))
+        append_loopback_audit_event_to_path(&profile_dir.join(LOOPBACK_AUDIT_LOG_FILE), &event)
     {
         log::debug!(
             "failed to append loopback token {action} audit event for {}: {error}",
@@ -118,7 +148,14 @@ pub(crate) fn resolve_loopback_client_token(
     app: &AppHandle,
     token: &str,
 ) -> Result<Option<Vec<String>>, String> {
-    let store = read_token_store(app)?;
+    resolve_loopback_client_token_in(&profile_dir(app)?, token)
+}
+
+pub(crate) fn resolve_loopback_client_token_in(
+    profile_dir: &Path,
+    token: &str,
+) -> Result<Option<Vec<String>>, String> {
+    let store = read_token_store_in(profile_dir)?;
     let token_hash = hash_loopback_token(token);
     let now = epoch_millis();
     Ok(store

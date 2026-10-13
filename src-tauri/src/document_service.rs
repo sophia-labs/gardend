@@ -54,6 +54,9 @@ pub(super) fn list_documents(
         if crate::document_tombstone_store::document_is_tombstoned(&graph_dir, &document_id)? {
             continue;
         }
+        if crate::document_trash_service::document_is_trashed(&graph_dir, &document_id) {
+            continue;
+        }
         documents.push(read_document_record(&graph_dir, &manifest_path)?);
     }
 

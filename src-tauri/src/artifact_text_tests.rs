@@ -46,6 +46,7 @@ fn read_only_state(
             .inner()
             .clone(),
         cell_graph: Arc::new(CellGraphBoundary::for_test(None)),
+        self_host: Default::default(),
     })
 }
 

@@ -538,6 +538,74 @@
       }
     },
     {
+      "name": "datasheet_import",
+      "description": "Import NomDeTom's datasheet-parser sidecar (`<doc>.data.json`, schema autonotes.data/2) into this graph's light tier `datasheet-light/1`: custody nodes, one de:Assertion node per statement (key parameters with every reading, specification rows with per-slot conditions and guarantees, registers with bit fields), typed literals, deterministic IRIs ds-<sha16>-<json path>, one named graph per import (replaced whole on re-import), admission checks (no page no value; min<=max; closed enums), a per-document budget (<=1800 nodes, <=20000 triples; overflow stays in the envelope as a diagnostic), part strings resolved to eng:ComponentFamily handles. Give the envelope as `envelope_artifact_id` (the .data.json stored as an artifact) or inline `envelope`; `pdf_artifact_id` records the PDF and matches document.sha256 against its bytes. Returns {graphId, namedGraph, sha256, replaced, nodes, triples, counts, diagnostics}.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "envelope_artifact_id": {
+            "type": "string",
+            "description": "Artifact id of the stored .data.json."
+          },
+          "envelope": {
+            "description": "The .data.json inline: a JSON object, or a string of JSON."
+          },
+          "pdf_artifact_id": {
+            "type": "string",
+            "description": "Artifact id of the PDF the envelope describes; document.sha256 must match its bytes."
+          },
+          "text": {
+            "type": "string",
+            "description": "The read job's <doc>.text.txt inline (the first 256 KiB are kept). The importer reads the document's own first pages from it to reconcile its parts and maker; recorded by sha256 and length on the text rendition, marked as supplied inline. Wins over renditions.text."
+          },
+          "renditions": {
+            "type": "object",
+            "description": "Other outputs of the read job, role -> artifact id: text, regions, docling, audit.",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "datasheet_facts",
+      "description": "Read imported datasheet facts for chat and the Writer. Give a `part` (e.g. TPS62840) or an `artifact` (the PDF artifact id, or a sha256 prefix), and optionally a `parameter` (vin, vout, iout, fsw, a symbol such as IQ, or words from a parameter name). Per claim: value (lower/typical/upper, unit), regime, row and per-slot conditions and guarantees, page (1-based) and box, every reading with its source role and page, corroboration (level, independent sources, contested), diagnostics, people's checks (imported snapshots today; none native yet), and a deep link /files/{artifact}#evidence={record}. A parameter not found is absent: not found, never zero. Returns {graphId, matched, editions:[{title, revision, maker, parts, artifact, sha256, claims:[...], corrections, diagnostics}]}.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "graph_id": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "part": {
+            "type": "string"
+          },
+          "artifact": {
+            "type": "string"
+          },
+          "parameter": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
       "name": "emporium_violations",
       "description": "Read-only SPARQL listing of the violation ledger (:projection:violations, EA-6) — the observer-relative testimony both the write-time SHACL gate (FlagAndAccept) and the §8.1 conformance sweep file there. Newest first (observedAt descending). Returns {graphId, ledger, limit, violations:[{subject, focusNode, message, severity, observedAt, observer, shape?, propertyPath?, offendingValue?}]}.",
       "inputSchema": {
@@ -2669,7 +2737,7 @@
           "records"
         ],
         "properties": {
-          "graphIncarnation": { "type": "string", "minLength": 1, "maxLength": 256, "description": "Optional expected graph lifetime; supplied non-dry-run fences require active source authority and reach serialized source admission/effects. Discover source_pull.mutationCapabilities.expectedGraphIncarnation version 1 first; do not infer support from the Ludus pack hash." },
+          "graphIncarnation": { "type": "string", "minLength": 1, "maxLength": 256, "description": "Optional expected graph lifetime; supplied non-dry-run fences require active source authority and reach serialized source admission/effects. Discover source_pull.mutationCapabilities.expectedGraphIncarnation version 1 first; do not infer support from a pack hash." },
           "graph_incarnation": { "type": "string", "minLength": 1, "maxLength": 256, "description": "Alias of graphIncarnation; both must agree if supplied." },
           "graph_id": {
             "type": "string"

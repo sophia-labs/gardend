@@ -102,6 +102,7 @@ fn state_for(profile: &std::path::Path) -> Arc<LoopbackState> {
         services: Arc::new(crate::local_service_host::LocalServiceHost::default()),
         lifecycle: Arc::new(crate::cell_lifecycle::CellLifecycle::new()),
         cell_graph: boundary,
+        self_host: Default::default(),
     })
 }
 

@@ -1,0 +1,75 @@
+=== PAGE 1 ===
+
+<!-- image -->
+
+<!-- image -->
+
+<!-- image -->
+
+[TMP117](https://www.ti.com/product/TMP117)
+
+SNOSD82D - JUNE 2018 - REVISED SEPTEMBER 2022
+
+## TMP117 High-Accuracy, Low-Power, Digital Temperature Sensor With SMBus™- and I 2 C-Compatible Interface
+
+## 1 Features
+
+- TMP117 high-accuracy temperature sensor
+- ±0.1 °C (maximum) from -20 °C to 50 °C
+- ±0.15 °C (maximum) from -40 °C to 70 °C
+- ±0.2 °C (maximum) from -40 °C to 100 °C
+- ±0.25 °C (maximum) from -55 °C to 125 °C
+- ±0.3 °C (maximum) from -55 °C to 150 °C
+- Operating temperature range: -55 °C to 150 °C
+- Low power consumption:
+- 3.5-μA, 1-Hz conversion cycle
+- 150-nA shutdown current
+- Supply range:
+- 1.7 V to 5.5 V from -55 °C to 70 °C
+- 1.8 V to 5.5 V from -55 °C to 150 °C
+- 16-bit resolution: 0.0078°C (1 LSB)
+- Programmable temperature alert limits
+- Selectable averaging
+- Digital offset for system correction
+- General-purpose EEPROM: 48 bits
+- NIST traceability
+- SMBus™, I 2 C interface compatibility
+- Medical grade: meets ASTM E1112 and ISO 80601-2-56
+- RTDs replacement: PT100, PT500, PT1000
+
+## 2 Applications
+
+- Electronic thermometers
+- Wireless environmental sensors
+- Thermostats
+- Automotive test equipment
+- Wearable fitness and activity monitors
+- Cold chain asset tracking
+- Gas meters and heat meters
+- Temperature transmitters
+
+<!-- image -->
+
+Accu
+
+YBG Temperature Accuracy
+
+## 3 Description
+
+The TMP117 is a high-precision digital temperature sensor. It is designed to meet ASTM E1112 and ISO 80601 requirements for electronic patient thermometers. The TMP117 provides a 16-bit temperature result with a resolution of 0.0078 °C and an accuracy of up to ±0.1 °C across the temperature range of -20 °C to 50 °C with no calibration. The TMP117 has in interface that is I 2 C- and SMBus™-compatible, programmable alert functionality, and the device can support up to four devices on a single bus. Integrated EEPROM is included for device programming with an additional 48-bits memory available for general use.
+
+The low power consumption of the TMP117 minimizes the impact of self-heating on measurement accuracy. The TMP117 operates from 1.7 V to 5.5 V and typically consumes 3.5 μA.
+
+
+[... excerpt: the rest of page 1 omitted ...]
+=== PAGE 3 ===
+## [www.ti.com](https://www.ti.com/)
+## [TMP117](https://www.ti.com/product/TMP117)
+=== PAGE 4 ===
+www.ti.com · Figure 5-1. DRV Package 6-Pin WSON Top View · SDA · V+ · ADD0 · SCL · GND · ALERT · Thermal · Pad · Figure 5-2. YBG Package 6-Pin DSBGA Top View · A · B · C · Not to scale
+=== PAGE 5 ===
+[www.ti.com](https://www.ti.com/)
+=== PAGE 6 ===
+www.ti.com
+=== PAGE 8 ===
+Temperature (θC) · Temperature Error (θC) · Accu · Average · Average ρ3ς · TMP117 Min/Max · 1-Hz conversion cycle, 8 averages mode · Figure 6-2. DRV Package Temperature Error vs Temperature · WCSP · F

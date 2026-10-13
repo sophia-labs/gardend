@@ -26,6 +26,8 @@ use crate::{
         mcp_local_list_artifact_revisions, mcp_local_read_artifact,
         mcp_local_restore_artifact_revision,
     },
+    datasheet_facts::mcp_local_datasheet_facts,
+    datasheet_import::mcp_local_datasheet_import,
     document_digest_service::mcp_local_document_digest,
     document_history_mcp::{mcp_local_get_document_history, mcp_local_read_document_at_snapshot},
     document_mcp_blocks::{mcp_local_get_block, mcp_local_query_blocks, mcp_local_read_blocks},
@@ -233,6 +235,18 @@ fn tramp_emporium_sweep<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHand
     recorded(ctx, args, "emporiumSweep", crate::source_sync::AuthoredScope::Authored, Box::pin(async move {
         mcp_local_emporium_sweep(app, args)
     }))
+}
+
+fn tramp_datasheet_import<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
+    let app = ctx.app.clone();
+    recorded(ctx, args, "datasheetImport", crate::source_sync::AuthoredScope::Authored, Box::pin(async move {
+        mcp_local_datasheet_import(app, args)
+    }))
+}
+
+fn tramp_datasheet_facts<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
+    let app = ctx.app.clone();
+    Box::pin(async move { mcp_local_datasheet_facts(app, args) })
 }
 
 fn tramp_sparql_query_named<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
@@ -956,6 +970,14 @@ const REGISTRY: &[McpToolEntry] = &[
         handler: tramp_emporium_sweep,
     },
     McpToolEntry {
+        name: "datasheet_import",
+        handler: tramp_datasheet_import,
+    },
+    McpToolEntry {
+        name: "datasheet_facts",
+        handler: tramp_datasheet_facts,
+    },
+    McpToolEntry {
         name: "emporium_query",
         handler: tramp_emporium_query,
     },
@@ -1403,6 +1425,8 @@ mod tests {
         assert!(lookup("emporium_query").is_some());
         assert!(lookup("emporium_write").is_some());
         assert!(lookup("emporium_retract").is_some());
+        assert!(lookup("datasheet_import").is_some());
+        assert!(lookup("datasheet_facts").is_some());
     }
 }
 

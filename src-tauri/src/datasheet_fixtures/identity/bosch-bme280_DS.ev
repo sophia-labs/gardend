@@ -1,0 +1,5 @@
+P	BME280
+B	none
+T	BME280 - Data sheet
+F	bosch-bme280-datasheet.pdf
+F	bosch-bme280_DS.pdf

@@ -92,17 +92,7 @@ pub(crate) fn render_class_triples(
         };
         let predicate_uri = contract.expand(curie).map_err(PlanError)?;
         for v in fv.values() {
-            // Ludus source excerpts and submission snapshots promise exact
-            // lexical text. Preserve CR/CRLF here for that new pack only;
-            // legacy term_for parity (including CR stripping) is unchanged.
-            let term = match (contract.name.as_str(), pspec.datatype, v) {
-                ("ludus-core", crate::emporium::contract::Datatype::string, Value::Str(text)) => {
-                    crate::emporium::terms::Term::Lit(
-                        oxigraph::model::Literal::new_simple_literal(text.clone()),
-                    )
-                }
-                _ => term_for(v, pspec.datatype),
-            };
+            let term = term_for(v, pspec.datatype);
             out.push((
                 subject.to_string(),
                 predicate_uri.clone(),

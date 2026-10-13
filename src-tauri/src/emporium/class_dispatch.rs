@@ -225,12 +225,6 @@ mod tests {
             ("lme-labeled-memory", "MemoryFrame", "simple-projection"),
             ("lme-labeled-memory", "Observation", "simple-projection"),
             ("lme-labeled-memory", "QuestionCase", "simple-projection"),
-            ("ludus-core", "AttemptSubmitted", "simple-projection"),
-            ("ludus-core", "Concept", "simple-projection"),
-            ("ludus-core", "Encounter", "simple-projection"),
-            ("ludus-core", "FeedbackRecorded", "simple-projection"),
-            ("ludus-core", "SourceEdition", "simple-projection"),
-            ("ludus-core", "SourceOccurrence", "simple-projection"),
             ("shrubbery-site", "ComponentBinding", "simple-projection"),
             ("shrubbery-site", "ContentSource", "simple-projection"),
             ("shrubbery-site", "PackProvenance", "simple-projection"),
@@ -543,7 +537,7 @@ mod tests {
             .map(|(pack, _json, _sha)| get_vocabulary(pack).unwrap().classes.len())
             .sum();
         assert_eq!(
-            total, 166,
+            total, 160,
             "VOCAB_REGISTRY class count drifted from the snapshot above"
         );
     }

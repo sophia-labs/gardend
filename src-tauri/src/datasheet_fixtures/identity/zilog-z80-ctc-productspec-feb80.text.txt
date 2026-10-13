@@ -1,0 +1,43 @@
+=== PAGE 1 ===
+
+<!-- image -->
+
+## Features
+
+## Description
+
+- Four independently programmable counter/timer channels, each with a readable downcounter and a selectable 16 or 256 prescaler. Downcounters are reloaded automatically at zero count.
+- Standard Z-80 Family daisy-chain interrupt structure provides fully vectored, prioritized interrupts without external logic. The eTC may also be used as an interrupt controller.
+
+The Z-80 eTC four-channel counter/timer can be programmed by system software for a broad range of counting and timing applica­ tions. The four independently programmable channels of the Z-80 eTC satisfy common microcomputer system requirements for event counting, interrupt and interval timing, and general clock rate generation. .
+
+System design is simplified because the eTC connects directly to both the Z-80 CPU and the Z-80 SIO with no additional logic. In larger systems, address decoders and buffers may be required.
+
+Programming the eTC is straightforward:
+
+Figure 1. Pin Functions
+
+<!-- image -->
+
+## Z·80® CTC Counter/Timer Circuit
+
+## Product Specification
+
+## February 1980
+
+- Selectable positive or negative trigger initiates timer operation.
+- Three channels have Zero Count/Timeout outputs capable of driving Darlington transistors .
+- Interfaces directly to the Z-80 CPU or-for baud rate generation-to the Z-80 SIO.
+
+each channel is programmed with two bytes; a third is necessary when interrupts are enabled. Once started, the eTC counts down, reloads its time constant automatically, and resumes counting. Software timing loops are completely eliminated. Interrupt processing is Simplified because only one vector need be specified; the eTC internally generates a unique vector for each channel.
+
+The Z-80 eTC requires a single + 5 V power supply and the standard Z-80 single-phase system clock. It is fabricated with n-channe1 silicon-gate depletion-load technology, and packaged in a 28-pin plastic or ceramic DIP.
+
+Figure 2. Pin Assignments
+
+<!-- image -->
+
+<!-- figure text (inside pictures: pin names, chart labels) -->
+
+[... excerpt: the rest of page 1 omitted ...]
+Zilog 

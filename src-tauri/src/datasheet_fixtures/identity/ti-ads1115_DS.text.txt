@@ -1,0 +1,54 @@
+=== PAGE 1 ===
+
+<!-- image -->
+
+## ADS111x Ultra-Small, Low-Power, I 2 C-Compatible, 860SPS, 16-Bit ADCs with Internal Reference, Oscillator, and Programmable Comparator
+
+## 1 Features
+
+- Ultra-small packages:
+- X2QFN: 2mm × 1.5mm × 0.4mm
+- SOT: 2.9mm × 2.8mm × 0.6mm
+- Wide supply range: 2.0V to 5.5V
+- Low current consumption: 150μA (continuous-conversion mode)
+- Programmable data rate: 8SPS to 860SPS
+- Single-cycle settling
+- Internal low-drift voltage reference
+- Internal oscillator
+- I 2 C interface: four pin-selectable addresses
+- Operating temperature range: -40°C to +125°C
+- Family of devices:
+- ADS1113: one single-ended (SE) or differential (DE) input
+- ADS1114: one single-ended or differential input with comparator and PGA
+- ADS1115: four single-ended or two differential inputs with comparator and PGA
+
+## 2 Applications
+
+- Portable instrumentation
+- Battery voltage and current monitoring
+- Temperature measurement systems
+- Consumer electronics
+- Factory automation and process control
+
+## 3 Description
+
+The ADS1113, ADS1114, and ADS1115 (ADS111x) are precision, low-power, 16-bit, I 2 C-compatible, analog-to-digital converters (ADCs) offered in a leadless X2QFN-10, a SOT-10 package, and a VSSOP-10 package. The ADS111x devices incorporate a low-drift voltage reference and an oscillator. The ADS1114 and ADS1115 also incorporate a programmable gain amplifier (PGA) and a digital comparator. These features, along with a wide operating supply range, are useful for power- and space-constrained, sensor measurement applications.
+
+The ADS111x devices perform conversions at data rates of up to 860 samples per second (SPS). The PGA offers input ranges from ±256mV to ±6.144V, allowing precise large- and small-signal measurements. The ADS1115 features an input multiplexer (MUX) that allows two differential or four single-ended input measurements. Use the digital comparator in the ADS1114 and ADS1115 for undervoltage and overvoltage detection.
+
+## Package Information
+
+| PART NUMBER | PACKAGE (1) | PACKAGE SIZE (2) |
+| - | - | - |
+| ADS111x | RUG (X2QFN, 10) | 1.50mm × 2.00mm |
+| ADS111x | DYN (SOT, 10) | 2.90mm × 2.80mm |
+| ADS111x | DGS (VSSOP, 10) | 3.00mm × 4.90mm |
+
+
+[... excerpt: the rest of page 1 omitted ...]
+=== PAGE 4 ===
+www.ti.com
+=== PAGE 6 ===
+www.ti.com · Figure 5-1. I 2 C Interface Timing · SCL · SDA · t LOW · t R · t F · t HDSTA · t HDDAT · t BUF · t SUDAT · t HIGH t SUSTA · t SUSTO · P · S
+=== PAGE 8 ===
+www.ti.com · Integral Nonlinearity (µV) · Supply Voltage (V) · FSR = ±6.144 V · FSR = ±2.048 V FSR = 0.512 V, 0.256 V · Figure 5-8. INL vs Supply Voltage · Input Signal (V) · +125°C · +25°C · -40°C · 

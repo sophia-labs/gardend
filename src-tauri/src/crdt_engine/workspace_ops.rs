@@ -810,6 +810,15 @@ pub(super) fn update_workspace_document(
         document_map.insert(txn, "description", description.as_str());
         document_map.insert(txn, "describedAt", Any::Number(described_at));
     }
+    if let Some(trashed) = value.get("trashed").and_then(Value::as_bool) {
+        // Trash (2026-10-08): the entry stays in the Y.Doc, flagged, so the
+        // content, history and place survive; the materializer hides it.
+        if trashed {
+            document_map.insert(txn, "trashed", true);
+        } else {
+            let _ = document_map.remove(txn, "trashed");
+        }
+    }
     document_map.insert(txn, "updatedAt", Any::Number(now));
     let description = if document_map.contains_key(&*txn, "description") {
         Value::String(map_string(&*txn, &document_map, "description").unwrap_or_default())
@@ -844,11 +853,9 @@ pub(super) fn write_workspace_folder(
         "Untitled Folder",
     );
     let parent_id = string_value(pick(&value, &["parentId", "parent_id"]));
-    let section = if value.get("section").and_then(Value::as_str) == Some("artifacts") {
-        "artifacts"
-    } else {
-        "documents"
-    };
+    // One tree (2026-10-08): a folder holds whatever its place holds. `section`
+    // is accepted in the payload for old callers but never written, and no
+    // logic here reads it from a new folder; old folders keep theirs.
     let order = finite_number(value.get("order")).ok_or_else(|| {
         "workspace.createFolder: order is required — normalize_payload_ids must inject it from enqueueTimestamp (A2 item 10)"
             .to_string()
@@ -857,14 +864,12 @@ pub(super) fn write_workspace_folder(
     let folder_map = child_map(&folders, txn, &folder_id);
     folder_map.insert(txn, "name", name.as_str());
     folder_map.insert(txn, "parentId", opt_string_any(parent_id.clone()));
-    folder_map.insert(txn, "section", section);
     folder_map.insert(txn, "order", Any::Number(order));
     Ok(json!({
         "folderId": folder_id,
         "id": folder_id,
         "name": name,
         "parentId": opt_string_json(parent_id),
-        "section": section,
         "order": json_number(order),
     }))
 }
@@ -1404,7 +1409,7 @@ pub(crate) fn put_workspace_artifact(
 /// the named fields into an EXISTING artifact inside the room transaction, so a
 /// concurrent rename and move both land. Absent fields are untouched (a full
 /// put clears them); `parentId: null` moves to the root; a non-null parent
-/// must be an artifacts-section folder, where the tree can show the file.
+/// must be an existing folder of any origin (one tree).
 /// `normalize_payload_ids` injects no `order` for a patch.
 fn patch_workspace_artifact(
     txn: &mut TransactionMut<'_>,
@@ -1433,13 +1438,9 @@ fn patch_workspace_artifact(
         Some(Value::Null) => Some(None),
         Some(Value::String(parent_id)) if !parent_id.is_empty() => {
             let folders = txn.get_or_insert_map("folders");
-            let section = match folders.get(&*txn, parent_id) {
-                Some(Out::YMap(folder)) => map_string(&*txn, &folder, "section"),
-                _ => None,
-            };
-            if section.as_deref() != Some("artifacts") {
+            if !matches!(folders.get(&*txn, parent_id), Some(Out::YMap(_))) {
                 return Err(format!(
-                    "workspace.putArtifact patch: parent folder not found in the artifacts section: {parent_id}"
+                    "workspace.putArtifact patch: parent folder not found: {parent_id}"
                 ));
             }
             Some(Some(parent_id.clone()))
@@ -1953,7 +1954,7 @@ pub fn materialize_workspace_snapshot_json(graph_id: &str, doc: &Doc) -> Result<
                 && !js_truthy(wire.get("tombstonedAt").unwrap_or(&Value::Null))
         })
         .count();
-    let tree_documents = build_tree("documents", &folders, &documents, &[])?;
+    let tree_documents = build_tree("documents", &folders, &documents, &artifacts)?;
     let tree_artifacts = build_tree("artifacts", &folders, &[], &artifacts)?;
     Ok(json!({
         "schemaVersion": 1,
@@ -2036,6 +2037,7 @@ fn read_document_entities<T: ReadTxn>(txn: &T) -> Vec<Value> {
         "createdAt",
         "updatedAt",
         "readOnly",
+        "trashed",
     ]
     .iter()
     .chain(SOURCE_FILE_FIELDS.iter())
@@ -2043,6 +2045,11 @@ fn read_document_entities<T: ReadTxn>(txn: &T) -> Vec<Value> {
     .collect();
     let mut documents: Vec<Value> = Vec::new();
     for (document_id, document_map) in root_map_entries(txn, "documents") {
+        // A trashed document keeps its Y.Doc entry (place, title, history) and
+        // leaves every listing: the tree, the counts, the navigation reads.
+        if map_bool(txn, &document_map, "trashed", false) {
+            continue;
+        }
         let mut entity = JsonMap::new();
         entity.insert("id".into(), json!(document_id));
         entity.insert("type".into(), json!("document"));
@@ -2433,9 +2440,24 @@ fn build_tree(
                 .push(document.clone());
         }
     }
+    // One tree (2026-10-08): an artifact may sit in any folder. Folders with
+    // no section (every new folder) read as `documents`, so a file in one
+    // rides the documents tree beside its siblings; the artifacts tree keeps
+    // the files of legacy artifacts-section folders and the unplaced ones, so
+    // no file appears in both.
     let mut artifacts_by_parent: HashMap<Option<String>, Vec<Value>> = HashMap::new();
-    if section == "artifacts" {
-        for artifact in artifacts {
+    for artifact in artifacts {
+        let parent = artifact
+            .get("parentId")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let parent_in_documents_section = parent.as_ref().is_some_and(|parent| {
+            folders.iter().any(|folder| {
+                folder.get("id").and_then(Value::as_str) == Some(parent.as_str())
+                    && folder.get("section").and_then(Value::as_str) != Some("artifacts")
+            })
+        });
+        if (section == "documents") == parent_in_documents_section {
             artifacts_by_parent
                 .entry(visible_parent(artifact))
                 .or_default()
@@ -3041,7 +3063,7 @@ mod tests {
         })
         .expect("create folder");
         assert_eq!(folder["folderId"], "folder-a");
-        assert_eq!(folder["section"], "documents");
+        assert!(folder.get("section").is_none(), "new folders write no section");
         assert_eq!(folder["order"], 1);
 
         // createDocument inside the folder + one at root

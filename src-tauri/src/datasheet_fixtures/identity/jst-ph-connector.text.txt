@@ -1,0 +1,71 @@
+=== PAGE 1 ===
+
+<!-- image -->
+
+## PH CONNECTOR
+
+2.0 mm pitch/Wire-to-Board connectors/Crimp style and Mating style
+
+<!-- image -->
+
+With a mounting height of 8 mm and a width of only 4.5 mm in the top-entry version, this low-profile wire-to board connector features a pitch of 2.0 mm. The PH series is suitable for a wide range of applications, including use in high-density PCBs where space in electronic equipment is limited.
+
+- ㅡSpace-saving design
+- ㅡHigh reliability connector
+- ㅡBoxed-shaped shrouded header
+- ㅡExcellent functionality in PCB mounting as a wire-to-board connector
+- ㅡAvailable in surface mount style with SMT headers ranging from 2 to 16 positions.
+
+## ■ Specifications
+
+- ㅡ Current rating: 2 A AC/DC (AWG #24）
+- ㅡ Voltage rating: 100 V AC/DC
+- ㅡTemperature range: -40℃ to +105℃
+
+(including temperature rise in
+
+applying electrical current)
+
+- ㅡContact resistance: Initial value/ 10 mΩ max.
+
+After test/ 20 mΩ max.
+
+- ㅡ Insulation resistance: 1,000 MΩ min.
+- ㅡWithstanding voltage:
+
+There shall be no breakdown or flashover while applying 800 VAC for one minute.
+
+- ㅡApplicable wire range:
+
+Conductor size/ AWG #32 to AWG #24
+
+Insulation O.D./ φ0.5 mm to φ1.5 mm
+
+- ㅡApplicable PC board thickness: 0.8 mm to 1.6 mm
+* Please refer to the "Handling Precautions for Terminals and Connectors" on our website (listed in the "Technical Documents" column on the Product Information page) before use.
+* RoHS2 compliance
+* Dimensional unit: mm
+* Contact JST for details.
+
+## ■ Standards
+
+For information on overseas standard registrations, please refer to the "List of Registered Overseas Standards" on our website (listed in the "Technical Documents" column on the Product Information page).
+
+* Specifications registered to overseas standards may differ from the general specifications listed above.
+
+## PC board layout and Assembly layout（Through-hole type）
+
+Note: 1. The PC board layout figure shown is viewed from the connector mounting surface.
+
+<!-- image -->
+
+2. Tolerance for the PCB hole pitch shall be ±0.05 and shall not accumulate.
+
+
+[... excerpt: the rest of page 1 omitted ...]
+loth, please consider a larger hole diameter. The above dimensions are for reference only. Please contact JST for further details.
+=== PAGE 2 ===
+The above dimensions are for reference only. Please contact JST for further details.
+Note: 1. Contact JST for gold-plated products.
+Please contact JST for further details.
+Note: Contact JST for fully automatic crimping applicator

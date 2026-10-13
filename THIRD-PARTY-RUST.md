@@ -2,7 +2,7 @@
 
 This inventory covers the **`src-tauri` crate built for the headless engine** — the exact dependency closure of `cargo build --release --no-default-features --features headless --example gardend`, filtered to the `x86_64-unknown-linux-gnu` target used by `Dockerfile.gardend`. It does **not** cover the desktop (`--features desktop`) build, the `frontend/` npm dependency tree, or any Shrubbery-owned code — those are outside the public source-available boundary (see `EXPORT-MANIFEST.md`).
 
-Generated 578 third-party crate entries from `cargo metadata` via `scripts/gen-third-party-rust.py` (neither `cargo-about` nor `cargo-license` was installed in the generating environment, so this table was built with a small script over `cargo metadata --format-version=1 --no-default-features --features headless --filter-platform x86_64-unknown-linux-gnu`, walking the resolved dependency graph from the `garden` package over normal + build edges and excluding dev-dependencies). Prefer running a real `cargo-about` or `cargo-license` pass instead when either is available, and regenerate whenever `src-tauri/Cargo.lock` changes.
+Generated 580 third-party crate entries from `cargo metadata` via `scripts/gen-third-party-rust.py` (neither `cargo-about` nor `cargo-license` was installed in the generating environment, so this table was built with a small script over `cargo metadata --format-version=1 --no-default-features --features headless --filter-platform x86_64-unknown-linux-gnu`, walking the resolved dependency graph from the `garden` package over normal + build edges and excluding dev-dependencies). Prefer running a real `cargo-about` or `cargo-license` pass instead when either is available, and regenerate whenever `src-tauri/Cargo.lock` changes.
 
 | Crate | Version | License | Source |
 |---|---|---|---|
@@ -100,6 +100,7 @@ Generated 578 third-party crate entries from `cargo metadata` via `scripts/gen-t
 | `concurrent-queue` | 2.5.0 | Apache-2.0 OR MIT | https://github.com/smol-rs/concurrent-queue |
 | `console` | 0.16.3 | MIT | https://github.com/console-rs/console |
 | `const-oid` | 0.10.2 | Apache-2.0 OR MIT | https://github.com/RustCrypto/formats |
+| `const-oid` | 0.9.6 | Apache-2.0 OR MIT | https://github.com/RustCrypto/formats/tree/master/const-oid |
 | `const_format` | 0.2.36 | Zlib | https://github.com/rodrimati1992/const_format_crates/ |
 | `const_format_proc_macros` | 0.2.34 | Zlib | https://github.com/rodrimati1992/const_format_crates/ |
 | `constant_time_eq` | 0.4.2 | CC0-1.0 OR MIT-0 OR Apache-2.0 | https://github.com/cesarb/constant_time_eq |
@@ -250,6 +251,7 @@ Generated 578 third-party crate entries from `cargo metadata` via `scripts/gen-t
 | `jiff` | 0.2.28 | Unlicense OR MIT | https://github.com/BurntSushi/jiff |
 | `jobserver` | 0.1.34 | MIT OR Apache-2.0 | https://github.com/rust-lang/jobserver-rs |
 | `json-event-parser` | 0.2.3 | MIT OR Apache-2.0 | https://github.com/oxigraph/json-event-parser |
+| `jsonwebtoken` | 9.3.1 | MIT | https://github.com/Keats/jsonwebtoken |
 | `konst` | 0.2.20 | Zlib | https://github.com/rodrimati1992/konst/ |
 | `konst_macro_rules` | 0.2.19 | Zlib | https://github.com/rodrimati1992/konst/ |
 | `lazy_static` | 1.5.0 | MIT OR Apache-2.0 | https://github.com/rust-lang-nursery/lazy-static.rs |

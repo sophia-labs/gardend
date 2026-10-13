@@ -25,8 +25,13 @@ pub(crate) fn origin_ok(headers: &HeaderMap) -> bool {
     else {
         return true;
     };
-    origin == "null"
-        || origin == format!("http://{LOOPBACK_BIND_HOST}")
+    origin == "null" || local_origin(origin)
+}
+
+/// A loopback or Tauri webview origin (the desktop app, the Vite dev server,
+/// a same-machine browser). `null` is deliberately not one.
+pub(crate) fn local_origin(origin: &str) -> bool {
+    origin == format!("http://{LOOPBACK_BIND_HOST}")
         || origin.starts_with(&format!("http://{LOOPBACK_BIND_HOST}:"))
         || origin == "http://localhost"
         || origin.starts_with("http://localhost:")
@@ -34,14 +39,30 @@ pub(crate) fn origin_ok(headers: &HeaderMap) -> bool {
         || origin == "http://tauri.localhost"
 }
 
+/// [`origin_ok`] plus the self-host allowed origins (`GARDEN_ALLOWED_ORIGINS`,
+/// or the public base URL's origin under Cloudflare Access). With no
+/// self-host knob set the list is empty and this is exactly [`origin_ok`].
+pub(crate) fn origin_allowed(headers: &HeaderMap, state: &LoopbackState) -> bool {
+    if origin_ok(headers) {
+        return true;
+    }
+    headers
+        .get(header::ORIGIN)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|origin| state.self_host.origin_listed(origin))
+}
+
 fn loopback_token_scopes(
     headers: &HeaderMap,
     state: &LoopbackState,
 ) -> Result<Vec<String>, Response> {
-    if !origin_ok(headers) {
+    if !origin_allowed(headers, state) {
         return Err(loopback_error(StatusCode::FORBIDDEN, "invalid origin"));
     }
     let Some(token) = bearer_token(headers) else {
+        if let Some(scopes) = access_login_scopes(headers, state)? {
+            return Ok(scopes);
+        }
         return Err(loopback_error(
             StatusCode::UNAUTHORIZED,
             "missing bearer token",
@@ -57,11 +78,56 @@ fn loopback_token_scopes(
     }
     match resolve_loopback_client_token(&state.app, token) {
         Ok(Some(scopes)) => Ok(scopes),
-        Ok(None) => Err(loopback_error(
-            StatusCode::UNAUTHORIZED,
-            "missing or invalid bearer token",
-        )),
+        Ok(None) => {
+            if let Some(scopes) = access_login_scopes(headers, state)? {
+                return Ok(scopes);
+            }
+            Err(loopback_error(
+                StatusCode::UNAUTHORIZED,
+                "missing or invalid bearer token",
+            ))
+        }
         Err(error) => Err(loopback_error(StatusCode::INTERNAL_SERVER_ERROR, &error)),
+    }
+}
+
+/// True when the request carries a verified Cloudflare Access login (from an
+/// allowed origin) whose grant includes `scope`. Always false unless Access is
+/// configured.
+pub(crate) fn access_login_grants(headers: &HeaderMap, state: &LoopbackState, scope: &str) -> bool {
+    matches!(
+        access_login_scopes(headers, state),
+        Ok(Some(scopes)) if token_scope_ok(&scopes, scope)
+    )
+}
+
+/// The scopes of a Cloudflare Access login (self-host only). `Ok(None)`: no
+/// Access login on this request (Access is not configured, or no
+/// `Cf-Access-Jwt-Assertion`), so the caller's own answer stands. A token
+/// that does not verify is 401; a verified token on a request whose origin
+/// the ambient-credential rule refuses is 403.
+fn access_login_scopes(
+    headers: &HeaderMap,
+    state: &LoopbackState,
+) -> Result<Option<Vec<String>>, Response> {
+    match state.self_host.access_grant(headers) {
+        None => Ok(None),
+        Some(Ok(grant)) => {
+            if !state.self_host.ambient_origin_ok(headers) {
+                return Err(loopback_error(
+                    StatusCode::FORBIDDEN,
+                    "invalid origin for a Cloudflare Access login",
+                ));
+            }
+            Ok(Some(grant.scopes()))
+        }
+        Some(Err(error)) => {
+            log::debug!("self-host: refused Cloudflare Access token: {error}");
+            Err(loopback_error(
+                StatusCode::UNAUTHORIZED,
+                "invalid Cloudflare Access token",
+            ))
+        }
     }
 }
 

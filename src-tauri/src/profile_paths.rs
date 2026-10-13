@@ -33,10 +33,10 @@ pub(crate) fn loopback_manifest_path(app: &AppHandle) -> Result<PathBuf, String>
     Ok(profile_dir(app)?.join(LOOPBACK_MANIFEST_FILE))
 }
 
-pub(crate) fn loopback_client_tokens_path(app: &AppHandle) -> Result<PathBuf, String> {
-    Ok(profile_dir(app)?.join("loopback-client-tokens.json"))
-}
+/// Hashed client tokens (`gardend token ...`, the desktop token commands).
+pub(crate) const LOOPBACK_CLIENT_TOKENS_FILE: &str = "loopback-client-tokens.json";
+pub(crate) const LOOPBACK_AUDIT_LOG_FILE: &str = "loopback-audit.jsonl";
 
 pub(crate) fn loopback_audit_log_path(app: &AppHandle) -> Result<PathBuf, String> {
-    Ok(profile_dir(app)?.join("loopback-audit.jsonl"))
+    Ok(profile_dir(app)?.join(LOOPBACK_AUDIT_LOG_FILE))
 }

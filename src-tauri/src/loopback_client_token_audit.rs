@@ -3,6 +3,7 @@ use crate::{
 };
 
 pub(super) fn token_audit_event(
+    actor: &str,
     action: &str,
     outcome: &str,
     record: &LoopbackClientTokenRecord,
@@ -10,7 +11,7 @@ pub(super) fn token_audit_event(
     LoopbackAuditEvent::new(
         "loopback.token",
         action,
-        "tauri",
+        actor,
         outcome,
         Some(record.token_id.clone()),
         serde_json::json!({
@@ -43,7 +44,7 @@ mod tests {
             revoked_at: None,
         };
 
-        let event = token_audit_event("create", "succeeded", &record);
+        let event = token_audit_event("tauri", "create", "succeeded", &record);
         let event_json = serde_json::to_value(&event).expect("event json");
 
         assert_eq!(event_json["category"], "loopback.token");

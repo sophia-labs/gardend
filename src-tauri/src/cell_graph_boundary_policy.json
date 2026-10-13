@@ -1,7 +1,7 @@
 {
-  "restSurfaceSha256": "0eaf7d8deab7c059e7448ebde890dd4b40e9b3e497bcadd3c10ddb78eb867386",
-  "mcpSurfaceSha256": "3d707b231f79b17463dd5fc227b4ee0d226ab06e11610b8a5beddae100ac8bce",
-  "effectRegistrySha256": "51cd7bacbfa0dc95794062affd07989d1603de096b56d8e55ab1f5013b5ae2ea",
+  "restSurfaceSha256": "f388b3aebd497dbf170da24c6fc1834caf1a0a449b1a004afa67b3de7d2eae0e",
+  "mcpSurfaceSha256": "640876cf4fdc40a0e21c3d05bcf7b044402ba435924bc8e0cb19bc15c63cd5e0",
+  "effectRegistrySha256": "f02535f47aed4db4b99361bf26cae6d4fa0079956004fb111c8fd0c5459b78c9",
   "restGlobal": [
     "GET /api/artifacts/ingestion/approaches",
     "GET /api/artifacts/ingestion/docling/status",
@@ -41,6 +41,7 @@
     "DELETE /emporium/objects/{graph_id}/{vocab}/{class}/{address}",
     "DELETE /entities/{graph_id}/{entity_type}/{entity_id}",
     "DELETE /navigation/{graph_id}/artifacts/{artifact_id}",
+    "DELETE /navigation/{graph_id}/documents/{document_id}",
     "DELETE /navigation/{graph_id}/folders/{folder_id}",
     "DELETE /v1/documents/{graph_id}/{doc_id}/snapshots/{snapshot_id}",
     "DELETE /v1/time-travel/{graph_id}/restore-points/{restore_point_id}",
@@ -311,6 +312,8 @@
     "emporium_sweep",
     "emporium_violations",
     "emporium_write",
+    "datasheet_facts",
+    "datasheet_import",
     "flow_export_board",
     "flow_seed_board",
     "flush_crdt",

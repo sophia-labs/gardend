@@ -28,6 +28,9 @@ mod tests {
         "document_history_store.rs:DOCUMENT_TAIL_COMMIT_SCHEMA_VERSION=2",
         "document_history_store.rs:HISTORY_STORE_SCHEMA_VERSION=3",
         "document_tombstone_store.rs:DOCUMENT_TOMBSTONE_SCHEMA_VERSION=1",
+        // One tree (2026-10-08): document trash is an additive store at format 1. A format-1 binary
+        // that predates it opens the profile, lists a trashed document again and ignores the record.
+        "document_trash_service.rs:DOCUMENT_TRASH_SCHEMA_VERSION=1",
         // Two new stores from the Files rudiments (2026-10-06), pinned at format 1: no existing
         // store changed, and a format-1 binary that predates them opens the profile and ignores them.
         "files_service.rs:TRASH_SCHEMA_VERSION=1",

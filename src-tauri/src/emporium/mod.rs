@@ -24,6 +24,12 @@ pub(crate) mod content;
 pub(crate) mod folder_views;
 pub(crate) mod contract;
 #[cfg(test)]
+#[path = "../datasheet_identity_tests.rs"]
+mod datasheet_identity_tests;
+#[cfg(test)]
+#[path = "../datasheet_import_tests.rs"]
+mod datasheet_import_tests;
+#[cfg(test)]
 mod domain_kit_tests;
 #[cfg(test)]
 mod fixtures;

@@ -1,0 +1,156 @@
+# datasheet-light/1: the light-tier terms and the concept schemes of the datasheet importer.
+#
+# Seeded by src-tauri/src/datasheet_import.rs into the graph's
+# <...:projection:datasheet:vocab:m1> named graph. Design: plans/2026-10-08-datasheets-in-sophia.md
+# section 2; ontology: plans/2026-10-03-document-evidence-ontology/ (the `de:` and `eng:` namespaces are
+# proposals for ratification, not deployed registrations).
+#
+# CREDIT. The `dsp:` concept scheme (source roles, reader tools, the corroboration scale and the flags) is
+# NomDeTom's vocabulary from github.com/NomDeTom/datasheet-parser at ee680a6 (sidecars.py, fuse.py,
+# docs/Evidence-model.md), imported under its own name. The `ep:` parameter keys and the corroboration
+# semantics ("two readers of one table are one source") are his.
+
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix de:   <https://sophia-labs.ai/ontology/document-evidence#> .
+@prefix eng:  <https://sophia-labs.ai/ontology/engineering#> .
+@prefix ep:   <https://sophia-labs.ai/concept/engineering-parameter#> .
+@prefix eu:   <https://sophia-labs.ai/concept/engineering-unit#> .
+@prefix dsp:  <https://sophia-labs.ai/concept/datasheet-parser#> .
+
+# ---- classes
+de:Assertion a rdfs:Class ; rdfs:label "Assertion" ; rdfs:comment "One statement by one speaker. In the light tier the Proposition and SpecificationValue fields sit on this node (review fix #3)." .
+de:Assessment a rdfs:Class ; rdfs:label "Assessment" ; rdfs:comment "A person's check of an assertion, scoped to an edition." .
+de:ByteContent a rdfs:Class ; rdfs:label "Byte content" .
+de:FileSourceBinding a rdfs:Class ; rdfs:label "File source binding" .
+de:Rendition a rdfs:Class ; rdfs:label "Rendition" .
+de:ExtractionAttempt a rdfs:Class ; rdfs:label "Extraction attempt" .
+de:ImportRecord a rdfs:Class ; rdfs:label "Import record" .
+de:ToolProfile a rdfs:Class ; rdfs:label "Tool profile" .
+de:DocumentEdition a rdfs:Class ; rdfs:label "Document edition" .
+eng:ComponentFamily a rdfs:Class ; rdfs:label "Component family" .
+eng:RegisterDefinition a rdfs:Class ; rdfs:label "Register definition" .
+eng:BitFieldDefinition a rdfs:Class ; rdfs:label "Bit field definition" .
+
+# ---- typed literal datatypes with fixed lexical forms (review fix #2)
+de:Digest a rdfs:Datatype ; rdfs:comment "sha256:<hex>:<bytes>" .
+de:RectList a rdfs:Datatype ; rdfs:comment "x0 y0 x1 y1[; ...] in PDF user space of the unrotated page frame" .
+de:PageFrames a rdfs:Datatype ; rdfs:comment "per page: viewBox, rotation, UserUnit" .
+de:ProseCondition a rdfs:Datatype ; rdfs:comment "the source's words, not parsed" .
+eng:BitRange a rdfs:Datatype ; rdfs:comment "high:low, LSB zero" .
+eng:BitPattern a rdfs:Datatype ; rdfs:comment "width:valueBits:knownMask, MSB first; only stated bits enter the mask" .
+
+# ---- individuals of the light tier
+de:derivation a de:AssertionKind ; rdfs:label "derivation" ; rdfs:comment "The reader's fused verdict over its readings (fuse.py)." .
+de:sourceReport a de:AssertionKind ; rdfs:label "source report" ; rdfs:comment "One reading of one passage." .
+de:correction a de:AssertionKind ; rdfs:label "correction" ; rdfs:comment "A person's fix, imported from the card." .
+de:unknown a de:Completeness ; rdfs:label "unknown" ; rdfs:comment "Not stated: never unconditional, never guaranteed." .
+de:proseOnly a de:Completeness ; rdfs:label "prose only" ; rdfs:comment "Conditions are the source's words, not parsed." .
+de:sourceFidelity a de:AssessmentFacet ; rdfs:label "source fidelity" .
+de:accept a de:AssessmentResult ; rdfs:label "accept" .
+de:cell a de:Precision ; rdfs:label "cell" .
+de:page a de:Precision ; rdfs:label "page" .
+de:parser a de:BoundaryBasis ; rdfs:label "parser" .
+de:approximate a de:GeometryStatus ; rdfs:label "approximate" ; rdfs:comment "Checked only on pages with rotation 0 and an aligned CropBox (S07); a sidecar carries no page frame." .
+de:matched a de:ByteCheck ; rdfs:label "matched" .
+de:unchecked a de:ByteCheck ; rdfs:label "unchecked" .
+eng:recommendedOperating a eng:LimitRegime ; rdfs:label "recommended operating" .
+eng:absoluteMaximum a eng:LimitRegime ; rdfs:label "absolute maximum" .
+eng:electricalCharacteristic a eng:LimitRegime ; rdfs:label "electrical characteristic" .
+eng:otherRegime a eng:LimitRegime ; rdfs:label "other regime" ; rdfs:comment "The section is kept verbatim in eng:section." .
+
+# ---- ep: parameter concept scheme (Tom's key parameters)
+ep:Scheme a skos:ConceptScheme ; skos:prefLabel "Engineering parameters (datasheet-light/1)" .
+ep:inputVoltage a skos:Concept ; skos:inScheme ep:Scheme ; skos:prefLabel "Input voltage" ; skos:notation "vin" ; skos:definition "Tom's key parameter `vin`: the recommended operating input range." .
+ep:outputVoltage a skos:Concept ; skos:inScheme ep:Scheme ; skos:prefLabel "Output voltage" ; skos:notation "vout" ; skos:definition "Tom's key parameter `vout`." .
+ep:outputCurrent a skos:Concept ; skos:inScheme ep:Scheme ; skos:prefLabel "Output current" ; skos:notation "iout" ; skos:definition "Tom's key parameter `iout` (maximum)." .
+ep:switchingFrequency a skos:Concept ; skos:inScheme ep:Scheme ; skos:prefLabel "Switching frequency" ; skos:notation "fsw" ; skos:definition "Tom's key parameter `fsw`." .
+
+# ---- eu: unit concept scheme (the printed unit stays in eng:unitLexical)
+eu:Scheme a skos:ConceptScheme ; skos:prefLabel "Engineering units (datasheet-light/1)" .
+eu:V a skos:Concept ; skos:inScheme eu:Scheme ; skos:prefLabel "volt" ; skos:notation "V" .
+eu:mV a skos:Concept ; skos:inScheme eu:Scheme ; skos:prefLabel "millivolt" ; skos:notation "mV" .
+eu:uV a skos:Concept ; skos:inScheme eu:Scheme ; skos:prefLabel "microvolt" ; skos:notation "µV" .
+eu:A a skos:Concept ; skos:inScheme eu:Scheme ; skos:prefLabel "ampere" ; skos:notation "A" .
+eu:mA a skos:Concept ; skos:inScheme eu:Scheme ; skos:prefLabel "milliampere" ; skos:notation "mA" .
+eu:uA a skos:Concept ; skos:inScheme eu:Scheme ; skos:prefLabel "microampere" ; skos:notation "µA" .
+eu:nA a skos:Concept ; skos:inScheme eu:Scheme ; skos:prefLabel "nanoampere" ; skos:notation "nA" .
+eu:pA a skos:Concept ; skos:inScheme eu:Scheme ; skos:prefLabel "picoampere" ; skos:notation "pA" .
+eu:Hz a skos:Concept ; skos:inScheme eu:Scheme ; skos:prefLabel "hertz" ; skos:notation "Hz" .
+eu:kHz a skos:Concept ; skos:inScheme eu:Scheme ; skos:prefLabel "kilohertz" ; skos:notation "kHz" .
+eu:MHz a skos:Concept ; skos:inScheme eu:Scheme ; skos:prefLabel "megahertz" ; skos:notation "MHz" .
+eu:GHz a skos:Concept ; skos:inScheme eu:Scheme ; skos:prefLabel "gigahertz" ; skos:notation "GHz" .
+eu:ohm a skos:Concept ; skos:inScheme eu:Scheme ; skos:prefLabel "ohm" ; skos:notation "Ω" .
+eu:mohm a skos:Concept ; skos:inScheme eu:Scheme ; skos:prefLabel "milliohm" ; skos:notation "mΩ" .
+eu:kohm a skos:Concept ; skos:inScheme eu:Scheme ; skos:prefLabel "kilohm" ; skos:notation "kΩ" .
+eu:Mohm a skos:Concept ; skos:inScheme eu:Scheme ; skos:prefLabel "megohm" ; skos:notation "MΩ" .
+eu:degC a skos:Concept ; skos:inScheme eu:Scheme ; skos:prefLabel "degree Celsius" ; skos:notation "°C" .
+eu:percent a skos:Concept ; skos:inScheme eu:Scheme ; skos:prefLabel "percent" ; skos:notation "%" .
+eu:W a skos:Concept ; skos:inScheme eu:Scheme ; skos:prefLabel "watt" ; skos:notation "W" .
+eu:mW a skos:Concept ; skos:inScheme eu:Scheme ; skos:prefLabel "milliwatt" ; skos:notation "mW" .
+eu:s a skos:Concept ; skos:inScheme eu:Scheme ; skos:prefLabel "second" ; skos:notation "s" .
+eu:ms a skos:Concept ; skos:inScheme eu:Scheme ; skos:prefLabel "millisecond" ; skos:notation "ms" .
+eu:us a skos:Concept ; skos:inScheme eu:Scheme ; skos:prefLabel "microsecond" ; skos:notation "µs" .
+eu:ns a skos:Concept ; skos:inScheme eu:Scheme ; skos:prefLabel "nanosecond" ; skos:notation "ns" .
+eu:pF a skos:Concept ; skos:inScheme eu:Scheme ; skos:prefLabel "picofarad" ; skos:notation "pF" .
+eu:nF a skos:Concept ; skos:inScheme eu:Scheme ; skos:prefLabel "nanofarad" ; skos:notation "nF" .
+eu:uF a skos:Concept ; skos:inScheme eu:Scheme ; skos:prefLabel "microfarad" ; skos:notation "µF" .
+eu:uH a skos:Concept ; skos:inScheme eu:Scheme ; skos:prefLabel "microhenry" ; skos:notation "µH" .
+eu:mH a skos:Concept ; skos:inScheme eu:Scheme ; skos:prefLabel "millihenry" ; skos:notation "mH" .
+eu:dB a skos:Concept ; skos:inScheme eu:Scheme ; skos:prefLabel "decibel" ; skos:notation "dB" .
+
+# ---- dsp: NomDeTom's datasheet-parser vocabulary, as a concept scheme
+dsp:Scheme a skos:ConceptScheme ; skos:prefLabel "datasheet-parser (NomDeTom)" ; skos:definition "Source roles, reader tools, corroboration scale and flags of github.com/NomDeTom/datasheet-parser at ee680a6." .
+
+# source roles: evidence roles, not agent identities
+dsp:page1 a skos:Concept ; skos:inScheme dsp:Scheme ; skos:prefLabel "page 1" ; skos:definition "The page-1 summary / feature list." .
+dsp:roc a skos:Concept ; skos:inScheme dsp:Scheme ; skos:prefLabel "recommended operating conditions" ; skos:definition "The Recommended Operating Conditions table." .
+dsp:prose a skos:Concept ; skos:inScheme dsp:Scheme ; skos:prefLabel "prose" ; skos:definition "A claim made in the datasheet's own sentences (textspec.py)." .
+dsp:ti_export a skos:Concept ; skos:inScheme dsp:Scheme ; skos:prefLabel "vendor export" ; skos:definition "An external vendor parametric export (enrichment.py); a separate source from the PDF." .
+dsp:specTable a skos:Concept ; skos:inScheme dsp:Scheme ; skos:prefLabel "specification table" ; skos:definition "A row of a typed specification table." .
+
+# reader tools: parser identity differs from source identity
+dsp:docling a skos:Concept ; skos:inScheme dsp:Scheme ; skos:prefLabel "Docling" .
+dsp:docling-ocr a skos:Concept ; skos:inScheme dsp:Scheme ; skos:prefLabel "Docling on OCR text (RapidOCR)" ; skos:definition "A weaker reading than a text layer: rows are flagged and capped at low." .
+dsp:pdfplumber a skos:Concept ; skos:inScheme dsp:Scheme ; skos:prefLabel "pdfplumber" .
+dsp:pdftotext a skos:Concept ; skos:inScheme dsp:Scheme ; skos:prefLabel "pdftotext" .
+dsp:pypdf a skos:Concept ; skos:inScheme dsp:Scheme ; skos:prefLabel "pypdf" .
+
+# corroboration scale. Two readers of one table are one source read twice, not two votes.
+dsp:high a skos:Concept ; skos:inScheme dsp:Scheme ; skos:prefLabel "high" ; skos:definition "Two or more independent sources agree." .
+dsp:medium a skos:Concept ; skos:inScheme dsp:Scheme ; skos:prefLabel "medium" ; skos:definition "One source, read cleanly." .
+dsp:low a skos:Concept ; skos:inScheme dsp:Scheme ; skos:prefLabel "low" ; skos:definition "Sources disagree, or the reading needed a repair." .
+dsp:contested a skos:Concept ; skos:inScheme dsp:Scheme ; skos:prefLabel "contested" ; skos:definition "Independent sources disagree about the shown value (a card mark; Tom's own level is kept as de:upstreamConfidence)." .
+dsp:none a skos:Concept ; skos:inScheme dsp:Scheme ; skos:prefLabel "none" ; skos:definition "Nothing found." .
+
+# renditions (the read job's outputs, plus the envelope)
+dsp:dataJson a skos:Concept ; skos:inScheme dsp:Scheme ; skos:prefLabel "data.json (autonotes.data/2)" .
+dsp:text a skos:Concept ; skos:inScheme dsp:Scheme ; skos:prefLabel "text.txt with === PAGE n === markers" .
+dsp:regions a skos:Concept ; skos:inScheme dsp:Scheme ; skos:prefLabel "regions.json" .
+dsp:audit a skos:Concept ; skos:inScheme dsp:Scheme ; skos:prefLabel "audit.tsv" .
+
+# flags, verbatim from the parser: diagnostics, never contradictions
+
+dsp:flag-split_from_merged_row a skos:Concept ; skos:inScheme dsp:Scheme ; skos:prefLabel "split_from_merged_row" ; skos:definition "a merged table cell was split into sub-rows" .
+dsp:flag-symbol_joined a skos:Concept ; skos:inScheme dsp:Scheme ; skos:prefLabel "symbol_joined" ; skos:definition "a symbol split across rows was joined" .
+dsp:flag-value_not_numeric a skos:Concept ; skos:inScheme dsp:Scheme ; skos:prefLabel "value_not_numeric" ; skos:definition "a MIN/TYP/MAX cell did not parse as a number; the printed text is kept" .
+dsp:flag-unit_restored a skos:Concept ; skos:inScheme dsp:Scheme ; skos:prefLabel "unit_restored" ; skos:definition "the unit was restored from the table's unit column or header" .
+dsp:flag-unit_maybe_micro a skos:Concept ; skos:inScheme dsp:Scheme ; skos:prefLabel "unit_maybe_micro" ; skos:definition "the unit may have lost a micro prefix" .
+dsp:flag-column_shift_vs_docling a skos:Concept ; skos:inScheme dsp:Scheme ; skos:prefLabel "column_shift_vs_docling" ; skos:definition "pdfplumber placed the same numbers in different columns than Docling" .
+dsp:flag-pdfplumber_placed_columns_differently a skos:Concept ; skos:inScheme dsp:Scheme ; skos:prefLabel "pdfplumber_placed_columns_differently" ; skos:definition "companion flag on the Docling row of a column shift" .
+dsp:flag-readers_disagree a skos:Concept ; skos:inScheme dsp:Scheme ; skos:prefLabel "readers_disagree" ; skos:definition "two readers of one table read different numbers" .
+dsp:flag-ocr a skos:Concept ; skos:inScheme dsp:Scheme ; skos:prefLabel "ocr" ; skos:definition "the row was recognized from a page image" .
+dsp:flag-ti_datasheet_mismatch a skos:Concept ; skos:inScheme dsp:Scheme ; skos:prefLabel "ti_datasheet_mismatch" ; skos:definition "an external (TI export) reading disagrees with the datasheet" .
+dsp:flag-ti_override_applied a skos:Concept ; skos:inScheme dsp:Scheme ; skos:prefLabel "ti_override_applied" ; skos:definition "an override entry with recorded evidence replaced the value" .
+dsp:flag-verified_value_changed a skos:Concept ; skos:inScheme dsp:Scheme ; skos:prefLabel "verified_value_changed" ; skos:definition "a person's checked value differs from the latest extraction" .
+dsp:flag-vout_echoes_vin a skos:Concept ; skos:inScheme dsp:Scheme ; skos:prefLabel "vout_echoes_vin" ; skos:definition "page 1's Vout repeated Vin" .
+dsp:flag-vout_from_page1_fallback a skos:Concept ; skos:inScheme dsp:Scheme ; skos:prefLabel "vout_from_page1_fallback" ; skos:definition "Vout rests on the page-1 summary alone" .
+dsp:flag-vin_min_zero_suspect a skos:Concept ; skos:inScheme dsp:Scheme ; skos:prefLabel "vin_min_zero_suspect" ; skos:definition "Vin minimum of zero is suspect" .
+dsp:flag-fix_rejected a skos:Concept ; skos:inScheme dsp:Scheme ; skos:prefLabel "fix_rejected" ; skos:definition "a card fix was not applied" .
+dsp:flag-register_map_not_extracted a skos:Concept ; skos:inScheme dsp:Scheme ; skos:prefLabel "register_map_not_extracted" ; skos:definition "the text mentions a register map that was not extracted" .
+dsp:flag-register_fields_fewer_than_pdfplumber a skos:Concept ; skos:inScheme dsp:Scheme ; skos:prefLabel "register_fields_fewer_than_pdfplumber" ; skos:definition "Docling found fewer register fields than pdfplumber" .
+dsp:flag-text_readers_disagree a skos:Concept ; skos:inScheme dsp:Scheme ; skos:prefLabel "text_readers_disagree" ; skos:definition "Docling and pypdf disagree on some pages' text" .
+dsp:flag-no_text_layer a skos:Concept ; skos:inScheme dsp:Scheme ; skos:prefLabel "no_text_layer" ; skos:definition "the document has no text layer" .
+dsp:flag-text_from_ocr a skos:Concept ; skos:inScheme dsp:Scheme ; skos:prefLabel "text_from_ocr" ; skos:definition "the text comes from OCR" .

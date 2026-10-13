@@ -1,0 +1,77 @@
+=== PAGE 1 ===
+
+<!-- image -->
+
+## Applications
+
+- � Optimized for UPS/Inverter Applications
+- � High Frequency Synchronous Buck Converters for Computer Processor Power
+- � High Frequency Isolated DC-DC Converters with Synchronous Rectification for Telecom and Industrial Use
+
+## Benefits
+
+- � Very Low RDS(on) at 4.5V VGS
+- � Ultra-Low Gate Impedance
+- � Fully Characterized Avalanche Voltage and Current
+- � Lead-Free
+
+## Absolute Maximum Ratings
+
+|  | Parameter | Max. | Units |
+| - | - | - | - |
+| VDS | Drain-to-Source Voltage | 30 | V |
+| VGS | Gate-to-Source Voltage | ± 20 | V |
+| ID @ TC = 25°C | Continuous Drain Current, VGS @ 10V | 62 | A |
+| ID @ TC = 100°C | Continuous Drain Current, VGS @ 10V | 44 | A |
+| IDM | Pulsed Drain Current c99 | 250 | A |
+| PD @TC = 25°C | Maximum Power Dissipation c103 | 65 | W |
+| PD @TC = 100°C | Maximum Power Dissipation c103 | 33 | W |
+|  | Linear Derating Factor | 0.43 | W/°C |
+| TJ | Operating Junction and | -55 to + 175 | °C |
+| TSTG | Storage Temperature Range |  | °C |
+|  | Soldering Temperature, for 10 seconds | 300 (1.6mm from case) | °C |
+|  | Mounting torque, 6-32 or M3 screw | 10lbc120in (1.1Nc120m) | °C |
+
+## Thermal Resistance
+
+|  | Parameter | Typ. | Max. | Units |
+| - | - | - | - | - |
+| RθJC | Junction-to-Case c103 | --- | 2.3 |  |
+| RθCS | Case-to-Sink, Flat Greased Surface | 0.5 | --- | °C/W |
+| RθJA | Junction-to-Ambient c102 | --- | 62 |  |
+
+1
+
+4/22/09
+
+PD - 97390
+
+## IRLB8721PbF
+
+HEXFET ® Power MOSFET
+
+| VDSS | RDS(on) max | Qg (typ.) |
+| - | - | - |
+| 30V | 8.7mc58@VGS = 10V | 7.6nC |
+
+<!-- image -->
+
+| G | D | S |
+| - | - | - |
+| Gate | Drain | Source |
+
+<!-- figure text (inside pictures: pin names, chart labels) -->
+TO-220AB · IRLB8721PbF · S · D · G
+
+
+[... excerpt: the rest of page 1 omitted ...]
+=== PAGE 2 ===
+2 www.irf.com
+=== PAGE 3 ===
+www.irf.com
+=== PAGE 4 ===
+www.irf.com T J , Temperature ( °C )
+=== PAGE 6 ===
+www.irf.com
+=== PAGE 8 ===
+Note: For the most current drawing please refer to IR website at: http://www.irf.com/package/

@@ -1,0 +1,46 @@
+=== PAGE 1 ===
+
+## BME280
+
+## Combined humidity and pressure sensor
+
+<!-- image -->
+
+## BME280 - Data sheet
+
+Document revision
+
+Document release date
+
+1.24
+
+February 2024
+
+Document number BST-BME280-DS001-24
+
+Sales Part Number (SPN) 0 273 141 185
+
+Notes Data and descriptions in this document are subject to change without notice. Product photos and pictures are for illustration purposes only and may differ from the real product appearance
+
+<!-- image -->
+
+<!-- alternative reading: pypdf — the two text readers disagree on this page; check the PDF -->
+BME280 – Data sheet  
+Document revision 1.24 
+Document release date February 2024 
+Document number BST-BME280-DS001-24 
+Sales Part Number (SPN) 0 273 141 185 
+Notes Data and descriptions in this document are subject to change without 
+notice. Product photos and pictures are for illustration purposes only 
+and may differ from the real product appearance 
+BME280 
+Combined humidity and pressure sensor
+
+
+[... excerpt: the rest of page 1 omitted ...]
+=== PAGE 2 ===
+- Register and performance compatible to Bosch Sensortec BMP280 digital pressure sensor
+=== PAGE 3 ===
+The BME280 is as combined digital humidity, pressure and temperature sensor based on proven sensing principles. The sensor module is housed in an extremely compact metal-lid LGA package with a footpri
+The pressure sensor is an absolute barometric pressure sensor with extremely high accuracy and resolution and drastically lower noise than the Bosch Sensortec BMP180.
+Please contact your regional Bosch Sensortec partner for more information about software packages.

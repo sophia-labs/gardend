@@ -81,6 +81,127 @@ It then runs the cell against a profile dir (`SOPHIA_MCP_PROFILE_DIR`, default
 `~/.sophia-mcp/profile`) and waits for `/health`. Use a **fresh profile per
 run** — a stale store lock makes the spawn fail.
 
+## Self-hosting: `gardend serve`
+
+`gardend` with a verb is a friendly way to run your own Sophia on your own
+machine. With **no** verb it is the hosted cell, exactly as before (the knobs
+below); nothing here changes that path. The step-by-step guide, from a
+"Download my gardens" archive to a Sophia reached from anywhere through a
+Cloudflare Tunnel with Cloudflare Access as the login, is
+[`self-host-cloudflare-tunnel.md`](self-host-cloudflare-tunnel.md).
+
+### `gardend serve`
+
+```sh
+gardend serve [--profile <dir>] [--port <n>]
+```
+
+Once the API answers it prints, on stderr:
+
+```
+Sophia is ready.
+
+  Open Sophia: http://127.0.0.1:7674/#key=sophia-key-…
+
+  profile  /Users/ana/Library/Application Support/Sophia
+  ui       /usr/local/lib/gardend/ui
+  mcp      http://127.0.0.1:7674/mcp (Authorization: Bearer <key>)
+  key      /Users/ana/Library/Application Support/Sophia/selfhost-key.json
+```
+
+- **Port:** `--port`, else `GARDEN_LOOPBACK_PORT`, else **7674** (S-O-P-H on a
+  phone keypad). A taken port is refused before boot, with a hint to pick
+  another.
+- **Bind:** 127.0.0.1. Setting `GARDEN_LOOPBACK_HOST` to anything that is not
+  loopback prints a warning: the key grants everything and gardend has no TLS.
+  Reach Sophia from elsewhere through a tunnel to 127.0.0.1 instead.
+- **Profile:** `--profile <dir>` (also `--profile-dir`), else
+  `GARDEN_PROFILE_DIR`, else the per-OS default:
+
+  | OS | default profile |
+  |---|---|
+  | macOS | `~/Library/Application Support/Sophia` |
+  | Linux | `$XDG_DATA_HOME/sophia`, else `~/.local/share/sophia` |
+  | Windows | `%LOCALAPPDATA%\Sophia` |
+
+  It is created (owner-only) if missing. It is not the desktop app's profile.
+  An unpacked "Download my gardens" tar (`graphs/<graph-id>/…`) is a profile.
+- **The key in the link** is the profile's **master key** (every scope), the
+  loopback token `serve` runs with. It is minted once and kept owner-only in
+  `<profile>/selfhost-key.json`, so the link survives restarts; delete that
+  file and restart to rotate it. `GARDEN_LOOPBACK_TOKEN`, when set, is used
+  instead and not stored. The key rides in the URL fragment, so it never
+  reaches a server log; the app stores it and strips it. The link carries the
+  master key (not a minted client token) so its owner has every scope. The live
+  editor's WebSocket rooms also accept a scoped token that holds the room's write
+  scope (`authoring` does). Give other people and agents scoped tokens (below),
+  never this link.
+- **The app:** when `GARDEN_UI_DIR` is unset and a `ui/` folder with an
+  `index.html` sits next to the gardend binary (as invoked, or with symlinks
+  resolved), `serve` sets `GARDEN_UI_DIR` to it. Without one, Sophia serves its
+  API and MCP only and says so.
+- **Logs:** quiet by default (`RUST_LOG=warn,gardend=info`); set `RUST_LOG=info`
+  for the engine's full log.
+- **Already running:** if a gardend already serves the profile, `serve` prints
+  its link and exits 0.
+- When stderr is not a terminal (a service log), the key is left out of the
+  printed link. `gardend url [--profile <dir>]` prints the full link at any time.
+
+Ctrl-C (SIGTERM) stops it after the final flush.
+
+### `gardend token`
+
+```sh
+gardend token create --label lucy-phone --profile authoring --expires-days 365
+gardend token list
+gardend token revoke <id>        # the full id, or the 8 characters `list` shows
+```
+
+Scoped, expiring client tokens for the profile, sent as
+`Authorization: Bearer <token>` to the REST API and `/mcp`. In `token`
+commands `--profile` is the **grant** (alias `--grant`): `read-only` (the
+default), `authoring`, `rdf-admin` or `session-all`; the profile directory is
+`--profile-dir`, else `GARDEN_PROFILE_DIR`, else the default above.
+`--expires-days` is 1 to 365 (default 30). `create` prints the secret once
+(`--json` for scripts); the profile keeps only its SHA-256 hash in
+`loopback-client-tokens.json`, and every create and revoke is appended to
+`loopback-audit.jsonl` with actor `gardend-cli`.
+
+A running gardend needs no telling: the token store is re-read on every
+request, and writes are atomic renames, so a new token works and a revoked one
+stops on the next request. These are the tokens the desktop app's token
+commands mint, through the same service (`loopback_client_token_service`).
+
+### `gardend service`
+
+```sh
+gardend service install [--profile <dir>] [--port <n>] [--print]
+gardend service status
+gardend service uninstall
+```
+
+`install` writes and starts a user service running
+`gardend serve --profile <dir> --port <n>` at login, then prints the link:
+
+| OS | service | logs |
+|---|---|---|
+| macOS | LaunchAgent `~/Library/LaunchAgents/dev.sophia.gardend.plist` (restart after a crash, 60 s to stop) | `~/Library/Logs/Sophia/gardend.log` |
+| Linux | `systemd --user` unit `~/.config/systemd/user/gardend.service` (`Restart=on-failure`, `TimeoutStopSec=60`) | the journal: `journalctl --user -u gardend -f` |
+| Windows | not yet: `install` says so; run `gardend serve` yourself | |
+
+- The profile and port are written into the service as absolute values. The
+  key is not: the service reads it from the profile.
+- `install` copies these from your shell into the service when set:
+  `GARDEN_UI_DIR`, `GARDEN_CF_ACCESS_TEAM_DOMAIN`, `GARDEN_CF_ACCESS_AUD`,
+  `GARDEN_CF_ACCESS_ADMIN_EMAILS`, `GARDEN_ALLOWED_ORIGINS`,
+  `GARDEN_PUBLIC_BASE_URL`, `GARDEN_LOOPBACK_HOST`, `GARDEN_NO_UPDATE_CHECK`,
+  `RUST_LOG` and `PATH`. Re-run `install` after changing them.
+- `--print` shows the file it would write and changes nothing.
+- On Linux the unit runs while you are logged in; `install` tells you when
+  `sudo loginctl enable-linger $USER` is needed to keep it running after logout.
+- `status` exits 0 when the service runs, 3 when it does not. `uninstall` stops
+  and removes the service and leaves the profile alone.
+
 ## Cell runtime knobs (env)
 
 | Var | Meaning |
@@ -91,8 +212,8 @@ run** — a stale store lock makes the spawn fail.
 | `GARDEN_FLUSH_INTERVAL_SECONDS` | Dirty-driven durable-flush max-RPO ceiling — forces a flush at least this often while dirty, regardless of debounce (default 30). |
 | `GARDEN_FLUSH_DEBOUNCE_SECONDS` | Dirty-driven durable-flush debounce window — flush this long after the last observed write, coalescing bursts (default 5). |
 | `GARDEN_LOOPBACK_HOST` | Bind host (default `127.0.0.1`; use `0.0.0.0` in pods). |
-| `GARDEN_LOOPBACK_PORT` | Bind port (default `0` = OS-assigned). |
-| `GARDEN_LOOPBACK_TOKEN` | Fixed bearer token (default: random per run). |
+| `GARDEN_LOOPBACK_PORT` | Bind port (default `0` = OS-assigned; `gardend serve` defaults to 7674). |
+| `GARDEN_LOOPBACK_TOKEN` | Fixed bearer token (default: random per run; `gardend serve` uses the profile's key). |
 | `GARDEN_TOKIO_WORKERS` | Worker-thread floor (default ≥6 so `/health` stays schedulable under import load). |
 | `SOPHIA_OBSERVATORY_CAPTURE_ENABLED` | Headless cell lifecycle CaptureEvent testimony (default `false`; see [observatory-testimony.md](observatory-testimony.md)). |
 | `SOPHIA_OBSERVATORY_CONTRACT_BUNDLE_SHA256` | Exact ratified CaptureEvent v0.1 bundle identity; required only when testimony is enabled. |
@@ -100,6 +221,60 @@ run** — a stale store lock makes the spawn fail.
 | `GARDEN_NO_UPDATE_CHECK` | `1` disables the once-a-day release check (also off when `CI` or `GARDEN_CELL_GRAPH_ID` is set; the container image sets it). |
 | `GARDEN_UPDATE_URL` | Release base for `--check-update` / `update` (default `https://github.com/sophia-labs/gardend`). |
 | `GARDEN_CACHE_DIR` | Where the update-check stamp lives (default the user cache dir). |
+
+## Self-host knobs (env)
+
+For running your own Sophia behind a Cloudflare Tunnel, with Cloudflare Access as
+the login. Every knob is off by default; with none set (hosted cells set none),
+gardend behaves exactly as without them. Code: `src-tauri/src/loopback_self_host.rs`
+and `loopback_self_host_routes.rs`.
+
+| Var | Meaning |
+|-----|---------|
+| `GARDEN_UI_DIR` | A static UI build (Shrubbery's self-host flavor) to serve at `/`. Must hold an `index.html`, or gardend refuses to start. Unset: a `ui/` folder next to the gardend binary is used if it holds an `index.html`. |
+| `GARDEN_CF_ACCESS_TEAM_DOMAIN` | Your Access team domain, e.g. `myteam.cloudflareaccess.com`. Set together with the AUD. |
+| `GARDEN_CF_ACCESS_AUD` | The Access application's AUD tag. |
+| `GARDEN_CF_ACCESS_ADMIN_EMAILS` | Optional comma list. Set: those people get the `session-all` grant and everyone else Access admits gets the **member** grant (below). Unset: everyone Access admits gets `session-all`. |
+| `GARDEN_ALLOWED_ORIGINS` | Comma list of extra origins accepted on REST, MCP and the rooms (e.g. `https://sophia.example.com`). Unset with Access configured: the origin of `GARDEN_PUBLIC_BASE_URL`. |
+
+What they do:
+
+- **UI.** Paths no API route answers are served from the UI folder. A browser
+  navigation (`Sec-Fetch-Mode: navigate` or `Accept: text/html`) to a path with
+  no file gets `index.html`; other misses get the usual empty 404, and API routes
+  answer exactly as before. `assets/<name>-<hash>.*` is cached `immutable`;
+  everything else, `index.html` included, is `no-cache` with an `ETag`.
+- **Cloudflare Access login.** A valid `Cf-Access-Jwt-Assertion` authenticates a
+  request that carries no valid bearer token: RS256, the team's keys from
+  `https://<team>/cdn-cgi/access/certs` matched by `kid` (cached, refetched when an
+  unknown `kid` appears), and `iss`, `aud`, `exp` and `nbf` checked. A service
+  token (empty `sub`, `common_name` = its Client ID) gets the member grant, or
+  `session-all` when no admin list is set. Bearer tokens work exactly as before.
+  An Access login is refused from an origin that is not loopback, Tauri or
+  allowed, from `Origin: null`, and on `Sec-Fetch-Site: cross-site`. Identity
+  comes from the token alone; an `X-User-ID` header is never read for it.
+- **The member grant** (non-admins while an admin list is set): every read
+  scope, the `authoring` profile's writes (documents, workspace, artifacts,
+  images, wires, entities, web imports) and MCP calls, each tool still checking
+  its own scopes. Not: deletes, creating, importing or restoring graphs, loading
+  or updating RDF (`graphs.write`, `rdf.load`, `rdf.update`, ...), memory and
+  index writes, time-travel writes, service, model and token administration.
+- **Origins and CORS.** While any knob is set, CORS answers only the origins
+  gardend accepts anyway (loopback, Tauri, the allowed list) instead of mirroring
+  every origin.
+- **Rooms** (`/hocuspocus/...`). Besides the master token, a scoped client token
+  holding the room's write scope (`documents.write.crdt` or
+  `workspace.write.crdt`) is accepted (with or without these knobs; a refused
+  request still gets the same 401), and under Access the Access login is, with
+  its `Origin` checked against the allowed list.
+- **`GET /self-host.json`** (public, `no-store`):
+  `{"kind":"gardend-self-host","version":"…","auth":"cloudflare-access"|"key","user":{"email":"…"}|null}`.
+  `user` is set when a valid Access token for a person came with the request (a
+  service token is not a person: `null`).
+
+Set `GARDEN_PUBLIC_BASE_URL` to your public URL under Access: browsers send an
+`Origin` on writes, and without an allowed origin gardend refuses them (it logs a
+warning at startup).
 
 ## Updating
 

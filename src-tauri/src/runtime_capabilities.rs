@@ -35,6 +35,11 @@ pub(crate) struct FilesCapability {
     trash_list: &'static str,
     restore: &'static str,
     purge: &'static str,
+    /// Files and documents may live in any folder (One tree, 2026-10-08).
+    any_folder: bool,
+    /// Documents have a Trash: `trash_document`, and `kind=document` on restore and purge.
+    document_trash: bool,
+    trash_document: &'static str,
     folder_views: FolderViewsCapability,
 }
 
@@ -59,6 +64,9 @@ pub(crate) fn files_capability() -> FilesCapability {
         trash_list: "GET /navigation/{graph_id}/trash",
         restore: "POST /navigation/{graph_id}/trash/{artifact_id}/restore",
         purge: "DELETE /navigation/{graph_id}/trash/{artifact_id}",
+        any_folder: true,
+        document_trash: true,
+        trash_document: "DELETE /navigation/{graph_id}/documents/{document_id}",
         folder_views: FolderViewsCapability {
             vocab: "garden-file-views",
             version: "1.0.0",

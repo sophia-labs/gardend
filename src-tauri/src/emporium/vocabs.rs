@@ -138,12 +138,6 @@ pub(crate) const PDF_SOURCE_GOLDEN_JSON: &str =
 pub(crate) const PDF_SOURCE_GOLDEN_SHA: &str =
     "1c68bf40562e97fa8a944f39e5e3687e5a4e72303d991733b88de01282ec4b9b";
 
-/// Ludus source/editorial current-state objects and append-only source events.
-/// Event immutability is supplied by the activated source ledger, not generic upsert.
-pub(crate) const LUDUS_CORE_GOLDEN_JSON: &str = include_str!("vocabs/ludus-core.golden.json");
-pub(crate) const LUDUS_CORE_GOLDEN_SHA: &str =
-    "ec1835ee0c0066096827237bb5d4d3833c6e7e813cd5ca191ee35a36fadd61a3";
-
 /// The `koch-morse` domain pack. Koch is not an application-shaped exception:
 /// its course, lessons, Morse characters, learners, completed sessions, and
 /// receive/send attempts are graph-local Meaningful Objects materialized by the
@@ -400,7 +394,6 @@ pub(crate) const FLOW_GOLDEN_SHA: &str =
 /// `retrofit_contracts_are_not_served_packs`). The `name` MUST equal the golden's
 /// `"name"` field (asserted by `registry_names_match_golden_names`).
 pub(crate) const VOCAB_REGISTRY: &[(&str, &str, &str)] = &[
-    ("ludus-core", LUDUS_CORE_GOLDEN_JSON, LUDUS_CORE_GOLDEN_SHA),
     (
         "garden-pdf-source",
         PDF_SOURCE_GOLDEN_JSON,
@@ -534,15 +527,6 @@ pub(crate) struct VocabJurisdiction {
 /// Served compatibility packs remain resolvable, but the catalog labels them as
 /// aliases or internal fixtures instead of peer ontology pillars.
 pub(crate) const VOCAB_JURISDICTIONS: &[VocabJurisdiction] = &[
-    VocabJurisdiction {
-        name: "ludus-core",
-        public_jurisdiction: "ludus",
-        canonical_ontology: "ludus-core",
-        canonical_pack: "ludus-core",
-        status: RegistryStatus::DomainPack,
-        slug_aliases: &[],
-        compatibility_aliases: &[],
-    },
     VocabJurisdiction {
         name: "garden-pdf-source",
         public_jurisdiction: "pdf-source",
@@ -1150,7 +1134,6 @@ mod tests {
     fn served_pack_version_and_sha_rail() {
         // (pack_name, golden version, pinned sha). Edit CONSCIOUSLY per the discipline.
         const RAIL: &[(&str, &str, &str)] = &[
-            ("ludus-core", "1.0.0", LUDUS_CORE_GOLDEN_SHA),
             ("garden-pdf-source", "1.0.0", PDF_SOURCE_GOLDEN_SHA),
             ("workflow", "1.0.0", WORKFLOW_GOLDEN_SHA),
             ("sophia-memory-core", "1.3.0", MEMORY_CORE_GOLDEN_SHA),
@@ -1271,7 +1254,6 @@ mod tests {
                         | "memory"
                         | "workflow"
                         | "koch"
-                        | "ludus"
                         | "files"
                         | "pdf-source"
                         | "internal-substrate"
@@ -1412,7 +1394,6 @@ mod tests {
         assert_eq!(
             names,
             vec![
-                "ludus-core",
                 "garden-pdf-source",
                 "workflow",
                 "sophia-memory-core",

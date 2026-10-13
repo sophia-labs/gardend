@@ -165,6 +165,7 @@ mod tests {
             services: Arc::new(LocalServiceHost::default()),
             lifecycle: Arc::new(CellLifecycle::new()),
             cell_graph: Arc::new(CellGraphBoundary::for_test(None)),
+            self_host: Default::default(),
         })
     }
 

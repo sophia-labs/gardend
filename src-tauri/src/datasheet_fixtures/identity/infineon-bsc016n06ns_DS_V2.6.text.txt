@@ -1,0 +1,52 @@
+=== PAGE 1 ===
+
+<!-- image -->
+
+## MOSFET
+
+OptiMOS™ Power-MOSFET, 60 V
+
+## Features
+
+- Optimized for synchronous rectification ·
+- 175°C rated ·
+- 100% avalanche tested ·
+- Superior thermal resistance ·
+- N-channel ·
+- Pb-free lead plating; RoHS compliant ·
+- Halogen-free according to IEC61249-2-21 ·
+- Higher solder joint reliability due to enlarged source interconnection ·
+
+## Product validation
+
+Fully qualified according to JEDEC for Industrial Applications PG-TDSON-8
+
+Table 1 Key Performance Parameters
+
+| Parameter | Value | Unit |
+| - | - | - |
+| V DS | 60 | V |
+| R DS(on),max | 1.6 | mΩ |
+| I D | 234 | A |
+| Q OSS | 81 | nC |
+| Q (0V..10V) G | 71 | nC |
+
+<!-- image -->
+
+<!-- image -->
+
+<!-- image -->
+
+<!-- image -->
+
+| Type/Ordering Code | Package | Marking | Related Links |
+| - | - | - | - |
+| BSC016N06NS | PG-TDSON-8 | 016N06NS | - |
+
+<!-- figure text (inside pictures: pin names, chart labels) -->
+Publ i c BSC016N06NS Final datasheet · Pin 1 · Drain · Pin 5-8 · Gate · Pin 4 · Source · Pin 1-3 · *1: Internal body diode
+
+
+[... excerpt: the rest of page 1 omitted ...]
+=== PAGE 8 ===
+https://www.infineon.com 2024‑05‑11

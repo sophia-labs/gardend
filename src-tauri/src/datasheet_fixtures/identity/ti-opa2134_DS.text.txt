@@ -1,0 +1,50 @@
+=== PAGE 1 ===
+
+<!-- image -->
+
+## OPAx134 High-Performance, SoundPlus™ Audio Operational Amplifiers
+
+## 1 Features
+
+- Excellent sound quality
+- Ultra-low distortion: 0.00008%
+- Low noise: 8nV/√Hz
+- True FET-input: IB = 5pA
+- High speed:
+- Slew rate: 20V/µs
+- Bandwidth: 8MHz
+- High open-loop gain: 120dB (2kΩ)
+- Wide supply range: ±2.5V to ±18V
+- Single, dual, and quad versions
+
+## 2 Applications
+
+- Professional audio and music
+- Line drivers
+- Line receivers
+- Multimedia audio
+- Active filters
+- Preamplifiers
+- Integrators
+- Crossover networks
+
+THD+Noise vs Frequency
+
+<!-- image -->
+
+## 3 Description
+
+The OPA134, OPA2134, and OPA4134 (OPAx134) series are ultra-low distortion, low-noise operational amplifiers fully specified for audio applications. A true FET input stage is incorporated to provide excellent sound quality and speed for exceptional audio performance. This feature, in combination with high output drive capability and excellent dc performance, allows for use in a wide variety of demanding applications. In addition, the OPAx134 series has a wide output swing, to within 1V of the rails, allowing increased headroom and making these devices an excellent choice for use in any audio circuit.
+
+The OPAx134 SoundPlus™ audio operational amplifiers are easy to use and free from phaseinversion and the overload problems often found in common FET-input operational amplifiers. The devices can be operated from ±2.5V to ±18V power supplies. Input cascode circuitry provides excellent common-mode rejection and maintains low input bias current over the wide input voltage range, minimizing distortion. The OPAx134 series operational amplifiers are unity-gain stable and provide excellent dynamic behavior over a wide range of load conditions, including high load capacitance. The dual and quad versions feature completely independent circuitry for lowest crosstalk and freedom from interaction, even when overdriven or overloaded.
+
+
+[... excerpt: the rest of page 1 omitted ...]
+=== PAGE 4 ===
+www.ti.com · Figure 4-3. OPA4134: D Package, 14-Pin SOIC (Top View) · OUT A · OUT D · -IN A · -IN D · +IN A · +IN D · V+ · V- · +IN B · +IN C · -IN B · -IN C · OUT B · OUT C · Not to scale
+=== PAGE 5 ===
+[www.ti.com](https://www.ti.com/)
+=== PAGE 6 ===
+www.ti.com
+=== PAGE 8 ===
+www.ti.com

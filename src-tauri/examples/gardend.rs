@@ -7,6 +7,11 @@
 //!
 //! Build: cargo build --no-default-features --features headless --example gardend
 //!
+//! Self-hosting (docs/headless-gardend.md, "Self-hosting"; `gardend --help`):
+//!   gardend serve [--profile <dir>] [--port <n>]   run Sophia, print the open link
+//!   gardend url | token create|list|revoke | service install|uninstall|status
+//! With no verb, gardend is the hosted cell, configured by the variables below.
+//!
 //! Environment:
 //!   GARDEN_PROFILE_DIR        profile directory (required in containers)
 //!   GARDEN_DURABLE_DIR        durable NFS/EFS snapshot dir (enables hydrate/flush)
@@ -99,7 +104,8 @@ fn run_command(args: &[String]) -> Option<i32> {
             // gardend has always ignored argv; keep serving, but say so.
             eprintln!(
                 "gardend: ignoring argument {unknown:?} (configure via GARDEN_* env; \
-                 commands: --version [--json], --check-update, update)"
+                 commands: serve, url, token, service, --version [--json], --check-update, \
+                 update; gardend --help)"
             );
         }
         return None;
@@ -146,14 +152,45 @@ fn run_command(args: &[String]) -> Option<i32> {
 #[cfg(not(feature = "desktop"))]
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // Self-host verbs (`serve`, `url`, `token`, `service`, `help`). Anything
+    // else, including no argument at all (how hosted cells run), takes the
+    // old path below unchanged.
+    match garden_lib::selfhost::parse(&args) {
+        Ok(Some(garden_lib::selfhost::Command::Serve(serve_args))) => {
+            match garden_lib::selfhost::prepare_serve(&serve_args) {
+                Ok(garden_lib::selfhost::ServeStart::Boot(plan)) => {
+                    // Before the engine (or any thread) starts.
+                    plan.apply_env();
+                    serve(Some(plan));
+                    return;
+                }
+                Ok(garden_lib::selfhost::ServeStart::AlreadyRunning(message)) => {
+                    eprintln!("{message}");
+                    std::process::exit(0);
+                }
+                Err(error) => {
+                    eprintln!("gardend serve: {error}");
+                    std::process::exit(1);
+                }
+            }
+        }
+        Ok(Some(command)) => std::process::exit(garden_lib::selfhost::run(command)),
+        Ok(None) => {}
+        Err(usage) => {
+            eprintln!("gardend: {usage}");
+            std::process::exit(2);
+        }
+    }
     if let Some(code) = run_command(&args) {
         std::process::exit(code);
     }
-    serve();
+    serve(None);
 }
 
+/// `selfhost`: `Some` for `gardend serve` (prints the open link once the API
+/// answers); `None` for a hosted cell, which boots exactly as it always has.
 #[cfg(not(feature = "desktop"))]
-fn serve() {
+fn serve(selfhost: Option<garden_lib::selfhost::ServePlan>) {
     use garden_lib::headless::{
         durability::{
             current_write_epoch, DirtyFlushScheduler, FlushTrigger, HydrateMode, SchedulerAction,
@@ -587,6 +624,11 @@ fn serve() {
         snapshot_id,
         hydrated_bytes,
     );
+    if let Some(plan) = &selfhost {
+        // stderr: fd 1 stays reserved for CaptureEvent NDJSON.
+        let interactive = std::io::IsTerminal::is_terminal(&std::io::stderr());
+        eprintln!("\n{}", plan.ready_banner(interactive));
+    }
 
     // No GUI event loop in headless mode — park the main thread while the
     // tokio runtime (loopback server, scheduler, queue) does the work.

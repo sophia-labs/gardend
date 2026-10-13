@@ -129,6 +129,7 @@ export const responseSchemaByRoute = {
   'PUT /navigation/{graph_id}/artifacts/{artifact_id}': 'Artifact',
   'DELETE /navigation/{graph_id}/artifacts/{artifact_id}': 'ArtifactDeleteResponse',
   'PATCH /navigation/{graph_id}/artifacts/{artifact_id}': 'Artifact',
+  'DELETE /navigation/{graph_id}/documents/{document_id}': 'ArtifactDeleteResponse',
   'POST /artifacts/{graph_id}/files': 'FilesUploadResponse',
   'GET /navigation/{graph_id}/trash': 'FilesTrashList',
   'POST /navigation/{graph_id}/trash/{artifact_id}/restore': 'Artifact',
@@ -280,6 +281,30 @@ export const extraErrorResponsesByRoute = {
 }
 
 export const queryParametersByRoute = {
+  'DELETE /navigation/{graph_id}/artifacts/{artifact_id}': [
+    {
+      name: 'kind',
+      in: 'query',
+      required: false,
+      schema: { type: 'string', enum: ['document', 'artifact'] },
+    },
+  ],
+  'POST /navigation/{graph_id}/trash/{artifact_id}/restore': [
+    {
+      name: 'kind',
+      in: 'query',
+      required: false,
+      schema: { type: 'string', enum: ['document', 'artifact'] },
+    },
+  ],
+  'DELETE /navigation/{graph_id}/trash/{artifact_id}': [
+    {
+      name: 'kind',
+      in: 'query',
+      required: false,
+      schema: { type: 'string', enum: ['document', 'artifact'] },
+    },
+  ],
   'GET /artifacts/{graph_id}/{artifact_id}/download': [
     {
       name: 'inline',

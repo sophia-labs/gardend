@@ -265,15 +265,6 @@ pub(crate) async fn mcp_local_emporium_write(
     let _identity_lease = crate::graph_incarnation_admission::acquire_expected_lifetime(
         &app, &graph_id, expected.as_deref(),
     ).await?;
-    // Ludus events derive their append-only identity from the source ledger,
-    // not from generic projection upsert. Never accept a legacy write that
-    // would bypass that authority; explicit source_pull establishes it.
-    // Validation previews remain available and other packs are unchanged.
-    if !dry_run && vocab == "ludus-core" {
-        return Err(AppError::validation(
-            "ludus-core writes require active source authority; call source_pull for this graph before writing",
-        ));
-    }
     let result = emporium_write(
         &app,
         &graph_id,

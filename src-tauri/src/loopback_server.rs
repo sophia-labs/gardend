@@ -5,6 +5,7 @@ use crate::{
     local_jobs::LocalJobRegistry,
     local_service_host::LocalServiceHost,
     loopback_router::loopback_router,
+    loopback_self_host::SelfHost,
     loopback_state::{LoopbackManifest, LoopbackState},
     loopback_token_grants::session_all_token_grant,
     paths::{jobs_dir, loopback_manifest_path},
@@ -29,6 +30,11 @@ pub(super) fn start_loopback_server(app: AppHandle) -> Result<LoopbackManifest, 
     // Container/headless overrides; defaults preserve desktop behavior
     // (127.0.0.1, OS-assigned port, per-run random token).
     init_self_heal_graphs_from_env();
+    // Self-host knobs (GARDEN_UI_DIR, GARDEN_CF_ACCESS_*, GARDEN_ALLOWED_ORIGINS),
+    // checked before anything binds or is written. None set: off, and the
+    // server is exactly what it was without them.
+    let self_host = Arc::new(SelfHost::from_env()?);
+    log_self_host(&self_host);
     let bind_ip: IpAddr = match std::env::var("GARDEN_LOOPBACK_HOST") {
         Ok(host) if !host.trim().is_empty() => host
             .trim()
@@ -105,6 +111,7 @@ pub(super) fn start_loopback_server(app: AppHandle) -> Result<LoopbackManifest, 
         services: Arc::new(LocalServiceHost::default()),
         lifecycle,
         cell_graph,
+        self_host,
     });
     app_for_state.manage(state.clone());
     let router = loopback_router(state);
@@ -127,4 +134,35 @@ pub(super) fn start_loopback_server(app: AppHandle) -> Result<LoopbackManifest, 
         manifest.manifest_path
     );
     Ok(manifest)
+}
+
+fn log_self_host(self_host: &SelfHost) {
+    if !self_host.is_active() {
+        return;
+    }
+    if let Some(dir) = self_host.ui_dir() {
+        log::info!("self-host: serving the UI from {}", display_path(dir));
+    }
+    if let Some(access) = self_host.access() {
+        log::info!(
+            "self-host: Cloudflare Access login for team {} ({})",
+            access.team_domain(),
+            if access.admin_emails_configured() {
+                "listed admins get session-all, everyone else the member grant"
+            } else {
+                "everyone Access admits gets session-all"
+            }
+        );
+        if self_host.allowed_origins().is_empty() {
+            log::warn!(
+                "self-host: Cloudflare Access is on but no origin is allowed: set GARDEN_PUBLIC_BASE_URL (or GARDEN_ALLOWED_ORIGINS) to your public URL, or browsers' writes through it are refused as an invalid origin"
+            );
+        }
+    }
+    if !self_host.allowed_origins().is_empty() {
+        log::info!(
+            "self-host: allowed origins {}",
+            self_host.allowed_origins().join(", ")
+        );
+    }
 }

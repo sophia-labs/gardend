@@ -271,7 +271,7 @@ pub fn configured_profile_dir() -> Option<PathBuf> {
     })
 }
 
-fn pid_alive(pid: u32) -> bool {
+pub(crate) fn pid_alive(pid: u32) -> bool {
     if pid == 0 || pid == std::process::id() {
         return false;
     }

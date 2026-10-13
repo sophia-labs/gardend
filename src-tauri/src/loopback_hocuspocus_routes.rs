@@ -9,7 +9,11 @@
 //! Auth: `Authorization: Bearer <token>` header (agents, server-side
 //! clients) or `Sec-WebSocket-Protocol: bearer.<token>` subprotocol
 //! (browser clients — ALB-safe; the subprotocol form survives the WS
-//! upgrade through proxies that strip request headers).
+//! upgrade through proxies that strip request headers). The token is the
+//! master token, or a scoped client token holding the room's write scope
+//! (`documents.write.crdt` / `workspace.write.crdt`). Self-host only: a
+//! Cloudflare Access login (`Cf-Access-Jwt-Assertion`) with that scope, from
+//! an allowed `Origin` (cross-site WebSocket hijacking rides the cookie).
 
 use crate::{
     app_runtime::AppHandle,
@@ -20,6 +24,7 @@ use crate::{
     document_paths::document_dir,
     document_record_store::{read_document_record_for_identity, SidecarBackfill},
     graph_paths::{existing_graph_dir, existing_graph_dir_no_heal},
+    loopback_client_token_service::resolve_loopback_client_token,
     loopback_http::{bearer_token, loopback_error},
     loopback_state::LoopbackState,
     ydoc_paths::{checked_document_ydoc_state_path, workspace_ydoc_state_path},
@@ -41,29 +46,90 @@ pub(super) fn loopback_hocuspocus_router() -> Router<Arc<LoopbackState>> {
         .route("/hocuspocus/workspace/{graph_id}", get(workspace_room))
 }
 
-/// Returns the matched `bearer.<token>` subprotocol entry (to echo back on
-/// accept) when auth succeeds via subprotocol; None when it succeeds via
-/// the Authorization header; Err when unauthorized.
-fn authorize_ws(headers: &HeaderMap, state: &LoopbackState) -> Result<Option<String>, Response> {
+/// The scope a scoped client token or an Access login needs for each room.
+const DOC_ROOM_SCOPE: &str = "documents.write.crdt";
+const WORKSPACE_ROOM_SCOPE: &str = "workspace.write.crdt";
+
+/// Returns the `Sec-WebSocket-Protocol` entry to echo on accept (the matched
+/// `bearer.<token>` entry, or under an Access login the first offered entry,
+/// since a browser that offered subprotocols fails a handshake that selects
+/// none); None when the request offered none or authenticated by header;
+/// Err when unauthorized. The master token is checked first and exactly as
+/// before; a refused request still gets the same 401.
+pub(crate) fn authorize_ws(
+    headers: &HeaderMap,
+    state: &LoopbackState,
+    required_scope: &str,
+) -> Result<Option<String>, Response> {
     if bearer_token(headers) == Some(state.token.as_str()) {
         return Ok(None);
     }
-    if let Some(protocols) = headers
+    let offered = headers
         .get("sec-websocket-protocol")
         .and_then(|v| v.to_str().ok())
-    {
-        for entry in protocols.split(',').map(str::trim) {
-            if let Some(token) = entry.strip_prefix("bearer.") {
-                if token == state.token {
-                    return Ok(Some(entry.to_string()));
-                }
+        .map(|protocols| protocols.split(',').map(str::trim).collect::<Vec<_>>())
+        .unwrap_or_default();
+    for entry in &offered {
+        if let Some(token) = entry.strip_prefix("bearer.") {
+            if token == state.token {
+                return Ok(Some((*entry).to_string()));
             }
         }
+    }
+    // Scoped client tokens (header first, then subprotocol).
+    if let Some(token) = bearer_token(headers) {
+        if let Some(scopes) = ws_client_token_scopes(state, token) {
+            return require_room_scope(&scopes, required_scope).map(|()| None);
+        }
+    }
+    for entry in &offered {
+        if let Some(token) = entry.strip_prefix("bearer.") {
+            if let Some(scopes) = ws_client_token_scopes(state, token) {
+                return require_room_scope(&scopes, required_scope)
+                    .map(|()| Some((*entry).to_string()));
+            }
+        }
+    }
+    // Self-host Cloudflare Access login (None unless Access is configured).
+    match state.self_host.access_grant(headers) {
+        Some(Ok(grant)) => {
+            if !state.self_host.ambient_origin_ok(headers) {
+                return Err(loopback_error(
+                    StatusCode::FORBIDDEN,
+                    "invalid origin for a Cloudflare Access login",
+                ));
+            }
+            require_room_scope(&grant.scopes(), required_scope)?;
+            return Ok(offered.first().map(|entry| (*entry).to_string()));
+        }
+        Some(Err(error)) => log::debug!("self-host: refused Cloudflare Access token on a room: {error}"),
+        None => {}
     }
     Err(loopback_error(
         StatusCode::UNAUTHORIZED,
         "missing or invalid loopback token (Authorization header or bearer.<token> subprotocol)",
     ))
+}
+
+fn ws_client_token_scopes(state: &LoopbackState, token: &str) -> Option<Vec<String>> {
+    match resolve_loopback_client_token(&state.app, token) {
+        Ok(scopes) => scopes,
+        Err(error) => {
+            log::warn!("loopback client token store unreadable on a room upgrade: {error}");
+            None
+        }
+    }
+}
+
+fn require_room_scope(scopes: &[String], required_scope: &str) -> Result<(), Response> {
+    if scopes.iter().any(|scope| scope == required_scope) {
+        Ok(())
+    } else {
+        Err(loopback_error(
+            StatusCode::FORBIDDEN,
+            &format!("loopback token missing required scope {required_scope}"),
+        ))
+    }
 }
 
 /// A document room may be created only for an authoritative document identity:
@@ -191,7 +257,7 @@ async fn doc_room(
     headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> Response {
-    let subprotocol = match authorize_ws(&headers, &state) {
+    let subprotocol = match authorize_ws(&headers, &state, DOC_ROOM_SCOPE) {
         Ok(value) => value,
         Err(response) => return response,
     };
@@ -267,7 +333,7 @@ async fn workspace_room(
     headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> Response {
-    let subprotocol = match authorize_ws(&headers, &state) {
+    let subprotocol = match authorize_ws(&headers, &state, WORKSPACE_ROOM_SCOPE) {
         Ok(value) => value,
         Err(response) => return response,
     };

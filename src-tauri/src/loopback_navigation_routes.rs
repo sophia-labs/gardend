@@ -18,13 +18,13 @@ use crate::{
     original_file_service::save_artifact_original_file,
 };
 use axum::{
-    extract::{DefaultBodyLimit, Path as AxumPath, State},
+    extract::{DefaultBodyLimit, Path as AxumPath, Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    routing::get,
+    routing::{delete, get},
     Json, Router,
 };
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 pub(super) fn loopback_navigation_router() -> Router<Arc<LoopbackState>> {
     Router::new()
@@ -42,6 +42,10 @@ pub(super) fn loopback_navigation_router() -> Router<Arc<LoopbackState>> {
             get(loopback_hosted_navigation_folder)
                 .put(loopback_hosted_put_navigation_folder)
                 .delete(loopback_hosted_delete_navigation_folder),
+        )
+        .route(
+            "/navigation/{graph_id}/documents/{document_id}",
+            delete(loopback_hosted_trash_navigation_document),
         )
         .route(
             "/navigation/{graph_id}/artifacts",
@@ -192,10 +196,22 @@ pub(super) async fn loopback_hosted_delete_navigation_artifact(
     State(state): State<Arc<LoopbackState>>,
     headers: HeaderMap,
     AxumPath((graph_id, artifact_id)): AxumPath<(String, String)>,
+    Query(params): Query<BTreeMap<String, String>>,
 ) -> Response {
     // Files rudiments (2026-10-05): delete is recoverable. The file leaves the
     // workspace and keeps its bytes and entry in the trash until a purge
     // (`DELETE /navigation/{graph_id}/trash/{artifact_id}`). This route used
     // to remove the bytes for good.
-    loopback_files_trash(state, headers, graph_id, artifact_id).await
+    loopback_files_trash(state, headers, graph_id, artifact_id, params.get("kind").cloned()).await
+}
+
+/// `DELETE /navigation/{graph_id}/documents/{document_id}`: a document to the
+/// Trash (One tree, 2026-10-08). Content and history are kept; restore or
+/// delete it forever through the trash routes with `?kind=document`.
+pub(super) async fn loopback_hosted_trash_navigation_document(
+    State(state): State<Arc<LoopbackState>>,
+    headers: HeaderMap,
+    AxumPath((graph_id, document_id)): AxumPath<(String, String)>,
+) -> Response {
+    loopback_files_trash(state, headers, graph_id, document_id, Some("document".to_string())).await
 }

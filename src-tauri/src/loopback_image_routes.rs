@@ -2,8 +2,8 @@ use crate::{
     app_error::AppError,
     ids::{normalize_image_mime_type, safe_filename, url_component},
     loopback_http::{
-        bearer_token, loopback_error, loopback_original_file_error, loopback_token_has_scope,
-        origin_ok, require_loopback_scope,
+        access_login_grants, bearer_token, loopback_error, loopback_original_file_error,
+        loopback_token_has_scope, origin_allowed, require_loopback_scope,
     },
     loopback_state::LoopbackState,
     multipart_pending_upload::stream_field_to_pending_upload,
@@ -156,7 +156,7 @@ pub(super) async fn loopback_hosted_serve_image(
     AxumPath((graph_id, image_id)): AxumPath<(String, String)>,
     Query(params): Query<BTreeMap<String, String>>,
 ) -> Response {
-    if !origin_ok(&headers) {
+    if !origin_allowed(&headers, &state) {
         return loopback_error(StatusCode::FORBIDDEN, "invalid origin");
     }
     if bearer_token(&headers).is_some() {
@@ -179,6 +179,9 @@ pub(super) async fn loopback_hosted_serve_image(
             params.get("exp").or_else(|| params.get("expiresAt")),
         ) {
             Ok(true) => {}
+            // Self-host: a Cloudflare Access login with images.read stands in
+            // for the signed URL (never consulted unless Access is configured).
+            Ok(false) if access_login_grants(&headers, &state, "images.read") => {}
             Ok(false) => {
                 return loopback_error(
                     StatusCode::UNAUTHORIZED,

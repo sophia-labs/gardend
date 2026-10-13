@@ -1,0 +1,23 @@
+=== PAGE 1 ===
+
+## Z80':CPU Z80A-CPU
+
+<!-- image -->
+
+The Zilog Z80 product line is a complete set of micro­ computer components, development systems and support software. The Z80 microcomputer component set includes all of the circuits necessary to build high-performance microcomputer systems ,with virtually no other logic and a minimum number of low cost standard memory elements.
+
+The Z80 and Z80A CPU's are third generation single chip microprocessors with unrivaled computational power. This increased computational power results in higher system through-put and more efficient memory utilization when compared to second generation microprocessors. In addition, the Z80 and Z80A CPU's are very easy to imple­ ment into a system because of their single voltage require­ ment plus all output signals are fully decoded and timed to control standard memory or peripheral circuits\_ The circuit is implemented using an N-channel, ion implanted, silicon gate MaS process.
+
+Figure 1 is a block diagram of the CPU, Figure 2 details the internal register configuration which contains 208 bits of Read/Write memory that are accessible to the program­ mer. The registers include two sets of six general purpose registers that may be used individually as 8-bit registers or as 16-bit register pairs. There are also two sets of accumu­ lator and flag registers. The programmer has access to either set of main or alternate registers through a group of ex­ change instructions. This alternate set allows foreground/ background mode of operation or may be reserved for very fast Interrupt response. Each CPU also contains a 16-bit stack pointer which permits simple implementation of
+
+<!-- image -->
+
+## Product Specification
+
+MARCH 1978
+
+multiple level interrupts, unlimited subroutine nesting and simplification of many types of data handling.
+
+
+[... excerpt: the rest of page 1 omitted ...]
+The Zilog Z80 product line is a complete set of micro­

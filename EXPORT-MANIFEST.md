@@ -106,7 +106,7 @@ app (`parity-fresh.sh`). Included:
   `docs/oss-readiness.md`), so `pymupdf4llm` is the actually-working path
   today.
 
-### `docs/` — engine/backend subset (18 files)
+### `docs/` — engine/backend subset (19 files)
 
 Included because their content is genuinely about the Rust engine, the
 loopback/MCP/RDF/SPARQL/storage/security surface, or (for the two flagged
@@ -129,6 +129,8 @@ now-included `README.md`/`CONTRIBUTING.md`:
 - `docs/sparql-admission-and-cancellation.md`
 - `docs/kg-ultra-garden-integration.md`
 - `docs/local-service-hosting.md`
+- `docs/self-host-cloudflare-tunnel.md` (the public guide to running your own Sophia
+  with `gardend serve` behind a Cloudflare Tunnel and Cloudflare Access)
 - **Flagged: `docs/release-process.md`** — its content is entirely about the
   internal desktop packaging/signing pipeline (Shrubbery frontend build,
   macOS/Windows installers), not the engine. Included anyway because

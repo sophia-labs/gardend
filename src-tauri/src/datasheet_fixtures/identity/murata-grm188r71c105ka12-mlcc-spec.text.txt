@@ -1,0 +1,92 @@
+=== PAGE 1 ===
+
+## GRM188R71C105KA12\_ (0603, X7R:EIA, 1uF, DC16V) Chip Monolithic Ceramic Capacitor for General
+
+\_: packaging code Reference Sheet
+
+## 1.Scope
+
+This product specification is applied to Chip Monolithic Ceramic Capacitor used for General Electronic equipment.
+
+## 2.MURATA Part NO. System
+
+(Ex.)
+
+<!-- image -->
+
+(1)L/W Dimensions
+
+<!-- image -->
+
+<!-- image -->
+
+<!-- image -->
+
+<!-- image -->
+
+<!-- image -->
+
+<!-- image -->
+
+<!-- image -->
+
+<!-- image -->
+
+(2)T Dimensions
+
+(3)Temperature Characteristics
+
+(4)Rated Voltage
+
+(5)Nominal Capacitance
+
+(6)Capacitance Tolerance
+
+(7)Murata's Control Code
+
+(8)Packaging Code
+
+## 3. Type &amp; Dimensions
+
+<!-- image -->
+
+(Unit:mm)
+
+| (1)-1 L | (1)-2 W | (2) T | e | g |
+| - | - | - | - | - |
+| 1.6±0.1 | 0.8±0.1 | 0.8±0.1 | 0.2 to 0.5 | 0.5 min. |
+
+## 4.Rated value
+
+| (3) Temperature Characteristics (Public STD Code):X7R(EIA) | (3) Temperature Characteristics (Public STD Code):X7R(EIA) - Temp. coeff or Cap. Change | (3) Temperature Characteristics (Public STD Code):X7R(EIA) - Temp. Range (Ref.Temp.) | (4) Rated Voltage | Nominal Capacitance | (6) Capacitance Tolerance | Specifications and Test Methods (Operating Temp. Range) |
+| - | - | - | - | - | - | - |
+| -15 to 15 % | -15 to 15 % | -55 to 125 °C (25 °C) | DC 16 V | 1 uF | ±10 % | -55 to 125 °C |
+
+## 5.Package
+
+| mark | (8) Packaging | Packaging Unit |
+| - | - | - |
+| D | f180mm Reel PAPER W8P4 | 4000 pcs./Reel |
+| J | f330mm Reel PAPER W8P4 | 10000 pcs./Reel |
+
+Product specifications in this catalog are as of Mar.10,2016,and are subject to change or obsolescence without notice. Please consult the approval sheet before ordering.
+
+Please read rating and !Cautions first.
+
+<!-- figure text (inside pictures: pin names, chart labels) -->
+GRM · (1)L/W Dimensions · R7 · 1C · K · A12 · D
+
+<!-- alternative reading: pypdf — the two text readers disagree on this page; check the PDF -->
+GRM188R71C105KA12_ (0603, X7R:EIA, 1uF, DC16V)
+_: packaging code Reference Sheet
+1.Scope
+　　
+2.MURATA Part NO. System
+(Ex.)
+3. Type & Dimensions
+(Unit:mm)
+4.Rated value
+5.Package
+
+[... excerpt: the rest of page 1 omitted ...]
+Tolerance (8)Packaging Code (7)Murata’s Control 

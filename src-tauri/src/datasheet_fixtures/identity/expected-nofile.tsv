@@ -1,0 +1,13 @@
+bosch-bme280_DS	Bosch Sensortec	text	BME280	text+title+parser	
+infineon-bsc016n06ns_DS_V2.6	Infineon	text	BSC016N06NS	title	parser part "infineon-bsc016n06ns_DS_V2.6" is the file name; treated as the filename witness
+infineon-irlb8721_DS	Infineon	text	IRLB8721	parser	
+jst-ph-connector	JST	text			
+microchip-atmega328p_DS-revA	Microchip Technology	text+parser	ATmega48A|ATmega48PA|ATmega88A|ATmega88PA|ATmega168A|ATmega168PA|ATmega328|ATmega328P	text	parser part "microchip-atmega328p_DS-revA" is the file name; treated as the filename witness
+murata-grm188r71c105ka12-mlcc-spec	Murata	text	GRM188R71C105KA12	text	parts contested: parser=["A12"] vs text=["GRM188R71C105KA12"]
+ti-ads1115_DS	Texas Instruments	text	ADS1113|ADS1114|ADS1115	title+parser	parts contested: parser=["ADS1113"] vs title=["ADS1113","ADS1114","ADS1115"] ¦ maker contested: parser=Analog Devices (part-prefix) vs text=Texas Instruments
+ti-lm358-family_DS	Texas Instruments	text+parser	LM158|LM158A|LM258|LM258A|LM2904|LM2904B|LM2904BA|LM2904V|LM358|LM358A|LM358B|LM358BA	title+parser	parts contested: parser=["LM158"] vs title=["LM158","LM158A","LM258","LM258A","LM2904","LM2904B","LM2904BA","LM2904V","LM358","LM358A","LM358B","LM358BA"]
+ti-opa2134_DS	Texas Instruments	text	OPA134|OPA2134|OPA4134	parser	
+ti-slva477b-appnote	Texas Instruments	text			parser part "ti-slva477b-appnote" is the file name; treated as the filename witness
+ti-tmp117_DS	Texas Instruments	text	TMP117	text+title+parser	
+zilog-z80-cpu-productspec-mar78	Zilog	text	Z80|Z80A	text+parser	
+zilog-z80-ctc-productspec-feb80	Zilog	text			

@@ -1,0 +1,51 @@
+=== PAGE 1 ===
+
+www.ti.com Table of Contents
+
+## Application Note
+
+## Basic Calculation of a Buck Converter's Power Stage
+
+Brigitte Hauke Low Power DC/DC Applications
+
+<!-- image -->
+
+## Abstract
+
+This application report gives the formulas to calculate the power stage of a buck converter built with an integrated circuit having a integrated switch and operating in continuous conduction mode. It is not intended to give details on the functionality of a buck converter or how to compensate a converter. For additional information, see the references at the end of this document.
+
+Appendix A contains the formulas without description.
+
+## Table of Contents
+
+| 1 Basic Configuration of a Buck Converter … 2 |
+| - |
+| 1.1 Necessary Parameters of the Power Stage … 2 |
+| 2 Calculate the Maximum Switch Current … 2 |
+| 3 Inductor Selection … 3 |
+| 4 Rectifier Diode Selection … 4 |
+| 5 Output Voltage Setting … 4 |
+| 6 Input Capacitor Selection … 5 |
+| 7 Output Capacitor Selection … 5 |
+| 8 References … 6 |
+| 9 Revision History … 6 |
+| A Formulas to Calculate the Power State of a Buck Converter … 7 |
+| List of Figures Figure 1-1. Buck Converter Power Stage … 2 |
+| Figure 5-1. Resistive Divider for Setting the Output Voltage … 4 |
+
+
+[... excerpt: the rest of page 1 omitted ...]
+=== PAGE 2 ===
+www.ti.com · Figure 1-1. Buck Converter Power Stage · V IN · V OUT · I IN · I OUT · C IN · C OUT · L · D · SW
+=== PAGE 3 ===
+[www.ti.com](https://www.ti.com/)
+=== PAGE 4 ===
+www.ti.com · Figure 5-1. Resistive Divider for Setting the Output Voltage · R 1 · R 2 · I R1/2 · I FB · V OUT · V FB
+=== PAGE 5 ===
+[www.ti.com](https://www.ti.com/)
+=== PAGE 6 ===
+www.ti.com
+=== PAGE 7 ===
+[www.ti.com](https://www.ti.com/)
+=== PAGE 8 ===
+www.ti.com

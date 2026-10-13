@@ -11,8 +11,7 @@ pub(crate) use crate::pending_upload_paths::{
     validate_pending_upload_path, PendingUploadWriteError,
 };
 pub(crate) use crate::profile_paths::{
-    graphs_dir, jobs_dir, loopback_audit_log_path, loopback_client_tokens_path,
-    loopback_manifest_path, profile_dir,
+    graphs_dir, jobs_dir, loopback_audit_log_path, loopback_manifest_path, profile_dir,
 };
 pub(crate) use crate::semantic_index_paths::{semantic_index_dir, semantic_index_path};
 pub(crate) use crate::ydoc_paths::{

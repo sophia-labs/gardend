@@ -12,6 +12,8 @@ use crate::{
     loopback_navigation_routes::loopback_navigation_router,
     loopback_rdf_routes::loopback_rdf_router, loopback_restore_routes::loopback_restore_router,
     loopback_salience_routes::loopback_salience_router,
+    loopback_self_host::self_host_cors_layer,
+    loopback_self_host_routes::{access_signing_key_middleware, self_host_fallback},
     loopback_service_routes::loopback_service_router, loopback_state::LoopbackState,
     loopback_time_travel_routes::loopback_time_travel_router,
     loopback_wire_routes::loopback_wire_router, runtime_config::LOCAL_UPLOAD_REQUEST_MAX_BYTES,
@@ -69,10 +71,19 @@ pub(super) fn loopback_router(state: Arc<LoopbackState>) -> Router {
     // gateway, which terminates auth and ACLs upstream. The permissive CORS
     // here is acceptable because access control is enforced by the gateway,
     // and the local desktop app reaches the same surface over 127.0.0.1.
-    let cors = loopback_cors_layer();
+    //
+    // Self-host (only while a self-host knob is set; never in hosted cells):
+    // CORS answers only the origins the server accepts anyway (loopback,
+    // Tauri, GARDEN_ALLOWED_ORIGINS / the public base under Cloudflare Access).
+    let cors = if state.self_host.is_active() {
+        self_host_cors_layer(state.self_host.clone(), &EXPOSED_RESPONSE_HEADERS)
+    } else {
+        loopback_cors_layer()
+    };
 
     let activity_state = state.clone();
     let cell_graph_state = state.clone();
+    let access_key_state = state.clone();
     #[cfg(feature = "headless")]
     let capture_identity_state = state.clone();
 
@@ -94,8 +105,17 @@ pub(super) fn loopback_router(state: Arc<LoopbackState>) -> Router {
         .merge(loopback_restore_router())
         .merge(loopback_emporium_router())
         .merge(loopback_service_router())
-        .merge(loopback_mcp_router())
-        .layer(DefaultBodyLimit::max(LOCAL_UPLOAD_REQUEST_MAX_BYTES));
+        .merge(loopback_mcp_router());
+
+    // Self-host: a path no route matches gets `/self-host.json` or the UI
+    // (with the SPA fallback for browser navigations). Without self-host the
+    // router keeps its own empty 404. A fallback never shadows an API route.
+    let router = if state.self_host.is_active() {
+        router.fallback(self_host_fallback)
+    } else {
+        router
+    };
+    let router = router.layer(DefaultBodyLimit::max(LOCAL_UPLOAD_REQUEST_MAX_BYTES));
 
     // Observatory Capture cell spine (Phase 1): normalizes the
     // gateway-forwarded `x-sophia-capture-identity` header into request
@@ -115,6 +135,17 @@ pub(super) fn loopback_router(state: Arc<LoopbackState>) -> Router {
         cell_graph_state,
         cell_graph_boundary_middleware,
     ));
+
+    // Self-host Cloudflare Access: fetch the signing key a request's token
+    // names before any handler verifies it synchronously.
+    let router = if state.self_host.access().is_some() {
+        router.layer(middleware::from_fn_with_state(
+            access_key_state,
+            access_signing_key_middleware,
+        ))
+    } else {
+        router
+    };
 
     // CORS remains outside the activity layer so even a draining response
     // carries the browser-visible cross-origin headers.
