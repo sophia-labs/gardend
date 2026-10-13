@@ -51,18 +51,19 @@ the [releases page](https://github.com/sophia-labs/gardend/releases). Pick the b
 | Linux on a regular PC | `x86_64-unknown-linux-gnu` |
 | Linux on ARM (Raspberry Pi 4 or 5 with a 64-bit system, ARM servers) | `aarch64-unknown-linux-gnu` |
 
-Download it and check that it arrived intact:
+Download it and check that it arrived intact. In the first two lines, put the newest version from the releases page and
+your build from the table:
 
 ```bash
-V=v0.1.2                      # or the newest version on the releases page
-T=aarch64-apple-darwin        # your build from the table
+V=v0.1.2
+T=aarch64-apple-darwin
 cd ~/Downloads
 curl -fLO https://github.com/sophia-labs/gardend/releases/download/$V/gardend-$V-$T.tar.gz
 curl -fLO https://github.com/sophia-labs/gardend/releases/download/$V/SHA256SUMS
-shasum -a 256 -c SHA256SUMS --ignore-missing      # on Linux: sha256sum -c SHA256SUMS --ignore-missing
+shasum -a 256 -c SHA256SUMS --ignore-missing
 ```
 
-The last line should end in `OK`. Now unpack it into your home folder as `~/gardend`, and make the `gardend` command
+On Linux, the last line is `sha256sum -c SHA256SUMS --ignore-missing`. It should print the file name and `OK`. Now unpack it into your home folder as `~/gardend`, and make the `gardend` command
 available everywhere:
 
 ```bash
@@ -95,9 +96,11 @@ ls ~/sophia
 gardend serve --profile ~/sophia
 ```
 
-`ls` should show `README.md` and `graphs`. If your browser already unpacked the download for you, you have a folder named
-`sophia-gardens-<date>` holding those two. Then move that folder into place with
-`mv ~/Downloads/sophia-gardens-2026-10-13 ~/sophia` instead of the `mkdir` and `tar` lines.
+`ls` should show `README.md` and `graphs`.
+
+If your browser already unpacked the download for you, you have a folder named like `sophia-gardens-2026-10-13` that holds
+those two. In that case, replace the first two lines with
+`mv ~/Downloads/sophia-gardens-2026-10-13 ~/sophia && chmod 700 ~/sophia`.
 
 When Sophia is ready, gardend prints:
 
@@ -260,6 +263,7 @@ computer the agent runs on (`T` is the same build name as in step 3):
 ```bash
 V=v0.6.2
 T=aarch64-apple-darwin
+cd ~/Downloads
 curl -fLO https://github.com/sophia-labs/sophia-mcp/releases/download/$V/sophia-mcp-$V-$T.tar.gz
 tar -xzf sophia-mcp-$V-$T.tar.gz
 sudo install -m 0755 sophia-mcp-$V-$T/sophia-mcp /usr/local/bin/sophia-mcp
@@ -292,10 +296,9 @@ sophia-mcp --version
    ```
 
 The Client ID ends in `.access`. Cloudflare checks the token, and gardend reads who is calling from Cloudflare's signed
-pass. While
-`GARDEN_CF_ACCESS_ADMIN_EMAILS` is set, an agent has a member's rights (step 8); without it, an admin's. No Sophia key is
-needed. If you do set `SOPHIA_MCP_TOKEN` as well, gardend goes by that key instead, so it must be one with every right (see
-below).
+pass. While `GARDEN_CF_ACCESS_ADMIN_EMAILS` is set, an agent has a member's rights (step 8); without it, an admin's. No
+Sophia key is needed. If you do set `SOPHIA_MCP_TOKEN` as well, gardend goes by that key instead, so it must be one with
+every right (see below).
 
 - `--cf-access-client-id` and `--cf-access-client-secret` work too, but the settings above keep the secret off the
   computer's process list.
@@ -317,11 +320,16 @@ is the level of access, and `--profile-dir` is the folder.
 
 **Back up** by stopping Sophia, copying the folder, and starting it again. Change the destination to your backup disk.
 
-On a Mac:
+On a Mac, stop Sophia and check that it has stopped:
 
 ```bash
 launchctl bootout gui/$(id -u)/dev.sophia.gardend
 gardend service status
+```
+
+When the status says `not loaded`, copy the folder and start Sophia again:
+
+```bash
 cp -a ~/sophia /Volumes/Backup/sophia-$(date +%F)
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.sophia.gardend.plist
 ```
@@ -334,12 +342,11 @@ cp -a ~/sophia /mnt/backup/sophia-$(date +%F)
 systemctl --user start gardend
 ```
 
-On the Mac, copy only once `gardend service status` says `not loaded`. gardend has no backup command of its own, and a
-copy taken while Sophia runs can catch a file half-written. Restore points are kept inside the same folder, so they are not
+gardend has no backup command of its own, and a copy taken while Sophia runs can catch a file half-written. Restore points are kept inside the same folder, so they are not
 a backup. To restore, stop Sophia, put the copy back at `~/sophia`, and start it.
 
-**Update gardend** by replacing the whole `~/gardend` folder. Make a backup first. Then download and check the new version
-with step 3's first block, with the new number in `V`, and unpack it:
+**Update gardend** by replacing the whole `~/gardend` folder. Make a backup first. Then, in one Terminal window, download
+and check the new version with step 3's first block (with the new number in `V`), and unpack it:
 
 ```bash
 tar -xzf gardend-$V-$T.tar.gz
