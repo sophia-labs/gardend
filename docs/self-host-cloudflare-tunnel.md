@@ -55,7 +55,7 @@ Download it and check that it arrived intact. In the first two lines, put the ne
 your build from the table:
 
 ```bash
-V=v0.1.2
+V=v0.1.3
 T=aarch64-apple-darwin
 cd ~/Downloads
 curl -fLO https://github.com/sophia-labs/gardend/releases/download/$V/gardend-$V-$T.tar.gz
