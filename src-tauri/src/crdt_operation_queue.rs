@@ -411,6 +411,17 @@ impl CrdtOperationQueue {
         inner.responders.contains_key(operation_id)
     }
 
+    /// Whether `operation_id` is being applied again after a failure that
+    /// followed its hot commit: its earlier attempt already wrote, so it meets
+    /// its own effects (a `workspace.createDocument` meets the row it made).
+    /// Only the queue sets this; no payload can claim it.
+    pub(crate) fn is_retry_after_hot_commit(&self, operation_id: &str) -> bool {
+        self.inner
+            .lock()
+            .map(|inner| inner.retry_attempts.contains_key(operation_id))
+            .unwrap_or(false)
+    }
+
     pub(super) fn detach_responder(&self, operation_id: &str) {
         if let Ok(mut inner) = self.inner.lock() {
             inner.responders.remove(operation_id);

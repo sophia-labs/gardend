@@ -120,7 +120,14 @@ pub(super) async fn loopback_refresh_semantic_index(
     if let Err(response) = require_loopback_scope(&headers, &state, "semantic.index.write") {
         return response;
     }
-    loopback_result(refresh_semantic_index(state.app.clone(), input))
+    // The refresh waits on the graph's CRDT flush (`block_on` inside), which
+    // panics on a runtime worker ("Cannot start a runtime from within a
+    // runtime"): run it on a blocking thread, as the job route does.
+    let app = state.app.clone();
+    let outcome = tokio::task::spawn_blocking(move || refresh_semantic_index(app, input))
+        .await
+        .unwrap_or_else(|error| Err(format!("semantic index refresh stopped: {error}")));
+    loopback_result(outcome)
 }
 
 pub(super) async fn loopback_start_semantic_index_refresh(

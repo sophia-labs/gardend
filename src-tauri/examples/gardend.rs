@@ -135,13 +135,21 @@ fn run_command(args: &[String]) -> Option<i32> {
             }
             Some(0)
         }
-        Ok(UpdateOutcome::Installed { latest, path, ui }) => {
+        Ok(UpdateOutcome::Installed {
+            latest,
+            path,
+            ui,
+            services,
+        }) => {
             println!(
                 "gardend updated {current} -> {latest} at {}",
                 path.display()
             );
             if let Some(ui) = ui {
                 println!("the Sophia app beside it is updated too: {}", ui.display());
+            }
+            for service in services {
+                println!("and the service beside it: {}", service.display());
             }
             Some(0)
         }
@@ -633,6 +641,19 @@ fn serve(selfhost: Option<garden_lib::selfhost::ServePlan>) {
         eprintln!("\n{}", plan.ready_banner(interactive));
     }
 
+    // Local services this gardend supervises (Choreograph, when configured).
+    // Never in a hosted cell; nothing configured, nothing started. They are
+    // stopped, with their whole process groups, as soon as shutdown begins.
+    for line in garden_lib::headless::autostart_local_services(app.handle()) {
+        if line.contains(": could not start: ") {
+            // Above all a missing or old Node.js: the person must act on it.
+            log::warn!("local service {line}");
+        } else {
+            log::info!("local service {line}");
+        }
+    }
+    let services_handle = app.handle().clone();
+
     // No GUI event loop in headless mode — park the main thread while the
     // tokio runtime (loopback server, scheduler, queue) does the work.
     let lifecycle_testimony = testimony.clone();
@@ -652,6 +673,7 @@ fn serve(selfhost: Option<garden_lib::selfhost::ServePlan>) {
 
         let Some((profile_dir, durable_dir)) = durable else {
             let reason = wait_for_shutdown(&lifecycle, idle_ttl).await;
+            stop_local_services(services_handle.clone()).await;
             let reason =
                 drain_admitted_work(&lifecycle, &lifecycle_testimony, reason, quiesce_timeout)
                     .await;
@@ -924,6 +946,7 @@ fn serve(selfhost: Option<garden_lib::selfhost::ServePlan>) {
         });
 
         let reason = wait_for_shutdown(&lifecycle, idle_ttl).await;
+        stop_local_services(services_handle.clone()).await;
 
         // U8 write lease (spec §3.5): positive terminal evidence (409
         // lease_lost/lease_forfeit, or the GARDEN_LEASE_FENCED_MAX_MS cap
@@ -1145,6 +1168,17 @@ fn serve(selfhost: Option<garden_lib::selfhost::ServePlan>) {
         log::error!("gardend shutdown failed: {error}");
         std::process::exit(4);
     }
+}
+
+/// Stop the supervised local services first, before the drain and the final
+/// flush: a service's own shutdown may still write to its graphs, and its
+/// open streams (chat events) would otherwise hold the drain open.
+#[cfg(not(feature = "desktop"))]
+async fn stop_local_services(handle: garden_lib::app_runtime::AppHandle) {
+    let _ = garden_lib::headless::async_runtime::spawn_blocking(move || {
+        garden_lib::headless::stop_local_services(&handle)
+    })
+    .await;
 }
 
 #[cfg(not(feature = "desktop"))]

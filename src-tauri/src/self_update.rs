@@ -10,9 +10,11 @@
 //!   and, from 0.1.2 on, the self-host web UI as `ui/` beside it
 //!
 //! The binary is always replaced. A `ui/` folder next to the installed binary
-//! (what `gardend serve` serves) is replaced too when the archive carries one;
-//! with no `ui/` folder there, only the binary changes. Both are unpacked
-//! beside their targets and renamed into place.
+//! (what `gardend serve` serves) is replaced too when the archive carries one,
+//! and so is each `services/<id>/` the archive carries (from 0.1.4 on, the
+//! self-host chat, `services/vehicle/`; services the archive does not carry
+//! are left alone). With no `ui/` folder there, only the binary changes. All
+//! are unpacked beside their targets and renamed into place.
 //!
 //! The newest manifest comes from `{base}/releases/latest/download/release.json`,
 //! assets from `{base}/releases/download/v{version}/…`. No GitHub API.
@@ -42,6 +44,9 @@ const MAX_DOWNLOAD_BYTES: u64 = 1 << 30;
 /// The folder beside the binary, in an install and in a release archive, that
 /// holds the self-host web UI.
 pub const UI_DIR_NAME: &str = "ui";
+/// The folder beside the binary, in an install and in a release archive, that
+/// holds the services gardend supervises (`services/<id>/service.json`).
+pub const SERVICES_DIR_NAME: &str = "services";
 
 /// A release's manifest (`release.json`), also the shape of `gardend --version --json`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -189,6 +194,44 @@ fn find_binary(tarball: &[u8], bin_name: &str) -> Result<(PathBuf, Vec<u8>), Str
 /// carries no such folder. Only plain files and folders are taken, under
 /// plain relative names; a carried UI must hold an `index.html`.
 fn extract_ui(tarball: &[u8], ui_root: &Path, dest: &Path) -> Result<bool, String> {
+    extract_folder(tarball, ui_root, dest, "index.html")
+}
+
+/// The ids of the services the archive carries beside its binary
+/// (`<prefix>/services/<id>/...`).
+fn archive_service_ids(tarball: &[u8], prefix: &Path) -> Result<Vec<String>, String> {
+    let root = prefix.join(SERVICES_DIR_NAME);
+    let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(tarball));
+    let mut ids = std::collections::BTreeSet::new();
+    for entry in archive
+        .entries()
+        .map_err(|e| format!("reading tarball: {e}"))?
+    {
+        let entry = entry.map_err(|e| format!("reading tarball: {e}"))?;
+        let path = entry.path().map_err(|e| e.to_string())?.into_owned();
+        if let Ok(relative) = path.strip_prefix(&root) {
+            if let Some(Component::Normal(id)) = relative.components().next() {
+                let id = id.to_string_lossy();
+                if !id.is_empty()
+                    && id.len() <= 63
+                    && id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+                    && !id.starts_with('-')
+                {
+                    ids.insert(id.into_owned());
+                }
+            }
+        }
+    }
+    Ok(ids.into_iter().collect())
+}
+
+/// [`extract_ui`] for any folder of the archive: `required` must be in it.
+fn extract_folder(
+    tarball: &[u8],
+    ui_root: &Path,
+    dest: &Path,
+    required: &str,
+) -> Result<bool, String> {
     let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(tarball));
     let mut carried = false;
     for entry in archive
@@ -228,9 +271,9 @@ fn extract_ui(tarball: &[u8], ui_root: &Path, dest: &Path) -> Result<bool, Strin
         }
         carried = true;
     }
-    if carried && !dest.join("index.html").is_file() {
+    if carried && !dest.join(required).is_file() {
         return Err(format!(
-            "the release's {} has no index.html: refusing to replace the installed one",
+            "the release's {} has no {required}: refusing to replace the installed one",
             ui_root.display()
         ));
     }
@@ -334,10 +377,10 @@ fn stage_executable(
                 std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o755))
                     .map_err(|e| e.to_string())?;
             }
-            let out = std::process::Command::new(&staged)
-                .args(["--version", "--json"])
-                .output()
-                .map_err(|e| format!("running the downloaded binary: {e}"))?;
+            let out = output_when_not_busy(
+                std::process::Command::new(&staged).args(["--version", "--json"]),
+            )
+            .map_err(|e| format!("running the downloaded binary: {e}"))?;
             let reported: ReleaseManifest = serde_json::from_slice(&out.stdout).map_err(|e| {
                 format!(
                     "downloaded binary's --version --json is not a manifest ({e}): {:?}",
@@ -363,74 +406,171 @@ fn stage_executable(
     }
 }
 
+/// `cmd.output()`, waiting out a moment where its executable is "busy".
+///
+/// Linux refuses to run a file that any process holds open for writing
+/// (ETXTBSY). Our own handle on a staged binary is closed before we run it,
+/// and Rust opens files close-on-exec, but close-on-exec acts only at exec: a
+/// child that another thread forks while we write the file holds a copy of
+/// our handle until that child execs. The window is short, so retry with a
+/// short backoff (about 1.3 s in all) instead of failing the update.
+fn output_when_not_busy(cmd: &mut std::process::Command) -> std::io::Result<std::process::Output> {
+    for pause_ms in [10, 20, 40, 80, 160, 320, 640] {
+        match cmd.output() {
+            Err(e) if e.kind() == std::io::ErrorKind::ExecutableFileBusy => {
+                std::thread::sleep(Duration::from_millis(pause_ms));
+            }
+            done => return done,
+        }
+    }
+    cmd.output()
+}
+
+/// What an update replaced beside the binary.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ReplacedFolders {
+    /// The `ui/` folder, when it was replaced.
+    pub ui: Option<PathBuf>,
+    /// Each `services/<id>/` the archive carried, replaced or added.
+    pub services: Vec<PathBuf>,
+}
+
 /// Install a verified release archive over `exe`. The binary is always
 /// replaced ([`replace_executable`]'s checks). When a `ui/` folder sits next
-/// to the binary and the archive carries one, the UI is replaced with it:
-/// the new UI and binary are first unpacked beside their targets, then renamed
-/// into place (old `ui/` aside, new `ui/` in, binary in), and a failed rename
-/// puts the old ones back. Returns the replaced `ui/`, if any. With no `ui/`
-/// folder next to the binary this is exactly [`replace_executable`].
+/// to the binary and the archive carries one, the UI is replaced with it, and
+/// so is each `services/<id>/` the archive carries (added when missing; a
+/// service the archive does not carry is left alone): everything new is first
+/// unpacked beside its target, then renamed into place (old folders aside, new
+/// ones in, binary in), and a failed rename puts the old ones back. With no
+/// `ui/` folder next to the binary this is exactly [`replace_executable`].
 pub fn install_release(
     exe: &Path,
     tarball: &[u8],
     manifest: &ReleaseManifest,
-) -> Result<Option<PathBuf>, String> {
+) -> Result<ReplacedFolders, String> {
     let exe = std::fs::canonicalize(exe).unwrap_or_else(|_| exe.to_path_buf());
     let (binary_path, bytes) = find_binary(tarball, BIN_NAME)?;
     let Some(ui) = installed_ui_dir(&exe) else {
         replace_executable(&exe, &bytes, manifest)?;
-        return Ok(None);
+        return Ok(ReplacedFolders::default());
     };
     let dir = exe
         .parent()
         .ok_or_else(|| format!("{} has no parent directory", exe.display()))?;
     let pid = std::process::id();
+    let prefix = binary_path
+        .parent()
+        .unwrap_or_else(|| Path::new(""))
+        .to_path_buf();
+    // (installed folder, staged new one, where the old one waits)
+    let mut swaps: Vec<(PathBuf, PathBuf, PathBuf)> = Vec::new();
+    let discard = |swaps: &[(PathBuf, PathBuf, PathBuf)]| {
+        for (_, staged, _) in swaps {
+            let _ = std::fs::remove_dir_all(staged);
+        }
+    };
     let staged_ui = dir.join(format!(".{UI_DIR_NAME}.update-{pid}"));
     let old_ui = dir.join(format!(".{UI_DIR_NAME}.old-{pid}"));
     let _ = std::fs::remove_dir_all(&staged_ui);
     let _ = std::fs::remove_dir_all(&old_ui);
-    let archive_ui = binary_path
-        .parent()
-        .unwrap_or_else(|| Path::new(""))
-        .join(UI_DIR_NAME);
-    match extract_ui(tarball, &archive_ui, &staged_ui) {
-        Ok(true) => {}
+    match extract_ui(tarball, &prefix.join(UI_DIR_NAME), &staged_ui) {
+        Ok(true) => swaps.push((ui.clone(), staged_ui, old_ui)),
         Ok(false) => {
             // An archive without ui/ (before 0.1.2): the binary only, as before.
             let _ = std::fs::remove_dir_all(&staged_ui);
             replace_executable(&exe, &bytes, manifest)?;
-            return Ok(None);
+            return Ok(ReplacedFolders::default());
         }
         Err(error) => {
             let _ = std::fs::remove_dir_all(&staged_ui);
             return Err(error);
+        }
+    }
+    let services = dir.join(SERVICES_DIR_NAME);
+    for id in archive_service_ids(tarball, &prefix)? {
+        let target = services.join(&id);
+        let staged = services.join(format!(".{id}.update-{pid}"));
+        let old = services.join(format!(".{id}.old-{pid}"));
+        let _ = std::fs::remove_dir_all(&staged);
+        let _ = std::fs::remove_dir_all(&old);
+        let carried = std::fs::create_dir_all(&services)
+            .map_err(|e| format!("creating {}: {e}", services.display()))
+            .and_then(|()| {
+                extract_folder(
+                    tarball,
+                    &prefix.join(SERVICES_DIR_NAME).join(&id),
+                    &staged,
+                    "service.json",
+                )
+            });
+        match carried {
+            Ok(true) => swaps.push((target, staged, old)),
+            Ok(false) => {}
+            Err(error) => {
+                let _ = std::fs::remove_dir_all(&staged);
+                discard(&swaps);
+                return Err(error);
+            }
         }
     }
     let staged_bin = match stage_executable(&exe, &bytes, manifest) {
         Ok(staged) => staged,
         Err(error) => {
-            let _ = std::fs::remove_dir_all(&staged_ui);
+            discard(&swaps);
             return Err(error);
         }
     };
-    let abandon = |error: String| {
-        let _ = std::fs::remove_dir_all(&staged_ui);
-        let _ = std::fs::remove_file(&staged_bin);
-        error
+    // Swap the folders in, one by one; on a failure put back what was done.
+    let mut done: Vec<(PathBuf, PathBuf, PathBuf, bool)> = Vec::new();
+    let undo = |done: &[(PathBuf, PathBuf, PathBuf, bool)]| {
+        for (target, staged, old, existed) in done.iter().rev() {
+            let _ = std::fs::rename(target, staged);
+            if *existed {
+                let _ = std::fs::rename(old, target);
+            }
+        }
     };
-    std::fs::rename(&ui, &old_ui)
-        .map_err(|e| abandon(format!("moving {} aside: {e}", ui.display())))?;
-    if let Err(e) = std::fs::rename(&staged_ui, &ui) {
-        let _ = std::fs::rename(&old_ui, &ui);
-        return Err(abandon(format!("replacing {}: {e}", ui.display())));
+    let mut failure = None;
+    for (target, staged, old) in &swaps {
+        let existed = std::fs::symlink_metadata(target).is_ok();
+        if existed {
+            if let Err(e) = std::fs::rename(target, old) {
+                failure = Some(format!("moving {} aside: {e}", target.display()));
+                break;
+            }
+        }
+        if let Err(e) = std::fs::rename(staged, target) {
+            if existed {
+                let _ = std::fs::rename(old, target);
+            }
+            failure = Some(format!("replacing {}: {e}", target.display()));
+            break;
+        }
+        done.push((target.clone(), staged.clone(), old.clone(), existed));
     }
-    if let Err(e) = std::fs::rename(&staged_bin, &exe) {
-        let _ = std::fs::rename(&ui, &staged_ui);
-        let _ = std::fs::rename(&old_ui, &ui);
-        return Err(abandon(format!("replacing {}: {e}", exe.display())));
+    if failure.is_none() {
+        if let Err(e) = std::fs::rename(&staged_bin, &exe) {
+            failure = Some(format!("replacing {}: {e}", exe.display()));
+        }
     }
-    let _ = std::fs::remove_dir_all(&old_ui);
-    Ok(Some(ui))
+    if let Some(error) = failure {
+        undo(&done);
+        discard(&swaps);
+        let _ = std::fs::remove_file(&staged_bin);
+        return Err(error);
+    }
+    for (_, _, old) in &swaps {
+        let _ = std::fs::remove_dir_all(old);
+    }
+    let mut replaced = ReplacedFolders::default();
+    for (target, _, _) in swaps {
+        if target == ui {
+            replaced.ui = Some(target);
+        } else {
+            replaced.services.push(target);
+        }
+    }
+    Ok(replaced)
 }
 
 // ------------------------------------------------------------- serving gate
@@ -525,6 +665,8 @@ pub enum UpdateOutcome {
         path: PathBuf,
         /// The `ui/` folder next to the binary, when it was replaced too.
         ui: Option<PathBuf>,
+        /// The `services/<id>/` folders replaced (or added) beside it.
+        services: Vec<PathBuf>,
     },
 }
 
@@ -560,11 +702,12 @@ pub fn run_update(
     }
     let target = current_target().ok_or("no gardend release builds for this platform")?;
     let tarball = download_verified_archive(base, &manifest, target)?;
-    let ui = install_release(exe, &tarball, &manifest)?;
+    let replaced = install_release(exe, &tarball, &manifest)?;
     Ok(UpdateOutcome::Installed {
         latest: manifest.version,
         path: exe.to_path_buf(),
-        ui,
+        ui: replaced.ui,
+        services: replaced.services,
     })
 }
 
@@ -705,6 +848,26 @@ mod tests {
         reports_format: u32,
         ui: &[(&str, &str)],
     ) {
+        let files: Vec<(String, &str)> = ui
+            .iter()
+            .map(|(name, contents)| (format!("ui/{name}"), *contents))
+            .collect();
+        let files: Vec<(&str, &str)> = files
+            .iter()
+            .map(|(name, contents)| (name.as_str(), *contents))
+            .collect();
+        publish_files(root, version, declared_format, reports_format, &files);
+    }
+
+    /// [`publish`], with `files` (path beside the binary, contents) in the
+    /// archive: `ui/...`, `services/<id>/...`.
+    fn publish_files(
+        root: &Path,
+        version: &str,
+        declared_format: Option<u32>,
+        reports_format: u32,
+        files: &[(&str, &str)],
+    ) {
         let target = current_target().unwrap();
         let asset = format!("gardend-v{version}-{target}.tar.gz");
         let script = format!(
@@ -724,14 +887,14 @@ mod tests {
             script.as_bytes(),
         )
         .unwrap();
-        for (name, contents) in ui {
+        for (name, contents) in files {
             let mut header = tar::Header::new_gnu();
             header.set_size(contents.len() as u64);
             header.set_mode(0o644);
             header.set_cksum();
             tar.append_data(
                 &mut header,
-                format!("gardend-v{version}-{target}/ui/{name}"),
+                format!("gardend-v{version}-{target}/{name}"),
                 contents.as_bytes(),
             )
             .unwrap();
@@ -786,6 +949,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn check_then_install_from_a_real_local_release() {
+        let _standins = standins();
         let root = tempdir("rel");
         publish(&root, "9.9.9", Some(STORAGE_FORMAT), STORAGE_FORMAT);
         let base = serve(root);
@@ -828,7 +992,20 @@ mod tests {
         }
     }
 
+    /// Tests here run stand-ins named `gardend`, which the serving gate's
+    /// `pgrep -x gardend` takes for another gardend: the test that goes
+    /// through the gate holds this, and every run of a stand-in takes it, so
+    /// tests running side by side never trip the gate for each other.
+    static GARDEND_STANDINS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn standins() -> std::sync::MutexGuard<'static, ()> {
+        GARDEND_STANDINS
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     fn reports_version(exe: &Path, version: &str) -> bool {
+        let _standins = standins();
         let out = std::process::Command::new(exe).output().unwrap();
         String::from_utf8_lossy(&out.stdout).contains(&format!("\"version\":\"{version}\""))
     }
@@ -873,10 +1050,11 @@ mod tests {
         let manifest = fetch_latest(&base, Duration::from_secs(5)).unwrap();
         let tarball =
             download_verified_archive(&base, &manifest, current_target().unwrap()).unwrap();
-        let ui = install_release(&exe, &tarball, &manifest).unwrap();
+        let replaced = install_release(&exe, &tarball, &manifest).unwrap();
 
         let real = std::fs::canonicalize(&dir).unwrap();
-        assert_eq!(ui, Some(real.join("ui")));
+        assert_eq!(replaced.ui, Some(real.join("ui")));
+        assert!(replaced.services.is_empty());
         assert!(reports_version(&exe, "9.9.9"));
         assert_eq!(
             std::fs::read_to_string(dir.join("ui/index.html")).unwrap(),
@@ -888,6 +1066,96 @@ mod tests {
             "the old UI is gone, not merged"
         );
         assert_eq!(names(&dir), ["gardend", "ui"], "no staging debris");
+    }
+
+    /// From 0.1.4 the archive carries `services/vehicle/` (the self-host
+    /// chat): an update replaces each service the archive carries, adds one
+    /// the install lacks, and leaves the person's own services alone. A
+    /// carried service without its `service.json` changes nothing at all.
+    #[cfg(unix)]
+    #[test]
+    fn update_refreshes_the_services_the_archive_carries() {
+        let root = tempdir("rel-svc");
+        publish_files(
+            &root,
+            "9.9.9",
+            Some(STORAGE_FORMAT),
+            STORAGE_FORMAT,
+            &[
+                ("ui/index.html", "<title>new</title>"),
+                ("services/vehicle/service.json", "{\"v\":2}"),
+                ("services/vehicle/app/main.mjs", "new()"),
+                ("services/tools/service.json", "{}"),
+            ],
+        );
+        let base = serve(root);
+        let manifest = fetch_latest(&base, Duration::from_secs(5)).unwrap();
+        let target = current_target().unwrap();
+        let tarball = download_verified_archive(&base, &manifest, target).unwrap();
+
+        let dir = tempdir("inst-svc");
+        let exe = installed(&dir);
+        ui_at(&dir, &[("index.html", "<title>old</title>")]);
+        for (path, contents) in [
+            ("services/vehicle/service.json", "{\"v\":1}"),
+            ("services/vehicle/app/dist/main.js", "old()"),
+            ("services/mine/service.json", "{\"mine\":true}"),
+        ] {
+            let path = dir.join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, contents).unwrap();
+        }
+        let replaced = install_release(&exe, &tarball, &manifest).unwrap();
+        let real = std::fs::canonicalize(&dir).unwrap();
+        assert_eq!(replaced.ui, Some(real.join("ui")));
+        assert_eq!(
+            replaced.services,
+            vec![real.join("services/tools"), real.join("services/vehicle")]
+        );
+        assert!(reports_version(&exe, "9.9.9"));
+        assert_eq!(
+            std::fs::read_to_string(dir.join("services/vehicle/service.json")).unwrap(),
+            "{\"v\":2}"
+        );
+        assert!(dir.join("services/vehicle/app/main.mjs").is_file());
+        assert!(
+            !dir.join("services/vehicle/app/dist").exists(),
+            "the old service is gone, not merged"
+        );
+        assert!(dir.join("services/tools/service.json").is_file(), "added");
+        assert_eq!(
+            std::fs::read_to_string(dir.join("services/mine/service.json")).unwrap(),
+            "{\"mine\":true}",
+            "a service the archive does not carry is left alone"
+        );
+        assert_eq!(names(&dir), ["gardend", "services", "ui"], "no staging debris");
+        assert_eq!(names(&dir.join("services")), ["mine", "tools", "vehicle"]);
+
+        let broken_root = tempdir("rel-svc-broken");
+        publish_files(
+            &broken_root,
+            "9.9.9",
+            Some(STORAGE_FORMAT),
+            STORAGE_FORMAT,
+            &[
+                ("ui/index.html", "<title>new</title>"),
+                ("services/vehicle/app/main.mjs", "no manifest"),
+            ],
+        );
+        let broken_base = serve(broken_root);
+        let broken = download_verified_archive(&broken_base, &manifest, target).unwrap();
+        let dir = tempdir("inst-svc-broken");
+        let exe = installed(&dir);
+        ui_at(&dir, &[("index.html", "<title>old</title>")]);
+        let err = install_release(&exe, &broken, &manifest).unwrap_err();
+        assert!(err.contains("no service.json"), "{err}");
+        assert_eq!(std::fs::read_to_string(&exe).unwrap(), "#!/bin/sh\necho old\n");
+        assert_eq!(
+            std::fs::read_to_string(dir.join("ui/index.html")).unwrap(),
+            "<title>old</title>"
+        );
+        assert_eq!(names(&dir), ["gardend", "services", "ui"]);
+        assert!(names(&dir.join("services")).is_empty(), "no staging debris");
     }
 
     /// Without a `ui/` folder next to the binary, an update is what it always
@@ -912,7 +1180,10 @@ mod tests {
 
         let dir = tempdir("inst-noui");
         let exe = installed(&dir);
-        assert_eq!(install_release(&exe, &carrying, &manifest).unwrap(), None);
+        assert_eq!(
+            install_release(&exe, &carrying, &manifest).unwrap(),
+            ReplacedFolders::default()
+        );
         assert!(reports_version(&exe, "9.9.9"));
         assert_eq!(names(&dir), ["gardend"]);
 
@@ -923,7 +1194,10 @@ mod tests {
         let dir = tempdir("inst-keepui");
         let exe = installed(&dir);
         ui_at(&dir, &[("index.html", "old")]);
-        assert_eq!(install_release(&exe, &bare, &manifest).unwrap(), None);
+        assert_eq!(
+            install_release(&exe, &bare, &manifest).unwrap(),
+            ReplacedFolders::default()
+        );
         assert!(reports_version(&exe, "9.9.9"));
         assert_eq!(
             std::fs::read_to_string(dir.join("ui/index.html")).unwrap(),
@@ -1008,6 +1282,36 @@ mod tests {
             "#!/bin/sh\necho old\n"
         );
         assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+    }
+
+    /// Linux will not run a file that a process holds open for writing
+    /// (ETXTBSY), and a child forked by another thread holds a copy of the
+    /// handle a staged binary was written through until that child execs.
+    /// The staged binary's check waits such a moment out.
+    #[cfg(unix)]
+    #[test]
+    fn a_briefly_busy_executable_runs_once_its_writer_lets_go() {
+        use std::os::unix::fs::PermissionsExt;
+        let tool = tempdir("busy").join("busy-tool");
+        std::fs::write(&tool, "#!/bin/sh\necho ran\n").unwrap();
+        std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).unwrap();
+        // The handle a forked child would hold, let go of after 100 ms.
+        let writer = std::fs::OpenOptions::new().write(true).open(&tool).unwrap();
+        let busy = std::process::Command::new(&tool).output();
+        if cfg!(target_os = "linux") {
+            assert_eq!(
+                busy.unwrap_err().kind(),
+                std::io::ErrorKind::ExecutableFileBusy,
+                "the case under test: a file open for writing does not run"
+            );
+        }
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(100));
+            drop(writer);
+        });
+        let out = output_when_not_busy(&mut std::process::Command::new(&tool)).unwrap();
+        release.join().unwrap();
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "ran\n");
     }
 
     #[cfg(unix)]

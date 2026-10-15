@@ -2,7 +2,12 @@ use crate::app_runtime::AppHandle;
 use crate::{
     crdt_operation_types::{CrdtOperation, EnqueuedCrdtOutcome},
     loopback_audit_log::{append_loopback_audit_event, LoopbackAuditEvent},
+    request_actor::{current_request_actor, RequestActor},
 };
+
+/// The audit actor when no request named one (a hosted cell, an internal
+/// write, the desktop app).
+const RUNTIME_ACTOR: &str = "local-runtime";
 
 pub(crate) fn audit_crdt_operation(
     app: &AppHandle,
@@ -13,7 +18,12 @@ pub(crate) fn audit_crdt_operation(
         Ok(_) => ("succeeded", None),
         Err(error) => ("failed", Some(error.as_str())),
     };
-    let event = crdt_operation_audit_event(operation, outcome_label, error);
+    let event = crdt_operation_audit_event(
+        operation,
+        outcome_label,
+        error,
+        current_request_actor().as_ref(),
+    );
     if let Err(error) = append_loopback_audit_event(app, &event) {
         log::debug!(
             "failed to append CRDT audit event for {}: {error}",
@@ -22,10 +32,14 @@ pub(crate) fn audit_crdt_operation(
     }
 }
 
+/// One audit row per CRDT operation. `actor` is who the request that asked for
+/// it acts for (`request_actor`), and `details.via` the service acting for
+/// them, if any.
 fn crdt_operation_audit_event(
     operation: &CrdtOperation,
     outcome: &str,
     error: Option<&str>,
+    actor: Option<&RequestActor>,
 ) -> LoopbackAuditEvent {
     let mut details = serde_json::json!({
         "operationId": &operation.operation_id,
@@ -37,10 +51,13 @@ fn crdt_operation_audit_event(
     if let Some(error) = error {
         details["error"] = serde_json::Value::String(error.to_string());
     }
+    if let Some(via) = actor.and_then(|actor| actor.via.as_deref()) {
+        details["via"] = serde_json::Value::String(via.to_string());
+    }
     LoopbackAuditEvent::new(
         "crdt.operation",
         &operation.kind,
-        "local-runtime",
+        actor.map_or(RUNTIME_ACTOR, |actor| actor.user_id.as_str()),
         outcome,
         Some(operation.operation_id.clone()),
         details,
@@ -102,10 +119,12 @@ mod tests {
             enqueue_timestamp: "0".to_string(),
         };
 
-        let event = crdt_operation_audit_event(&operation, "succeeded", None);
+        let event = crdt_operation_audit_event(&operation, "succeeded", None, None);
         let event_json = serde_json::to_value(&event).expect("event json");
 
         assert_eq!(event_json["category"], "crdt.operation");
+        assert_eq!(event_json["actor"], "local-runtime");
+        assert!(event_json["details"].get("via").is_none());
         assert_eq!(event_json["action"], "document.write");
         assert_eq!(event_json["targetId"], "op-1");
         assert_eq!(event_json["details"]["payload"]["keyCount"], 3);
@@ -130,10 +149,20 @@ mod tests {
             enqueue_timestamp: "0".to_string(),
         };
 
-        let event = crdt_operation_audit_event(&operation, "failed", Some("boom"));
+        let event = crdt_operation_audit_event(
+            &operation,
+            "failed",
+            Some("boom"),
+            Some(&RequestActor {
+                user_id: "token:t-1".into(),
+                via: Some("service:vehicle".into()),
+            }),
+        );
         let event_json = serde_json::to_value(&event).expect("event json");
 
         assert_eq!(event_json["outcome"], "failed");
+        assert_eq!(event_json["actor"], "token:t-1");
+        assert_eq!(event_json["details"]["via"], "service:vehicle");
         assert_eq!(event_json["details"]["error"], "boom");
         assert_eq!(event_json["details"]["payload"]["itemCount"], 2);
         assert!(!event.to_json_line().contains("block-1"));

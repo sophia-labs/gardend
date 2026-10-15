@@ -1,0 +1,5 @@
+{
+	"name": "@sophia-labs/choreograph-service",
+	"private": true,
+	"type": "module"
+}

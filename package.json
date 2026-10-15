@@ -1,6 +1,6 @@
 {
   "name": "garden",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Garden — local-first native knowledge-graph desktop",
   "private": true,
   "license": "SEE LICENSE IN LICENSE",

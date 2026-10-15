@@ -39,12 +39,25 @@ pub(crate) const CRDT_OPERATION_STILL_QUEUED_ERROR: &str = "CRDT operation timed
 /// destructive workspace operations use it to finish an already-applied hot
 /// mutation without weakening fresh not-found behavior.
 pub(crate) const RECOVERED_OPERATION_PAYLOAD_KEY: &str = "__gardenRecoveredOperation";
+/// Server-only: a `document.write` that may bring a deleted (tombstoned)
+/// document back. Only a trusted internal recreation sets it, through
+/// [`enqueue_crdt_operation_trusted_recreation`] (the source ledger's
+/// `documentLifecycle recreate`, which checks the deletion boundary first).
+/// Every enqueue strips it from the caller's payload before anything else, so
+/// no MCP, REST or source_push caller can claim it; it is journaled, so a
+/// recovered recreation keeps it. Without it `document.write` refuses a
+/// tombstoned id (2026-10-14: it used to resurrect the document with the
+/// caller's content).
+pub(crate) const TRUSTED_RECREATION_PAYLOAD_KEY: &str = "__gardenTrustedRecreation";
 
 #[cfg(not(feature = "frontend-crdt"))]
 fn operation_kind_uses_recovery_provenance(kind: &str) -> bool {
     matches!(
         kind,
         "crdt.flush"
+            // A recovered create may meet the row its first attempt wrote
+            // before the crash (`workspace_ops::refuse_document_takeover`).
+            | "workspace.createDocument"
             | "workspace.deleteFolder"
             | "workspace.deleteArtifact"
             | "workspace.deleteWire"
@@ -484,7 +497,7 @@ pub(crate) async fn enqueue_crdt_operation_outcome(
     app: AppHandle,
     input: EnqueueCrdtOperationInput,
 ) -> Result<EnqueuedCrdtOutcome, String> {
-    enqueue_crdt_operation_outcome_inner(app, input, None).await
+    enqueue_crdt_operation_outcome_inner(app, input, None, false).await
 }
 
 pub(crate) async fn enqueue_crdt_operation_outcome_marked(
@@ -492,13 +505,32 @@ pub(crate) async fn enqueue_crdt_operation_outcome_marked(
     input: EnqueueCrdtOperationInput,
     queued: Arc<AtomicBool>,
 ) -> Result<EnqueuedCrdtOutcome, String> {
-    enqueue_crdt_operation_outcome_inner(app, input, Some(queued)).await
+    enqueue_crdt_operation_outcome_inner(app, input, Some(queued), false).await
+}
+
+/// A `document.write` that may recreate a deleted document under its old id
+/// ([`TRUSTED_RECREATION_PAYLOAD_KEY`]). For trusted internal recreation only:
+/// the caller must already have decided that this id may come back.
+pub(crate) async fn enqueue_crdt_operation_trusted_recreation(
+    app: AppHandle,
+    input: EnqueueCrdtOperationInput,
+) -> Result<serde_json::Value, String> {
+    if input.kind != "document.write" {
+        return Err(format!(
+            "trusted recreation is a document.write, not {}",
+            input.kind
+        ));
+    }
+    enqueue_crdt_operation_outcome_inner(app, input, None, true)
+        .await
+        .map(|outcome| outcome.value)
 }
 
 async fn enqueue_crdt_operation_outcome_inner(
     app: AppHandle,
     mut input: EnqueueCrdtOperationInput,
     queued: Option<Arc<AtomicBool>>,
+    trusted_recreation: bool,
 ) -> Result<EnqueuedCrdtOutcome, String> {
     if input.kind.trim().is_empty() {
         return Err("CRDT operation kind is required".to_string());
@@ -521,7 +553,17 @@ async fn enqueue_crdt_operation_outcome_inner(
     }
     if let Some(payload) = input.payload.as_object_mut() {
         payload.remove(RECOVERED_OPERATION_PAYLOAD_KEY);
+        payload.remove(TRUSTED_RECREATION_PAYLOAD_KEY);
+        if trusted_recreation {
+            payload.insert(
+                TRUSTED_RECREATION_PAYLOAD_KEY.to_string(),
+                serde_json::Value::Bool(true),
+            );
+        }
     }
+    // Comments are signed by the principal this request acts for, never by
+    // the caller's say-so (2026-10-14).
+    crate::comment_authorship::stamp_comment_author(&app, &input.kind, &mut input.payload);
     let enqueue_lease =
         match app
             .try_state::<crate::crdt_engine::persistence_coordinator::GraphPersistenceCoordinator>()

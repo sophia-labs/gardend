@@ -206,6 +206,43 @@ gardend service uninstall
 - `status` exits 0 when the service runs, 3 when it does not. `uninstall` stops
   and removes the service and leaves the profile alone.
 
+### `gardend load`
+
+```sh
+gardend load --graph <id> [--profile <dir>] [--format nt|nq|ttl|trig]
+             [--into <graph-iri>] [--threads <n>] [--max-memory-mb <n>] <file|->
+```
+
+Streams an RDF file into one graph through Oxigraph's bulk loader, for data
+the HTTP import cannot take (`rdf_load` and `POST /graphs/{id}/imports/rdf`
+hold the whole body in memory and write it in one transaction, at most
+500 MiB; they are unchanged). The file is read as a stream, gzip included
+(`.gz`); the format comes from the name or `--format`; `-` reads standard
+input and needs `--format`.
+
+- **Where quads go.** Triples (N-Triples, Turtle) go to the graph's
+  `user:rdf` named graph, or `--into <iri>`. Quads (N-Quads, TriG) go to their
+  own named graphs; default-graph quads go to `user:rdf` (or `--into`). A quad
+  naming one of the graph's reserved projection graphs (or the profile's)
+  refuses the whole load, as the dataset import does.
+- **Atomic.** The bulk loader sorts the quads into RocksDB files and ingests
+  them once, on commit: a parse error or a refused graph halfway through
+  loads nothing.
+- **Not while served.** It refuses a profile a gardend is serving (and the
+  store's own lock refuses a second process anyway): the store takes one
+  writer, and nobody reads a half-loaded graph. Stop gardend, load, start it.
+  Loading into a fresh store and swapping it in was the alternative; it would
+  have to copy the graph's document projections into the new store first, and
+  stopping costs less.
+- **The graph must exist** (`create_graph`, or the app); the load touches its
+  `graph.json` so the graph shows as updated. Nothing else needs rebuilding:
+  the semantic index embeds documents, not RDF, and SPARQL reads the store.
+- Progress goes to standard error every 5 s; at the end, the quads per named
+  graph. Loading the same file twice adds nothing (quads are a set).
+- `--threads` (default up to 4) and `--max-memory-mb` bound the loader.
+
+Never in a hosted cell: it is a CLI verb on a profile folder.
+
 ## Cell runtime knobs (env)
 
 | Var | Meaning |

@@ -36,6 +36,9 @@ mod cell_registry_authority;
 mod chat_persistence;
 pub mod conversation_archive;
 mod clock;
+mod comment_authorship;
+#[cfg(test)]
+mod integrity_mcp_tests;
 pub mod crdt_engine;
 mod crdt_operation_audit;
 mod crdt_operation_journal;
@@ -89,6 +92,7 @@ mod document_types;
 mod document_ydoc_projection;
 mod emporium;
 mod emporium_mcp_surface;
+mod file_search;
 mod files_service;
 mod flow_board;
 mod flow_board_mcp;
@@ -237,6 +241,7 @@ mod mcp_rpc_protocol;
 mod mcp_search_service;
 mod mcp_tool_dispatch;
 mod mcp_tool_registry;
+mod service_mcp;
 mod mcp_utils;
 mod mcp_wire_payloads;
 mod mcp_wire_read_service;
@@ -313,6 +318,8 @@ mod rdf_wire_materializer;
 mod rdf_workspace_entity_triples;
 mod rdf_workspace_materializer;
 mod rdf_workspace_store_materializer;
+mod public_mode;
+mod request_actor;
 mod rdf_workspace_terms;
 mod rdf_workspace_values;
 mod restore_guard;
@@ -361,6 +368,8 @@ mod semantic_search_service;
 mod semantic_service;
 mod source_sync;
 mod source_pull_budget;
+#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
+mod source_pull_tree_tests;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod block_contract_store_tests;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
@@ -498,6 +507,35 @@ pub mod headless {
     /// setup returns before that asynchronous headless bootstrap completes.
     pub async fn wait_until_ready(handle: &crate::app_runtime::AppHandle) -> Result<(), String> {
         crate::tauri_runtime::wait_for_headless_readiness(handle).await
+    }
+
+    /// Start the local services this gardend is configured to supervise
+    /// (`GARDEN_<ID>_MANIFEST`, `GARDEN_SERVICES_DIR`, or `services/<id>/`
+    /// beside the binary: Choreograph today). Never in a hosted cell; with
+    /// nothing configured it does nothing.
+    /// Returns one line per service for the log. Call once the API is ready.
+    pub fn autostart_local_services(handle: &crate::app_runtime::AppHandle) -> Vec<String> {
+        let Some(state) = handle.try_state::<std::sync::Arc<crate::loopback_state::LoopbackState>>()
+        else {
+            return Vec::new();
+        };
+        let state = state.inner().clone();
+        crate::local_service_host::autostart_local_services(
+            &state.services,
+            &state.app,
+            &state.manifest,
+            state.cell_graph.is_enabled(),
+        )
+    }
+
+    /// Stop every supervised local service and its whole process group, and
+    /// start none again: gardend's exit path. Blocks up to the stop grace.
+    pub fn stop_local_services(handle: &crate::app_runtime::AppHandle) {
+        if let Some(state) =
+            handle.try_state::<std::sync::Arc<crate::loopback_state::LoopbackState>>()
+        {
+            state.inner().services.shutdown();
+        }
     }
 
     /// Warm-open this cell's own graph store so the process-wide store cache

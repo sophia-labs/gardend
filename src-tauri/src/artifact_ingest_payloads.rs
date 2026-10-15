@@ -86,10 +86,15 @@ pub(super) fn artifact_ingested_payload(
         "status": if mark_artifact_ingested {
             serde_json::Value::String("ingested".to_string())
         } else {
-            artifact
-                .get("status")
-                .cloned()
-                .unwrap_or_else(|| serde_json::Value::String("ready".to_string()))
+            // A failed ingest said "error" (record_ingest_failure); this one
+            // landed.
+            match artifact.get("status") {
+                None | Some(serde_json::Value::Null) => serde_json::Value::String("ready".to_string()),
+                Some(serde_json::Value::String(status)) if status == "error" => {
+                    serde_json::Value::String("ready".to_string())
+                }
+                Some(status) => status.clone(),
+            }
         },
         "storageKey": json_string(artifact.get("storageKey")),
         "originalFilename": manifest.filename,

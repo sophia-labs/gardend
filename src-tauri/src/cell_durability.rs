@@ -367,6 +367,7 @@ fn mark_registered_stores_written(origin: DirtyOrigin, crdt_kind: Option<KnownCr
 /// acquired before the epoch is allocated.
 #[track_caller]
 pub(crate) fn mark_rdf_store_written(store: &oxigraph::store::Store) {
+    crate::rdf_store_service::forget_quad_count(store);
     let trace = tracing_enabled();
     let origin = if trace {
         origin_from_location(std::panic::Location::caller())

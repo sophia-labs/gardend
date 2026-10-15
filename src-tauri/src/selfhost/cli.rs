@@ -2,6 +2,8 @@
 //! `None` for anything that is not one of them, so plain `gardend` (and the
 //! older `--version` / `--check-update` / `update`) keeps its old path.
 
+use super::chat;
+use super::load::{self, LoadArgs};
 use super::service::{self, ServiceArgs};
 use super::tokens::{self, TokenCreateArgs, GRANT_PROFILES};
 use super::{
@@ -21,6 +23,8 @@ pub struct ServeArgs {
 pub enum Command {
     Help(Option<String>),
     Serve(ServeArgs),
+    /// `gardend load`: stream an RDF file into a graph (bulk loader).
+    Load(LoadArgs),
     Url(ServeArgs),
     TokenCreate(TokenCreateArgs),
     TokenList { profile_dir: Option<String>, json: bool },
@@ -28,6 +32,31 @@ pub enum Command {
     ServiceInstall(ServiceArgs),
     ServiceUninstall,
     ServiceStatus,
+    /// `gardend chat key set`: the model key from standard input.
+    ChatKeySet { profile_dir: Option<String> },
+    ChatKeyClear { profile_dir: Option<String> },
+    /// `gardend service env set NAME`: the value from standard input.
+    ServiceEnvSet {
+        name: String,
+        service: Option<String>,
+        profile_dir: Option<String>,
+    },
+    ServiceEnvUnset {
+        name: String,
+        service: Option<String>,
+        profile_dir: Option<String>,
+    },
+    ServiceEnvList {
+        service: Option<String>,
+        profile_dir: Option<String>,
+    },
+    /// `gardend service enable|disable <id>`: whether gardend starts that
+    /// service when it boots, for this profile.
+    ServiceEnable {
+        service: String,
+        enabled: bool,
+        profile_dir: Option<String>,
+    },
 }
 
 const HELP: &str = "\
@@ -47,6 +76,17 @@ gardend: the Sophia engine. Run your own Sophia with it.
   gardend service uninstall | status
       Keep `gardend serve` running in the background (launchd on macOS,
       systemd --user on Linux).
+  gardend service env set | unset <NAME> | list [--service <id>] [--profile <dir>]
+      Settings and keys for the local services gardend runs (values read
+      from standard input, kept in the profile, owner-only).
+  gardend service enable | disable <id> [--profile <dir>]
+      Start a local service with gardend, or not (Sophia Compute,
+      `choreograph`, is off until you enable it).
+  gardend chat key set | clear [--profile <dir>]
+      The OpenRouter key chat uses (`service env set OPENROUTER_API_KEY`).
+  gardend load --graph <id> [--profile <dir>] [--format nt|nq|ttl|trig] <file|->
+      Stream a large RDF file (gzip too) into a graph, while no gardend
+      serves the profile.
   gardend --version [--json] | --check-update | update
 
 The profile directory is --profile (--profile-dir for `token`), else
@@ -108,6 +148,11 @@ const SERVICE_HELP: &str = "\
 gardend service install [--profile <dir>] [--port <n>] [--print]
 gardend service uninstall
 gardend service status
+gardend service env set <NAME> [--service <id>] [--profile <dir>]
+gardend service env unset <NAME> [--service <id>] [--profile <dir>]
+gardend service env list [--service <id>] [--profile <dir>]
+gardend service enable <id> [--profile <dir>]
+gardend service disable <id> [--profile <dir>]
 
 install writes and starts a user service running
 `gardend serve --profile <dir> --port <n>` at login:
@@ -115,11 +160,76 @@ install writes and starts a user service running
          logs in ~/Library/Logs/Sophia/gardend.log
   Linux  ~/.config/systemd/user/gardend.service,
          logs in the journal: journalctl --user -u gardend -f
-It copies GARDEN_UI_DIR, GARDEN_CF_ACCESS_*, GARDEN_ALLOWED_ORIGINS,
-GARDEN_PUBLIC_BASE_URL, GARDEN_LOOPBACK_HOST, GARDEN_NO_UPDATE_CHECK, RUST_LOG
-and PATH from your shell into the service. --print shows the file and changes
-nothing. uninstall stops and removes the service and keeps the profile.
+It copies GARDEN_UI_DIR, GARDEN_SERVICES_DIR, GARDEN_CHOREOGRAPH_*,
+GARDEN_CF_ACCESS_*, GARDEN_ALLOWED_ORIGINS, GARDEN_PUBLIC_BASE_URL,
+GARDEN_LOOPBACK_HOST, GARDEN_NO_UPDATE_CHECK, RUST_LOG and PATH from your
+shell into the service.
+--print shows the file and changes nothing. uninstall stops and removes the
+service and keeps the profile. Linux needs systemd running (on WSL2:
+`[boot]` `systemd=true` in /etc/wsl.conf); without it, run `gardend serve`.
 Windows: not yet; run `gardend serve` yourself.
+
+env: settings for the local services gardend supervises (Choreograph, and
+any services/<id>/ beside gardend or in GARDEN_SERVICES_DIR), such as model
+keys a shipped service.json cannot hold. The value is read from standard
+input (`gardend service env set ANTHROPIC_API_KEY < key.txt`, or paste it
+when asked), never from the command line. Without --service it reaches every
+service (<profile>/services.env); with --service <id>, that one
+(<profile>/services/<id>.env, over the shared one). Owner-only. When a
+gardend serves the profile, the running services it reaches restart to use
+it. list shows names, never values.
+
+enable / disable: whether gardend starts a local service when it boots, for
+this profile (<profile>/services/<id>.autostart, over the service's own
+default). Chat (`vehicle`) starts by default; Sophia Compute
+(`choreograph`, workflows) does not:
+
+  gardend service enable choreograph
+
+When a gardend serves the profile, enable starts the service now and disable
+stops it. GARDEN_<ID>_AUTOSTART=0 in gardend's environment keeps a service
+off whatever the profile says. A workflow run through gardend's MCP
+(`workflow_run_start`) still starts Sophia Compute when it is needed.
+";
+
+const CHAT_HELP: &str = "\
+gardend chat key set [--profile <dir>]
+gardend chat key clear [--profile <dir>]
+
+Chat (services/vehicle/ next to gardend) and Sophia Compute
+(services/choreograph/, workflows) are local services gardend starts and
+supervises. Their models come through OpenRouter, with your own key:
+
+  gardend chat key set < key.txt      or paste it when asked
+
+keeps it in <profile>/services.env (owner-only) and gives it to every local
+service as OPENROUTER_API_KEY (`gardend service env set OPENROUTER_API_KEY`).
+When a gardend serves the profile, chat restarts at once to use it. clear
+removes it.
+";
+
+const LOAD_HELP: &str = "\
+gardend load --graph <id> [--profile <dir>] [--format nt|nq|ttl|trig]
+             [--into <graph-iri>] [--threads <n>] [--max-memory-mb <n>] <file|->
+
+Streams an RDF file into one graph through Oxigraph's bulk loader: a
+statistical cube of tens of millions of quads, which the HTTP import (one
+transaction, in memory, at most 500 MiB) cannot take. The file is read as a
+stream; a name ending in .gz is decompressed on the way. The format comes from
+the name (.nt, .nq, .ttl, .trig) or --format; standard input (-) needs
+--format.
+
+  N-Triples, Turtle    into the graph's user:rdf named graph, or --into <iri>
+  N-Quads, TriG        each quad into its own named graph; default-graph quads
+                       into user:rdf (or --into). A quad naming one of the
+                       graph's reserved projection graphs refuses the load.
+
+The load is atomic: it commits once at the end, and a parse error or a refused
+graph loads nothing. Run it while no gardend serves the profile (it refuses
+otherwise: the store takes one process, and nobody reads a half-loaded graph);
+create the graph first (create_graph, or the app). Loading the same file again
+adds nothing (RDF quads are a set). Progress goes to standard error, then a
+count of quads per named graph.
 ";
 
 /// Flags and positionals of one verb.
@@ -231,6 +341,8 @@ pub fn parse(args: &[String]) -> Result<Option<Command>, String> {
         },
         "token" => parse_token(rest),
         "service" => parse_service(rest),
+        "chat" => parse_chat(rest),
+        "load" => parse_load(rest),
         _ => Ok(None),
     }
 }
@@ -346,6 +458,69 @@ fn parse_service(rest: &[String]) -> Result<Option<Command>, String> {
                 print: parsed.switches.contains("--print"),
             })))
         }
+        "env" => {
+            let Some(env_action) = rest.first().map(String::as_str) else {
+                return Err(format!("service env set, unset or list?\n\n{SERVICE_HELP}"));
+            };
+            let parsed = split(
+                &rest[1..],
+                &["--service", "--profile", "--profile-dir"],
+                &[],
+                SERVICE_HELP,
+            )?;
+            if parsed.help {
+                return help;
+            }
+            let service = parsed.value("--service");
+            let profile_dir = profile_dir_flag(&parsed, SERVICE_HELP)?;
+            match env_action {
+                "set" | "unset" => {
+                    let [name] = parsed.positionals.as_slice() else {
+                        return Err(format!(
+                            "service env {env_action} takes one variable name (the value comes from standard input)\n\n{SERVICE_HELP}"
+                        ));
+                    };
+                    let name = name.clone();
+                    Ok(Some(if env_action == "set" {
+                        Command::ServiceEnvSet {
+                            name,
+                            service,
+                            profile_dir,
+                        }
+                    } else {
+                        Command::ServiceEnvUnset {
+                            name,
+                            service,
+                            profile_dir,
+                        }
+                    }))
+                }
+                "list" => {
+                    no_positionals(&parsed, SERVICE_HELP)?;
+                    Ok(Some(Command::ServiceEnvList {
+                        service,
+                        profile_dir,
+                    }))
+                }
+                other => Err(format!("unknown service env action {other:?}\n\n{SERVICE_HELP}")),
+            }
+        }
+        "enable" | "disable" => {
+            let parsed = split(rest, &["--profile", "--profile-dir"], &[], SERVICE_HELP)?;
+            if parsed.help {
+                return help;
+            }
+            let [service] = parsed.positionals.as_slice() else {
+                return Err(format!(
+                    "service {action} takes one service id (choreograph, vehicle, ...)\n\n{SERVICE_HELP}"
+                ));
+            };
+            Ok(Some(Command::ServiceEnable {
+                service: service.clone(),
+                enabled: action == "enable",
+                profile_dir: profile_dir_flag(&parsed, SERVICE_HELP)?,
+            }))
+        }
         "uninstall" | "status" => {
             let parsed = split(rest, &[], &[], SERVICE_HELP)?;
             if parsed.help {
@@ -362,12 +537,84 @@ fn parse_service(rest: &[String]) -> Result<Option<Command>, String> {
     }
 }
 
+fn parse_chat(rest: &[String]) -> Result<Option<Command>, String> {
+    let help: Result<Option<Command>, String> = Ok(Some(Command::Help(Some("chat".to_string()))));
+    match rest.first().map(String::as_str) {
+        None => Err(format!("which chat action?\n\n{CHAT_HELP}")),
+        Some("-h" | "--help" | "help") => help,
+        Some("key") => {
+            let Some(action) = rest.get(1).map(String::as_str) else {
+                return Err(format!("chat key set or chat key clear?\n\n{CHAT_HELP}"));
+            };
+            let parsed = split(&rest[2..], &["--profile", "--profile-dir"], &[], CHAT_HELP)?;
+            if parsed.help || matches!(action, "-h" | "--help") {
+                return help;
+            }
+            no_positionals(&parsed, CHAT_HELP)?;
+            let profile_dir = profile_dir_flag(&parsed, CHAT_HELP)?;
+            match action {
+                "set" => Ok(Some(Command::ChatKeySet { profile_dir })),
+                "clear" => Ok(Some(Command::ChatKeyClear { profile_dir })),
+                other => Err(format!("unknown chat key action {other:?}\n\n{CHAT_HELP}")),
+            }
+        }
+        Some(other) => Err(format!("unknown chat action {other:?}\n\n{CHAT_HELP}")),
+    }
+}
+
+fn parse_load(rest: &[String]) -> Result<Option<Command>, String> {
+    let parsed = split(
+        rest,
+        &[
+            "--graph",
+            "--profile",
+            "--profile-dir",
+            "--format",
+            "--into",
+            "--threads",
+            "--max-memory-mb",
+        ],
+        &[],
+        LOAD_HELP,
+    )?;
+    if parsed.help {
+        return Ok(Some(Command::Help(Some("load".to_string()))));
+    }
+    let graph = parsed
+        .value("--graph")
+        .ok_or_else(|| format!("gardend load needs --graph <id>\n\n{LOAD_HELP}"))?;
+    let [input] = parsed.positionals.as_slice() else {
+        return Err(format!("gardend load takes one file (or - for standard input)\n\n{LOAD_HELP}"));
+    };
+    let number = |name: &str| -> Result<Option<usize>, String> {
+        parsed
+            .value(name)
+            .map(|value| {
+                value
+                    .parse::<usize>()
+                    .map_err(|error| format!("{name} {value:?}: {error}\n\n{LOAD_HELP}"))
+            })
+            .transpose()
+    };
+    Ok(Some(Command::Load(LoadArgs {
+        profile: profile_dir_flag(&parsed, LOAD_HELP)?,
+        graph,
+        format: parsed.value("--format"),
+        into: parsed.value("--into"),
+        input: input.clone(),
+        threads: number("--threads")?,
+        max_memory_mb: number("--max-memory-mb")?,
+    })))
+}
+
 pub(crate) fn help_text(topic: Option<&str>) -> &'static str {
     match topic {
         Some("serve") => SERVE_HELP,
         Some("url") => URL_HELP,
         Some("token") => TOKEN_HELP,
         Some("service") => SERVICE_HELP,
+        Some("chat") => CHAT_HELP,
+        Some("load") => LOAD_HELP,
         _ => HELP,
     }
 }
@@ -380,6 +627,9 @@ pub fn run(command: Command) -> i32 {
     let outcome: Result<(String, i32), String> = match command {
         Command::Help(topic) => Ok((help_text(topic.as_deref()).to_string(), 0)),
         Command::Serve(_) => Err("serve boots the engine from gardend's main".to_string()),
+        Command::Load(args) => resolve_profile_dir(args.profile.as_deref(), os, env)
+            .and_then(|dir| load::load(&dir, &args))
+            .map(|text| (text, 0)),
         Command::Url(args) => url(&args, os, env).map(|text| (text, 0)),
         Command::TokenCreate(args) => resolve_profile_dir(args.profile_dir.as_deref(), os, env)
             .and_then(|dir| tokens::create(&dir, &args))
@@ -398,6 +648,56 @@ pub fn run(command: Command) -> i32 {
         Command::ServiceUninstall => service::uninstall(env).map(|text| (text, 0)),
         Command::ServiceStatus => {
             service::status(env).map(|(text, running)| (text, if running { 0 } else { 3 }))
+        }
+        Command::ChatKeySet { profile_dir } => resolve_profile_dir(profile_dir.as_deref(), os, env)
+            .and_then(|dir| {
+                chat::read_value_from_stdin(
+                    "Paste your OpenRouter API key (it starts with sk-or-), then press Enter: ",
+                )
+                .and_then(|key| chat::set_key(&dir, &key))
+            })
+            .map(|text| (text, 0)),
+        Command::ServiceEnvSet {
+            name,
+            service,
+            profile_dir,
+        } => chat::Scope::from_flag(service.as_deref())
+            .and_then(|scope| {
+                let dir = resolve_profile_dir(profile_dir.as_deref(), os, env)?;
+                let value = chat::read_value_from_stdin(&format!("Value of {name}, then Enter: "))?;
+                chat::set_value(&dir, &scope, &name, &value)
+            })
+            .map(|text| (text, 0)),
+        Command::ServiceEnvUnset {
+            name,
+            service,
+            profile_dir,
+        } => chat::Scope::from_flag(service.as_deref())
+            .and_then(|scope| {
+                let dir = resolve_profile_dir(profile_dir.as_deref(), os, env)?;
+                chat::unset_value(&dir, &scope, &name)
+            })
+            .map(|text| (text, 0)),
+        Command::ServiceEnvList {
+            service,
+            profile_dir,
+        } => chat::Scope::from_flag(service.as_deref())
+            .and_then(|scope| {
+                let dir = resolve_profile_dir(profile_dir.as_deref(), os, env)?;
+                chat::list_names(&dir, service.as_ref().map(|_| &scope))
+            })
+            .map(|text| (text, 0)),
+        Command::ServiceEnable {
+            service,
+            enabled,
+            profile_dir,
+        } => resolve_profile_dir(profile_dir.as_deref(), os, env)
+            .and_then(|dir| chat::set_enabled(&dir, &service, enabled))
+            .map(|text| (text, 0)),
+        Command::ChatKeyClear { profile_dir } => {
+            resolve_profile_dir(profile_dir.as_deref(), os, env)
+                .and_then(|dir| chat::clear_key(&dir))
+                .map(|text| (text, 0))
         }
     };
     match outcome {
@@ -567,6 +867,94 @@ mod tests {
     }
 
     #[test]
+    fn chat_key_verbs() {
+        assert_eq!(
+            parse(&argv(&["chat", "key", "set"])).unwrap(),
+            Some(Command::ChatKeySet { profile_dir: None })
+        );
+        assert_eq!(
+            parse(&argv(&["chat", "key", "set", "--profile", "/p"])).unwrap(),
+            Some(Command::ChatKeySet {
+                profile_dir: Some("/p".to_string())
+            })
+        );
+        assert_eq!(
+            parse(&argv(&["chat", "key", "clear", "--profile-dir=/p"])).unwrap(),
+            Some(Command::ChatKeyClear {
+                profile_dir: Some("/p".to_string())
+            })
+        );
+        assert_eq!(
+            parse(&argv(&["chat", "--help"])).unwrap(),
+            Some(Command::Help(Some("chat".to_string())))
+        );
+        assert!(parse(&argv(&["chat"])).is_err());
+        assert!(parse(&argv(&["chat", "key"])).is_err());
+        assert!(parse(&argv(&["chat", "key", "rotate"])).is_err());
+        assert!(
+            parse(&argv(&["chat", "key", "set", "sk-or-v1-abc"])).is_err(),
+            "the key is never an argument (it would land in shell history)"
+        );
+        assert!(help_text(Some("chat")).contains("OPENROUTER_API_KEY"));
+    }
+
+    #[test]
+    fn service_enable_and_disable_verbs() {
+        assert_eq!(
+            parse(&argv(&["service", "enable", "choreograph"])).unwrap(),
+            Some(Command::ServiceEnable {
+                service: "choreograph".to_string(),
+                enabled: true,
+                profile_dir: None,
+            })
+        );
+        assert_eq!(
+            parse(&argv(&["service", "disable", "vehicle", "--profile", "/p"])).unwrap(),
+            Some(Command::ServiceEnable {
+                service: "vehicle".to_string(),
+                enabled: false,
+                profile_dir: Some("/p".to_string()),
+            })
+        );
+        assert!(parse(&argv(&["service", "enable"])).is_err());
+        assert!(parse(&argv(&["service", "enable", "a", "b"])).is_err());
+        assert!(help_text(Some("service")).contains("gardend service enable choreograph"));
+        assert!(help_text(None).contains("gardend service enable | disable <id>"));
+    }
+
+    #[test]
+    fn service_env_verbs() {
+        assert_eq!(
+            parse(&argv(&["service", "env", "set", "ANTHROPIC_API_KEY", "--service", "vehicle"])).unwrap(),
+            Some(Command::ServiceEnvSet {
+                name: "ANTHROPIC_API_KEY".to_string(),
+                service: Some("vehicle".to_string()),
+                profile_dir: None,
+            })
+        );
+        assert_eq!(
+            parse(&argv(&["service", "env", "unset", "OPENROUTER_API_KEY", "--profile", "/p"])).unwrap(),
+            Some(Command::ServiceEnvUnset {
+                name: "OPENROUTER_API_KEY".to_string(),
+                service: None,
+                profile_dir: Some("/p".to_string()),
+            })
+        );
+        assert_eq!(
+            parse(&argv(&["service", "env", "list"])).unwrap(),
+            Some(Command::ServiceEnvList { service: None, profile_dir: None })
+        );
+        assert!(parse(&argv(&["service", "env"])).is_err());
+        assert!(parse(&argv(&["service", "env", "set"])).is_err());
+        assert!(
+            parse(&argv(&["service", "env", "set", "KEY", "the-value"])).is_err(),
+            "the value is never an argument (it would land in shell history)"
+        );
+        assert!(parse(&argv(&["service", "env", "list", "extra"])).is_err());
+        assert!(help_text(Some("service")).contains("service env set <NAME>"));
+    }
+
+    #[test]
     fn help_names_every_verb_and_the_default_port() {
         assert_eq!(parse(&argv(&["--help"])).unwrap(), Some(Command::Help(None)));
         assert_eq!(
@@ -574,7 +962,7 @@ mod tests {
             Some(Command::Help(Some("token".to_string())))
         );
         let help = help_text(None);
-        for verb in ["serve", "url", "token", "service"] {
+        for verb in ["serve", "url", "token", "service", "chat"] {
             assert!(help.contains(&format!("gardend {verb}")), "{verb}");
         }
         assert!(help.contains(&super::super::DEFAULT_PORT.to_string()));

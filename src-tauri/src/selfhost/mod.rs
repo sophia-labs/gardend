@@ -1,5 +1,5 @@
-//! Running your own Sophia with `gardend`: the `serve`, `url`, `token` and
-//! `service` verbs (docs/headless-gardend.md, "Self-hosting").
+//! Running your own Sophia with `gardend`: the `serve`, `url`, `token`,
+//! `service` and `chat` verbs (docs/headless-gardend.md, "Self-hosting").
 //!
 //! Plain `gardend` with no verb never reaches this module: hosted cells boot
 //! exactly as before. Everything here is the friendly front of knobs that
@@ -7,12 +7,15 @@
 //! `GARDEN_LOOPBACK_TOKEN`, the client-token store) plus the default UI
 //! location (`ui/` next to the binary, served when `GARDEN_UI_DIR` is unset).
 
+mod chat;
 mod cli;
+mod load;
 mod serve;
 mod service;
 mod tokens;
 
 pub use cli::{parse, run, Command, ServeArgs};
+pub use load::{LoadArgs, LoadReport};
 pub use serve::{prepare_serve, ServePlan, ServeStart};
 pub use service::ServiceArgs;
 pub use tokens::TokenCreateArgs;

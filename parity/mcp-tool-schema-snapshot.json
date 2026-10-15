@@ -285,7 +285,7 @@
     },
     "create_document": {
       "required": ["graphId", "title"],
-      "properties": ["documentId", "graphId", "order", "parentId", "title"]
+      "properties": ["documentId", "graphId", "ifExists", "order", "parentId", "title"]
     },
     "delete_document": {
       "required": ["documentId", "graphId"],

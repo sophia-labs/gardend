@@ -165,6 +165,52 @@ Synthetic triple fixtures read by the `emporium::terms::diff_oracle` tests via
 The public pin: `sophia-labs/shrubbery` at a commit in its public history. The
 private repo's root lock pins the private Shrubbery line and is not exported.
 
+### `services/vehicle/` + `export/vehicle-service.lock.json` → `vehicle-service.lock.json` (built, not source)
+
+The self-host chat: the agent core's `vehicle` service, which gardend starts
+from `services/vehicle/service.json` beside its binary when Node.js 22.19 or
+newer is on its PATH. Its source is the private `sophia-labs/vehicle-internal`
+repository (PolyForm Noncommercial 1.0.0, like this tree); what the export
+carries is the folder `ts/scripts/build-service.mjs` builds there: one bundled
+`app/main.mjs` (vehicle-host, pi-sophia and the MIT-licensed
+[pi](https://github.com/earendil-works/pi) 1.2.0 with its dependencies), pi's
+`package.json` and licence, photon-node (Apache-2.0, WebAssembly), `LICENSE`,
+`THIRD-PARTY-NOTICES.md` (every bundled package with its licence text) and
+`BUILD.json`. The lock names the vehicle commit and the sha256 of every file.
+`scripts/build-vehicle-service.sh <dir>` builds it from the lock (private side,
+not exported); `VEHICLE_SERVICE_DIR=<dir> scripts/assemble-gardend-export.sh`
+checks it against the lock and copies it whole, after the repo-name retarget.
+`scripts/check-vehicle-service.mjs` (exported) is the check; the release
+workflow runs it again before any archive is built.
+
+### `services/choreograph/` + `export/choreograph-service.lock.json` → `choreograph-service.lock.json` (built, not source)
+
+Sophia Compute (workflows): Choreograph as the `choreograph` service, which
+gardend starts from `services/choreograph/service.json` beside its binary once
+the person runs `gardend service enable choreograph` (its manifest says
+`"autostart": false`; a workflow run through gardend's MCP starts it on
+demand), when Node.js 22.19 or newer is on its PATH. Its source is published
+as `sophia-labs/choreograph` (MIT; built from the private
+`sophia-labs/choreograph-internal`, the folder carrying its locked commit's
+`LICENSE`); what the export carries is
+the folder `deploy/build-gardend-service.mjs` builds there: `app/main.mjs` (the
+orchestrator and its dependencies, bundled), `app/worker.mjs`, `body/body.mjs`
+(the agent body with the MIT-licensed [pi](https://github.com/earendil-works/pi)
+1.2.0, bundled) and pi's licence, `LICENSE`, `NOTICE`,
+`THIRD-PARTY-NOTICES.md` (every bundled package with its licence text) and
+`BUILD.json`. Its one native part, libSQL's prebuilt binding
+(`app/node_modules/@libsql/<target>/`, MIT, ~8-10 MB per platform), is **not**
+in the tree: the lock names each release target's binding (npm package,
+version, sha256 of `index.node` and `package.json`), and the release workflow
+fetches exactly that one into each archive and checks it
+(`scripts/check-choreograph-service.mjs --add-native <target>`), so the
+repository holds no native binaries. The lock names the Choreograph commit and
+the sha256 of every file. `scripts/build-choreograph-service.sh <dir>` builds
+it from the lock (private side, not exported);
+`CHOREOGRAPH_SERVICE_DIR=<dir> scripts/assemble-gardend-export.sh` checks it
+against the lock and copies it without the bindings, after the repo-name
+retarget. `scripts/check-choreograph-service.mjs` (exported) is the check.
+
 ### `export/gitignore` → `.gitignore` (relocated)
 
 ### `export/github/workflows/ci.yml` → `.github/workflows/ci.yml` (relocated)
@@ -180,7 +226,8 @@ describes.
 The public release workflow (distinct from the private repo's own
 `.github/workflows/release.yml`, which is excluded below). On a `v*` tag it
 builds `gardend` for linux x86_64/aarch64 and macOS aarch64/x86_64, publishes
-a GitHub Release with the tarballs, `SHA256SUMS`, and `release.json` (the
+a GitHub Release with the tarballs (binary, `ui/`, `services/vehicle/`, `services/choreograph/` with that
+target's libSQL binding), `SHA256SUMS`, and `release.json` (the
 manifest `gardend update` reads, including `storageFormat`), and pushes
 `ghcr.io/sophia-labs/gardend:<version>` + `:latest`. Only `GITHUB_TOKEN`.
 

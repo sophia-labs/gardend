@@ -92,14 +92,14 @@ fn env_value(name: &str) -> Option<String> {
 /// manager's `bin/gardend` link points into the folder that carries `ui/`).
 /// Only the headless binary looks here: the desktop app ships its own UI.
 #[cfg(feature = "headless")]
-fn binary_dir() -> Option<PathBuf> {
+pub(crate) fn binary_dir() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let exe = std::fs::canonicalize(&exe).unwrap_or(exe);
     exe.parent().map(Path::to_path_buf)
 }
 
 #[cfg(not(feature = "headless"))]
-fn binary_dir() -> Option<PathBuf> {
+pub(crate) fn binary_dir() -> Option<PathBuf> {
     None
 }
 
@@ -110,6 +110,9 @@ pub(crate) struct SelfHost {
     access: Option<CfAccess>,
     allowed_origins: Vec<String>,
     active: bool,
+    /// Public mode (`public_mode`): listed graphs readable by anyone. Off
+    /// unless the profile's `public.json` lists a graph; never in a cell.
+    public: Option<Arc<crate::public_mode::PublicMode>>,
 }
 
 impl SelfHost {
@@ -159,7 +162,33 @@ impl SelfHost {
             access,
             allowed_origins,
             active,
+            public: None,
         })
+    }
+
+    /// Turn public mode on (`None` leaves it off). The public base URL's
+    /// origin (`GARDEN_PUBLIC_BASE_URL`) is then an allowed origin too, so the
+    /// site's own pages may call the API with an account token.
+    pub(crate) fn with_public(
+        mut self,
+        public: Option<crate::public_mode::PublicMode>,
+        public_base_url: Option<&str>,
+    ) -> Self {
+        if let Some(public) = public {
+            if let Some(origin) = public_base_url.and_then(normalize_origin) {
+                if !self.allowed_origins.contains(&origin) {
+                    self.allowed_origins.push(origin);
+                    self.allowed_origins.sort();
+                }
+            }
+            self.public = Some(Arc::new(public));
+            self.active = true;
+        }
+        self
+    }
+
+    pub(crate) fn public(&self) -> Option<&crate::public_mode::PublicMode> {
+        self.public.as_deref()
     }
 
     /// True when any self-host knob is in effect. False means the loopback

@@ -136,6 +136,18 @@ pub(super) fn loopback_router(state: Arc<LoopbackState>) -> Router {
         cell_graph_boundary_middleware,
     ));
 
+    // Public mode: anonymous visitors and Sophia accounts reach the listed
+    // graphs read-only, rate limited per address (`public_mode`). Without
+    // public mode the layer passes every request through untouched.
+    let router = if state.self_host.public().is_some() {
+        router.layer(middleware::from_fn_with_state(
+            state.clone(),
+            crate::public_mode::public_mode_middleware,
+        ))
+    } else {
+        router
+    };
+
     // Self-host Cloudflare Access: fetch the signing key a request's token
     // names before any handler verifies it synchronously.
     let router = if state.self_host.access().is_some() {

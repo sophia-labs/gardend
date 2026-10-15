@@ -3096,11 +3096,22 @@ async fn apply_lifecycle_operation(
                 .await
                 .map_err(AppError::internal)?;
             }
-            enqueue(
-                "document.write",
-                format!("{operation_id}:create"),
-                empty_document(),
-                Some(document_id.clone()),
+            // The deletion boundary was checked against this ledger above
+            // (`DocumentLifecycleAction::Recreate`), so this write may bring
+            // the id back: a plain write to a tombstoned id is refused.
+            let mut payload = empty_document();
+            if let Some(object) = payload.as_object_mut() {
+                object.insert("operationId".to_string(), json!(format!("{operation_id}:create")));
+                object.insert("graphIncarnation".to_string(), json!(graph_incarnation));
+            }
+            crate::crdt_queue::enqueue_crdt_operation_trusted_recreation(
+                app.clone(),
+                crate::crdt_queue::EnqueueCrdtOperationInput {
+                    kind: "document.write".to_string(),
+                    graph_id: graph_id.to_string(),
+                    document_id: Some(document_id.clone()),
+                    payload,
+                },
             )
             .await
             .map_err(AppError::internal)?
@@ -3414,8 +3425,12 @@ pub(crate) async fn mcp_local_source_push(app: AppHandle, arguments: &Value) -> 
     }
     let _source_gate = acquire_source_gate(&input.graph_id).await;
     let coordinator = app.state::<GraphPersistenceCoordinator>();
-    let identity_lease = coordinator
-        .acquire_lifecycle_shared(&input.graph_id)
+    // The hot-write lease, as `mcp_local_source_pull`'s preparation takes it:
+    // the seed walk below must not run beside a queued delete's tail ("document
+    // tombstoned"). Nothing in this preparation takes a graph lease of its own
+    // (`validate_live_operation_identity` reads files only).
+    let preparation_lease = coordinator
+        .acquire_hot_write(&input.graph_id)
         .await
         .map_err(AppError::internal)?;
     let (graph_dir, graph_incarnation) =
@@ -3467,7 +3482,7 @@ pub(crate) async fn mcp_local_source_push(app: AppHandle, arguments: &Value) -> 
     // durable even if the process dies before any projection effect.
     write_ledger(&graph_dir, &staged)?;
     ledger = staged;
-    drop(identity_lease);
+    drop(preparation_lease);
     #[cfg(feature = "headless")]
     crash_after_commit_if_requested(&input.operations);
 
@@ -3489,6 +3504,10 @@ pub(crate) async fn mcp_local_source_push(app: AppHandle, arguments: &Value) -> 
         .await
         .map_err(AppError::internal)?;
     active_graph_identity(&app, &input.graph_id, Some(&graph_incarnation))?;
+    // Before the replay rebuilds the workspace face from the live room and
+    // marks it persisted, give a pending socket frame its ordinary tail
+    // (titles swept into document records, the content revision touched).
+    complete_live_workspace_projection(&app, &input.graph_id, &graph_dir).await;
     let projection_result = rebuild_source_projections(&app, &input.graph_id, &mut ledger).await;
     match &projection_result {
         Ok(_) => {
@@ -4826,13 +4845,73 @@ fn collect_document_history_sources(
     Ok(history)
 }
 
+/// Bring a graph's workspace tree projection up to its live room before a pull
+/// dumps it, or before a push or rebuild replays the projections. The caller
+/// holds the graph's hot-write lease.
+///
+/// Run it before `rebuild_source_projections`: the replay rebuilds the
+/// workspace face from the live room with `rebuild_workspace_projection`, which
+/// marks the room persisted without the ordinary tail (titles swept into
+/// document records, the content revision touched), so the queued flush that
+/// would have run that tail then found the room clean and did nothing.
+///
+/// The room announces a sync client's frame (`Room::apply_client_update`, the
+/// workspace socket) as soon as the frame is durable. Its projection comes
+/// later: the room's debounced `crdt.flush`, queued about 250 ms on and then
+/// applied by the executor in turn. The shell follows the announcement with a
+/// pull and draws its tree from the pulled projection, so a pull landing in
+/// between handed it the new Y.Doc with the old tree. Here the pull runs that
+/// flush's workspace step itself. `persist_workspace` takes the room's
+/// projection-flush lock and returns at once when the room is clean, and the
+/// queued flush then finds nothing left to do.
+///
+/// - Holding the hot-write lease, as the executor does for its flush, means no
+///   frame (the socket loop takes the lease per frame) and no queued write can
+///   land between this and the dump. The lock order (graph lease, then the
+///   room's projection lock, then its Y.Doc) is the executor's.
+/// - Queued writes (MCP, REST) already persist their projection before they
+///   release the lease, so for them this is a no-op.
+/// - Only a live room can run ahead of its projection: a room is repaired when
+///   it is opened, so this never hydrates one.
+/// - A failure is the queued flush's to retry; the pull serves what is durable,
+///   as it did before, rather than failing the page's copy.
+async fn complete_live_workspace_projection(app: &AppHandle, graph_id: &str, graph_dir: &Path) {
+    let Some(room) = app
+        .state::<RoomRegistry>()
+        .peek(&format!("workspace:{graph_id}"))
+        .await
+    else {
+        return;
+    };
+    let operation_id = format!("source-pull-{}", Uuid::new_v4().simple());
+    if let Err(error) = crate::crdt_engine::workspace_ops::persist_workspace(
+        app,
+        graph_id,
+        graph_dir,
+        &room,
+        &operation_id,
+    )
+    .await
+    {
+        log::warn!("source_pull {graph_id}: workspace projection not brought up to the room: {error}");
+    }
+}
+
 pub(crate) async fn mcp_local_source_pull(app: AppHandle, arguments: &Value) -> AppResult<Value> {
     let input: SourcePullInput = serde_json::from_value(arguments.clone())
         .map_err(|error| AppError::validation(format!("source_pull input: {error}")))?;
     let _source_gate = acquire_source_gate(&input.graph_id).await;
     let coordinator = app.state::<GraphPersistenceCoordinator>();
-    let identity_lease = coordinator
-        .acquire_lifecycle_shared(&input.graph_id)
+    // The hot-write lease, not only the lifecycle one: the seed walk below
+    // reads every changed document and writes RDF, and the checkpoint reads the
+    // store. A pull that starts on a write's announcement must wait for that
+    // write's tail. Under the lifecycle lease alone the walk ran beside a
+    // queued delete and failed on its tombstone ("document tombstoned"), so a
+    // follower's pull on a trash returned an error instead of the trash. Nothing
+    // below takes a graph lease of its own; it is released before the
+    // individual repairs, which do.
+    let preparation_lease = coordinator
+        .acquire_hot_write(&input.graph_id)
         .await
         .map_err(AppError::internal)?;
     // Reject a v1 complete bundle before even initializing an incarnation,
@@ -4863,7 +4942,7 @@ pub(crate) async fn mcp_local_source_pull(app: AppHandle, arguments: &Value) -> 
     };
     write_ledger(&graph_dir, &ledger)?;
     remove_superseded_checkpoint(&graph_dir, superseded, ledger.checkpoint.as_ref());
-    drop(identity_lease);
+    drop(preparation_lease);
     let individual_repair = repair_individual_effects(
         &app,
         &input.graph_id,
@@ -4877,6 +4956,10 @@ pub(crate) async fn mcp_local_source_pull(app: AppHandle, arguments: &Value) -> 
         .await
         .map_err(AppError::internal)?;
     active_graph_identity(&app, &input.graph_id, Some(&graph_incarnation))?;
+    // The workspace Y.Doc read below and the tree projection dumped further
+    // down must agree, and a pending rebuild must not be the step that marks a
+    // dirty room persisted: bring the projection up to the live room first.
+    complete_live_workspace_projection(&app, &input.graph_id, &graph_dir).await;
     let pending = ledger
         .operations
         .values()
@@ -4900,8 +4983,8 @@ pub(crate) async fn mcp_local_source_pull(app: AppHandle, arguments: &Value) -> 
         None
     };
 
-    // Native writers may have advanced files during the lifecycle-shared
-    // preparation. Recheck under the hot-write lease before collecting bodies.
+    // Native writers may have advanced files between the preparation lease
+    // and this one. Recheck under the hot-write lease before collecting bodies.
     crate::source_pull_budget::check_graph(&graph_dir)?;
     let workspace =
         read_workspace_record(&graph_dir, &input.graph_id).map_err(AppError::storage)?;
@@ -5292,12 +5375,22 @@ pub(crate) async fn mcp_local_source_rebuild(
         .map_err(|error| AppError::validation(format!("source_rebuild input: {error}")))?;
     let _source_gate = acquire_source_gate(&input.graph_id).await;
     let coordinator = app.state::<GraphPersistenceCoordinator>();
-    let identity_lease = coordinator
-        .acquire_lifecycle_shared(&input.graph_id)
+    // The hot-write lease, as `mcp_local_source_pull`'s preparation takes it:
+    // the seed walk below must not run beside a queued delete's tail ("document
+    // tombstoned"), and `projectionBefore` must not move under writers while it
+    // is measured. Nothing in this preparation takes a graph lease of its own.
+    let preparation_lease = coordinator
+        .acquire_hot_write(&input.graph_id)
         .await
         .map_err(AppError::internal)?;
     let (graph_dir, graph_incarnation) =
         active_graph_identity(&app, &input.graph_id, Some(&input.graph_incarnation))?;
+    // `projectionBefore` is the projection of the sources as they stand. A
+    // socket frame still waiting for its debounced flush is a source the store
+    // does not show yet, and the replay materializes it from the live room, so
+    // without this a rebuild reported drift (`ok: false`) that was only the
+    // debounce. Before the seed check: the flush moves the content revision.
+    complete_live_workspace_projection(&app, &input.graph_id, &graph_dir).await;
     let mut ledger = read_ledger(&graph_dir, &input.graph_id, &graph_incarnation)?;
     ensure_graph_store_seeded(&graph_dir).map_err(AppError::rdf)?;
     let checkpoint_store = open_graph_store(&graph_dir).map_err(AppError::rdf)?;
@@ -5314,7 +5407,7 @@ pub(crate) async fn mcp_local_source_rebuild(
     let before_store = open_graph_store(&graph_dir).map_err(AppError::rdf)?;
     let projection_before = rdf_dataset_identity(&before_store)?;
     drop(before_store);
-    drop(identity_lease);
+    drop(preparation_lease);
     let individual_repair = repair_individual_effects(
         &app,
         &input.graph_id,
@@ -5328,6 +5421,9 @@ pub(crate) async fn mcp_local_source_rebuild(
         .await
         .map_err(AppError::internal)?;
     active_graph_identity(&app, &input.graph_id, Some(&graph_incarnation))?;
+    // A frame that landed during the repairs gets its ordinary tail before the
+    // replay marks the room persisted (see `mcp_local_source_push`).
+    complete_live_workspace_projection(&app, &input.graph_id, &graph_dir).await;
     let before_fold_hash = value_digest(
         &serde_json::to_value(fold_current_objects(&ledger)?).map_err(|error| {
             AppError::serialization(format!("serialize pre-rebuild fold: {error}"))

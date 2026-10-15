@@ -27,6 +27,16 @@ pub mod async_runtime {
     pub use tauri::async_runtime::{block_on, set, spawn, spawn_blocking};
 }
 
+/// The folder a gardend binary's resources sit beside (`services/`, `ui/`):
+/// the binary's own directory with symlinks resolved, so a
+/// `/usr/local/bin/gardend` link into an unpacked release finds that
+/// release's `services/` rather than `/usr/local/bin/services/`.
+#[allow(dead_code)]
+pub(crate) fn binary_resource_dir(exe: &std::path::Path) -> Option<std::path::PathBuf> {
+    let real = std::fs::canonicalize(exe).unwrap_or_else(|_| exe.to_path_buf());
+    real.parent().map(std::path::Path::to_path_buf)
+}
+
 #[cfg(all(not(feature = "desktop"), feature = "headless"))]
 mod native {
     use serde::Serialize;
@@ -155,7 +165,7 @@ mod native {
                 });
             let resource_dir = std::env::current_exe()
                 .ok()
-                .and_then(|path| path.parent().map(PathBuf::from))
+                .and_then(|path| super::binary_resource_dir(&path))
                 .or_else(|| std::env::current_dir().ok())
                 .unwrap_or_else(std::env::temp_dir);
 

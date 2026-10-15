@@ -33,7 +33,14 @@ pub(super) fn start_loopback_server(app: AppHandle) -> Result<LoopbackManifest, 
     // Self-host knobs (GARDEN_UI_DIR, GARDEN_CF_ACCESS_*, GARDEN_ALLOWED_ORIGINS),
     // checked before anything binds or is written. None set: off, and the
     // server is exactly what it was without them.
-    let self_host = Arc::new(SelfHost::from_env()?);
+    // Public mode (`<profile>/public.json`): listed graphs readable by anyone.
+    // Never in a hosted cell, whatever its profile holds; only the headless
+    // gardend reads it.
+    let public = load_public_mode(&app, cell_graph.is_enabled())?;
+    let self_host = Arc::new(SelfHost::from_env()?.with_public(
+        public,
+        std::env::var("GARDEN_PUBLIC_BASE_URL").ok().as_deref(),
+    ));
     log_self_host(&self_host);
     let bind_ip: IpAddr = match std::env::var("GARDEN_LOOPBACK_HOST") {
         Ok(host) if !host.trim().is_empty() => host
@@ -102,13 +109,17 @@ pub(super) fn start_loopback_server(app: AppHandle) -> Result<LoopbackManifest, 
     };
     write_secret_json(&manifest_path, &manifest)?;
 
+    // A supervised local service reaches this server over loopback, never
+    // through the public URL a gateway or a Cloudflare Tunnel puts in front.
+    let services = Arc::new(LocalServiceHost::default());
+    services.set_local_api_url(local_api_url(bind_ip, addr.port()));
     let app_for_state = app.clone();
     let state = Arc::new(LoopbackState {
         app,
         token,
         manifest: manifest.clone(),
         jobs,
-        services: Arc::new(LocalServiceHost::default()),
+        services,
         lifecycle,
         cell_graph,
         self_host,
@@ -123,7 +134,10 @@ pub(super) fn start_loopback_server(app: AppHandle) -> Result<LoopbackManifest, 
                 return;
             }
         };
-        if let Err(error) = axum::serve(listener, router).await {
+        // The peer address reaches the handlers (public mode's per-address
+        // rate limits).
+        let service = router.into_make_service_with_connect_info::<SocketAddr>();
+        if let Err(error) = axum::serve(listener, service).await {
             log::error!("loopback API stopped: {error}");
         }
     });
@@ -136,9 +150,71 @@ pub(super) fn start_loopback_server(app: AppHandle) -> Result<LoopbackManifest, 
     Ok(manifest)
 }
 
+/// This server as a process on the same machine reaches it: a loopback or
+/// unspecified bind (0.0.0.0, ::) through 127.0.0.1, any other bind directly.
+fn local_api_url(bind_ip: IpAddr, port: u16) -> String {
+    if bind_ip.is_loopback() || bind_ip.is_unspecified() {
+        format!("http://{LOOPBACK_BIND_HOST}:{port}")
+    } else if bind_ip.is_ipv6() {
+        format!("http://[{bind_ip}]:{port}")
+    } else {
+        format!("http://{bind_ip}:{port}")
+    }
+}
+
+#[cfg(feature = "headless")]
+fn load_public_mode(
+    app: &AppHandle,
+    hosted_cell: bool,
+) -> Result<Option<crate::public_mode::PublicMode>, String> {
+    let profile_dir = crate::profile_paths::profile_dir(app)?;
+    if hosted_cell {
+        if profile_dir.join(crate::public_mode::PUBLIC_CONFIG_FILE).exists()
+            || std::env::var_os(crate::public_mode::PUBLIC_GRAPHS_ENV).is_some()
+            || std::env::var_os(crate::public_mode::PUBLIC_CONFIG_ENV).is_some()
+        {
+            log::warn!("public mode is never on in a hosted cell: its settings are ignored");
+        }
+        return Ok(None);
+    }
+    crate::public_mode::PublicMode::load(
+        &profile_dir,
+        crate::loopback_self_host::binary_dir().as_deref(),
+    )
+}
+
+#[cfg(all(test, feature = "headless"))]
+pub(crate) fn load_public_mode_for_test(
+    app: &AppHandle,
+    hosted_cell: bool,
+) -> Result<Option<crate::public_mode::PublicMode>, String> {
+    load_public_mode(app, hosted_cell)
+}
+
+#[cfg(not(feature = "headless"))]
+fn load_public_mode(
+    _app: &AppHandle,
+    _hosted_cell: bool,
+) -> Result<Option<crate::public_mode::PublicMode>, String> {
+    Ok(None)
+}
+
 fn log_self_host(self_host: &SelfHost) {
     if !self_host.is_active() {
         return;
+    }
+    if let Some(public) = self_host.public() {
+        log::info!(
+            "public mode ({}): anyone may read {}; services open to visitors: {}{}{}",
+            public.config_source(),
+            public.graphs().iter().cloned().collect::<Vec<_>>().join(", "),
+            public.describe()["services"],
+            public
+                .site_dir()
+                .map(|dir| format!("; the site from {} at /, the app at /app/", display_path(dir)))
+                .unwrap_or_default(),
+            if public.accounts().is_some() { "; Sophia accounts sign in with ID tokens" } else { "" },
+        );
     }
     if let Some(dir) = self_host.ui_dir() {
         log::info!("self-host: serving the UI from {}", display_path(dir));

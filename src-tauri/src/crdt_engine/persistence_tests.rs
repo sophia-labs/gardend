@@ -3440,6 +3440,9 @@ fn failed_delete_cannot_resurrect_and_same_id_recreation_clears_only_after_works
                 graph_id: graph_id.to_string(),
                 document_id: Some(document_id.to_string()),
                 payload: json!({
+                    // Trusted internal recreation (2026-10-14): a plain write
+                    // to a deleted id is refused.
+                    "__gardenTrustedRecreation": true,
                     "title": "Fresh incarnation",
                     "tiptapJson": {
                         "type": "doc",

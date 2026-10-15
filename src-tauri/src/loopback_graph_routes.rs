@@ -134,20 +134,31 @@ pub(super) async fn loopback_list_graphs(
     State(state): State<Arc<LoopbackState>>,
     headers: HeaderMap,
 ) -> Response {
-    if let Err(response) = require_loopback_scope(&headers, &state, "graphs.read") {
-        return response;
-    }
-    loopback_app_result(hosted_graph_entries_service(&state.app, false))
+    list_graph_entries(&state, &headers, false)
 }
 
 pub(super) async fn loopback_list_graph_catalog(
     State(state): State<Arc<LoopbackState>>,
     headers: HeaderMap,
 ) -> Response {
-    if let Err(response) = require_loopback_scope(&headers, &state, "graphs.read") {
-        return response;
+    list_graph_entries(&state, &headers, true)
+}
+
+/// Every graph of the profile; for a public-mode visitor or account, the
+/// public graphs only, each with the role `viewer`.
+fn list_graph_entries(state: &LoopbackState, headers: &HeaderMap, catalog: bool) -> Response {
+    let caller = match crate::loopback_http::authorized_loopback_caller(headers, state, &["graphs.read"]) {
+        Ok(caller) => caller,
+        Err(response) => return response,
+    };
+    let entries = hosted_graph_entries_service(&state.app, catalog);
+    match (caller.is_public(), state.self_host.public()) {
+        (true, Some(public)) => loopback_app_result(
+            entries.map(|entries| crate::public_mode::public_graph_entries(public, entries)),
+        ),
+        (true, None) => loopback_app_result(Ok(Vec::<serde_json::Value>::new())),
+        (false, _) => loopback_app_result(entries),
     }
-    loopback_app_result(hosted_graph_entries_service(&state.app, true))
 }
 
 pub(super) async fn loopback_create_graph(

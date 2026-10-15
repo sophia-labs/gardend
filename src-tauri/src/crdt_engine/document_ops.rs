@@ -292,6 +292,35 @@ pub(crate) async fn document_write_classified(
     };
 
     let graph_dir = existing_graph_dir(app, &graph_id)?;
+    // Every failure of the recreation step below is retried, and it refuses an
+    // id that is not a local id: such a write parked, and every later write to
+    // the graph behind it, forever (2026-10-14). Refuse it here.
+    crate::ids::validate_local_id(&document_id, "document_id")?;
+    // A write never brings a deleted document back (2026-10-14; W6 probe F3:
+    // a write to a tombstoned id resurrected it with the caller's content).
+    // Recreation is a trusted internal act, marked by the server only
+    // (`crdt_queue::TRUSTED_RECREATION_PAYLOAD_KEY`, stripped from every
+    // caller payload). A tombstone read that fails is not a refusal: the
+    // recreation step below reads it again, and its failure is retried.
+    let trusted_recreation = payload
+        .get(crate::crdt_queue::TRUSTED_RECREATION_PAYLOAD_KEY)
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if !trusted_recreation
+        && matches!(
+            crate::document_tombstone_store::document_is_tombstoned(&graph_dir, &document_id),
+            Ok(true)
+        )
+    {
+        return Err(ApplyOperationError::terminal(format!(
+            "write_document: the document {document_id:?} was deleted, and a write does not bring \
+             a deleted document back. Bringing it back is an explicit act: source_push \
+             documentLifecycle \"recreate\" with its prior documentIncarnation (for a deletion the \
+             source ledger recorded); its retained history stays readable (get_document_history, \
+             read_document_at_snapshot). To write new content, create a new document \
+             (create_document, or write_document with an unused id)."
+        )));
+    }
     // A same-ID write is the only trusted recreation path. Finish any
     // interrupted delete tail while retaining its exact deletion fence; stale
     // document/sidecar bytes must never be hydrated into the new authority.
@@ -392,8 +421,24 @@ pub(crate) async fn document_write_classified(
             builder::append_nodes(txn, &fragment, &content_nodes);
             if !comments.is_empty() {
                 let comments_map = txn.get_or_insert_map("comments");
+                // Signed by the server, as edit_comment's are (2026-10-14).
+                let author = crate::comment_authorship::CommentAuthor::from_payload(&payload);
                 for (comment_id, data) in &comments {
-                    comments_map.insert(txn, comment_id.as_str(), builder::json_to_any(data));
+                    let mut data = data.clone();
+                    if let Value::Object(object) = &mut data {
+                        let stored = match comments_map.get(&*txn, comment_id.as_str()) {
+                            Some(Out::Any(any)) => any_json(&any).as_object().cloned(),
+                            _ => None,
+                        };
+                        let claimed = object.get("author").cloned();
+                        crate::comment_authorship::sign_comment(
+                            object,
+                            &author,
+                            claimed.as_ref(),
+                            stored.as_ref(),
+                        );
+                    }
+                    comments_map.insert(txn, comment_id.as_str(), builder::json_to_any(&data));
                 }
             }
             Ok(())
@@ -2251,9 +2296,9 @@ pub fn edit_comment_in_doc(
     // action == "set"
     let text = js_string_value(payload.get("text"))
         .ok_or_else(|| "document.editComment: text is required for action=set".to_string())?;
-    let author = js_string_value(payload.get("author"))
-        .or_else(|| js_string_value(existing.get("author")))
-        .unwrap_or_else(|| "MCP Agent".to_string());
+    // The server signs the comment (crate::comment_authorship): the
+    // caller's `author`/`authorId` are not the author (2026-10-14).
+    let author = crate::comment_authorship::CommentAuthor::from_payload(payload);
     let quoted_text = js_string_value(coalesce(payload, &["quotedText", "quoted_text"]));
     let block_id = js_string_value(coalesce(payload, &["blockId", "block_id"]));
     let find = js_string_value(payload.get("find"));
@@ -2293,15 +2338,8 @@ pub fn edit_comment_in_doc(
     data.insert("id".to_string(), json!(comment_id));
     data.insert("commentId".to_string(), json!(comment_id));
     data.insert("text".to_string(), json!(text));
-    data.insert("author".to_string(), json!(author));
-    // authorId: value.authorId ?? value.author_id ?? existing.authorId ??
-    // existing.author_id (raw passthrough; normalizeCommentData re-derives).
-    if let Some(author_id) = coalesce(payload, &["authorId", "author_id"])
-        .or_else(|| coalesce(&existing, &["authorId", "author_id"]))
-        .cloned()
-    {
-        data.insert("authorId".to_string(), author_id);
-    }
+    let stored = (!existing.is_empty()).then_some(&existing);
+    crate::comment_authorship::sign_comment(&mut data, &author, payload.get("author"), stored);
     let block_id_entry = anchor_block_id
         .clone()
         .or_else(|| js_string_value(coalesce(&existing, &["blockId", "block_id"])));
@@ -2786,6 +2824,10 @@ pub(crate) async fn ingest_markdown_original_steps_classified(
     // Finish permanent input/path validation before the first durable step.
     let graph_dir = existing_graph_dir(app, &graph_id)?;
     let state_path = checked_document_ydoc_state_path(&graph_dir, &document_id)?;
+    // Every failure of the create below is retried, so the refusals it would
+    // make of this id (a deleted document's) are made here: a caller-supplied
+    // tombstoned id parked the ingest, and every later write behind it, forever.
+    crate::document_service::refuse_uncreatable_document_id(&graph_dir, &document_id)?;
     if let Some(pending_path) = pending_original_path.as_deref() {
         crate::pending_upload_service::resolved_pending_upload_path(
             app,

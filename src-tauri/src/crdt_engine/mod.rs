@@ -42,3 +42,5 @@ pub mod workspace_ops;
 mod flow_board_flush_tests;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod persistence_tests;
+#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
+pub(crate) mod workspace_ops_poison_tests;

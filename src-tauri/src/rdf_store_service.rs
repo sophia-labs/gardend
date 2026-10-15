@@ -8,6 +8,65 @@ use std::{
 
 static GRAPH_STORES: OnceLock<Mutex<BTreeMap<PathBuf, Arc<Store>>>> = OnceLock::new();
 
+/// Quad counts of the cached graph stores, keyed by the store's address.
+/// `Store::len` is a full scan (14 s on a 26-million-quad graph, before every
+/// SPARQL query, uncancellable), so a cached store's count is kept until the
+/// store is written (`cell_durability::mark_rdf_store_written` forgets it) or
+/// leaves the cache. A store outside the cache is always counted afresh (its
+/// address may be reused once it is dropped).
+static QUAD_COUNTS: OnceLock<Mutex<BTreeMap<usize, usize>>> = OnceLock::new();
+
+fn quad_counts() -> std::sync::MutexGuard<'static, BTreeMap<usize, usize>> {
+    QUAD_COUNTS
+        .get_or_init(|| Mutex::new(BTreeMap::new()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn store_key(store: &Store) -> usize {
+    store as *const Store as usize
+}
+
+fn is_cached_graph_store(store: &Store) -> bool {
+    GRAPH_STORES.get().is_some_and(|stores| {
+        stores
+            .lock()
+            .map(|stores| stores.values().any(|cached| std::ptr::eq(cached.as_ref(), store)))
+            .unwrap_or(false)
+    })
+}
+
+/// How many quads `store` holds: remembered for a cached graph store until
+/// its next write, counted for any other.
+pub(crate) fn graph_store_quad_count(store: &Store) -> Result<usize, String> {
+    let cached = is_cached_graph_store(store);
+    if cached {
+        if let Some(count) = quad_counts().get(&store_key(store)) {
+            return Ok(*count);
+        }
+    }
+    let epoch = crate::cell_durability::current_write_epoch();
+    let count = store
+        .len()
+        .map_err(|error| format!("count quads: {error}"))?;
+    // A write that landed while counting may or may not be in the count:
+    // keep it only when nothing was written meanwhile.
+    if cached && crate::cell_durability::current_write_epoch() == epoch {
+        quad_counts().insert(store_key(store), count);
+    }
+    Ok(count)
+}
+
+/// The store was written: its remembered count is gone.
+pub(crate) fn forget_quad_count(store: &Store) {
+    if let Some(counts) = QUAD_COUNTS.get() {
+        counts
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(&store_key(store));
+    }
+}
+
 /// Process-wide lifecycle barrier for every Oxigraph store path.
 ///
 /// Store checkpoints are safe while an already-open store is being written,
@@ -69,7 +128,9 @@ pub(super) fn open_graph_store(graph_dir: &Path) -> Result<Arc<Store>, String> {
         // Failed graph-creation cleanup can remove a graph directory while
         // this process still has its old path-keyed handle cached. Never hand
         // that detached RocksDB generation to a later same-id create.
-        stores.remove(&store_path);
+        if let Some(store) = stores.remove(&store_path) {
+            forget_quad_count(&store);
+        }
     }
 
     let store =
@@ -88,10 +149,13 @@ pub(crate) fn evict_graph_store(graph_dir: &Path) -> Result<(), String> {
     let Some(stores) = GRAPH_STORES.get() else {
         return Ok(());
     };
-    stores
+    let evicted = stores
         .lock()
         .map_err(|_| "Oxigraph store cache lock poisoned".to_string())?
         .remove(&graph_dir.join("store.oxigraph"));
+    if let Some(store) = evicted {
+        forget_quad_count(&store);
+    }
     Ok(())
 }
 
@@ -109,6 +173,42 @@ pub(crate) fn open_graph_stores() -> Vec<(PathBuf, Arc<Store>)> {
             .map(|(path, store)| (path.clone(), Arc::clone(store)))
             .collect(),
         Err(_) => Vec::new(),
+    }
+}
+
+// Named so the cells lane's gating filter (`cell_durability`) runs it.
+#[cfg(test)]
+mod cell_durability_quad_count_tests {
+    use super::*;
+    use oxigraph::model::{GraphNameRef, NamedNodeRef, QuadRef};
+
+    /// A cached graph store's count is remembered until a marked write, and
+    /// is right again after it; a store outside the cache is always counted.
+    #[test]
+    fn a_cached_store_count_is_kept_until_its_next_write() {
+        let graph_dir = std::env::temp_dir().join(format!("quad-count-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&graph_dir).unwrap();
+        let store = open_graph_store(&graph_dir).unwrap();
+        let s = NamedNodeRef::new("urn:s").unwrap();
+        let g = GraphNameRef::NamedNode(NamedNodeRef::new("urn:g").unwrap());
+        assert_eq!(graph_store_quad_count(&store).unwrap(), 0);
+        store.insert(QuadRef::new(s, s, s, g)).unwrap();
+        crate::cell_durability::mark_rdf_store_written(&store);
+        assert_eq!(graph_store_quad_count(&store).unwrap(), 1, "the write was marked");
+        assert_eq!(quad_counts().get(&store_key(&store)).copied(), Some(1), "remembered");
+        let o = NamedNodeRef::new("urn:o").unwrap();
+        store.insert(QuadRef::new(s, s, o, g)).unwrap();
+        crate::cell_durability::mark_rdf_store_written(&store);
+        assert_eq!(graph_store_quad_count(&store).unwrap(), 2);
+
+        let loose = Store::new().unwrap();
+        loose.insert(QuadRef::new(s, s, s, g)).unwrap();
+        assert_eq!(graph_store_quad_count(&loose).unwrap(), 1);
+        assert!(quad_counts().get(&store_key(&loose)).is_none(), "never remembered");
+
+        drop(store);
+        evict_graph_store(&graph_dir).unwrap();
+        let _ = std::fs::remove_dir_all(&graph_dir);
     }
 }
 

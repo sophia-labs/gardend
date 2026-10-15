@@ -37,13 +37,21 @@ pub(crate) fn session_all_token_grant() -> LoopbackTokenGrant {
 }
 
 /// The member grant: what a person or agent working in a Sophia needs, without
-/// administering it. Every read scope, the `authoring` writes, and MCP calls
-/// (each tool still checks its own scopes). Not: deletes, creating, importing
-/// or restoring graphs, loading or updating RDF, memory and index writes,
-/// time-travel writes, service, model and token administration. A self-host's
-/// Cloudflare Access members get it (`loopback_self_host`), and
-/// `gardend token create --grant member` mints it for agents.
+/// administering it. Every read scope, the `authoring` writes, MCP calls (each
+/// tool still checks its own scopes), and chat ([`MEMBER_SERVICE_SCOPES`]).
+/// Not: deletes, creating, importing or restoring graphs, loading or updating
+/// RDF, memory and index writes, time-travel writes, service, model and token
+/// administration. A self-host's Cloudflare Access members get it
+/// (`loopback_self_host`), `gardend token create --grant member` mints it for
+/// agents, and a supervised local service's own MCP token carries it.
 pub(crate) const MEMBER_GRANT_PROFILE: &str = "member";
+
+/// What a member may do with the local services gardend supervises: reach
+/// them through `/services/{id}`, where the proxy lets a member use
+/// Choreograph's chat and nothing else (`loopback_service_routes`, the member
+/// door). Vera, 2026-10-13: family members may chat. Make this `&[]` to keep
+/// chat to admins (the master key, `session-all`, listed Access admins).
+const MEMBER_SERVICE_SCOPES: &[&str] = &["services.proxy"];
 
 const AUTHORING_SCOPES: &[&str] = &[
     "graphs.read",
@@ -81,6 +89,7 @@ fn loopback_grant_profiles(
         .chain(authoring_scopes.iter())
         .copied()
         .chain(selected_scopes(all_scopes, &["mcp.tools.call"]))
+        .chain(selected_scopes(all_scopes, MEMBER_SERVICE_SCOPES))
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect();
@@ -104,7 +113,7 @@ fn loopback_grant_profiles(
         LoopbackGrantProfile {
             id: MEMBER_GRANT_PROFILE,
             label: "Member",
-            description: "Every read, the authoring writes, and MCP tool calls: work in every graph without deleting, creating or restoring graphs, loading or updating RDF, or administering the runtime.",
+            description: "Every read, the authoring writes, MCP tool calls and chat: work in every graph without deleting, creating or restoring graphs, loading or updating RDF, or administering the runtime.",
             scopes: member_scopes,
             default_grant: false,
             mutating: true,
@@ -126,6 +135,17 @@ fn loopback_grant_profiles(
             mutating: true,
         },
     ]
+}
+
+/// The scopes of one grant profile (`member`, `session-all`, ...), the same
+/// list a client token minted with it carries; empty for an unknown id.
+pub(crate) fn grant_profile_scopes(profile_id: &str) -> Vec<String> {
+    session_all_token_grant()
+        .grant_profiles
+        .into_iter()
+        .find(|profile| profile.id == profile_id)
+        .map(|profile| profile.scopes.into_iter().map(str::to_string).collect())
+        .unwrap_or_default()
 }
 
 fn selected_scopes(all_scopes: &[&'static str], requested: &[&'static str]) -> Vec<&'static str> {
@@ -209,6 +229,7 @@ mod tests {
         let mut expected = profile("read-only");
         expected.extend(profile("authoring"));
         expected.insert("mcp.tools.call");
+        expected.extend(MEMBER_SERVICE_SCOPES.iter().copied());
         assert_eq!(member, expected);
         for admin_only in [
             "documents.delete.crdt",
@@ -217,9 +238,29 @@ mod tests {
             "rdf.load",
             "rdf.update",
             "semantic.index.write",
+            "services.manage",
+            "loopback.tokens.write",
         ] {
             assert!(!member.contains(admin_only), "a member lacks {admin_only}");
         }
+    }
+
+    /// Vera, 2026-10-13: members may chat. Chat reaches Choreograph through
+    /// the service proxy, so a member holds `services.proxy` (and reads
+    /// service status), never `services.manage`.
+    #[test]
+    fn members_may_chat_but_not_manage_services() {
+        let member = grant_profile_scopes(MEMBER_GRANT_PROFILE);
+        assert!(member.iter().any(|scope| scope == "services.proxy"));
+        assert!(member.iter().any(|scope| scope == "services.read"));
+        assert!(!member.iter().any(|scope| scope == "services.manage"));
+        let read_only = grant_profile_scopes("read-only");
+        assert!(!read_only.iter().any(|scope| scope == "services.proxy"));
+        assert!(grant_profile_scopes("no-such-grant").is_empty());
+        assert_eq!(
+            grant_profile_scopes("session-all").len(),
+            session_all_token_grant().scopes.len()
+        );
     }
 
     #[test]

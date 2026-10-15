@@ -1,0 +1,14 @@
+{
+	"serviceId": "vehicle",
+	"displayName": "Chat",
+	"command": "node",
+	"args": ["app/main.mjs"],
+	"requires": { "node": "22.19" },
+	"workingDir": ".",
+	"healthPath": "/health",
+	"proxyMount": "/services/vehicle",
+	"memberAccess": "all",
+	"delegateCaller": true,
+	"acceptsModelKey": true,
+	"env": [{ "name": "NODE_ENV", "value": "production" }]
+}

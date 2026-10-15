@@ -21,6 +21,13 @@ pub(crate) struct McpRpcResponse {
     error: Option<McpRpcError>,
 }
 
+impl McpRpcResponse {
+    /// Whether this answers with an error rather than a result.
+    pub(crate) fn is_error(&self) -> bool {
+        self.error.is_some()
+    }
+}
+
 #[derive(Debug, Serialize)]
 struct McpRpcError {
     code: i64,

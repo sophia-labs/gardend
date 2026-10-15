@@ -323,12 +323,10 @@ async fn execute_graph_intuition(
     };
     let mut service_status = state.services.status(KG_ULTRA_SERVICE_ID, &state.app);
     if !matches!(service_status.state, LocalServiceState::Running) && auto_start {
-        match state.services.start(
-            KG_ULTRA_SERVICE_ID,
-            &state.app,
-            &state.manifest,
-            &state.token,
-        ) {
+        match state
+            .services
+            .start(KG_ULTRA_SERVICE_ID, &state.app, &state.manifest)
+        {
             Ok(status) => service_status = status,
             Err(error) => {
                 return json!({

@@ -75,6 +75,88 @@ pub(super) fn mcp_tools_list_result_with_optional(
     envelope
 }
 
+/// `tools/list` for a caller bound to one graph (a delegation token): the
+/// tools it may call there (the bindable policy classes, and only those whose
+/// scopes it holds), with the graph argument taken out of every schema, since
+/// gardend fills it in.
+pub(super) fn mcp_tools_list_result_for_bound_graph(
+    boundary: &crate::cell_graph_boundary::CellGraphBoundary,
+    token_scopes: &[String],
+    custom_css: bool,
+) -> McpToolsListResult {
+    let held = |scope: &str| token_scopes.iter().any(|candidate| candidate == scope);
+    let mut envelope = mcp_tools_list_result();
+    envelope.tools.retain(|tool| {
+        let Some(name) = tool.get("name").and_then(serde_json::Value::as_str) else {
+            return false;
+        };
+        let scopes = mcp_tool_scopes(name);
+        let callable = if mcp_tool_required_scope_mode(name) == "operation-kind" {
+            scopes.iter().any(|scope| held(scope))
+        } else {
+            scopes.iter().all(|scope| held(scope))
+        };
+        (custom_css || tool.get("optionalCapability").is_none())
+            && boundary.mcp_tool_bindable(name)
+            && callable
+    });
+    for tool in &mut envelope.tools {
+        if let Some(schema) = tool.get_mut("inputSchema") {
+            strip_graph_argument(schema);
+        }
+    }
+    envelope
+}
+
+/// Take the graph argument out of a JSON schema: its properties, its
+/// `required` lists, and the `anyOf`/`oneOf`/`allOf` branches that only asked
+/// for it (`write_document` requires `graph_id` or `graphId` through one).
+fn strip_graph_argument(schema: &mut serde_json::Value) {
+    const GRAPH_ARGUMENTS: [&str; 2] = ["graphId", "graph_id"];
+    let Some(object) = schema.as_object_mut() else {
+        return;
+    };
+    if let Some(properties) = object
+        .get_mut("properties")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        for name in GRAPH_ARGUMENTS {
+            properties.remove(name);
+        }
+    }
+    if let Some(required) = object
+        .get_mut("required")
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        required.retain(|name| !name.as_str().is_some_and(|name| GRAPH_ARGUMENTS.contains(&name)));
+    }
+    // A branch left asking for nothing: an `anyOf`/`oneOf` holding one is
+    // met by anything (drop it whole); in an `allOf` it is just dropped.
+    let asks_nothing = |branch: &serde_json::Value| {
+        branch.as_object().is_some_and(|branch| {
+            branch.iter().all(|(key, value)| {
+                key == "required" && value.as_array().is_some_and(|names| names.is_empty())
+            })
+        })
+    };
+    for key in ["anyOf", "oneOf", "allOf"] {
+        let Some(branches) = object.get_mut(key).and_then(serde_json::Value::as_array_mut) else {
+            continue;
+        };
+        for branch in branches.iter_mut() {
+            strip_graph_argument(branch);
+        }
+        if key == "allOf" {
+            branches.retain(|branch| !asks_nothing(branch));
+        } else if branches.iter().any(asks_nothing) {
+            branches.clear();
+        }
+        if branches.is_empty() {
+            object.remove(key);
+        }
+    }
+}
+
 fn attach_mcp_scope_metadata(tools: &mut [serde_json::Value]) {
     for tool in tools {
         let Some(name) = tool
@@ -304,5 +386,180 @@ mod tests {
         assert!(names.contains("source_pull"));
         assert!(names.contains("source_push"));
         assert!(names.contains("source_rebuild"));
+    }
+
+    /// A delegation token's `tools/list`: what it may call on its graph, and
+    /// no graph argument anywhere (gardend fills it in).
+    #[test]
+    fn a_graph_bound_tool_list_has_no_graph_argument_and_only_callable_tools() {
+        let boundary = crate::cell_graph_boundary::CellGraphBoundary::for_test(None);
+        let member = crate::loopback_token_grants::grant_profile_scopes("member");
+        let mut viewer = crate::loopback_token_grants::grant_profile_scopes("read-only");
+        viewer.push("mcp.tools.call".into());
+        let names_of = |scopes: &[String]| {
+            let listed =
+                serde_json::to_value(mcp_tools_list_result_for_bound_graph(&boundary, scopes, false))
+                    .unwrap();
+            for tool in listed["tools"].as_array().unwrap() {
+                let schema = tool["inputSchema"].to_string();
+                assert!(
+                    !schema.contains("\"graphId\"") && !schema.contains("\"graph_id\""),
+                    "{}: {schema}",
+                    tool["name"]
+                );
+            }
+            listed["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|tool| tool["name"].as_str().unwrap().to_string())
+                .collect::<BTreeSet<_>>()
+        };
+        let writer = names_of(&member);
+        let reader = names_of(&viewer);
+        for tool in ["read_document", "search_blocks", "datasheet_facts", "read_artifact"] {
+            assert!(writer.contains(tool) && reader.contains(tool), "{tool}");
+        }
+        for tool in ["write_document", "insert_blocks", "edit_comment", "create_wires", "create_artifact_text"] {
+            assert!(writer.contains(tool), "a member writes with {tool}");
+            assert!(!reader.contains(tool), "a viewer is not offered {tool}");
+        }
+        for tool in ["list_graphs", "create_graph", "upload_artifact", "sparql_update", "rdf_load"] {
+            assert!(!writer.contains(tool), "{tool} is not for a graph-bound member");
+        }
+        let write_document = serde_json::to_value(mcp_tools_list_result_for_bound_graph(
+            &boundary, &member, false,
+        ))
+        .unwrap()["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|tool| tool["name"] == "write_document")
+            .cloned()
+            .unwrap();
+        // Flat since 2026-10-14 (OpenAI refuses a top-level allOf); the
+        // document and content requirements are the handler's, and said in
+        // the description.
+        assert!(write_document["inputSchema"].get("allOf").is_none());
+        assert!(write_document["inputSchema"].to_string().contains("documentId"));
+        assert!(write_document["description"]
+            .as_str()
+            .unwrap()
+            .contains("exactly one of content or tiptapJson"));
+    }
+
+    /// Every input schema a tools/list can hand out must be one OpenAI's
+    /// function calling takes (Anthropic's and Gemini's take the same shape):
+    /// a plain `type: "object"` at the top, with no `allOf`/`anyOf`/`oneOf`/
+    /// `enum`/`const`/`not` (or `if`/`then`/`else`) there (OpenAI's words:
+    /// "schema must have type 'object' and not have 'oneOf'/'anyOf'/'allOf'/
+    /// 'enum'/'const'/'not' at the top level"); and, all the way down, an
+    /// array schema always says its `items`, as one schema, and nothing points
+    /// through `$ref`. OpenAI refused gardend's `write_document` for its
+    /// top-level `allOf`, so no owner's or editor's chat could run on an OpenAI
+    /// model (V-followups-vehicle, 2026-10-13). Walks the whole catalog and
+    /// every list a caller gets: desktop, cell, and graph-bound for each grant.
+    #[test]
+    fn every_tool_input_schema_has_the_openai_compatible_shape() {
+        fn walk(tool: &str, path: &str, schema: &serde_json::Value, problems: &mut Vec<String>) {
+            let Some(object) = schema.as_object() else {
+                if !schema.is_boolean() {
+                    problems.push(format!("{tool}{path}: a schema must be an object or a boolean"));
+                }
+                return;
+            };
+            if object.contains_key("$ref") {
+                problems.push(format!("{tool}{path}: $ref"));
+            }
+            let types: Vec<&str> = match object.get("type") {
+                Some(serde_json::Value::String(t)) => vec![t.as_str()],
+                Some(serde_json::Value::Array(ts)) => ts.iter().filter_map(|t| t.as_str()).collect(),
+                _ => Vec::new(),
+            };
+            if types.contains(&"array") {
+                match object.get("items") {
+                    Some(items) if items.is_object() || items.is_boolean() => {}
+                    Some(_) => problems.push(format!("{tool}{path}: items must be one schema")),
+                    None => problems.push(format!("{tool}{path}: array schema missing items")),
+                }
+            }
+            if let Some(properties) = object.get("properties") {
+                match properties.as_object() {
+                    Some(properties) => {
+                        for (name, property) in properties {
+                            walk(tool, &format!("{path}/properties/{name}"), property, problems);
+                        }
+                    }
+                    None => problems.push(format!("{tool}{path}: properties must be an object")),
+                }
+            }
+            for key in ["items", "additionalProperties"] {
+                if let Some(child) = object.get(key).filter(|child| child.is_object()) {
+                    walk(tool, &format!("{path}/{key}"), child, problems);
+                }
+            }
+            for key in ["anyOf", "oneOf", "allOf"] {
+                for (index, branch) in object
+                    .get(key)
+                    .and_then(serde_json::Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .enumerate()
+                {
+                    walk(tool, &format!("{path}/{key}/{index}"), branch, problems);
+                }
+            }
+        }
+
+        fn audit(label: &str, listed: &McpToolsListResult) -> usize {
+            let listed = serde_json::to_value(listed).unwrap();
+            let tools = listed["tools"].as_array().expect("tools");
+            let mut problems = Vec::new();
+            for tool in tools {
+                let name = tool["name"].as_str().unwrap_or("?");
+                let schema = &tool["inputSchema"];
+                let Some(top) = schema.as_object() else {
+                    problems.push(format!("{name}: inputSchema must be an object"));
+                    continue;
+                };
+                if top.get("type").and_then(serde_json::Value::as_str) != Some("object") {
+                    problems.push(format!("{name}: top-level type must be \"object\""));
+                }
+                for key in ["allOf", "anyOf", "oneOf", "enum", "const", "not", "if", "then", "else"] {
+                    if top.contains_key(key) {
+                        problems.push(format!("{name}: top-level {key}"));
+                    }
+                }
+                if let Some(required) = top.get("required") {
+                    let declared = top.get("properties").and_then(serde_json::Value::as_object);
+                    for field in required.as_array().into_iter().flatten() {
+                        let field = field.as_str().unwrap_or("");
+                        if !declared.is_some_and(|declared| declared.contains_key(field)) {
+                            problems.push(format!("{name}: requires undeclared {field:?}"));
+                        }
+                    }
+                }
+                walk(name, "", schema, &mut problems);
+            }
+            assert!(problems.is_empty(), "{label}: {problems:#?}");
+            tools.len()
+        }
+
+        assert_eq!(audit("catalog", &mcp_tools_list_result()), 115);
+        let desktop = crate::cell_graph_boundary::CellGraphBoundary::for_test(None);
+        let cell = crate::cell_graph_boundary::CellGraphBoundary::for_test(Some("graph-a"));
+        for role in [
+            crate::cell_graph_boundary::CellRole::Owner,
+            crate::cell_graph_boundary::CellRole::Viewer,
+        ] {
+            assert!(audit("desktop", &mcp_tools_list_result_with_optional(&desktop, role, true)) > 0);
+            assert!(audit("cell", &mcp_tools_list_result_with_optional(&cell, role, true)) > 0);
+        }
+        for grant in ["member", "read-only", "authoring", "session-all"] {
+            let mut scopes = crate::loopback_token_grants::grant_profile_scopes(grant);
+            scopes.push("mcp.tools.call".into());
+            let listed = mcp_tools_list_result_for_bound_graph(&desktop, &scopes, true);
+            assert!(audit(grant, &listed) > 0, "{grant}");
+        }
     }
 }

@@ -18,11 +18,18 @@ pub(crate) const LAUNCHD_LABEL: &str = "dev.sophia.gardend";
 pub(crate) const SYSTEMD_UNIT: &str = "gardend.service";
 
 /// Knobs copied from the installing shell into the service, so a service
-/// runs with the same UI, Cloudflare Access and logging settings as a
-/// `gardend serve` typed in that shell. Never the key: the service reads it
-/// from the profile.
+/// runs with the same UI, Cloudflare Access, chat (Choreograph) and logging
+/// settings as a `gardend serve` typed in that shell. Never the key: the
+/// service reads it from the profile. Nor the model key: that lives in the
+/// profile too (`gardend chat key set`).
 pub(crate) const CARRIED_ENV: &[&str] = &[
     "GARDEN_UI_DIR",
+    "GARDEN_SERVICES_DIR",
+    "GARDEN_CHOREOGRAPH_MANIFEST",
+    "GARDEN_CHOREOGRAPH_COMMAND",
+    "GARDEN_CHOREOGRAPH_ARGS",
+    "GARDEN_CHOREOGRAPH_WORKDIR",
+    "GARDEN_CHOREOGRAPH_AUTOSTART",
     "GARDEN_CF_ACCESS_TEAM_DOMAIN",
     "GARDEN_CF_ACCESS_AUD",
     "GARDEN_CF_ACCESS_ADMIN_EMAILS",
@@ -87,6 +94,38 @@ fn manager() -> Result<Manager, String> {
             std::env::consts::OS
         ))
     }
+}
+
+/// A user unit needs systemd running as the init system. WSL2 runs it only
+/// when `/etc/wsl.conf` asks for it, so say how, instead of letting
+/// `systemctl --user` fail obscurely.
+pub(crate) fn systemd_ready(systemd_running: bool, wsl: bool) -> Result<(), String> {
+    if systemd_running {
+        return Ok(());
+    }
+    if wsl {
+        return Err(
+            "systemd is not running in this WSL distribution, so there is no user service to \
+             install. Either run `gardend serve` in a terminal and keep it open, or turn systemd \
+             on: add these two lines to /etc/wsl.conf (with sudo),\n\n    [boot]\n    \
+             systemd=true\n\nrun `wsl --shutdown` from Windows, open the distribution again and \
+             rerun `gardend service install`."
+                .to_string(),
+        );
+    }
+    Err(
+        "systemd is not running here (no /run/systemd/system), so `gardend service` cannot install \
+         a user unit. Run `gardend serve` in a terminal, or under the supervisor you use."
+            .to_string(),
+    )
+}
+
+/// Windows Subsystem for Linux (WSL2 sets `WSL_DISTRO_NAME`; its kernel
+/// names Microsoft in its release).
+fn running_in_wsl() -> bool {
+    std::env::var_os("WSL_DISTRO_NAME").is_some()
+        || std::fs::read_to_string("/proc/sys/kernel/osrelease")
+            .is_ok_and(|release| release.to_ascii_lowercase().contains("microsoft"))
 }
 
 fn home(env: Env) -> Result<PathBuf, String> {
@@ -390,6 +429,9 @@ pub(crate) fn install(args: &ServiceArgs, env: Env) -> Result<String, String> {
     if args.print {
         return Ok(format!("# {}\n{text}", path.display()));
     }
+    if manager == Manager::Systemd {
+        systemd_ready(Path::new("/run/systemd/system").is_dir(), running_in_wsl())?;
+    }
 
     ensure_profile_dir(&spec.profile_dir)?;
     let (key, _) = ensure_profile_key(&spec.profile_dir)?;
@@ -686,6 +728,7 @@ mod tests {
             ("GARDEN_CF_ACCESS_AUD", "aud-123"),
             ("GARDEN_LOOPBACK_TOKEN", "secret"),
             ("AWS_SECRET_ACCESS_KEY", "nope"),
+            ("OPENROUTER_API_KEY", "sk-or-not-carried"),
             ("PATH", "/usr/bin:/bin"),
         ]);
         let carried = carried_env(&env);
@@ -696,6 +739,54 @@ mod tests {
                 ("PATH".to_string(), "/usr/bin:/bin".to_string()),
             ]
         );
+    }
+
+    /// The chat service's knobs ride into the service like the others; the
+    /// model key does not (it lives in the profile).
+    #[test]
+    fn choreograph_knobs_are_carried_into_the_service() {
+        let env = env_of(&[
+            ("GARDEN_CHOREOGRAPH_MANIFEST", "/opt/sophia/choreograph/service.json"),
+            ("GARDEN_CHOREOGRAPH_COMMAND", "node"),
+            ("GARDEN_CHOREOGRAPH_ARGS", "--import tsx src/orchestrator.ts"),
+            ("GARDEN_CHOREOGRAPH_WORKDIR", "/opt/choreograph"),
+            ("GARDEN_CHOREOGRAPH_AUTOSTART", "0"),
+            ("OPENROUTER_API_KEY", "sk-or-secret"),
+        ]);
+        let carried = carried_env(&env);
+        let names: Vec<&str> = carried.iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(
+            names,
+            vec![
+                "GARDEN_CHOREOGRAPH_MANIFEST",
+                "GARDEN_CHOREOGRAPH_COMMAND",
+                "GARDEN_CHOREOGRAPH_ARGS",
+                "GARDEN_CHOREOGRAPH_WORKDIR",
+                "GARDEN_CHOREOGRAPH_AUTOSTART",
+            ]
+        );
+        let unit = render_systemd_unit(&ServiceSpec {
+            env: carried,
+            ..spec()
+        });
+        assert!(unit.contains(
+            "Environment=\"GARDEN_CHOREOGRAPH_MANIFEST=/opt/sophia/choreograph/service.json\""
+        ));
+        assert!(!unit.contains("sk-or-secret"));
+    }
+
+    /// No systemd (WSL2 without `[boot] systemd=true`, a container): say what
+    /// to do instead of failing in `systemctl`.
+    #[test]
+    fn a_missing_systemd_is_explained_with_the_wsl_fix() {
+        assert!(systemd_ready(true, true).is_ok());
+        assert!(systemd_ready(true, false).is_ok());
+        let wsl = systemd_ready(false, true).unwrap_err();
+        assert!(wsl.contains("[boot]") && wsl.contains("systemd=true"), "{wsl}");
+        assert!(wsl.contains("/etc/wsl.conf") && wsl.contains("wsl --shutdown"), "{wsl}");
+        assert!(wsl.contains("gardend serve"), "{wsl}");
+        let plain = systemd_ready(false, false).unwrap_err();
+        assert!(plain.contains("gardend serve") && !plain.contains("wsl.conf"), "{plain}");
     }
 
     #[test]

@@ -5,8 +5,15 @@
 //! exactly as before. What reaches the fallback:
 //!
 //! - `GET /self-host.json`: `{"kind":"gardend-self-host","version",
-//!   "auth":"cloudflare-access"|"key","user":{"email"}|null}`, public; `user`
-//!   is filled when a valid Access token for a person came with the request.
+//!   "auth":"cloudflare-access"|"key","user":{"email"}|null,
+//!   "services":{"choreograph":{"configured","state"}}}`, public; `user` is
+//!   filled when a valid Access token for a person came with the request;
+//!   `services` names every local service gardend knows of (Choreograph
+//!   always) and its state (`unconfigured`, `stopped`, `running`,
+//!   `restarting`, `error` or `unavailable`, which carries a `reason`: what
+//!   this computer lacks, such as Node.js) and, when configured, `enabled`
+//!   (whether gardend starts it at boot), so the UI knows whether chat is
+//!   there.
 //! - the UI build (`GARDEN_UI_DIR`, or `ui/` next to the binary): a file that
 //!   exists is served; a browser navigation (`Sec-Fetch-Mode: navigate`, or
 //!   `Accept: text/html`) to a path with no file gets `index.html`; anything
@@ -19,6 +26,7 @@
 //! a token names (fetched on first use and after Cloudflare rotates keys).
 
 use crate::{
+    local_service_host::CHOREOGRAPH_SERVICE_ID,
     loopback_self_host::{access_jwt, SelfHost},
     loopback_state::LoopbackState,
 };
@@ -66,7 +74,25 @@ pub(crate) async fn self_host_fallback(
         return not_found();
     }
     if uri.path() == SELF_HOST_JSON_PATH {
-        return self_host_json(&state.self_host, &headers).await;
+        return self_host_json(&state, &headers).await;
+    }
+    // Public mode: the MCP server card where SEP-2127 puts it (`/mcp` is the
+    // only route under `/mcp`, so the path reaches this fallback).
+    if uri.path() == crate::public_mode::SERVER_CARD_PATH {
+        return match state.self_host.public().and_then(|public| public.server_card()) {
+            Some(card) => {
+                let mut response = Json(card.clone()).into_response();
+                response
+                    .headers_mut()
+                    .insert(header::CACHE_CONTROL, HeaderValue::from_static(NO_CACHE));
+                response
+            }
+            None => not_found(),
+        };
+    }
+    // Public mode with a site: the site at `/`, the app under `/app/`.
+    if let Some(site_dir) = state.self_host.public().and_then(|public| public.site_dir()) {
+        return serve_public_site(site_dir, state.self_host.ui_dir(), uri.path(), &headers).await;
     }
     match state.self_host.ui_dir() {
         Some(ui_dir) => serve_ui(ui_dir, uri.path(), &headers).await,
@@ -79,7 +105,8 @@ fn not_found() -> Response {
     StatusCode::NOT_FOUND.into_response()
 }
 
-async fn self_host_json(self_host: &SelfHost, headers: &HeaderMap) -> Response {
+async fn self_host_json(state: &LoopbackState, headers: &HeaderMap) -> Response {
+    let self_host: &SelfHost = &state.self_host;
     let user = match (self_host.access(), access_jwt(headers)) {
         (Some(access), Some(jwt)) => {
             access.ensure_signing_key(jwt).await;
@@ -91,13 +118,37 @@ async fn self_host_json(self_host: &SelfHost, headers: &HeaderMap) -> Response {
         }
         _ => None,
     };
-    let mut response = Json(serde_json::json!({
+    let mut ids = state.services.service_ids(&state.app);
+    ids.insert(CHOREOGRAPH_SERVICE_ID.to_string());
+    let services: serde_json::Map<String, serde_json::Value> = ids
+        .into_iter()
+        .map(|service_id| {
+            let status = state.services.status(&service_id, &state.app);
+            let mut described =
+                serde_json::json!({ "configured": status.configured, "state": status.state });
+            if let Some(enabled) = status.enabled {
+                // Whether gardend starts it at boot (`gardend service enable`).
+                described["enabled"] = serde_json::Value::Bool(enabled);
+            }
+            if let Some(reason) = status.reason {
+                // `unavailable`: what this computer lacks, in words for the
+                // person (no paths), so the UI can say why chat is not there.
+                described["reason"] = serde_json::Value::String(reason);
+            }
+            (service_id, described)
+        })
+        .collect();
+    let mut described = serde_json::json!({
         "kind": "gardend-self-host",
         "version": env!("CARGO_PKG_VERSION"),
         "auth": self_host.auth_mode(),
         "user": user,
-    }))
-    .into_response();
+        "services": services,
+    });
+    if let Some(public) = self_host.public() {
+        described["public"] = public.describe();
+    }
+    let mut response = Json(described).into_response();
     response
         .headers_mut()
         .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
@@ -121,6 +172,137 @@ pub(crate) async fn serve_ui(ui_dir: &Path, path: &str, headers: &HeaderMap) -> 
     file_response(ui_dir.join("index.html"), "index.html", headers)
         .await
         .unwrap_or_else(not_found)
+}
+
+/// Public mode with a site (`public_mode`): the app under [`crate::public_mode::APP_PATH`]
+/// (its own SPA fallback), and everything else from the site: a file, a
+/// folder's `index.html`, `/.well-known/...`. A path the site lacks but the
+/// app has (an app built for `/` asks for `/assets/...`) is the app's file;
+/// a page the site lacks is its `404.html` (status 404) when it has one.
+async fn serve_public_site(
+    site_dir: &Path,
+    ui_dir: Option<&Path>,
+    path: &str,
+    headers: &HeaderMap,
+) -> Response {
+    let app = crate::public_mode::APP_PATH.trim_end_matches('/');
+    if path == app {
+        let mut response = StatusCode::PERMANENT_REDIRECT.into_response();
+        response
+            .headers_mut()
+            .insert(header::LOCATION, HeaderValue::from_static(crate::public_mode::APP_PATH));
+        return response;
+    }
+    if let Some(rest) = path.strip_prefix(app).filter(|rest| rest.starts_with('/')) {
+        return match ui_dir {
+            Some(ui_dir) => serve_ui(ui_dir, rest, headers).await,
+            None => not_found(),
+        };
+    }
+    let Some(segments) = site_relative_path(path) else {
+        return not_found();
+    };
+    let relative = segments.join("/");
+    let mut file = site_dir.to_path_buf();
+    file.extend(&segments);
+    let (file, relative) = if segments.is_empty() || file.is_dir() {
+        (
+            file.join("index.html"),
+            if relative.is_empty() { "index.html".to_string() } else { format!("{relative}/index.html") },
+        )
+    } else {
+        (file, relative)
+    };
+    // A page with a markdown twin (`index.html` and `index.md`): the twin for
+    // a caller who prefers markdown or does not ask for HTML (an agent's
+    // bare curl), the page for a browser; either way `Vary: Accept`.
+    if let Some(stem) = relative.strip_suffix(".html") {
+        let twin = file.with_extension("md");
+        if twin.is_file() {
+            let markdown = prefers_markdown(headers);
+            let served = if markdown {
+                file_response(twin, &format!("{stem}.md"), headers).await
+            } else {
+                file_response(file.clone(), &relative, headers).await
+            };
+            if let Some(mut response) = served {
+                response
+                    .headers_mut()
+                    .insert(header::VARY, HeaderValue::from_static("Accept"));
+                return response;
+            }
+        }
+    }
+    if let Some(response) = file_response(file, &relative, headers).await {
+        return response;
+    }
+    if let (Some(ui_dir), Some(ui_segments)) = (ui_dir, ui_relative_path(path)) {
+        if !ui_segments.is_empty() {
+            let mut ui_file = ui_dir.to_path_buf();
+            ui_file.extend(&ui_segments);
+            if let Some(response) = file_response(ui_file, &ui_segments.join("/"), headers).await {
+                return response;
+            }
+        }
+    }
+    if is_navigation(headers) {
+        if let Some(mut response) =
+            file_response(site_dir.join("404.html"), "404.html", &HeaderMap::new()).await
+        {
+            *response.status_mut() = StatusCode::NOT_FOUND;
+            return response;
+        }
+    }
+    not_found()
+}
+
+/// Whether a request would rather have markdown than HTML: it ranks
+/// `text/markdown` at least as high as `text/html`, or does not ask for HTML
+/// at all (`*/*`, no `Accept`).
+fn prefers_markdown(headers: &HeaderMap) -> bool {
+    let accept = headers
+        .get(header::ACCEPT)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let quality = |wanted: &[&str]| -> Option<f32> {
+        accept
+            .split(',')
+            .filter_map(|entry| {
+                let mut parts = entry.split(';');
+                let media = parts.next()?.trim();
+                if !wanted.contains(&media) {
+                    return None;
+                }
+                let q = parts
+                    .filter_map(|parameter| parameter.trim().strip_prefix("q="))
+                    .find_map(|q| q.trim().parse::<f32>().ok())
+                    .unwrap_or(1.0);
+                Some(q)
+            })
+            .fold(None, |best: Option<f32>, q| Some(best.map_or(q, |best| best.max(q))))
+    };
+    let html = quality(&["text/html", "application/xhtml+xml"]).unwrap_or(0.0);
+    let markdown = quality(&["text/markdown", "text/x-markdown"]).unwrap_or(0.0);
+    html <= 0.0 || (markdown > 0.0 && markdown >= html)
+}
+
+/// [`ui_relative_path`], but a site may also serve `/.well-known/...`.
+fn site_relative_path(path: &str) -> Option<Vec<String>> {
+    match path.trim_start_matches('/').split_once('/') {
+        Some((".well-known", rest)) => {
+            let mut segments = vec![".well-known".to_string()];
+            segments.extend(ui_relative_path(rest)?);
+            Some(segments)
+        }
+        _ if path.trim_matches('/') == ".well-known" => Some(vec![".well-known".to_string()]),
+        _ => ui_relative_path(path),
+    }
+}
+
+/// A path segment, percent-decoded (as given when it does not decode).
+pub(crate) fn decode_segment(segment: &str) -> String {
+    percent_decode(segment).unwrap_or_else(|| segment.to_string())
 }
 
 fn is_navigation(headers: &HeaderMap) -> bool {
@@ -264,6 +446,12 @@ fn content_type_for(relative: &str) -> &'static str {
         "json" | "map" => "application/json",
         "webmanifest" => "application/manifest+json",
         "txt" => "text/plain; charset=utf-8",
+        "md" | "markdown" => "text/markdown; charset=utf-8",
+        "jsonld" => "application/ld+json",
+        "geojson" => "application/geo+json",
+        "ipynb" => "application/x-ipynb+json",
+        "csv" => "text/csv; charset=utf-8",
+        "ttl" => "text/turtle; charset=utf-8",
         "xml" => "application/xml",
         "svg" => "image/svg+xml",
         "png" => "image/png",
@@ -657,6 +845,9 @@ mod tests {
                         "version": env!("CARGO_PKG_VERSION"),
                         "auth": "key",
                         "user": null,
+                        "services": {
+                            "choreograph": { "configured": false, "state": "unconfigured" },
+                        },
                     })
                 );
 
@@ -840,7 +1031,7 @@ mod tests {
                     described["user"],
                     serde_json::json!({ "email": "vera@example.com" })
                 );
-                assert_eq!(described.as_object().unwrap().len(), 4);
+                assert_eq!(described.as_object().unwrap().len(), 5);
                 assert_eq!(
                     describe(Some(agent.as_str())).await["user"],
                     serde_json::Value::Null

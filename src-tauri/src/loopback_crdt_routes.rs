@@ -1,7 +1,7 @@
 use crate::{
     cell_graph_boundary::CellGraphJson,
     crdt_queue::{enqueue_crdt_operation, EnqueueCrdtOperationInput},
-    loopback_http::{loopback_error, loopback_result, require_loopback_scopes},
+    loopback_http::{authorized_loopback_caller, loopback_error, loopback_result},
     loopback_scopes::crdt_operation_scopes,
     loopback_state::LoopbackState,
 };
@@ -26,8 +26,19 @@ pub(super) async fn loopback_crdt_operation(
             &format!("unsupported local CRDT operation kind {}", input.kind),
         );
     };
-    if let Err(response) = require_loopback_scopes(&headers, &state, &required_scopes) {
-        return response;
-    }
-    loopback_result(enqueue_crdt_operation(state.app.clone(), input).await)
+    let caller = match authorized_loopback_caller(&headers, &state, &required_scopes) {
+        Ok(caller) => caller,
+        Err(response) => return response,
+    };
+    // Who this write acts for, as on /mcp: the audit's actor and the author
+    // of any comment it writes (2026-10-14). A hosted cell names its caller
+    // through the gateway lease instead.
+    let actor = (!state.cell_graph.is_enabled()).then(|| crate::request_actor::RequestActor {
+        user_id: caller.principal.user_id(),
+        via: None,
+    });
+    loopback_result(
+        crate::request_actor::acting_for(actor, enqueue_crdt_operation(state.app.clone(), input))
+            .await,
+    )
 }

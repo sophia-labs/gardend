@@ -451,6 +451,13 @@ fn create_once_fence_survives_ordinary_delete_and_recreation() {
             ordinary.payload["expectedRevision"] = json!(0);
             ordinary.payload["tiptapJson"]["content"][0]["content"][0]["text"] =
                 json!("User recreation");
+            // A plain write does not bring a deleted document back (2026-10-14).
+            assert!(execute(&app, &ordinary)
+                .await
+                .unwrap_err()
+                .message()
+                .contains("was deleted"));
+            ordinary.payload[crate::crdt_queue::TRUSTED_RECREATION_PAYLOAD_KEY] = json!(true);
             execute(&app, &ordinary).await.unwrap();
             assert_eq!(
                 crate::document_service::read_document(app.clone(), GRAPH.into(), DOCUMENT.into())

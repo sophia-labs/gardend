@@ -577,7 +577,7 @@
     },
     {
       "name": "datasheet_facts",
-      "description": "Read imported datasheet facts for chat and the Writer. Give a `part` (e.g. TPS62840) or an `artifact` (the PDF artifact id, or a sha256 prefix), and optionally a `parameter` (vin, vout, iout, fsw, a symbol such as IQ, or words from a parameter name). Per claim: value (lower/typical/upper, unit), regime, row and per-slot conditions and guarantees, page (1-based) and box, every reading with its source role and page, corroboration (level, independent sources, contested), diagnostics, people's checks (imported snapshots today; none native yet), and a deep link /files/{artifact}#evidence={record}. A parameter not found is absent: not found, never zero. Returns {graphId, matched, editions:[{title, revision, maker, parts, artifact, sha256, claims:[...], corrections, diagnostics}]}.",
+      "description": "Read imported datasheet facts for chat and the Writer. Give a `part` (e.g. TPS62840) or an `artifact` (the PDF artifact id, or a sha256 prefix), and optionally a `parameter` (vin, vout, iout, fsw, a symbol such as IQ, or words from a parameter name). Per claim: value (lower/typical/upper, unit), regime, row and per-slot conditions and guarantees, page (1-based) and box, every reading with its source role and page, corroboration (level, independent sources, contested), diagnostics, people's checks (imported snapshots today; none native yet), and a deep link /files/{artifact}#evidence={record}. A parameter not found is absent: not found, never zero. When no imported datasheet matches a part, `mentions` lists the documents (with the blocks) and files of this workspace that name it, and `note` says which to read. Returns {graphId, matched, editions:[{title, revision, maker, parts, artifact, sha256, claims:[...], corrections, diagnostics}], note?, mentions?}.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1157,7 +1157,7 @@
     },
     {
       "name": "write_document",
-      "description": "Replace a local document through the same CRDT document.write path used by hosted-compatible writes. Accepts either plain text, markdown, HTML, or TipTap XML content, or a canonical TipTap JSON document without a lossy string roundtrip.",
+      "description": "Replace a local document through the same CRDT document.write path used by hosted-compatible writes. Accepts either plain text, markdown, HTML, or TipTap XML content, or a canonical TipTap JSON document without a lossy string roundtrip. Requires documentId (or document_id) and exactly one of content or tiptapJson (or tiptap_json); a call without them is refused.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1218,56 +1218,7 @@
             ],
             "minimum": 0
           }
-        },
-        "allOf": [
-          {
-            "anyOf": [
-              {
-                "required": [
-                  "graph_id"
-                ]
-              },
-              {
-                "required": [
-                  "graphId"
-                ]
-              }
-            ]
-          },
-          {
-            "anyOf": [
-              {
-                "required": [
-                  "document_id"
-                ]
-              },
-              {
-                "required": [
-                  "documentId"
-                ]
-              }
-            ]
-          },
-          {
-            "oneOf": [
-              {
-                "required": [
-                  "content"
-                ]
-              },
-              {
-                "required": [
-                  "tiptapJson"
-                ]
-              },
-              {
-                "required": [
-                  "tiptap_json"
-                ]
-              }
-            ]
-          }
-        ]
+        }
       }
     },
     {
@@ -1865,7 +1816,7 @@
     },
     {
       "name": "search_documents",
-      "description": "Search local document titles and IDs in a graph.",
+      "description": "Search local document titles and IDs in a graph. Files match too (PDFs, datasheets and other uploads, by name and, for an imported datasheet, by its title, part numbers, maker and type): they come back beside the documents in `files`, each with its kind (`datasheet` or `file`) and the artifactId to pass to datasheet_facts (`artifact`) or read_artifact.",
       "inputSchema": {
         "type": "object",
         "required": [
@@ -1902,7 +1853,7 @@
     },
     {
       "name": "search_blocks",
-      "description": "Search local document block content. Hybrid mode combines lexical hits with prepared semantic-index hits when available.",
+      "description": "Search local document block content. Hybrid mode combines lexical hits with prepared semantic-index hits when available. Files whose name or datasheet (title, part numbers, maker, type) match the query come back beside the blocks in `files`, each with its kind (`datasheet` or `file`) and the artifactId to pass to datasheet_facts (`artifact`) or read_artifact.",
       "inputSchema": {
         "type": "object",
         "required": [
@@ -2136,7 +2087,7 @@
     },
     {
       "name": "create_document",
-      "description": "Create a local document through the workspace CRDT surface.",
+      "description": "Create a new local document through the workspace CRDT surface. It never takes over an existing document: a documentId that already exists (in the tree, in the Trash, or deleted) is refused unless ifExists says otherwise. Change an existing document with write_document, rename or move_documents.",
       "inputSchema": {
         "type": "object",
         "required": [
@@ -2151,7 +2102,17 @@
             "type": "string"
           },
           "documentId": {
-            "type": "string"
+            "type": "string",
+            "description": "Optional. Omit it to get a new id."
+          },
+          "ifExists": {
+            "type": "string",
+            "enum": [
+              "refuse",
+              "update",
+              "keep"
+            ],
+            "description": "What to do when documentId already names a document. refuse (default): an error. keep: return the existing document unchanged (existed: true). update: rewrite its title and place (not for a document in the Trash). A deleted document is always refused."
           },
           "parentId": {
             "type": [

@@ -88,6 +88,8 @@ pub(super) fn hosted_block_search_response(
         return Err("search request body must be an object".to_string());
     };
     object.insert("mode".to_string(), serde_json::json!(mode));
+    // This route answers with `results` only; the file pass is for the MCP tools.
+    object.insert("includeFiles".to_string(), serde_json::json!(false));
     let local = mcp_local_search_blocks(app, &arguments)?;
     let results = local
         .get("results")

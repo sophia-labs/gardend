@@ -51,6 +51,12 @@ mod loopback_manifest_secret_redaction_cell_tests;
 #[path = "files_rudiments_tests.rs"]
 mod files_rudiments_tests;
 #[cfg(all(test, feature = "headless"))]
+#[path = "create_document_refusal_cell_tests.rs"]
+mod create_document_refusal_cell_tests;
+#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
+#[path = "upload_ingest_refusal_cell_tests.rs"]
+mod upload_ingest_refusal_cell_tests;
+#[cfg(all(test, feature = "headless"))]
 #[path = "source_authority_direct_writes_tests.rs"]
 mod source_authority_direct_writes_tests;
 const MCP_CATALOG_JSON: &str = include_str!("mcp_tool_catalog.json");
@@ -790,6 +796,87 @@ impl CellGraphBoundary {
         openapi["x-sophia-cellGraphBoundary"] = serde_json::json!("single-graph-v1");
     }
 
+    /// Whether a graph-bound MCP caller (a delegation token on a multi-graph
+    /// gardend) may see and call `tool_name`: every policy class but the
+    /// profile-wide one, and nothing unclassified.
+    pub(crate) fn mcp_tool_bindable(&self, tool_name: &str) -> bool {
+        let policy = &self.policy;
+        !policy.mcp_profile_denied.contains(tool_name)
+            && (policy.mcp_graph_scoped.contains(tool_name)
+                || policy.mcp_operation_guarded.contains(tool_name)
+                || policy.mcp_job_graph.contains(tool_name)
+                || policy.mcp_global.contains(tool_name))
+    }
+
+    /// A tool a public-mode visitor may call (`public_mode`): one that reads
+    /// one graph, or a global one (vocabularies, artifact kinds). Never a job,
+    /// operation-guarded, profile-wide or unclassified tool.
+    pub(crate) fn mcp_tool_public(&self, tool_name: &str) -> bool {
+        let policy = &self.policy;
+        !policy.mcp_profile_denied.contains(tool_name)
+            && !policy.mcp_job_graph.contains(tool_name)
+            && !policy.mcp_operation_guarded.contains(tool_name)
+            && (policy.mcp_graph_scoped.contains(tool_name) || policy.mcp_global.contains(tool_name))
+    }
+
+    /// A tool that reaches no graph (`mcpGlobal`).
+    pub(crate) fn mcp_tool_global(&self, tool_name: &str) -> bool {
+        self.policy.mcp_global.contains(tool_name)
+    }
+
+    /// Bind one MCP call to `graph_id` on a multi-graph gardend, the way a
+    /// hosted cell binds every call to its one graph, with the same policy
+    /// classes: a graph-scoped tool gets the graph filled in (under the
+    /// argument name its schema declares, `graphId` or `graph_id`) and is
+    /// refused when it names another graph anywhere in its arguments; a job
+    /// tool reaches only jobs of this graph; `delete` and `crdt_operation`
+    /// keep their operation guards; a profile-wide tool (list or create
+    /// graphs, upload host files, start workflows) and an unclassified one
+    /// are refused. A gardend that is a hosted cell binds through
+    /// [`Self::scope_mcp_arguments`] instead and never calls this.
+    pub(crate) fn bind_mcp_call_to_graph(
+        &self,
+        graph_id: &str,
+        tool_name: &str,
+        mut arguments: serde_json::Value,
+        jobs: &crate::local_jobs::LocalJobRegistry,
+    ) -> Result<serde_json::Value, CellGraphBoundaryError> {
+        let policy = &self.policy;
+        if policy.mcp_profile_denied.contains(tool_name) {
+            return Err(CellGraphBoundaryError::ProfileWideOperation(format!(
+                "MCP tool {tool_name}"
+            )));
+        }
+        if policy.mcp_job_graph.contains(tool_name) {
+            authorize_json_graph_selectors(graph_id, &arguments)?;
+            for job_id in required_job_carriers(policy, tool_name, &arguments)? {
+                let record = jobs
+                    .get(job_id)
+                    .map_err(|error| CellGraphBoundaryError::InvalidRequest(error.message()))?
+                    .ok_or(CellGraphBoundaryError::JobNotOwned)?;
+                if local_job_graph_id(&record).as_deref() != Some(graph_id) {
+                    return Err(CellGraphBoundaryError::JobNotOwned);
+                }
+            }
+            return Ok(arguments);
+        }
+        if policy.mcp_operation_guarded.contains(tool_name) {
+            bind_graph_argument(graph_id, tool_name, &mut arguments)?;
+            authorize_mcp_operation(tool_name, graph_id, &arguments)?;
+            return Ok(arguments);
+        }
+        if policy.mcp_global.contains(tool_name) {
+            return Ok(arguments);
+        }
+        if policy.mcp_graph_scoped.contains(tool_name) {
+            bind_graph_argument(graph_id, tool_name, &mut arguments)?;
+            return Ok(arguments);
+        }
+        Err(CellGraphBoundaryError::UnclassifiedMcpTool(
+            tool_name.to_string(),
+        ))
+    }
+
     pub(crate) fn scope_mcp_arguments(
         &self,
         tool_name: &str,
@@ -1053,7 +1140,7 @@ async fn run_with_cell_lease(request: Request, next: Next) -> Response {
     }
 }
 
-fn path_parameter<'a>(
+pub(crate) fn path_parameter<'a>(
     matched_path: &str,
     actual_path: &'a str,
     parameter: &str,
@@ -1137,6 +1224,120 @@ fn required_job_carriers<'a>(
         }
     }
     Ok(carriers)
+}
+
+/// How public mode (`public_mode`) classes a REST route: by where its graph
+/// is named, with the scopes the effect registry gives it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PublicRouteClass {
+    /// No graph (health, vocabularies, capabilities).
+    Global,
+    /// The graph is the `{graph_id}` of its path.
+    PathGraph,
+    /// The graph is named in its JSON body.
+    BodyGraph,
+    /// Jobs, CRDT operations, profile-wide routes: never a visitor's.
+    Other,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct PublicRoute {
+    pub(crate) class: PublicRouteClass,
+    pub(crate) scopes: Vec<String>,
+}
+
+/// The class and scopes of `method matched_path`, from the same embedded
+/// policy and effect registry a hosted cell enforces (parsed once). `None`
+/// for a route either of them does not know: public mode refuses it.
+pub(crate) fn public_route(method: &Method, matched_path: &str) -> Option<PublicRoute> {
+    static TABLES: std::sync::OnceLock<Option<(CellGraphBoundaryPolicy, BTreeMap<String, EffectEntry>)>> =
+        std::sync::OnceLock::new();
+    let (policy, effects) = TABLES
+        .get_or_init(|| {
+            let policy: CellGraphBoundaryPolicy = serde_json::from_str(POLICY_JSON).ok()?;
+            let (effects, _) = parse_effect_registry().ok()?;
+            Some((policy, effects))
+        })
+        .as_ref()?;
+    let key = format!("{method} {matched_path}");
+    let effect = effects.get(&key)?;
+    let class = if policy.rest_profile_denied.contains(&key)
+        || policy.rest_profile_denied_any_method.contains(matched_path)
+        || policy.rest_job_graph.contains(&key)
+        || policy.rest_operation_graph.contains(&key)
+    {
+        PublicRouteClass::Other
+    } else if policy.rest_body_graph.contains(&key) {
+        PublicRouteClass::BodyGraph
+    } else if policy.rest_global.contains(&key) {
+        PublicRouteClass::Global
+    } else if policy.rest_path_graph.contains(&key) {
+        PublicRouteClass::PathGraph
+    } else {
+        return None;
+    };
+    Some(PublicRoute {
+        class,
+        scopes: effect.scopes.clone(),
+    })
+}
+
+/// Every graph a JSON body names (`graphId`, `graph_id`, `sourceGraphId`,
+/// `targetGraphId`, `sceneGraphId`, at any depth), by the rules
+/// [`authorize_json_graph_selectors`] applies in a cell: a new-graph selector
+/// or any other `*GraphId(s)` key is refused.
+pub(crate) fn json_graph_selectors(
+    value: &serde_json::Value,
+) -> Result<Vec<String>, CellGraphBoundaryError> {
+    fn visit(
+        value: &serde_json::Value,
+        depth: usize,
+        found: &mut Vec<String>,
+    ) -> Result<(), CellGraphBoundaryError> {
+        if depth > 64 {
+            return Err(CellGraphBoundaryError::InvalidRequest(
+                "graph-scoped JSON nesting exceeds the boundary limit".to_string(),
+            ));
+        }
+        match value {
+            serde_json::Value::Object(object) => {
+                for (key, nested) in object {
+                    let normalized = key
+                        .chars()
+                        .filter(|character| character.is_ascii_alphanumeric())
+                        .flat_map(char::to_lowercase)
+                        .collect::<String>();
+                    match normalized.as_str() {
+                        "newgraphid" => {
+                            return Err(CellGraphBoundaryError::ProfileWideOperation(
+                                "graph creation selector newGraphId".to_string(),
+                            ))
+                        }
+                        "graphid" | "sourcegraphid" | "targetgraphid" | "scenegraphid" => {
+                            found.push(require_selector_string(key, nested)?.to_string());
+                        }
+                        _ if normalized.ends_with("graphid") || normalized.ends_with("graphids") => {
+                            return Err(CellGraphBoundaryError::InvalidRequest(format!(
+                                "unsupported graph selector {key}"
+                            )));
+                        }
+                        _ => {}
+                    }
+                    visit(nested, depth + 1, found)?;
+                }
+            }
+            serde_json::Value::Array(values) => {
+                for nested in values {
+                    visit(nested, depth + 1, found)?;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+    let mut found = Vec::new();
+    visit(value, 0, &mut found)?;
+    Ok(found)
 }
 
 fn authorize_json_graph_selectors(
@@ -1230,6 +1431,60 @@ fn scope_graph_arguments(
         );
     }
     Ok(())
+}
+
+/// [`scope_graph_arguments`] for a graph-bound caller on a multi-graph
+/// gardend: any graph the arguments name must be `graph_id`, and when they
+/// name none it is filled in under the name the tool's schema declares (a
+/// tool such as `create_artifact_text` accepts `graph_id` only).
+fn bind_graph_argument(
+    graph_id: &str,
+    tool_name: &str,
+    arguments: &mut serde_json::Value,
+) -> Result<(), CellGraphBoundaryError> {
+    authorize_json_graph_selectors(graph_id, arguments)?;
+    let object = arguments.as_object_mut().ok_or_else(|| {
+        CellGraphBoundaryError::InvalidRequest(
+            "graph-scoped request arguments must be an object".to_string(),
+        )
+    })?;
+    if !object.contains_key("graphId") && !object.contains_key("graph_id") {
+        object.insert(
+            catalog_graph_argument(tool_name).to_string(),
+            serde_json::Value::String(graph_id.to_string()),
+        );
+    }
+    Ok(())
+}
+
+/// The graph argument a catalog tool's schema declares: `graphId` when it has
+/// it, else `graph_id`.
+pub(crate) fn catalog_graph_argument(tool_name: &str) -> &'static str {
+    static SNAKE_ONLY: std::sync::OnceLock<BTreeSet<String>> = std::sync::OnceLock::new();
+    let snake_only = SNAKE_ONLY.get_or_init(|| {
+        let catalog: serde_json::Value =
+            serde_json::from_str(MCP_CATALOG_JSON).unwrap_or(serde_json::Value::Null);
+        catalog
+            .get("tools")
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter(|tool| {
+                tool.pointer("/inputSchema/properties")
+                    .and_then(serde_json::Value::as_object)
+                    .is_some_and(|properties| {
+                        properties.contains_key("graph_id") && !properties.contains_key("graphId")
+                    })
+            })
+            .filter_map(|tool| tool.get("name").and_then(serde_json::Value::as_str))
+            .map(str::to_string)
+            .collect()
+    });
+    if snake_only.contains(tool_name) {
+        "graph_id"
+    } else {
+        "graphId"
+    }
 }
 
 fn required_string<'a>(
@@ -2247,6 +2502,86 @@ mod tests {
             Err(CellGraphBoundaryError::InvalidRequest(_))
         ));
 
+        let _ = fs::remove_dir_all(jobs_dir);
+    }
+
+    /// A delegation token binds one MCP call to its graph on a multi-graph
+    /// gardend, with the hosted cell's policy classes: the graph is filled in
+    /// under the schema's own argument name, another graph is refused anywhere
+    /// in the arguments, profile-wide and unclassified tools are refused, and
+    /// a job tool reaches only the graph's jobs.
+    #[test]
+    fn a_graph_bound_call_gets_its_graph_and_reaches_no_other() {
+        let jobs_dir =
+            std::env::temp_dir().join(format!("garden-bound-call-jobs-{}", Uuid::new_v4()));
+        let jobs = LocalJobRegistry::new(jobs_dir.clone()).expect("job registry");
+        let gardend = CellGraphBoundary::for_test(None);
+        assert!(!gardend.is_enabled(), "a multi-graph gardend, not a cell");
+        let bind = |tool: &str, arguments: serde_json::Value| {
+            gardend.bind_mcp_call_to_graph("notes", tool, arguments, &jobs)
+        };
+
+        let bound = bind("search_documents", serde_json::json!({"query": "buck"})).unwrap();
+        assert_eq!(bound, serde_json::json!({"query": "buck", "graphId": "notes"}));
+        let bound = bind("create_artifact_text", serde_json::json!({"text": "x"})).unwrap();
+        assert_eq!(
+            bound,
+            serde_json::json!({"text": "x", "graph_id": "notes"}),
+            "the schema's own spelling: this tool refuses graphId"
+        );
+        assert_eq!(catalog_graph_argument("create_artifact_text"), "graph_id");
+        assert_eq!(catalog_graph_argument("write_document"), "graphId");
+        assert_eq!(
+            bind("read_document", serde_json::json!({"graphId": "notes", "documentId": "d"}))
+                .unwrap()["graphId"],
+            "notes",
+            "naming the bound graph is fine"
+        );
+        for foreign in [
+            serde_json::json!({"graphId": "other"}),
+            serde_json::json!({"graph_id": "other"}),
+            serde_json::json!({"wires": [{"targetGraphId": "other"}]}),
+        ] {
+            assert_eq!(
+                bind("create_wires", foreign.clone()),
+                Err(CellGraphBoundaryError::GraphMismatch),
+                "{foreign}"
+            );
+        }
+        for wide in ["list_graphs", "create_graph", "manage_graph", "upload_artifact", "workflow_run_start"] {
+            assert!(
+                matches!(
+                    bind(wide, serde_json::json!({})),
+                    Err(CellGraphBoundaryError::ProfileWideOperation(_))
+                ),
+                "{wide}"
+            );
+            assert!(!gardend.mcp_tool_bindable(wide), "{wide}");
+        }
+        assert!(matches!(
+            bind("delete", serde_json::json!({"type": "graph", "id": "notes"})),
+            Err(CellGraphBoundaryError::ProfileWideOperation(_))
+        ));
+        assert_eq!(
+            bind("delete", serde_json::json!({"type": "wires", "wireId": "w-1"})).unwrap()["graphId"],
+            "notes"
+        );
+        assert_eq!(
+            bind("emporium_vocab", serde_json::json!({})).unwrap(),
+            serde_json::json!({}),
+            "a global tool is left as it is"
+        );
+        assert_eq!(
+            bind("get_job_status", serde_json::json!({"jobId": "job-of-nobody"})),
+            Err(CellGraphBoundaryError::JobNotOwned)
+        );
+        assert!(matches!(
+            bind("no_such_tool", serde_json::json!({})),
+            Err(CellGraphBoundaryError::UnclassifiedMcpTool(_))
+        ));
+        for reader in ["read_document", "datasheet_facts", "search_blocks", "delete", "get_job_status"] {
+            assert!(gardend.mcp_tool_bindable(reader), "{reader}");
+        }
         let _ = fs::remove_dir_all(jobs_dir);
     }
 

@@ -135,9 +135,7 @@ fn execute_sparql_query_inner(
     max_rows: Option<usize>,
     cancellation: Option<CancellationToken>,
 ) -> Result<SparqlQueryResult, String> {
-    let quad_count = store
-        .len()
-        .map_err(|error| format!("count quads: {error}"))?;
+    let quad_count = crate::rdf_store_service::graph_store_quad_count(store)?;
     let mut evaluator = SparqlEvaluator::new();
     if let Some(cancellation) = cancellation.as_ref() {
         evaluator = evaluator.with_cancellation_token(cancellation.clone());

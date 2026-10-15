@@ -1,0 +1,36 @@
+{
+	"schema": "sophia.choreograph-service-build.v1",
+	"choreographCommit": "cac224ced1d68cf73abc793de73110a0879fecde",
+	"dirty": false,
+	"pi": "1.2.0",
+	"libsql": "0.5.29",
+	"natives": [
+		"darwin-x64",
+		"darwin-arm64",
+		"linux-x64-gnu",
+		"linux-arm64-gnu"
+	],
+	"node": ">=22.19",
+	"esbuild": "0.28.2",
+	"builtWith": "v22.23.2",
+	"files": {
+		"LICENSE": "74f3df1ea893175d8c660619eca25a6062cd1a47b898f4de6f5d682a8eaa31ef",
+		"NOTICE": "c7db41c1077e1a1192ba993632a8ffededaa7f43f79b3316aff009f083d6ba59",
+		"THIRD-PARTY-NOTICES.md": "06a81349c48d08b00d0d1a9be6446098f52d398fa5654842917569aa4ed22aac",
+		"app/main.mjs": "1b319c6c7a4b3ef9afe306e1bd8c04f1329b43c38160d7c5699cadaf2e508b60",
+		"app/node_modules/@libsql/darwin-arm64/index.node": "3fd9e58190311b5ee027c3e5452a6a410b31a5d610fd55853d797bb3c9f5db0c",
+		"app/node_modules/@libsql/darwin-arm64/package.json": "6e7a953e9b488c562ec816c4fcbd998d39a6a88d1241d00f0ec26982415e9a51",
+		"app/node_modules/@libsql/darwin-x64/index.node": "f9351876c884c0fec20eccfb9ddbcdd753f3458f0ffc6757e3308fea37191bf3",
+		"app/node_modules/@libsql/darwin-x64/package.json": "086b32a4f1ec0e5673483ce936475ca4dce9668f754024afdb1a7159e657aad3",
+		"app/node_modules/@libsql/linux-arm64-gnu/index.node": "712f59a8f50a2e537afb7cc1cd57013f29e6026f355a9a4bd4716c0eccbe48c5",
+		"app/node_modules/@libsql/linux-arm64-gnu/package.json": "686df8f3cdfad95b5b525432528b0de7cfc1e5c30d9107749a3b08d93cf4b103",
+		"app/node_modules/@libsql/linux-x64-gnu/index.node": "f6c322c857c99e43e13c31e7289044d4e0d64528bae4e23ae03f6524afe02d5e",
+		"app/node_modules/@libsql/linux-x64-gnu/package.json": "2fb49a53a74133a9005e14a77cbe1dd8ae73a915d90a948f0beb734522334173",
+		"app/package.json": "d404d48fe1a020cee37a870b66f405d3f3d65c64b6670d387310dddcad386d5a",
+		"app/worker.mjs": "f6ad894fefe6e5d2e02f457005e9aefe9567a52b004592fc03e1023d70203731",
+		"body/LICENSE": "0457f5bcec3b3b211605dfb5d1a49042fd638f3686a410fe099c24a25af13c48",
+		"body/body.mjs": "b91b08330e20e31565d0c4d0edbbc9f1009a37f449589a594e75f2d10889f6de",
+		"body/package.json": "c8b59c5a8262ca99173d32e61f603092972578a94a0843eb07c83ff2763f1cc9",
+		"service.json": "98f47e723e945b74f3cd6ea8e47edac58f07cb3a8f53a6ad08596d7aab5fbd69"
+	}
+}

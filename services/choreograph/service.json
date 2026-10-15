@@ -1,0 +1,45 @@
+{
+	"serviceId": "choreograph",
+	"displayName": "Sophia Compute",
+	"command": "node",
+	"args": [
+		"app/main.mjs"
+	],
+	"requires": {
+		"node": "22.19"
+	},
+	"workingDir": ".",
+	"healthPath": "/health",
+	"proxyMount": "/services/choreograph",
+	"autostart": false,
+	"env": [
+		{
+			"name": "NODE_ENV",
+			"value": "production"
+		},
+		{
+			"name": "OTEL_SDK_DISABLED",
+			"value": "true"
+		},
+		{
+			"name": "BILLING_FEE_BPS",
+			"value": "0"
+		},
+		{
+			"name": "WORKFLOW_DYNAMIC_SOURCE",
+			"value": "1"
+		},
+		{
+			"name": "CHOREOGRAPH_LOCAL_AGENT_DEFAULTS",
+			"value": "1"
+		},
+		{
+			"name": "SOPHIA_AGENT_RUNTIME_ENTRYPOINT",
+			"value": "body/body.mjs"
+		},
+		{
+			"name": "MNEMOSYNE_GRAPH_OWNER",
+			"value": "user:owner"
+		}
+	]
+}

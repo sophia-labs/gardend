@@ -23,11 +23,19 @@ pub(super) async fn loopback_hosted_list_graphs(
     headers: HeaderMap,
     Query(query): Query<HostedGraphListQuery>,
 ) -> Response {
-    if let Err(response) = require_loopback_scope(&headers, &state, "graphs.read") {
-        return response;
-    }
+    let caller = match crate::loopback_http::authorized_loopback_caller(&headers, &state, &["graphs.read"]) {
+        Ok(caller) => caller,
+        Err(response) => return response,
+    };
 
     let result = hosted_graph_entries_service(&state.app, false);
+    // A public-mode visitor gets the public graphs, inline: it reads no jobs.
+    if caller.is_public() {
+        return loopback_app_result(result.map(|entries| match state.self_host.public() {
+            Some(public) => crate::public_mode::public_graph_entries(public, entries),
+            None => Vec::new(),
+        }));
+    }
     if query.wait_ms.is_some() {
         return loopback_app_result(result);
     }
@@ -64,12 +72,21 @@ pub(super) async fn loopback_hosted_read_graph(
     AxumPath(graph_id): AxumPath<String>,
     Query(query): Query<HostedGraphListQuery>,
 ) -> Response {
-    if let Err(response) = require_loopback_scope(&headers, &state, "graphs.read") {
-        return response;
-    }
+    let caller = match crate::loopback_http::authorized_loopback_caller(&headers, &state, &["graphs.read"]) {
+        Ok(caller) => caller,
+        Err(response) => return response,
+    };
 
     let result = read_graph_record(&state.app, &graph_id)
         .map(|(_, graph)| hosted_graph_entry_from_record(graph, true));
+    // A public-mode visitor (the gate let it in: a public graph) reads it
+    // inline, as a viewer: it reads no jobs.
+    if caller.is_public() {
+        return loopback_app_result(result.map(|mut entry| {
+            entry["role"] = serde_json::json!("viewer");
+            entry
+        }));
+    }
     if query.wait_ms.is_some() {
         return loopback_app_result(result);
     }

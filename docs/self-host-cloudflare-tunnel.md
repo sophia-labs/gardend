@@ -22,8 +22,10 @@ handles it in between, as it does for any site it serves.
 
 You need:
 
-- **a computer that stays on and awake**: a Mac, or a Linux machine (Ubuntu 22.04 or newer, or similar). Windows is not
-  supported yet;
+- **a computer that stays on and awake**: a Mac, or a Linux machine (Ubuntu 22.04 or newer, or similar). On Windows, use
+  WSL2 (section 13);
+- **for chat, Node.js 22.19 or newer and a model key** from [OpenRouter](https://openrouter.ai) (section 11), and the same
+  for workflows (Sophia Compute, section 12, off until you turn it on). Everything else works without them;
 - **disk space**: downloads can be several GB, and you need room for the download and the unpacked copy at the same time;
 - **a Cloudflare account** (the free plan is enough);
 - **a domain on Cloudflare**: on the free plan, the domain's nameservers must point to Cloudflare.
@@ -41,7 +43,7 @@ In Sophia, open **Settings → Account → Download my gardens**. Your browser s
 
 ## 3. Install gardend
 
-gardend 0.1.2 or newer is needed: it is the first version that serves the Sophia app itself. The newest version is always on
+gardend 0.1.2 or newer is needed: it is the first version that serves the Sophia app itself. Chat needs 0.1.4 or newer. The newest version is always on
 the [releases page](https://github.com/sophia-labs/gardend/releases). Pick the build for your computer:
 
 | Your computer | Build (`T`) |
@@ -55,7 +57,7 @@ Download it and check that it arrived intact. In the first two lines, put the ne
 your build from the table:
 
 ```bash
-V=v0.1.3
+V=v0.1.4
 T=aarch64-apple-darwin
 cd ~/Downloads
 curl -fLO https://github.com/sophia-labs/gardend/releases/download/$V/gardend-$V-$T.tar.gz
@@ -74,7 +76,8 @@ sudo ln -sf ~/gardend/gardend /usr/local/bin/gardend
 gardend --version
 ```
 
-`~/gardend` holds the `gardend` program and, beside it, a `ui` folder: that is the Sophia app. Keep them together.
+`~/gardend` holds the `gardend` program and, beside it, a `ui` folder (the Sophia app) and a `services` folder (chat,
+section 11). Keep them together.
 
 **On a Mac:** gardend is not signed with an Apple Developer ID. If you downloaded it with a browser instead of `curl`,
 macOS may refuse to run it. Clear the download flag:
@@ -368,11 +371,11 @@ gardend --version
 ```
 
 `gardend update` downloads the newest release, checks it against the release's checksums, and replaces the `gardend`
-program and the `ui` folder beside it. If it says Sophia is still running, wait a moment and run it again. It refuses a
+program and the `ui` and `services` folders beside it. If it says Sophia is still running, wait a moment and run it again. It refuses a
 release that stores gardens in a new format: then the release notes say what to do.
 
-**If `gardend --version` says 0.1.2**, its `gardend update` replaces only the program and leaves the `ui` folder as it
-was. This once, update by replacing the whole `~/gardend` folder instead. Download and check the new version with step 3's
+**If `gardend --version` says 0.1.3 or older**, its `gardend update` does not bring the `services` folder (and 0.1.2's
+leaves the `ui` folder as it was too). This once, update by replacing the whole `~/gardend` folder instead. Download and check the new version with step 3's
 first block (with the new number in `V`), and unpack it with `tar -xzf gardend-$V-$T.tar.gz`. Then, on a Mac:
 
 ```bash
@@ -391,9 +394,113 @@ systemctl --user start gardend
 gardend --version
 ```
 
+**Loading a large RDF file** (a statistical cube, a whole catalogue: anything past the 500 MiB the app's import takes)
+is `gardend load`. Stop Sophia, then:
+
+```bash
+gardend load --profile ~/sophia --graph <graph-id> data.nq.gz
+```
+
+The graph must exist already. The load streams the file (gzip too), commits once at the end, and refuses to run while
+Sophia serves the folder. `gardend load --help` says more.
+
 Keep cloudflared up to date too: `brew upgrade cloudflared` on a Mac, your package manager on Linux.
 
-## 11. Troubleshooting
+## 11. Chat
+
+The chat panel runs on your computer too, from the `services` folder beside gardend, on a model you choose and pay for.
+Nothing goes through Sophia's own servers. It needs gardend 0.1.4 or newer, Node.js, and a model key.
+
+**Install Node.js 22.19 or newer.**
+
+- Mac: `brew install node@22` with [Homebrew](https://brew.sh), then follow what it prints to put it on your PATH; or the
+  installer from [nodejs.org](https://nodejs.org).
+- Linux (and WSL2): from [NodeSource](https://github.com/nodesource/distributions) (`node_22.x`), or with
+  [nvm](https://github.com/nvm-sh/nvm): `nvm install 22`.
+
+In a new Terminal, check it:
+
+```bash
+node --version
+```
+
+It should print `v22.19.0` or newer. gardend looks for `node` on its PATH each time it starts. The service from step 5
+keeps the PATH of the Terminal that installed it, so install it again from this Terminal:
+
+```bash
+. ~/.config/sophia/env
+gardend service install --profile ~/sophia
+```
+
+(Leave out the first line if you skipped step 7.)
+
+**Set your model key.** Chat uses [OpenRouter](https://openrouter.ai), which reaches most models with one key. Make a key
+at [openrouter.ai/keys](https://openrouter.ai/keys), give it a monthly limit if you like, and then:
+
+```bash
+gardend chat key set --profile ~/sophia
+```
+
+It asks for the key, keeps it in `~/sophia/services.env` (readable only by you) and restarts chat. To remove it:
+`gardend chat key clear --profile ~/sophia`.
+
+Open Sophia: the chat panel is on the right.
+
+- Chat answers from the garden that is open. It searches and reads its documents, and can write them, with the rights
+  of a member (step 8). It does not run programs on your computer.
+- Everyone you let in can chat, admins and members. Each person sees only their own conversations. They are kept in
+  `~/sophia/services/vehicle`.
+- Each reply stops after 12 model calls or $0.25, whichever comes first. The model is Gemini 2.5 Flash.
+- If chat says **"Chat needs Node.js 22.19 or newer"**, gardend did not find it: install Node.js and install the service
+  again, as above. Sophia works without chat in the meantime.
+- Chat needs nothing more. Agent sessions, which can also run commands in a folder of their own, run inside a sandbox:
+  on a Mac the one built into macOS, on Linux and WSL2 bubblewrap (`sudo apt install bubblewrap`).
+
+## 12. Sophia Compute (workflows)
+
+Sophia Compute runs workflows on your computer: programs of steps, some of them agents that read and write your gardens
+with a model, from the `services/choreograph` folder beside gardend. It is **off until you turn it on**, because it
+takes memory while it waits. It needs what chat needs (section 11): Node.js 22.19 or newer, and a model key.
+
+```bash
+gardend service enable choreograph --profile ~/sophia
+```
+
+gardend starts it now if it is running, and every time it starts from then on. `gardend service disable choreograph
+--profile ~/sophia` stops it and keeps it off. A workflow your agents start through gardend (the `workflow_run_start`
+tool, step 9) starts it when it is needed, even while it is off.
+
+- It uses the model key chat uses (`gardend chat key set`). To give it a key of its own:
+  `gardend service env set OPENROUTER_API_KEY --service choreograph --profile ~/sophia`.
+- Waiting, it takes 100 to 160 MB of memory (the most just after it starts) and 1 to 2% of one processor core; while a
+  workflow runs, each agent step runs as a short-lived process of its own.
+- Its agent steps run on your computer as you, without a sandbox, and reach your gardens only through gardend, with the
+  rights of a member. Only admins (you, with your link or as an Access admin) start workflows; members chat.
+- Its records (runs, sessions, costs) are kept in `~/sophia/services/choreograph`.
+
+## 13. On Windows: WSL2
+
+gardend runs in WSL2, the Linux inside Windows, as it does on Linux.
+
+1. In PowerShell: `wsl --install -d Ubuntu`. Restart if asked, and open **Ubuntu**.
+2. Step 5's service needs systemd. Recent Ubuntu images have it on: `cat /etc/wsl.conf` shows `systemd=true` under
+   `[boot]`. If not, in Ubuntu:
+
+   ```bash
+   printf '[boot]\nsystemd=true\n' | sudo tee -a /etc/wsl.conf
+   ```
+
+   Then, in PowerShell, `wsl --shutdown`, and open Ubuntu again. (`gardend service install` says the same when systemd
+   is off.)
+3. In Ubuntu, follow this guide with the Linux commands and the Linux build (`x86_64-unknown-linux-gnu`). Your Windows
+   Downloads folder is `/mnt/c/Users/<your name>/Downloads`: copy the gardens download into Ubuntu
+   (`mkdir -p ~/Downloads && cp /mnt/c/Users/<your name>/Downloads/sophia-gardens-*.tar ~/Downloads/`) and keep `~/sophia` in Ubuntu, not under
+   `/mnt/c`. For agent sessions, also `sudo apt install bubblewrap` (section 11).
+4. Open the link from step 4 in a browser on Windows: `http://127.0.0.1:7674/...` reaches Sophia in Ubuntu.
+5. Install cloudflared in Ubuntu (the dashboard's Debian commands in step 6), not on Windows.
+6. Windows stops Ubuntu some time after its last window closes, and with it Sophia. Keep an Ubuntu window open.
+
+## 14. Troubleshooting
 
 | You see | Why | What to do |
 |---|---|---|
@@ -412,10 +519,13 @@ Keep cloudflared up to date too: `brew upgrade cloudflared` on a Mac, your packa
 | An agent's long request fails after about two minutes (524) | Cloudflare ends a request that is silent for 125 seconds | Ask the agent to use the job version of the tool, which answers at once, and to check on the job |
 | sophia-mcp says Cloudflare Access refused | A wrong Client ID or Secret, or no **Service Auth** policy with that token | Check step 9 |
 | An agent gets an HTML challenge page | Cloudflare's Bot Fight Mode is on | Turn it off for your domain (**Security → Bots**) |
+| Chat says "Chat needs Node.js 22.19 or newer" | gardend found no `node`, or an old one, on its PATH | Section 11: install Node.js, then install the service again from a new Terminal |
+| Chat replies with an error about an API key | No model key is set | `gardend chat key set --profile ~/sophia` (section 11) |
+| No chat panel at all | The `services` folder is not beside the `gardend` program (gardend older than 0.1.4) | Update by replacing the whole `~/gardend` folder (step 10) |
 
-## 12. Not included yet
+## 15. Not included yet
 
-- Chat, and agents that run inside Sophia, are not part of a self-hosted Sophia yet. They come later. Your own agents can
-  work with your gardens through sophia-mcp (step 9).
+- Agents that run programs inside Sophia come later. Your own agents can work with your gardens through sophia-mcp
+  (step 9).
 - Your chat history is not in the download.
-- Windows, and a service on Windows.
+- gardend on Windows itself (WSL2 works, section 13), and a service on Windows.

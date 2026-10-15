@@ -112,7 +112,15 @@ impl SparqlAdmission {
             .unwrap_or(server_max_rows)
             .max(1)
             .min(server_max_rows);
-        EffectiveQueryLimits { timeout, max_rows }
+        // A public-mode visitor's query (or a service's, made for one) gets
+        // the lower public ceilings (`public.json` `sparql`).
+        match crate::public_mode::current_sparql_ceiling() {
+            Some(ceiling) => EffectiveQueryLimits {
+                timeout: timeout.min(ceiling.timeout),
+                max_rows: max_rows.min(ceiling.max_rows),
+            },
+            None => EffectiveQueryLimits { timeout, max_rows },
+        }
     }
 
     async fn acquire_before(

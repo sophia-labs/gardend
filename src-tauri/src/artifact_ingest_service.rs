@@ -108,7 +108,7 @@ pub(super) async fn local_ingest_artifact(
         parent_id_override,
     );
 
-    let mut upload_value = enqueue_crdt_operation(
+    let mut upload_value = match enqueue_crdt_operation(
         app.clone(),
         EnqueueCrdtOperationInput {
             kind: "document.uploadIngest".to_string(),
@@ -117,7 +117,14 @@ pub(super) async fn local_ingest_artifact(
             payload,
         },
     )
-    .await?;
+    .await
+    {
+        Ok(value) => value,
+        Err(error) => {
+            record_ingest_failure(&app, &graph_id, &artifact_id, &error).await;
+            return Err(error);
+        }
+    };
     let document_id = json_string(
         upload_value
             .get("documentId")
@@ -182,6 +189,31 @@ pub(super) async fn local_ingest_artifact(
         "artifact": artifact_value,
         "value": editable_value,
     }))
+}
+
+/// The file's row says its ingest failed, and why (`status: "error"`,
+/// `errorMessage`), where the files canvas and MCP `get_workspace` read it
+/// (2026-10-14); the import's job fails with the same message. An ingest that
+/// lands later puts the row back to "ready" (`artifact_ingested_payload`). An
+/// operation still queued past its caller's wait has not failed: nothing is
+/// said.
+async fn record_ingest_failure(app: &AppHandle, graph_id: &str, artifact_id: &str, error: &str) {
+    if error == crate::crdt_queue::CRDT_OPERATION_STILL_QUEUED_ERROR {
+        return;
+    }
+    if let Err(record_error) = enqueue_crdt_operation(
+        app.clone(),
+        EnqueueCrdtOperationInput {
+            kind: "workspace.putArtifact".to_string(),
+            graph_id: graph_id.to_string(),
+            document_id: Some(artifact_id.to_string()),
+            payload: serde_json::json!({ "patch": true, "status": "error", "errorMessage": error }),
+        },
+    )
+    .await
+    {
+        log::warn!("[ingest_artifact] could not record the failed ingest of {artifact_id}: {record_error}");
+    }
 }
 
 pub(super) async fn mcp_local_ingest_artifact(

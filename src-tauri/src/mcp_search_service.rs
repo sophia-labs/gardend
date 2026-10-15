@@ -2,6 +2,9 @@
 //! loopback routes the frontend calls — funnels through these two functions,
 //! so ranking behavior lands everywhere at once.
 //!
+//! Files (2026-10-14): both also return the graph's matching files beside
+//! `results`, as `files` (`file_search.rs`); `results` itself is unchanged.
+//!
 //! Hybrid ranking is Reciprocal Rank Fusion: BM25 scores are unbounded and
 //! cosine similarity's range shifts per embedding model, so the two lists
 //! fuse by RANK, not by score. A block found by both paths collects both
@@ -86,14 +89,18 @@ pub(super) fn mcp_local_search_documents(
         })
         .collect::<Vec<_>>();
 
-    Ok(serde_json::json!({
+    let mut output = serde_json::json!({
         "graph_id": graph_id,
         "query": queries.first().cloned().unwrap_or_default(),
         "queries": queries,
         "mode": mode,
         "results": results,
         "total": results.len(),
-    }))
+    });
+    crate::file_search::add_file_hits(
+        &graph_id, &graph_dir, arguments, &queries, &mode, limit, &mut output, "document title",
+    );
+    Ok(output)
 }
 
 /// Title/ID match ladder: exact > title prefix > title substring > id
@@ -492,7 +499,7 @@ pub(super) fn mcp_local_search_blocks(
         other => return Err(format!("unsupported search_blocks mode: {other}")),
     };
 
-    Ok(serde_json::json!({
+    let mut output = serde_json::json!({
         "graph_id": graph_id,
         "query": queries.first().cloned().unwrap_or_default(),
         "queries": queries,
@@ -501,7 +508,14 @@ pub(super) fn mcp_local_search_blocks(
         "results": results,
         "total": results.len(),
         "semantic_error": semantic_error,
-    }))
+    });
+    // A search inside one document (docFilter) is about that document's blocks.
+    if doc_filter.is_none() {
+        crate::file_search::add_file_hits(
+            &graph_id, &graph_dir, arguments, &queries, &mode, limit, &mut output, "block",
+        );
+    }
+    Ok(output)
 }
 
 #[cfg(test)]

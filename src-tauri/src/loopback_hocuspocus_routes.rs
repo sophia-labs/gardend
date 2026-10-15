@@ -112,6 +112,13 @@ pub(crate) fn authorize_ws(
 }
 
 fn ws_client_token_scopes(state: &LoopbackState, token: &str) -> Option<Vec<String>> {
+    // A supervised local service's own MCP token (`local_service_host`) holds
+    // the member grant, rooms included.
+    if state.services.service_token_owner(token).is_some() {
+        return Some(crate::loopback_token_grants::grant_profile_scopes(
+            crate::loopback_token_grants::MEMBER_GRANT_PROFILE,
+        ));
+    }
     match resolve_loopback_client_token(&state.app, token) {
         Ok(scopes) => scopes,
         Err(error) => {

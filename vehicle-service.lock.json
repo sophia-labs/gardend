@@ -1,0 +1,23 @@
+{
+  "repository": "https://github.com/sophia-labs/vehicle-internal (private; the built folder is what is published)",
+  "commit": "5c8be6ccf80cb9daa8737d3bb4d4887ec8d04670",
+  "build": "ts/scripts/build-service.mjs",
+  "pi": "1.2.0",
+  "node": ">=22.19",
+  "esbuild": "0.28.2",
+  "files": {
+    "LICENSE": "c94bf3244b0368aa73786c2fabd609cecceab0c085088cf21a713f6d34376cc4",
+    "THIRD-PARTY-NOTICES.md": "3a16e1b62ff64d655d1b879e07dab46b185cb38a922b3b7c36b29f6008494f7c",
+    "app/image-resize-worker.js": "7526b0e9b73e98d0e262a73eb11fddf1f360029c40565450ad840e11b047465b",
+    "app/main.mjs": "91438dcb1092bd7885b122ee61dbfe422e3e25d1bf8edeff9a56cc6f04a7955d",
+    "app/node_modules/@silvia-odwyer/photon-node/LICENSE.md": "c984c291167af70cc5fb7c7f4cec9b4560565110b766a718b3e12aba650327a7",
+    "app/node_modules/@silvia-odwyer/photon-node/package.json": "a1362f6a9e9d942d6b77555f1e40b19a6b3e2cc04bfb8af95e452a6f769fe7db",
+    "app/node_modules/@silvia-odwyer/photon-node/photon_rs.js": "d60656705f0d59baa79e36b0381eb023f1864eeb57e92956cf21dcd9fb8f879f",
+    "app/node_modules/@silvia-odwyer/photon-node/photon_rs_bg.js": "02d724f9efb4c4b9a5f49dd83ff7ba0d83af14428059ba21372bad43cc8b2253",
+    "app/node_modules/@silvia-odwyer/photon-node/photon_rs_bg.wasm": "10468181565c56004c867f3a4af96f89a0ef5a63a72f2b5fb12c1f1992a3615c",
+    "app/package.json": "75c1cdb6d0d1b6633be10f6a0bebe481cf28a1c9eb52c344fed9aadb4dcff637",
+    "app/pi/LICENSE": "0457f5bcec3b3b211605dfb5d1a49042fd638f3686a410fe099c24a25af13c48",
+    "app/pi/package.json": "d4231a02b6a2ccb357a8e9e420fab9c217490137ade958d4a45a12e169daad0c",
+    "service.json": "9efc83e7929b8c190a6bf186615ba14449cc3e6d988fa012b72194353bc525ce"
+  }
+}

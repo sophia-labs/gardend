@@ -28,6 +28,7 @@ use yrs::{
 };
 
 use super::executor::{ApplyOperationError, ApplyOperationResult};
+use crate::rdf_workspace_materializer::WorkspaceEntityKind;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Entry points
@@ -69,9 +70,22 @@ pub(crate) async fn apply_classified(
             }))
         }
         "workspace.createDocument" => {
-            let value = commit_hot!(update_workspace_doc_checked(&room, |_doc, txn| {
-                write_workspace_document(txn, payload)
-            }));
+            refuse_uncreatable_document(&graph_dir, payload)?;
+            let admission =
+                admit_document_create(app, operation, &room, &graph_dir, recovered).await?;
+            let kept = matches!(admission, CreateAdmission::Keep(_));
+            let value = match admission {
+                CreateAdmission::Keep(existing) => existing,
+                CreateAdmission::Write { existed } => {
+                    let mut value = commit_hot!(update_workspace_doc_checked(&room, |_doc, txn| {
+                        write_workspace_document(txn, payload)
+                    }));
+                    if existed {
+                        value["existed"] = Value::Bool(true);
+                    }
+                    value
+                }
+            };
             let document_id = value
                 .get("documentId")
                 .and_then(Value::as_str)
@@ -92,7 +106,14 @@ pub(crate) async fn apply_classified(
             // create_document_with_lease idempotently completes the missing
             // manifest/persistence tail. A body is never inferred from an
             // arbitrary WebSocket map edit; only this explicit queued command
-            // crosses the namespace/body boundary.
+            // crosses the namespace/body boundary. A kept document that has
+            // its body is left alone entirely.
+            let has_body = crate::document_paths::document_dir(&graph_dir, &document_id)
+                .map(|dir| dir.join("document.json").is_file())
+                .unwrap_or(false);
+            if kept && has_body {
+                return Ok(value);
+            }
             crate::document_service::create_document_with_lease(
                 app.clone(),
                 crate::document_types::CreateDocumentInput {
@@ -121,20 +142,54 @@ pub(crate) async fn apply_classified(
                 .clone()
                 .or_else(|| string_payload(payload, "documentId"))
                 .ok_or_else(|| "delete document operation is missing documentId".to_string())?;
-            let value = commit_hot!(update_workspace_doc_checked(&room, |_doc, txn| {
-                    let documents = txn.get_or_insert_map("documents");
-                    documents.remove(txn, &document_id);
-                    Ok(json!({ "documentId": document_id, "deleted": true }))
-                }));
-            crate::document_delete_service::delete_document_for_operation(
-                app.clone(),
-                graph_id.clone(),
-                document_id,
-                Some(&operation.operation_id),
-            )?;
-            value
+            if crate::ids::validate_local_id(&document_id, "document_id").is_err() {
+                // A client may write any key into the workspace map. A row
+                // whose id is not a local id names no document and has no
+                // body: deleting it removes just the row (2026-10-14). An id
+                // with no row is refused before anything is touched, as an id
+                // the body's delete would refuse.
+                let row_id = document_id.clone();
+                let present = room
+                    .with_doc(move |doc| document_row_exists_in_workspace(doc, &row_id))
+                    .await;
+                if !present && !recovered {
+                    return Err(format!(
+                        "document_id contains invalid characters, and no workspace row has the id {document_id:?}"
+                    ));
+                }
+                if present {
+                    commit_hot!(update_workspace_doc_checked(&room, |_doc, txn| {
+                        txn.get_or_insert_map("documents").remove(txn, &document_id);
+                        Ok(())
+                    }));
+                }
+                json!({ "documentId": document_id, "deleted": true, "removedStrayRowIds": [document_id] })
+            } else {
+                let value = commit_hot!(update_workspace_doc_checked(&room, |_doc, txn| {
+                        let documents = txn.get_or_insert_map("documents");
+                        documents.remove(txn, &document_id);
+                        Ok(json!({ "documentId": document_id, "deleted": true }))
+                    }));
+                crate::document_delete_service::delete_document_for_operation(
+                    app.clone(),
+                    graph_id.clone(),
+                    document_id,
+                    Some(&operation.operation_id),
+                )?;
+                value
+            }
         }
         "workspace.createFolder" => {
+            let value = object_payload(payload);
+            refuse_unprojectable(
+                &graph_id,
+                WorkspaceEntityKind::Folder,
+                "workspace.createFolder",
+                json!({
+                    "id": string_value(pick(&value, &["folderId", "folder_id", "id"])),
+                    "parentId": string_value(pick(&value, &["parentId", "parent_id"])),
+                }),
+            )?;
             commit_hot!(update_workspace_doc_checked(&room, |_doc, txn| {
                 write_workspace_folder(txn, payload)
             }))
@@ -187,7 +242,12 @@ pub(crate) async fn apply_classified(
             }
             let (folder_existed, mut child_documents, mut child_artifacts, mut deleted_folders) =
                 commit_hot!(update_workspace_doc_checked(&room, |_doc, txn| {
-                    delete_workspace_folder_in_doc_checked(txn, &folder_id, cascade, Some(&graph_dir))
+                    delete_workspace_folder_in_doc_checked(
+                        txn,
+                        &folder_id,
+                        cascade,
+                        Some(&graph_dir),
+                    )
                 }));
             if recovered && !folder_existed && hard && cascade {
                 if let Some((documents, artifacts, folders)) =
@@ -198,6 +258,7 @@ pub(crate) async fn apply_classified(
                     deleted_folders = folders;
                 }
             }
+            let (child_documents, stray_rows) = split_stray_rows(child_documents);
             if hard {
                 for document_id in &child_documents {
                     crate::document_delete_service::delete_document_for_operation(
@@ -216,6 +277,7 @@ pub(crate) async fn apply_classified(
                 "cascade": cascade,
                 "hard": hard,
                 "deletedDocumentIds": child_documents,
+                "removedStrayRowIds": stray_rows,
                 "deletedArtifactIds": child_artifacts,
                 "deletedFolderIds": deleted_folders,
             })
@@ -249,6 +311,21 @@ pub(crate) async fn apply_classified(
                 .clone()
                 .or_else(|| string_value(pick(&value, &["artifactId", "artifact_id", "id"])))
                 .ok_or_else(|| "put artifact operation is missing artifactId".to_string())?;
+            if !value.get("patch").and_then(Value::as_bool).unwrap_or(false) {
+                refuse_unprojectable(
+                    &graph_id,
+                    WorkspaceEntityKind::Artifact,
+                    "workspace.putArtifact",
+                    json!({
+                        "id": artifact_id,
+                        "parentId": string_value(pick(&value, &["parentId", "parent_id"])),
+                        "ingestedDocId": string_value(pick(&value, &["ingestedDocId", "ingested_doc_id"])),
+                        "sceneProjection": pick(&value, &["sceneProjection", "scene_projection"])
+                            .cloned()
+                            .unwrap_or(Value::Null),
+                    }),
+                )?;
+            }
             commit_hot!(update_workspace_doc_checked(&room, |_doc, txn| {
                 put_workspace_artifact(txn, &graph_id, &artifact_id, &value)
             }))
@@ -272,6 +349,22 @@ pub(crate) async fn apply_classified(
                 .clone()
                 .or_else(|| string_value(pick(&value, &["sourceDocumentId", "source_document_id"])))
                 .ok_or_else(|| "create wire operation is missing source documentId".to_string())?;
+            refuse_unprojectable(
+                &graph_id,
+                WorkspaceEntityKind::Wire,
+                "workspace.createWire",
+                json!({
+                    "id": string_value(pick(&value, &["wireId", "wire_id", "id"])),
+                    "sourceDocumentId": source_id,
+                    "targetDocumentId": string_value(pick(&value, &["targetDocumentId", "target_document_id"])),
+                    "sourceBlockId": string_value(pick(&value, &["sourceBlockId", "source_block_id"])),
+                    "targetBlockId": string_value(pick(&value, &["targetBlockId", "target_block_id"])),
+                    "sourceMarkId": string_value(pick(&value, &["sourceMarkId", "source_mark_id"])),
+                    "targetMarkId": string_value(pick(&value, &["targetMarkId", "target_mark_id"])),
+                    "predicate": string_value(value.get("predicate"))
+                        .unwrap_or_else(|| "isWiredTo".to_string()),
+                }),
+            )?;
             let data = commit_hot!(update_workspace_doc_checked(&room, |_doc, txn| {
                     create_workspace_wire_in_doc(txn, &graph_dir, &graph_id, &source_id, &value)
                 }));
@@ -509,6 +602,13 @@ async fn sync_workspace_document_titles(
         let Some(document_id) = document.get("id").and_then(Value::as_str) else {
             continue;
         };
+        // A client may write any key into the workspace map. A row whose id
+        // cannot name a document has no body whose title could follow it;
+        // refusing it here failed every later workspace write of the graph,
+        // after its commit, so each was retried forever (2026-10-14).
+        if crate::ids::validate_local_id(document_id, "document_id").is_err() {
+            continue;
+        }
         let Some(title) = document
             .get("title")
             .and_then(Value::as_str)
@@ -631,9 +731,173 @@ fn folder_exists_in_workspace(doc: &Doc, folder_id: &str) -> bool {
         .is_some_and(|folders| folders.contains_key(&txn, folder_id))
 }
 
+fn document_row_exists_in_workspace(doc: &Doc, document_id: &str) -> bool {
+    let txn = doc.transact();
+    txn.get_map("documents")
+        .is_some_and(|documents| documents.contains_key(&txn, document_id))
+}
+
+/// A hard cascade's child rows, split: documents (local ids; their bodies
+/// are deleted after the commit) and stray rows (any other key a client wrote
+/// into the workspace map; they name no document and have no body, so they
+/// are only removed, and reported as `removedStrayRowIds`, 2026-10-14).
+fn split_stray_rows(ids: Vec<String>) -> (Vec<String>, Vec<String>) {
+    ids.into_iter()
+        .partition(|id| crate::ids::validate_local_id(id, "document_id").is_ok())
+}
+
+/// An op that creates a folder, an artifact or a wire is refused, before it
+/// writes, when something it would project makes no IRI (its id, its parent,
+/// a wire's ends or predicate): committed, such an entity would be left out
+/// of the projection, with only a warning in the log (2026-10-14).
+fn refuse_unprojectable(
+    graph_id: &str,
+    kind: WorkspaceEntityKind,
+    operation: &str,
+    entity: Value,
+) -> Result<(), String> {
+    match crate::rdf_workspace_materializer::workspace_entity_unprojectable_iri(graph_id, kind, &entity) {
+        None => Ok(()),
+        Some(iri) => Err(format!(
+            "{operation}: {iri:?} is not an IRI; a {kind}'s id, parent or links may not hold a space \
+             or any of <>\"{{}}|\\^`",
+            kind = kind.name()
+        )),
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Doc-level mutators (ports of the TS handler bodies)
 // ─────────────────────────────────────────────────────────────────────────────
+
+/// The refusals `document_service::create_document_with_lease` would make of
+/// a `workspace.createDocument`, made before its workspace entry is committed.
+/// After that commit any failure is kept as a tail to retry (right for a disk
+/// or a lease that comes back), so a refusal that can never pass held the
+/// operation, and every later write to the graph behind it, forever: a title
+/// over 96 characters (agent-core V4, 2026-10-13), an id that is not a local
+/// id, a deleted document's id. Reads the payload as `write_workspace_document`
+/// does, so the title checked is the one the body is created with.
+fn refuse_uncreatable_document(graph_dir: &Path, payload: &Value) -> Result<(), String> {
+    let value = object_payload(payload);
+    crate::ids::normalize_title(&non_empty_or(string_value(value.get("title")), "Untitled"))?;
+    let Some(document_id) = string_value(pick(&value, &["documentId", "document_id", "id"])) else {
+        return Ok(()); // `write_workspace_document` refuses it before the commit
+    };
+    crate::document_service::refuse_uncreatable_document_id(graph_dir, &document_id)
+}
+
+/// What a `workspace.createDocument` may do with the id it names.
+enum CreateAdmission {
+    /// Write the row (a new document, its own replay, or `ifExists: "update"`).
+    Write { existed: bool },
+    /// `ifExists: "keep"` met an existing row: leave it exactly as it is.
+    Keep(Value),
+}
+
+/// Create must create (2026-10-14). A `workspace.createDocument` naming the id
+/// of a document that already exists used to take it over: the row was
+/// rewritten with the caller's title and parent (W6 probe F1: the owner's
+/// "The Guide" became "HIJACKED" in a visitors' folder), and a body with no
+/// row was adopted with its old content. Now such a create is refused before
+/// anything is written, whether the document is in the tree, in the Trash, or
+/// only a body. The exceptions:
+/// - this same operation meeting what it wrote itself: a retry after its hot
+///   commit (the queue says so), or a recovered replay whose row still carries
+///   this operation's creation time;
+/// - a caller that opts in with `ifExists`: `"update"` rewrites a live row's
+///   metadata (the old upsert, now asked for by name; never a row in the
+///   Trash), `"keep"` returns the existing document untouched (an idempotent
+///   "make sure it exists").
+async fn admit_document_create(
+    app: &AppHandle,
+    operation: &CrdtOperation,
+    room: &Room,
+    graph_dir: &Path,
+    recovered: bool,
+) -> Result<CreateAdmission, String> {
+    let value = object_payload(&operation.payload);
+    let if_exists = match pick(&value, &["ifExists", "if_exists"]) {
+        None | Some(Value::Null) => "refuse",
+        Some(Value::String(mode)) if matches!(mode.as_str(), "refuse" | "update" | "keep") => {
+            mode.as_str()
+        }
+        Some(other) => {
+            return Err(format!(
+                "create_document: ifExists must be \"refuse\" (the default), \"update\" or \"keep\", not {other}"
+            ))
+        }
+    };
+    let Some(document_id) = string_value(pick(&value, &["documentId", "document_id", "id"])) else {
+        return Ok(CreateAdmission::Write { existed: false }); // refused before the commit
+    };
+    let retry = app
+        .try_state::<crate::crdt_queue::CrdtOperationQueue>()
+        .is_some_and(|queue| queue.is_retry_after_hot_commit(&operation.operation_id));
+    if retry {
+        return Ok(CreateAdmission::Write { existed: false });
+    }
+    let row_id = document_id.clone();
+    let row = room
+        .with_doc(move |doc| {
+            let txn = doc.transact();
+            let documents = txn.get_map("documents")?;
+            let row = documents.get(&txn, &row_id)?;
+            Some(match row {
+                Out::YMap(map) => (
+                    map_bool(&txn, &map, "trashed", false),
+                    map_number(&txn, &map, "createdAt"),
+                    json!({
+                        "documentId": row_id,
+                        "id": row_id,
+                        "title": map_string(&txn, &map, "title"),
+                        "parentId": map_string(&txn, &map, "parentId"),
+                        "order": map_value(&txn, &map, "order"),
+                        "trashed": map_bool(&txn, &map, "trashed", false),
+                        "existed": true,
+                    }),
+                ),
+                _ => (false, None, json!({ "documentId": row_id, "id": row_id, "existed": true })),
+            })
+        })
+        .await;
+    let own_replay = |created_at: Option<f64>| {
+        recovered && created_at.is_some() && created_at == finite_number(value.get("updatedAt"))
+    };
+    match row {
+        Some((_, created_at, _)) if own_replay(created_at) => {
+            Ok(CreateAdmission::Write { existed: false })
+        }
+        Some((_, _, existing)) if if_exists == "keep" => Ok(CreateAdmission::Keep(existing)),
+        Some((false, _, _)) if if_exists == "update" => Ok(CreateAdmission::Write { existed: true }),
+        Some((true, _, _)) => Err(format!(
+            "create_document: the document {document_id:?} already exists and is in the Trash. \
+             create_document makes a new document and never takes over an existing one. Restore it \
+             from the Trash (POST /navigation/{{graph_id}}/trash/{document_id}/restore?kind=document), \
+             or omit documentId to create a new document."
+        )),
+        Some((false, _, _)) => Err(format!(
+            "create_document: the document {document_id:?} already exists. create_document makes a \
+             new document and never takes over an existing one: omit documentId (or name an unused \
+             one) to create a new document. To change this one, use write_document (content), \
+             rename (title) or move_documents (folder); pass ifExists \"keep\" to accept the \
+             existing document as it is."
+        )),
+        None if recovered || if_exists != "refuse" => Ok(CreateAdmission::Write { existed: false }),
+        None => {
+            let manifest =
+                crate::document_paths::document_dir(graph_dir, &document_id)?.join("document.json");
+            if manifest.is_file() {
+                return Err(format!(
+                    "create_document: a document body with the id {document_id:?} already exists \
+                     (it has no place in the tree). create_document makes a new document and never \
+                     adopts an existing one: omit documentId (or name an unused one)."
+                ));
+            }
+            Ok(CreateAdmission::Write { existed: false })
+        }
+    }
+}
 
 /// Port of writeWorkspaceDocument (native-local-runtime.ts:1316).
 pub(super) fn write_workspace_document(
@@ -990,6 +1254,12 @@ pub(crate) fn delete_workspace_folder_in_doc_checked(
         return Err("folder is not empty; pass cascade=true to delete children".to_string());
     }
     for document_id in &child_documents {
+        // A client may write any key into the workspace map. A row whose id is
+        // not a local id has no body: it is removed with the folder, and the
+        // caller never deletes a body by it (`split_stray_rows`, 2026-10-14).
+        if crate::ids::validate_local_id(document_id, "document_id").is_err() {
+            continue;
+        }
         if let Some(graph_dir) = graph_dir {
             crate::document_body_availability::require_available(graph_dir, document_id)?;
         }
@@ -1154,13 +1424,17 @@ fn snapshot_parent_map(
             .get("id")
             .and_then(Value::as_str)
             .ok_or_else(|| format!("recovered workspace {field} entry is missing id"))?;
-        crate::ids::validate_local_id(id, id_label)?;
+        // Any key a client wrote may be here: ids and parents are compared as
+        // strings only, and no path is made of them (a child document's body
+        // is deleted only when its id is a local id, `split_stray_rows`).
+        // Refusing a stray key here failed the recovered cascade after its
+        // hot commit, retried forever (2026-10-14).
+        if id.is_empty() {
+            return Err(format!("recovered workspace {field} entry: {id_label} cannot be empty"));
+        }
         let parent = match object.get("parentId") {
             None | Some(Value::Null) => None,
-            Some(Value::String(parent)) => {
-                crate::ids::validate_local_id(parent, "parent_id")?;
-                Some(parent.clone())
-            }
+            Some(Value::String(parent)) if !parent.is_empty() => Some(parent.clone()),
             Some(_) => {
                 return Err(format!(
                     "recovered workspace {field} entry {id} has invalid parentId"
@@ -1180,7 +1454,9 @@ fn folder_delete_targets_from_snapshot(
     snapshot: &Value,
     folder_id: &str,
 ) -> Result<Option<FolderDeleteTargets>, String> {
-    crate::ids::validate_local_id(folder_id, "folder_id")?;
+    if folder_id.is_empty() {
+        return Err("folder_id cannot be empty".to_string());
+    }
     let folders = snapshot_parent_map(snapshot, "folders", "folder_id")?;
     if !folders.contains_key(folder_id) {
         return Ok(None);
@@ -1457,8 +1733,38 @@ fn patch_workspace_artifact(
             "workspace.putArtifact patch: order must be a finite number".to_string()
         })?),
     };
-    if label.is_none() && parent.is_none() && order.is_none() {
+    // The ingest's outcome (artifact_ingest_service::record_ingest_failure):
+    // `status` and `errorMessage` are set without restating the whole row.
+    let status = match value.get("status") {
+        None => None,
+        Some(Value::String(status)) if !status.trim().is_empty() => Some(status.trim().to_string()),
+        Some(_) => {
+            return Err("workspace.putArtifact patch: status must be a non-empty string".to_string())
+        }
+    };
+    let error_message = match value.get("errorMessage") {
+        None => None,
+        Some(Value::Null) => Some(None),
+        Some(Value::String(message)) => Some(Some(message.clone())),
+        Some(_) => {
+            return Err(
+                "workspace.putArtifact patch: errorMessage must be a string or null".to_string(),
+            )
+        }
+    };
+    if label.is_none()
+        && parent.is_none()
+        && order.is_none()
+        && status.is_none()
+        && error_message.is_none()
+    {
         return Err("workspace.putArtifact patch: nothing to change".to_string());
+    }
+    if let Some(status) = status {
+        artifact_map.insert(txn, "status", status.as_str());
+    }
+    if let Some(error_message) = error_message {
+        artifact_map.insert(txn, "errorMessage", opt_string_any(error_message));
     }
     if let Some(label) = label {
         artifact_map.insert(txn, "name", label.as_str());
@@ -3348,9 +3654,14 @@ mod tests {
             "documents": [{ "id": "../escape", "parentId": "folder-root" }],
             "artifacts": []
         });
-        let error = folder_delete_targets_from_snapshot(&traversal, "folder-root")
-            .expect_err("unsafe recovered document id must be rejected");
-        assert!(error.contains("document_id"), "{error}");
+        let targets = folder_delete_targets_from_snapshot(&traversal, "folder-root")
+            .expect("a row whose id is not a local id is listed, not refused")
+            .expect("root exists");
+        // ...and never names a body to delete: it is a stray row.
+        assert_eq!(
+            split_stray_rows(targets.0),
+            (Vec::<String>::new(), vec!["../escape".to_string()])
+        );
 
         let cycle = json!({
             "graphId": "graph-a",
@@ -3364,6 +3675,35 @@ mod tests {
         let error = folder_delete_targets_from_snapshot(&cycle, "folder-root")
             .expect_err("reachable folder cycle must be rejected");
         assert!(error.contains("cycle"), "{error}");
+    }
+
+    /// A client may write any key into the workspace map, so the snapshot a
+    /// recovered hard cascade reads may hold rows whose id is not a local id,
+    /// inside the folder or anywhere else. The plan used to refuse the whole
+    /// snapshot, and after the cascade's hot commit that refusal was retried
+    /// forever (2026-10-14). Such rows are listed with the folder's documents;
+    /// the caller removes them as rows and never deletes a body by them.
+    #[test]
+    fn recovered_folder_snapshot_lists_stray_rows_without_refusing() {
+        let snapshot = json!({
+            "graphId": "graph-a",
+            "folders": [
+                { "id": "folder-root", "parentId": null },
+                { "id": "stray folder", "parentId": null }
+            ],
+            "documents": [
+                { "id": "doc-root", "parentId": "folder-root" },
+                { "id": "stray row", "parentId": "folder-root" },
+                { "id": "stray outside", "parentId": null },
+                { "id": "doc-in-stray", "parentId": "stray folder" }
+            ],
+            "artifacts": [{ "id": "stray artifact", "parentId": null }]
+        });
+        let targets = folder_delete_targets_from_snapshot(&snapshot, "folder-root")
+            .expect("stray rows do not refuse the plan")
+            .expect("root exists");
+        assert_eq!(targets.0, vec!["doc-root", "stray row"]);
+        assert!(targets.1.is_empty() && targets.2.is_empty());
     }
 
     #[test]

@@ -1651,3 +1651,239 @@ fn one_tree_documents_route_trashes_and_trash_routes_take_kind() {
         assert_eq!(missing.json()["code"], "document_not_found");
     });
 }
+
+// ------------------------------------------------- files in search (2026-10-14)
+//
+// `search_documents` and `search_blocks` find files (by name, and a datasheet's
+// file by its title, parts and type) beside their `results`, and a
+// `datasheet_facts` miss names the documents and files that mention the part.
+// Driven as a hosted cell drives them: MCP `tools/call` through the real router
+// with a signed lease. The datasheets are real `datasheet_import`s of the real
+// LM5164 and TPS54331 envelopes and the invented XPS62840 one, each bound to a
+// PDF uploaded through the Files route (the envelope's sha256 set to the
+// uploaded bytes, as the read job's would be).
+
+const ENVELOPE_LM5164: &str = include_str!("datasheet_fixtures/real/ti-lm5164_DS.data.json");
+const ENVELOPE_TPS54331: &str = include_str!("datasheet_fixtures/real/ti-tps54331_DS.data.json");
+const ENVELOPE_XPS62840: &str = include_str!("datasheet_fixtures/buck.data.json");
+
+async fn mcp_reply(state: &Arc<LoopbackState>, role: &str, tool: &str, arguments: Value) -> Value {
+    let rpc = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+        "params": {"name": tool, "arguments": arguments}});
+    let reply = call(state, "POST", "/mcp", role, Some("application/json"), serde_json::to_vec(&rpc).unwrap()).await;
+    assert_eq!(reply.status, StatusCode::OK, "{tool}: {}", String::from_utf8_lossy(&reply.body));
+    reply.json()
+}
+
+async fn mcp_ok(state: &Arc<LoopbackState>, role: &str, tool: &str, arguments: Value) -> Value {
+    let reply = mcp_reply(state, role, tool, arguments).await;
+    assert!(reply["error"].is_null(), "{tool}: {reply}");
+    reply["result"]["structuredContent"].clone()
+}
+
+async fn mcp_refused(state: &Arc<LoopbackState>, role: &str, tool: &str, arguments: Value) -> String {
+    let reply = mcp_reply(state, role, tool, arguments).await;
+    reply["error"]["message"].as_str().unwrap_or_else(|| panic!("{tool} must be refused: {reply}")).to_string()
+}
+
+/// Upload a PDF through the Files route and import its datasheet envelope
+/// against it. Returns the artifact id.
+async fn datasheet_file(state: &Arc<LoopbackState>, id: &str, filename: &str, envelope: &str) -> String {
+    let mut bytes = pdf_fixture();
+    bytes.extend_from_slice(format!("% {filename}\n").as_bytes());
+    let uploaded = upload(state, filename, "application/pdf", &bytes, &[("artifactId", id)]).await;
+    assert!(uploaded.status.is_success(), "{}", String::from_utf8_lossy(&uploaded.body));
+    let mut envelope: Value = serde_json::from_str(envelope).unwrap();
+    envelope["document"]["sha256"] = json!(sha256_hex(&bytes));
+    let report = mcp_ok(state, "owner", "datasheet_import",
+        json!({"graph_id": GRAPH, "envelope": envelope, "pdf_artifact_id": id})).await;
+    assert_eq!(report["mappingProfile"], "datasheet-light/1", "{report}");
+    id.to_string()
+}
+
+fn file_hit<'a>(output: &'a Value, artifact_id: &str) -> Option<&'a Value> {
+    output["files"].as_array()?.iter().find(|hit| hit["artifactId"] == artifact_id)
+}
+
+#[test]
+fn search_finds_files_and_datasheets_beside_documents_in_a_cell() {
+    with_profile("search-files", |root| async move {
+        let state = state_for(&profile_of(&root));
+        let lm = datasheet_file(&state, "ds-lm5164", "ti-lm5164_DS.pdf", ENVELOPE_LM5164).await;
+        let tps = datasheet_file(&state, "ds-tps54331", "ti-tps54331_DS.pdf", ENVELOPE_TPS54331).await;
+        let xps = datasheet_file(&state, "ds-xps62840", "xps62840.pdf", ENVELOPE_XPS62840).await;
+        let notes = upload(&state, "bench-notes.txt", "text/plain", b"Bench notes: the scope probe is 10x.", &[("artifactId", "bench-notes")]).await;
+        assert!(notes.status.is_success(), "{}", String::from_utf8_lossy(&notes.body));
+        make_document(&state, "buck-boost-converter", "Buck-Boost Converter - TPS63020", None,
+            "The TPS63020 converts the battery to 3.3 V.\n\nInput voltage: 1.8V - 5.5V").await;
+
+        // "Which buck regulators are in the library?": no document says "buck
+        // regulator", the two buck datasheets do (one by its title, one by its
+        // topology), each with the id datasheet_facts takes.
+        let found = mcp_ok(&state, "viewer", "search_documents", json!({"graphId": GRAPH, "query": "buck regulator"})).await;
+        for (id, part) in [(&lm, "LM5164"), (&tps, "TPS54331")] {
+            let hit = file_hit(&found, id).unwrap_or_else(|| panic!("{id}: {found}"));
+            assert_eq!(hit["kind"], "datasheet", "{hit}");
+            assert_eq!(hit["topology"], "buck", "{hit}");
+            assert!(hit["parts"].to_string().to_lowercase().contains(&part.to_lowercase()), "{hit}");
+            assert!(hit["next"].as_str().unwrap().contains(&format!("\"artifact\": \"{id}\"")), "{hit}");
+        }
+        assert!(file_hit(&found, "bench-notes").is_none(), "{found}");
+        // The documents' own results keep their exact shape.
+        for result in found["results"].as_array().unwrap() {
+            assert_eq!(result["type"], "document", "{result}");
+            assert!(result["document_id"].is_string() && result["documentId"].is_string(), "{result}");
+        }
+        assert_eq!(found["total"], found["results"].as_array().unwrap().len());
+        // The question word for word finds them too ("library" is in no file).
+        let asked = mcp_ok(&state, "viewer", "search_documents",
+            json!({"graphId": GRAPH, "query": "Which buck regulators are in the library?"})).await;
+        assert!(file_hit(&asked, &lm).is_some() && file_hit(&asked, &tps).is_some(), "{asked}");
+        assert_eq!(asked["results"], json!([]), "{asked}");
+        assert!(asked["note"].as_str().unwrap().contains("see `files`"), "{asked}");
+
+        // A part number leads to its datasheet, and its id to the values.
+        let by_part = mcp_ok(&state, "viewer", "search_documents", json!({"graphId": GRAPH, "query": "LM5164"})).await;
+        let hit = file_hit(&by_part, &lm).expect("LM5164's datasheet");
+        assert_eq!(hit["matchedOn"], "part", "{hit}");
+        assert_eq!(by_part["files"][0]["artifactId"], lm.as_str(), "the part's own datasheet first: {by_part}");
+        let facts = mcp_ok(&state, "viewer", "datasheet_facts",
+            json!({"graph_id": GRAPH, "artifact": hit["artifactId"], "parameter": "vin"})).await;
+        assert_eq!(facts["matched"], 1, "{facts}");
+        let vin = facts["editions"][0]["claims"].as_array().unwrap().iter()
+            .find(|claim| claim["kind"] == "keyParameter").expect("vin");
+        assert_eq!(vin["value"]["upper"], 100.0, "{vin}");
+
+        // search_blocks: no block names XPS62840, its datasheet does.
+        let blocks = mcp_ok(&state, "viewer", "search_blocks",
+            json!({"graphId": GRAPH, "query": "XPS62840 input voltage", "mode": "lexical"})).await;
+        let hit = file_hit(&blocks, &xps).unwrap_or_else(|| panic!("{blocks}"));
+        assert_eq!((hit["kind"].as_str(), hit["matchedOn"].as_str()), (Some("datasheet"), Some("part")), "{hit}");
+        assert!(blocks["results"].as_array().unwrap().iter().all(|r| r["block_id"].is_string()), "{blocks}");
+
+        // A plain file is a `file`, read with read_artifact.
+        let plain = mcp_ok(&state, "viewer", "search_blocks", json!({"graphId": GRAPH, "query": "bench notes"})).await;
+        let hit = file_hit(&plain, "bench-notes").unwrap_or_else(|| panic!("{plain}"));
+        assert_eq!(hit["kind"], "file");
+        assert!(hit["next"].as_str().unwrap().starts_with("read_artifact"), "{hit}");
+        let read = mcp_ok(&state, "viewer", "read_artifact", json!({"graph_id": GRAPH, "artifact_id": "bench-notes"})).await;
+        assert!(read.to_string().contains("scope probe"), "{read}");
+
+        // Opted out (the Shrubbery search routes), and a search inside one
+        // document: no file pass. The UI's block-search route is unchanged.
+        let opted_out = mcp_ok(&state, "viewer", "search_documents",
+            json!({"graphId": GRAPH, "query": "LM5164", "includeFiles": false})).await;
+        assert!(opted_out.get("files").is_none(), "{opted_out}");
+        let scoped = mcp_ok(&state, "viewer", "search_blocks",
+            json!({"graphId": GRAPH, "query": "LM5164", "docFilter": "buck-boost-converter"})).await;
+        assert!(scoped.get("files").is_none(), "{scoped}");
+        let route = send_json(&state, "POST", "/search/blocks", json!({"graph_id": GRAPH, "query": "TPS63020"})).await;
+        assert_eq!(route.status, StatusCode::OK, "{}", String::from_utf8_lossy(&route.body));
+        let route = route.json();
+        let keys: Vec<&str> = route.as_object().unwrap().keys().map(String::as_str).collect();
+        assert_eq!(keys, ["query", "results", "count", "lexical_count", "semantic_count"], "{route}");
+        assert_eq!(route["results"][0]["doc_id"], "buck-boost-converter", "{route}");
+
+        // A trashed file is not offered.
+        let trashed = call(&state, "DELETE", &format!("/navigation/{GRAPH}/artifacts/{lm}"), "editor", None, Vec::new()).await;
+        assert_eq!(trashed.status, StatusCode::OK, "{}", String::from_utf8_lossy(&trashed.body));
+        let after = mcp_ok(&state, "viewer", "search_documents", json!({"graphId": GRAPH, "query": "LM5164"})).await;
+        assert!(file_hit(&after, &lm).is_none(), "{after}");
+    });
+}
+
+#[test]
+fn a_datasheet_facts_miss_names_the_documents_and_files_that_mention_the_part() {
+    with_profile("datasheet-miss", |root| async move {
+        let state = state_for(&profile_of(&root));
+        make_document(&state, "buck-boost-converter", "Buck-Boost Converter - TPS63020", None,
+            "Converts the battery to a stable 3.3 V rail.\n\nInput voltage: 1.8V - 5.5V").await;
+        make_document(&state, "led-badge-overview", "LED Badge Circuit Overview", None,
+            "Power: a BQ25185 charger, then a TPS63020 buck-boost to 3.3 V.").await;
+        make_document(&state, "unrelated", "Microphone", None, "An I2S microphone.").await;
+        let schematic = upload(&state, "tps63020-schematic.png", "image/png", &png_fixture(), &[("artifactId", "tps63020-schematic")]).await;
+        assert!(schematic.status.is_success(), "{}", String::from_utf8_lossy(&schematic.body));
+
+        let missed = mcp_ok(&state, "viewer", "datasheet_facts",
+            json!({"graph_id": GRAPH, "part": "TPS63020", "parameter": "vin"})).await;
+        assert_eq!(missed["matched"], 0, "{missed}");
+        let note = missed["note"].as_str().unwrap();
+        assert!(note.starts_with("not found: no imported datasheet matches; absence here is not zero."), "{note}");
+        assert!(note.contains("\"Buck-Boost Converter - TPS63020\" (documentId buck-boost-converter)"), "{note}");
+        let mentions = &missed["mentions"];
+        let documents: Vec<&str> = mentions["documents"].as_array().unwrap().iter()
+            .map(|d| d["documentId"].as_str().unwrap()).collect();
+        assert_eq!(documents[0], "buck-boost-converter", "a document named for the part leads: {mentions}");
+        assert!(documents.contains(&"led-badge-overview"), "{mentions}");
+        assert!(!documents.contains(&"unrelated"), "{mentions}");
+        let overview = mentions["documents"].as_array().unwrap().iter()
+            .find(|d| d["documentId"] == "led-badge-overview").unwrap();
+        assert!(overview["blocks"][0]["text"].as_str().unwrap().contains("TPS63020"), "{overview}");
+        assert!(mentions["documents"][0]["next"].as_str().unwrap().starts_with("read_document"), "{mentions}");
+        // What the documents say about the parameter asked for comes along.
+        let about = &mentions["documents"][0]["aboutParameter"];
+        assert_eq!(about.as_array().map(Vec::len), Some(1), "{mentions}");
+        assert!(about[0]["text"].as_str().unwrap().contains("Input voltage: 1.8V - 5.5V"), "{about}");
+        assert!(note.contains("On vin, they say: \"Input voltage: 1.8V - 5.5V\" (Buck-Boost Converter - TPS63020)"), "{note}");
+        assert!(overview.get("aboutParameter").is_none(), "the overview says nothing about vin: {overview}");
+        assert_eq!(mentions["files"][0]["artifactId"], "tps63020-schematic", "{mentions}");
+        assert_eq!(mentions["files"][0]["kind"], "file", "{mentions}");
+
+        // A part nothing names says so.
+        let nowhere = mcp_ok(&state, "viewer", "datasheet_facts", json!({"graph_id": GRAPH, "part": "ZZ9000"})).await;
+        assert!(nowhere.get("mentions").is_none(), "{nowhere}");
+        assert!(nowhere["note"].as_str().unwrap().contains("No document or file in this workspace names ZZ9000"), "{nowhere}");
+
+        // An imported part asked for a parameter it does not state.
+        let mut bytes = pdf_fixture();
+        bytes.extend_from_slice(b"% xps62840\n");
+        assert!(upload(&state, "xps62840.pdf", "application/pdf", &bytes, &[("artifactId", "ds-xps")]).await.status.is_success());
+        let mut envelope: Value = serde_json::from_str(ENVELOPE_XPS62840).unwrap();
+        envelope["document"]["sha256"] = json!(sha256_hex(&bytes));
+        mcp_ok(&state, "owner", "datasheet_import", json!({"graph_id": GRAPH, "envelope": envelope, "pdf_artifact_id": "ds-xps"})).await;
+        let unstated = mcp_ok(&state, "viewer", "datasheet_facts",
+            json!({"graph_id": GRAPH, "part": "XPS62840", "parameter": "nonexistent-parameter"})).await;
+        assert_eq!(unstated["matched"], 1, "{unstated}");
+        assert!(unstated["note"].as_str().unwrap().contains("none of its claims matches the parameter"), "{unstated}");
+        let stated = mcp_ok(&state, "viewer", "datasheet_facts",
+            json!({"graph_id": GRAPH, "part": "XPS62840", "parameter": "vin"})).await;
+        assert!(stated.get("note").is_none() && stated.get("mentions").is_none(), "{stated}");
+    });
+}
+
+/// `write_document` lost its top-level `allOf` (OpenAI refuses one); what it
+/// required is still required, by the handler, through the same MCP call.
+#[test]
+fn write_document_still_refuses_what_its_old_schema_refused() {
+    with_profile("write-document-flat", |root| async move {
+        let state = state_for(&profile_of(&root));
+        let tools = {
+            let rpc = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}});
+            call(&state, "POST", "/mcp", "editor", Some("application/json"), serde_json::to_vec(&rpc).unwrap()).await.json()
+        };
+        let write = tools["result"]["tools"].as_array().unwrap().iter().find(|t| t["name"] == "write_document").expect("listed");
+        assert!(write["inputSchema"].get("allOf").is_none(), "{write}");
+        assert_eq!(write["inputSchema"]["type"], "object");
+
+        let missing_document = mcp_refused(&state, "editor", "write_document", json!({"graphId": GRAPH, "content": "x"})).await;
+        assert!(missing_document.contains("documentId is required"), "{missing_document}");
+        let missing_content = mcp_refused(&state, "editor", "write_document", json!({"graphId": GRAPH, "documentId": "doc-flat"})).await;
+        assert!(missing_content.contains("content or tiptapJson is required"), "{missing_content}");
+        let both = mcp_refused(&state, "editor", "write_document", json!({"graphId": GRAPH, "documentId": "doc-flat",
+            "content": "x", "tiptapJson": {"type": "doc", "content": []}})).await;
+        assert!(both.contains("exactly one of content or tiptapJson"), "{both}");
+        let listed = mcp_ok(&state, "viewer", "list_documents", json!({"graphId": GRAPH})).await;
+        assert!(!listed.to_string().contains("doc-flat"), "nothing was written: {listed}");
+
+        let written = mcp_ok(&state, "editor", "write_document",
+            json!({"graphId": GRAPH, "documentId": "doc-flat", "title": "Flat", "content": "# Flat\n\nWritten.", "format": "markdown"})).await;
+        assert_eq!(written["document_id"].as_str().or(written["documentId"].as_str()), Some("doc-flat"), "{written}");
+        assert!(document_markdown(&state, "doc-flat").contains("Written."));
+
+        // A graph with no files: a search's output is exactly what it was.
+        let found = mcp_ok(&state, "viewer", "search_documents", json!({"graphId": GRAPH, "query": "Flat"})).await;
+        let keys: Vec<&str> = found.as_object().unwrap().keys().map(String::as_str).collect();
+        assert_eq!(keys, ["graph_id", "query", "queries", "mode", "results", "total"], "{found}");
+        assert_eq!(found["results"][0]["document_id"], "doc-flat", "{found}");
+    });
+}

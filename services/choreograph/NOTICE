@@ -1,0 +1,29 @@
+Choreograph
+Copyright (c) 2026 Sophia Labs
+
+This product is licensed under the MIT License. See the LICENSE file for
+the full license text.
+
+--------------------------------------------------------------------------------
+
+Third-Party Components
+
+Choreograph vendors no third-party source. Its dependencies are installed
+from npm at the versions pinned in pnpm-lock.yaml, each under its own
+license; a distribution that bundles node_modules carries their license
+files and notices with them. The agent framework Choreograph wraps:
+
+- pi (@earendil-works/pi-agent-core, @earendil-works/pi-ai, from npm)
+  MIT License
+  Copyright (c) 2025 Mario Zechner
+  https://github.com/earendil-works/pi
+
+The local package built by deploy/package-local.sh also bundles, under
+prime/, a Sophia fork of Prime Agent, the agent body Choreograph runs. It is
+distributed under its own LICENSE, which travels with it:
+
+- Prime Agent (sophia-agent fork)
+  MIT License
+  Copyright (c) 2025 Mario Zechner
+  Copyright (c) 2026 Prime Intellect
+  https://github.com/PrimeIntellect-ai/prime-agent

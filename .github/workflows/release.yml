@@ -3,12 +3,21 @@
 # export assembly places it at .github/workflows/release.yml in the public tree.
 #
 # On a v* tag: build the self-host UI once (public Shrubbery at the commit
-# shrubbery-ui.lock.json names, `build:selfhost`), build gardend for each
-# target, then publish a GitHub Release with one tar.gz per target (the binary
-# with the UI beside it as `ui/`, which `gardend serve` uses when GARDEN_UI_DIR
-# is unset), SHA256SUMS, and release.json (the manifest `gardend update` reads,
-# carrying the binary's storageFormat), and push the container image
-# ghcr.io/sophia-labs/gardend:<version> + :latest (the engine only).
+# shrubbery-ui.lock.json names, `build:selfhost`), check the local services
+# against their locks (services/vehicle/, the self-host chat, built from the
+# vehicle commit vehicle-service.lock.json names; services/choreograph/,
+# Sophia Compute, built from the Choreograph commit
+# choreograph-service.lock.json names; every file's sha256 in the lock),
+# build gardend for each target, then publish a GitHub Release with one
+# tar.gz per target (the binary with the UI beside it as `ui/`, which
+# `gardend serve` uses when GARDEN_UI_DIR is unset, `services/vehicle/`,
+# which gardend starts when Node.js 22.19 or newer is on its PATH, and
+# `services/choreograph/` with that target's libSQL binding, fetched from npm
+# and checked against the lock, which gardend starts once the person runs
+# `gardend service enable choreograph`), SHA256SUMS, and release.json (the
+# manifest `gardend update` reads, carrying the binary's storageFormat), and
+# push the container image ghcr.io/sophia-labs/gardend:<version> + :latest
+# (the engine only).
 name: Release
 
 on:
@@ -54,6 +63,8 @@ jobs:
         env:
           PACKAGE: ${{ steps.lock.outputs.package }}
           DIST: ${{ steps.lock.outputs.dist }}
+          # The heap public Shrubbery's own CI and the SPA ship lane build with.
+          NODE_OPTIONS: --max-old-space-size=8192
         run: |
           test "$(git rev-parse HEAD)" = "${{ steps.lock.outputs.commit }}"
           pnpm install --frozen-lockfile
@@ -68,9 +79,26 @@ jobs:
           path: ui-build
           if-no-files-found: error
 
+  services:
+    name: local services (services/vehicle and services/choreograph at their locks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: services/vehicle matches vehicle-service.lock.json
+        run: node scripts/check-vehicle-service.mjs services/vehicle vehicle-service.lock.json
+
+      - name: services/choreograph matches choreograph-service.lock.json
+        run: node scripts/check-choreograph-service.mjs services/choreograph choreograph-service.lock.json
+
   build:
     name: build ${{ matrix.target }}
-    needs: ui
+    needs: [ui, services]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 150
     strategy:
@@ -95,6 +123,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
 
       - name: Tag matches the crate version
         shell: bash
@@ -123,6 +155,17 @@ jobs:
           cp "$bin" LICENSE NOTICE.md THIRD-PARTY-RUST.md README.md "dist/$name/"
           cp -R ui-build "dist/$name/ui"
           test -f "dist/$name/ui/index.html"
+          mkdir -p "dist/$name/services"
+          cp -R services/vehicle "dist/$name/services/vehicle"
+          test -f "dist/$name/services/vehicle/service.json"
+          test -f "dist/$name/services/vehicle/app/main.mjs"
+          cp -R services/choreograph "dist/$name/services/choreograph"
+          # This target's libSQL binding, from npm at the locked version, sha256-checked against the lock.
+          node scripts/check-choreograph-service.mjs --add-native ${{ matrix.target }} \
+            "dist/$name/services/choreograph" choreograph-service.lock.json
+          test -f "dist/$name/services/choreograph/service.json"
+          test -f "dist/$name/services/choreograph/app/main.mjs"
+          test -f "dist/$name/services/choreograph/body/body.mjs"
           tar -C dist -czf "dist/$name.tar.gz" "$name"
           rm -rf "dist/$name"
           if [ "${{ matrix.native }}" = "true" ]; then
@@ -176,7 +219,7 @@ jobs:
           gh release create "$GITHUB_REF_NAME" dist/* \
             --repo "$GITHUB_REPOSITORY" \
             --title "gardend $GITHUB_REF_NAME" \
-            --notes "Each archive holds the gardend binary and ui/, the web UI that \`gardend serve\` opens; keep ui/ next to the binary. Bare-binary installs: \`gardend update\` (checksum-verified; refuses while serving or across a storage-format change; it replaces the binary and the ui/ beside it; 0.1.2's updater replaces the binary only, so from 0.1.2 download the archive once more for the new ui/). Containers (the engine only): \`docker pull ghcr.io/sophia-labs/gardend:${GITHUB_REF_NAME#v}\`. Run your own Sophia: docs/self-host-cloudflare-tunnel.md. The engine: docs/headless-gardend.md."
+            --notes "Each archive holds the gardend binary, ui/ (the web UI that \`gardend serve\` opens), services/vehicle/ (chat, which gardend starts when Node.js 22.19 or newer is on its PATH; set your model key with \`gardend chat key set\`) and services/choreograph/ (Sophia Compute, workflows: off until you run \`gardend service enable choreograph\`; it needs Node.js 22.19 or newer and a model key, the same one chat uses); keep these folders next to the binary. Bare-binary installs: \`gardend update\` (checksum-verified; refuses while serving or across a storage-format change; it replaces the binary, the ui/ beside it and the services/ the archive carries; 0.1.3's updater replaces the binary and ui/ only and 0.1.2's the binary only, so from 0.1.3 or older download the archive once more for chat). Containers (the engine only): \`docker pull ghcr.io/sophia-labs/gardend:${GITHUB_REF_NAME#v}\`. Run your own Sophia: docs/self-host-cloudflare-tunnel.md. The engine: docs/headless-gardend.md."
 
   image:
     name: container image (linux/amd64)

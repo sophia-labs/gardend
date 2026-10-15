@@ -7,6 +7,10 @@
 //! diagnostics, people's checks (imported snapshots today; the reader's Check
 //! verb writes native ones in a later slice) and a deep link. A parameter that
 //! was not found is absent from the answer: *not found*, never zero.
+//!
+//! A part no import matches comes back with `mentions`: the documents and files
+//! of this graph that name it (`file_search::part_mentions`), and a note that
+//! says where to read instead.
 
 use std::collections::BTreeMap;
 
@@ -489,6 +493,18 @@ pub(crate) fn facts_from_store(store: &Store, graph_id: &str, q: &FactsQuery) ->
     });
     if matched.is_empty() {
         out["note"] = json!("not found: no imported datasheet matches; absence here is not zero");
+    } else if let Some(parameter) = &q.parameter {
+        let claims = out["editions"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|e| e["claims"].as_array().map_or(0, Vec::len))
+            .sum::<usize>();
+        if claims == 0 {
+            out["note"] = json!(format!(
+                "the datasheet is imported, but none of its claims matches the parameter \"{parameter}\": ask without a parameter to see what it states"
+            ));
+        }
     }
     Ok(out)
 }
@@ -508,5 +524,28 @@ pub(crate) fn mcp_local_datasheet_facts(app: AppHandle, arguments: &Value) -> Ap
     };
     let graph_dir = crate::paths::existing_graph_dir(&app, &graph_id).map_err(AppError::not_found)?;
     let store = crate::rdf_service::open_graph_store(&graph_dir).map_err(AppError::storage)?;
-    facts_from_store(&store, &graph_id, &q)
+    let mut out = facts_from_store(&store, &graph_id, &q)?;
+    // A miss on a part says where the part IS named (2026-10-14): a model that
+    // reads "not found" alone stops there, though a document may give the value.
+    if out["matched"] == json!(0) {
+        if let Some(part) = &q.part {
+            match crate::file_search::part_mentions(&graph_id, &graph_dir, part, q.parameter.as_deref()) {
+                Ok(Some(mentions)) => {
+                    out["note"] = json!(format!(
+                        "not found: no imported datasheet matches; absence here is not zero. {}",
+                        crate::file_search::mentions_sentence(part.trim(), &mentions)
+                    ));
+                    out["mentions"] = mentions;
+                }
+                Ok(None) => {
+                    out["note"] = json!(format!(
+                        "not found: no imported datasheet matches; absence here is not zero. No document or file in this workspace names {}.",
+                        part.trim()
+                    ));
+                }
+                Err(error) => out["mentionsError"] = json!(error),
+            }
+        }
+    }
+    Ok(out)
 }

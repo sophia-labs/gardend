@@ -439,7 +439,19 @@ fn pdf_source_real_queue_cold_tail_retry_queries_and_delete() {
         assert!(reconcile_desired(&store, graph_id, id, &[])
             .unwrap()
             .is_empty());
-        write(body(Value::Null, "recreated without source mapping")).unwrap();
+        crate::app_runtime::async_runtime::block_on(
+            crate::crdt_queue::enqueue_crdt_operation_trusted_recreation(
+                app.clone(),
+                crate::crdt_operation_types::EnqueueCrdtOperationInput {
+                    kind: "document.write".into(),
+                    graph_id: graph_id.into(),
+                    document_id: Some(id.into()),
+                    payload: json!({"documentId":id,"title":"PDF test",
+                        "tiptapJson":body(Value::Null, "recreated without source mapping")}),
+                },
+            ),
+        )
+        .unwrap();
         assert!(reconcile_desired(&store, graph_id, id, &[])
             .unwrap()
             .is_empty());

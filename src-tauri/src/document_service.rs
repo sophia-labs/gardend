@@ -79,6 +79,29 @@ pub(super) fn create_document(
 
 /// Non-reentrant create body for queue/import handlers that already hold the
 /// graph persistence lease.
+/// The refusals `create_document_with_lease` makes of a caller's document id,
+/// for a queued operation to make before its first durable write: an id that
+/// is not a local id, a deleted document's id. A refusal after that write is
+/// kept as a tail to retry (right for a disk or a lease that comes back), so
+/// one that can never pass held the operation, and every later write to the
+/// graph behind it, forever. A tombstone read that fails is not a refusal: the
+/// create reads it again, and a failure there is retried.
+pub(crate) fn refuse_uncreatable_document_id(
+    graph_dir: &std::path::Path,
+    document_id: &str,
+) -> Result<(), String> {
+    validate_local_id(document_id, "document_id")?;
+    if matches!(
+        crate::document_tombstone_store::document_is_tombstoned(graph_dir, document_id),
+        Ok(true)
+    ) {
+        return Err(format!(
+            "document tombstoned: {document_id}; a deleted document is not created again (create a new document)"
+        ));
+    }
+    Ok(())
+}
+
 pub(crate) fn create_document_with_lease(
     app: AppHandle,
     input: CreateDocumentInput,
@@ -121,7 +144,7 @@ fn create_document_record_with_lease(
 
     if crate::document_tombstone_store::document_is_tombstoned(&graph_dir, &document_id)? {
         return Err(format!(
-            "document tombstoned: {document_id}; recreate it through document.write"
+            "document tombstoned: {document_id}; a deleted document is not created again (create a new document)"
         ));
     }
 

@@ -11,7 +11,6 @@ use crate::{
     rdf_service::{
         run_sparql_query_service, run_sparql_update_service, SparqlInput, SparqlUpdateInput,
     },
-    runtime_config::PROFILE_ID,
     workflow_book_mcp::{mcp_local_workflow_book_open, mcp_local_workflow_book_validate},
 };
 use chrono::{SecondsFormat, Utc};
@@ -250,12 +249,10 @@ pub(super) async fn mcp_local_workflow_run_start(
     let state = local_loopback_state(&app)?;
     let mut service_status = state.services.status(CHOREOGRAPH_SERVICE_ID, &state.app);
     if !matches!(service_status.state, LocalServiceState::Running) && auto_start {
-        match state.services.start(
-            CHOREOGRAPH_SERVICE_ID,
-            &state.app,
-            &state.manifest,
-            &state.token,
-        ) {
+        match state
+            .services
+            .start(CHOREOGRAPH_SERVICE_ID, &state.app, &state.manifest)
+        {
             Ok(status) => service_status = status,
             Err(error) => {
                 return Ok(json!({
@@ -678,13 +675,18 @@ fn local_loopback_state(app: &AppHandle) -> AppResult<Arc<LoopbackState>> {
         })
 }
 
-struct UpstreamJson {
-    status: reqwest::StatusCode,
-    body: Value,
+pub(crate) struct UpstreamJson {
+    pub(crate) status: reqwest::StatusCode,
+    pub(crate) body: Value,
     next_since: Option<String>,
 }
 
-async fn choreograph_json_request(
+/// gardend calls Choreograph for the MCP caller, who holds `services.manage`
+/// (an admin): as the profile's owner, the identity gardend's proxy mints for
+/// the master key (`X-User-ID: owner`). A run started here is then the
+/// owner's run, which the owner can read through `/services/choreograph`;
+/// started as `default`, it was hidden from them (403).
+pub(crate) async fn choreograph_json_request(
     state: &Arc<LoopbackState>,
     method: Method,
     path: &str,
@@ -704,7 +706,10 @@ async fn choreograph_json_request(
         .request(method, &url)
         .header("Accept", "application/json")
         .header("X-Internal-Service", target.internal_secret)
-        .header("X-User-ID", PROFILE_ID);
+        .header(
+            "X-User-ID",
+            crate::loopback_http::LoopbackPrincipal::Owner.user_id(),
+        );
     if let Some(body) = body {
         request = request.json(&body);
     }

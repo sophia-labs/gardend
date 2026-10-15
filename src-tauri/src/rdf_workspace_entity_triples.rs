@@ -53,6 +53,16 @@ pub(super) fn push_document_snapshot_triples(
     let Some(id) = json_string(document.get("id")) else {
         return;
     };
+    // A client may write any key into the workspace map. A row whose id is not
+    // a local id names no document, and one with a space or a `<` makes no IRI:
+    // projecting it failed the whole workspace's projection, so every later
+    // workspace write was retried forever after its commit (2026-10-14).
+    if crate::ids::validate_local_id(&id, "document_id").is_err() {
+        log::warn!(
+            "[workspace projection] graph {graph_id}: document row {id:?} left out, its id is not a local id"
+        );
+        return;
+    }
     let subject = document_subject(&id);
     push_uri_triple(
         triples,

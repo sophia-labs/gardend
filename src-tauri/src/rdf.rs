@@ -93,6 +93,28 @@ pub(crate) fn push_typed_literal_triple(
     });
 }
 
+/// Whether `iri` can be written between `<` and `>`: an absolute IRI with no
+/// space and none of `<>"{}|\^` or a backtick. The workspace projection makes
+/// IRIs of ids a WebSocket client may choose.
+pub(crate) fn is_valid_iri(iri: &str) -> bool {
+    oxigraph::model::NamedNode::new(iri).is_ok()
+}
+
+impl RdfTriple {
+    /// The first of this triple's IRIs (subject, predicate, IRI object) that
+    /// is not one.
+    pub(crate) fn invalid_iri(&self) -> Option<&str> {
+        let object = match &self.object {
+            RdfObject::Uri(uri) => Some(uri.as_str()),
+            RdfObject::Literal(_) => None,
+        };
+        [Some(self.subject.as_str()), Some(self.predicate.as_str()), object]
+            .into_iter()
+            .flatten()
+            .find(|iri| !is_valid_iri(iri))
+    }
+}
+
 pub(crate) fn format_rdf_triple(triple: &RdfTriple) -> String {
     let object = match &triple.object {
         RdfObject::Uri(uri) => format!("<{uri}>"),

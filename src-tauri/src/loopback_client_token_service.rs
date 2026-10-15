@@ -155,6 +155,28 @@ pub(crate) fn resolve_loopback_client_token_in(
     profile_dir: &Path,
     token: &str,
 ) -> Result<Option<Vec<String>>, String> {
+    Ok(resolve_loopback_client_token_record_in(profile_dir, token)?.map(|token| token.scopes))
+}
+
+/// A live client token: its id (what `gardend token list` shows, and what a
+/// local service is told the caller is: `token:<id>`) and its scopes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ResolvedClientToken {
+    pub(crate) token_id: String,
+    pub(crate) scopes: Vec<String>,
+}
+
+pub(crate) fn resolve_loopback_client_token_record(
+    app: &AppHandle,
+    token: &str,
+) -> Result<Option<ResolvedClientToken>, String> {
+    resolve_loopback_client_token_record_in(&profile_dir(app)?, token)
+}
+
+pub(crate) fn resolve_loopback_client_token_record_in(
+    profile_dir: &Path,
+    token: &str,
+) -> Result<Option<ResolvedClientToken>, String> {
     let store = read_token_store_in(profile_dir)?;
     let token_hash = hash_loopback_token(token);
     let now = epoch_millis();
@@ -162,5 +184,8 @@ pub(crate) fn resolve_loopback_client_token_in(
         .tokens
         .iter()
         .find(|record| token_record_matches(record, &token_hash, now))
-        .map(|record| record.scopes.clone()))
+        .map(|record| ResolvedClientToken {
+            token_id: record.token_id.clone(),
+            scopes: record.scopes.clone(),
+        }))
 }

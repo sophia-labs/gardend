@@ -45,6 +45,64 @@ fn parser_pool_endpoint() -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+/// Why the parser pool gave no markdown. Read off platform-next
+/// `parser-pool/app.py` (2026-10-14): `POST /parse` answers 200 with markdown,
+/// or 200 with `error` and no markdown when every engine failed on the file
+/// (it is not a document they can open; the last engine, PyMuPDF's text
+/// extraction, is local and deterministic, so the same file fails again); 422
+/// when the request does not match its model; 404/405 under a wrong base URL;
+/// 500 only for an exception outside the engines (its `b64decode` of base64
+/// that does not decode, refused before sending, or the process failing).
+enum PoolRefusal {
+    /// The pool will give the same answer for this file: a 4xx (but 408 and
+    /// 429, which ask to try again), an answer with no markdown, or one larger
+    /// than the cell reads. Refused, so the operation completes with it.
+    Final(String),
+    /// The pool could not be reached or failed in itself (a refused or dropped
+    /// connection, a timeout, a 5xx): retried with the queue's backoff.
+    Transient(String),
+}
+
+/// What a pool's error body says: FastAPI's `detail` (a string, or the
+/// validation errors' messages), else the text itself, shortened.
+fn pool_detail(text: &str) -> String {
+    let detail = serde_json::from_str::<Value>(text)
+        .ok()
+        .and_then(|body| match body.get("detail") {
+            Some(Value::String(detail)) => Some(detail.clone()),
+            Some(Value::Array(errors)) => Some(
+                errors
+                    .iter()
+                    .map(|error| {
+                        let at = error
+                            .get("loc")
+                            .and_then(Value::as_array)
+                            .map(|loc| {
+                                loc.iter()
+                                    .map(|part| match part {
+                                        Value::String(part) => part.clone(),
+                                        other => other.to_string(),
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .join(".")
+                            })
+                            .unwrap_or_default();
+                        let message = error.get("msg").and_then(Value::as_str).unwrap_or("invalid");
+                        if at.is_empty() { message.to_string() } else { format!("{at}: {message}") }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("; "),
+            ),
+            _ => None,
+        })
+        .unwrap_or_else(|| text.trim().to_string());
+    if detail.chars().count() > 500 {
+        format!("{}…", detail.chars().take(500).collect::<String>())
+    } else {
+        detail
+    }
+}
+
 struct PoolParse {
     markdown: String,
     stats: Value,
@@ -59,9 +117,14 @@ fn parse_via_pool(
     mime_type: &str,
     approach: &str,
     data_base64: &str,
-) -> Result<PoolParse, String> {
+) -> Result<PoolParse, PoolRefusal> {
     let url = format!("{endpoint}/parse");
-    let mut response = ureq::Agent::new_with_defaults()
+    // Statuses are answers, read below, not transport errors.
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .http_status_as_error(false)
+        .build()
+        .into();
+    let mut response = agent
         .post(&url)
         .send_json(json!({
             "filename": filename,
@@ -69,11 +132,45 @@ fn parse_via_pool(
             "approach": approach,
             "dataBase64": data_base64,
         }))
-        .map_err(|error| format!("parser pool request failed ({url}): {error}"))?;
-    let body: Value = response
-        .body_mut()
-        .read_json()
-        .map_err(|error| format!("parser pool returned invalid JSON: {error}"))?;
+        .map_err(|error| {
+            PoolRefusal::Transient(format!("parser pool request failed ({url}): {error}"))
+        })?;
+    let status = response.status().as_u16();
+    let text = response.body_mut().read_to_string().map_err(|error| match error {
+        ureq::Error::BodyExceedsLimit(limit) => PoolRefusal::Final(format!(
+            "the parser pool's answer for {filename} is larger than the {limit} bytes a cell reads"
+        )),
+        error => PoolRefusal::Transient(format!(
+            "parser pool answer could not be read ({url}, HTTP {status}): {error}"
+        )),
+    })?;
+    match status {
+        200..=299 => {}
+        408 | 429 => {
+            return Err(PoolRefusal::Transient(format!(
+                "parser pool asked to try again (HTTP {status}): {}",
+                pool_detail(&text)
+            )))
+        }
+        400..=499 => {
+            return Err(PoolRefusal::Final(format!(
+                "the parser pool refused {filename} (HTTP {status}): {}",
+                pool_detail(&text)
+            )))
+        }
+        _ => {
+            return Err(PoolRefusal::Transient(format!(
+                "parser pool failed (HTTP {status}): {}",
+                pool_detail(&text)
+            )))
+        }
+    }
+    let body: Value = serde_json::from_str(&text).map_err(|error| {
+        PoolRefusal::Final(format!(
+            "the parser pool's answer for {filename} is not JSON ({error}): {}",
+            pool_detail(&text)
+        ))
+    })?;
     let warnings: Vec<String> = body
         .get("warnings")
         .and_then(Value::as_array)
@@ -89,8 +186,11 @@ fn parse_via_pool(
         let error = body
             .get("error")
             .and_then(Value::as_str)
-            .unwrap_or("parser pool returned no markdown");
-        return Err(format!("{error}; warnings: {}", warnings.join(" | ")));
+            .unwrap_or("no markdown in its answer");
+        return Err(PoolRefusal::Final(format!(
+            "the parser pool could not read {filename}: {error}; warnings: {}",
+            warnings.join(" | ")
+        )));
     };
     Ok(PoolParse {
         markdown: markdown.to_string(),
@@ -222,6 +322,15 @@ async fn apply_steps_classified(
     let data_base64 = match (&inline_base64, &pending_path) {
         (Some(b64), _) => b64.clone(),
         (None, Some(pending)) => {
+            // A staged file that is not there, or not in this graph's staging
+            // folder, never will be: refused, where the read below is retried
+            // (it parked the operation, and every later write, forever).
+            crate::pending_upload_service::resolved_pending_upload_path(
+                app,
+                Some(graph_id.as_str()),
+                pending,
+            )
+            .map_err(ApplyOperationError::terminal)?;
             let record = read_pending_upload_file(
                 app.clone(),
                 PendingUploadFileInput {
@@ -255,6 +364,17 @@ async fn apply_steps_classified(
             false,
         )
     } else {
+        if inline_base64.is_some() {
+            // The pool answers base64 it cannot decode with a 500, which is
+            // retried: refused here instead, as the markdown branch does.
+            base64::engine::general_purpose::STANDARD
+                .decode(&data_base64)
+                .map_err(|error| {
+                    ApplyOperationError::terminal(format!(
+                        "document.uploadIngest: invalid base64 payload: {error}"
+                    ))
+                })?;
+        }
         let Some(endpoint) = parser_pool_endpoint() else {
             return Err(ApplyOperationError::terminal(format!(
                 "document.uploadIngest: no parser pool configured (set {PARSER_POOL_ENV}); \
@@ -268,7 +388,14 @@ async fn apply_steps_classified(
             &requested_approach,
             &data_base64,
         )
-        .map_err(ApplyOperationError::retryable_after_hot_commit)?;
+        .map_err(|refusal| match refusal {
+            PoolRefusal::Final(message) => {
+                ApplyOperationError::terminal(format!("document.uploadIngest: {message}"))
+            }
+            PoolRefusal::Transient(message) => {
+                ApplyOperationError::retryable_after_hot_commit(message)
+            }
+        })?;
         (
             parsed.markdown,
             parsed.stats,

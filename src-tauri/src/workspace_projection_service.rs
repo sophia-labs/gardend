@@ -346,7 +346,7 @@ fn compact_workspace_entry(kind: &str, entry: &serde_json::Value) -> serde_json:
         .and_then(serde_json::Value::as_str)
         .map(|value| value.chars().take(512).collect::<String>())
         .unwrap_or_default();
-    serde_json::json!({
+    let mut compact = serde_json::json!({
         "type": kind,
         "id": id,
         "documentId": if kind == "document" { serde_json::json!(id) } else { serde_json::Value::Null },
@@ -356,7 +356,22 @@ fn compact_workspace_entry(kind: &str, entry: &serde_json::Value) -> serde_json:
         "updatedAt": entry.get("updatedAt").or_else(|| entry.get("updated_at")).cloned().unwrap_or(serde_json::Value::Null),
         "blockCount": entry.get("blockCount").or_else(|| entry.get("block_count")).cloned().unwrap_or(serde_json::Value::Null),
         "rdfTripleCount": entry.get("rdfTripleCount").cloned().unwrap_or(serde_json::Value::Null),
-    })
+    });
+    // A file says whether it is ready, and why its ingest failed when it did
+    // (`status: "error"`, 2026-10-14), as the files canvas shows it.
+    if kind == "artifact" {
+        if let Some(status) = entry.get("status").and_then(serde_json::Value::as_str) {
+            compact["status"] = serde_json::json!(status);
+        }
+        if let Some(message) = entry
+            .get("errorMessage")
+            .and_then(serde_json::Value::as_str)
+            .filter(|message| !message.is_empty())
+        {
+            compact["errorMessage"] = serde_json::json!(message.chars().take(512).collect::<String>());
+        }
+    }
+    compact
 }
 
 fn workspace_entry_id(entry: &serde_json::Value) -> Option<&str> {
