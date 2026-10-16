@@ -84,6 +84,12 @@ fn classify_flush_error(error: String) -> ApplyOperationError {
         "invalid graph",
         "outside the",
         "decode ",
+        // The desired graph is computed from the graph's state, so if it
+        // cannot be parsed for validation a retry fails the same way.
+        // Validator engine faults (for example a shape compile failure) are
+        // also reported as SHACL errors but can be transient, so they stay
+        // retryable.
+        "failed to parse desired graph for validation",
     ]
     .iter()
     .any(|marker| error.contains(marker));
@@ -2194,5 +2200,30 @@ mod tests {
         if let Err(payload) = result {
             std::panic::resume_unwind(payload);
         }
+    }
+
+    #[test]
+    fn an_unparseable_projection_is_terminal_and_engine_or_storage_faults_still_retry() {
+        use crate::crdt_engine::executor::ApplyOperationError;
+        let shacl = super::classify_flush_error(
+            "crdt.flush workspace g: SHACL: 1 violation(s) in desired graph for vocab 'w': w: SHACL: \
+             failed to parse desired graph for validation: N-Triples error"
+                .to_string(),
+        );
+        assert!(matches!(shacl, ApplyOperationError::Terminal(_)));
+        let engine = super::classify_flush_error(
+            "crdt.flush workspace g: SHACL: 1 violation(s) in desired graph for vocab 'w': w: SHACL: \
+             failed to compile vocab-derived shapes: busy"
+                .to_string(),
+        );
+        assert!(matches!(
+            engine,
+            ApplyOperationError::RetryableAfterHotCommit(_)
+        ));
+        let storage = super::classify_flush_error("write store: disk I/O error".to_string());
+        assert!(matches!(
+            storage,
+            ApplyOperationError::RetryableAfterHotCommit(_)
+        ));
     }
 }
