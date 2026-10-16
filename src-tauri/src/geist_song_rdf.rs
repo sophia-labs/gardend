@@ -9,7 +9,7 @@ use crate::{
         sparql_string_literal, RdfTriple,
     },
     rdf_authority::{song_projection_graph_iri, song_projection_graph_iri_for},
-    rdf_record_materializer::rdf_triple_to_term,
+    rdf_record_materializer::projectable_terms,
     rdf_service::open_graph_store,
     runtime_config::{DCTERMS_NS, MNEMO_NS, RDF_TYPE},
 };
@@ -237,10 +237,7 @@ WHERE {{
 /// serializes byte-identically to what `survey_class` reparses out of the store
 /// (else the diff reads parity as drift and song never converges).
 fn song_desired(store: &LocalSongStore) -> Vec<Triple> {
-    song_value_triples(store)
-        .iter()
-        .map(rdf_triple_to_term)
-        .collect()
+    projectable_terms(&song_value_triples(store))
 }
 
 /// The three SONG class IRIs (in disjoint-subject-set order: head, verse, coda).
