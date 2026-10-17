@@ -5,7 +5,7 @@ use crate::{
     json_utils::json_string,
     rdf::{push_uri_triple, RdfTriple},
     rdf_authority::workspace_projection_graph_iri,
-    rdf_record_materializer::rdf_triple_to_term,
+    rdf_record_materializer::projectable_terms,
     rdf_workspace_terms::{
         block_ref_uri, document_ref_uri, mark_ref_uri, snapshot_array, wire_predicate_uri,
         wire_ref_uri, workspace_entity_subject,
@@ -196,7 +196,7 @@ pub(super) fn wire_desired(graph_id: &str, snapshot: &serde_json::Value) -> Vec<
     for wire in snapshot_array(snapshot, "wires") {
         wire_subject_triples(&mut raw, graph_id, wire);
     }
-    raw.iter().map(rdf_triple_to_term).collect()
+    projectable_terms(&raw)
 }
 
 /// The wire [`ClassScope`]: the `:projection:workspace` NAMED graph

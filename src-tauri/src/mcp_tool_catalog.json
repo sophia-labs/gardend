@@ -1408,7 +1408,8 @@
             "type": "string"
           },
           "weights": {
-            "type": "string"
+            "type": "string",
+            "description": "Weights to change, as \"key: value\" lines or a JSON object, e.g. \"importance_weight: 0.4\\nhalf_life_days: 14\". Unknown keys or non-numeric values reject the whole call; call get_values for the key names."
           }
         }
       }

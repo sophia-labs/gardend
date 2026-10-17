@@ -152,7 +152,7 @@ fn graph_desired_triples(graph: &GraphRecord) -> Vec<Triple> {
         &graph.local_path,
     );
 
-    raw.iter().map(rdf_triple_to_term).collect()
+    projectable_terms(&raw)
 }
 
 /// Survey the graph subject's UNRESTRICTED bare span in the per-graph projection
@@ -265,6 +265,35 @@ pub(crate) fn rdf_triple_to_term(t: &RdfTriple) -> Triple {
     (subject, predicate, object)
 }
 
+/// Adapt `raw` with [`rdf_triple_to_term`], leaving out every triple with a
+/// term that is not an IRI ([`RdfTriple::invalid_iri`]). Block ids and other
+/// client-chosen ids become IRIs here: a `>` in one would panic the adapter,
+/// and a space would put a triple into the desired graph that no store or
+/// validator can parse. The workspace projection drops such triples the same
+/// way (`workspace_entity_triples`).
+pub(crate) fn projectable_terms(raw: &[RdfTriple]) -> Vec<Triple> {
+    let mut first_left_out: Option<&str> = None;
+    let terms: Vec<Triple> = raw
+        .iter()
+        .filter(|triple| match triple.invalid_iri() {
+            Some(iri) => {
+                first_left_out.get_or_insert(iri);
+                false
+            }
+            None => true,
+        })
+        .map(rdf_triple_to_term)
+        .collect();
+    if let Some(iri) = first_left_out {
+        log::warn!(
+            "[projection] {} of {} triple(s) left out, {iri:?} is not an IRI",
+            raw.len() - terms.len(),
+            raw.len(),
+        );
+    }
+    terms
+}
+
 /// Split a leading `<iri>` token, returning `(iri, remainder)`.
 fn split_angle_iri(s: &str) -> Option<(String, &str)> {
     let s = s.strip_prefix('<')?;
@@ -341,8 +370,11 @@ pub(super) fn materialize_document_record_with_triples(
 ) -> Result<(), String> {
     let subject = &document.rdf_subject;
     let authority_graph = document_projection_graph_iri(&document.graph_id, &document.document_id);
+    // A triple with a term that is not an IRI would make the whole update
+    // unparseable; leave it out, as the reconcile path does.
     let tree_insert = tree_triples
         .iter()
+        .filter(|triple| triple.invalid_iri().is_none())
         .map(format_rdf_triple)
         .collect::<Vec<_>>()
         .join("\n  ");

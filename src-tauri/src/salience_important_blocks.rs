@@ -25,7 +25,10 @@ pub(super) fn mcp_local_get_important_blocks(
         document_filter.as_deref(),
         None,
         None,
-        limit,
+        // Values outlive documents: a scored block whose document is gone is
+        // skipped below, so rank extra candidates and truncate after the skip.
+        // Otherwise `limit: 5` can return 4.
+        (limit * 4).max(20),
         None,
         valence_filter.as_deref(),
     )?;
@@ -94,4 +97,98 @@ pub(super) fn mcp_local_get_important_blocks(
         "value_store_available": true,
         "valueStoreAvailable": true,
     }))
+}
+
+#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
+mod tests {
+    use super::mcp_local_get_important_blocks;
+    use crate::app_runtime::AppHandle;
+    use crate::crdt_operation_types::EnqueueCrdtOperationInput;
+    use crate::crdt_queue::enqueue_crdt_operation;
+    use crate::graph_service::{create_graph_service, CreateGraphInput};
+    use crate::salience_mcp_valuation::mcp_local_value;
+    use serde_json::json;
+
+    const GRAPH: &str = "important-blocks-limit";
+
+    fn value_block(app: &AppHandle, document_id: &str, block_id: &str, importance: i64) {
+        mcp_local_value(
+            app.clone(),
+            &json!({
+                "graph_id": GRAPH,
+                "document_id": document_id,
+                "block_id": block_id,
+                "importance": importance,
+            }),
+        )
+        .expect("value block");
+    }
+
+    #[test]
+    fn important_blocks_fill_limit_when_higher_scored_documents_are_gone() {
+        let _serial = crate::tauri_runtime::profile_env_serial()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let profile = std::env::temp_dir().join(format!(
+            "garden-important-blocks-limit-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::env::set_var("GARDEN_PROFILE_DIR", &profile);
+
+        let result = std::panic::catch_unwind(|| {
+            let app = crate::tauri_runtime::build_mock_app_for_tests(true);
+            create_graph_service(
+                &app,
+                CreateGraphInput {
+                    graph_id: Some(GRAPH.to_string()),
+                    title: "Important Blocks".to_string(),
+                    description: None,
+                    operation_id: None,
+                },
+            )
+            .expect("create graph");
+            crate::app_runtime::async_runtime::block_on(enqueue_crdt_operation(
+                app.clone(),
+                EnqueueCrdtOperationInput {
+                    kind: "document.write".to_string(),
+                    graph_id: GRAPH.to_string(),
+                    document_id: Some("kept".to_string()),
+                    payload: json!({
+                        "documentId": "kept",
+                        "content": "Kept paragraph.",
+                        "format": "markdown",
+                        "title": "Kept",
+                    }),
+                },
+            ))
+            .expect("write kept document");
+
+            // Values outlive documents: these blocks outrank the kept ones
+            // but their document does not exist.
+            for index in 0..6 {
+                value_block(&app, "gone", &format!("gone-{index}"), 5);
+            }
+            for index in 0..3 {
+                value_block(&app, "kept", &format!("kept-{index}"), 1);
+            }
+
+            let response = mcp_local_get_important_blocks(
+                app.clone(),
+                &json!({ "graph_id": GRAPH, "limit": 3 }),
+            )
+            .expect("get important blocks");
+            let blocks = response["blocks"].as_array().expect("blocks");
+            assert_eq!(blocks.len(), 3, "{response}");
+            assert!(
+                blocks.iter().all(|block| block["document_id"] == "kept"),
+                "{response}"
+            );
+        });
+
+        std::env::remove_var("GARDEN_PROFILE_DIR");
+        let _ = std::fs::remove_dir_all(&profile);
+        if let Err(payload) = result {
+            std::panic::resume_unwind(payload);
+        }
+    }
 }

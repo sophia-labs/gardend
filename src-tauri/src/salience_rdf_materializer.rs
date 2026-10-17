@@ -8,7 +8,7 @@ use crate::{
         push_string_triple, push_uri_triple, sparql_string_literal, RdfTriple,
     },
     rdf_authority::{salience_projection_graph_iri, salience_projection_graph_iri_for},
-    rdf_record_materializer::rdf_triple_to_term,
+    rdf_record_materializer::projectable_terms,
     rdf_service::open_graph_store,
     runtime_config::{MDOC_NS, MNEMO_NS, RDF_TYPE},
     salience_value_store::{record_has_value_score, LocalValueStore},
@@ -240,10 +240,7 @@ fn salience_value_triples(store: &LocalValueStore) -> Vec<RdfTriple> {
 ///
 /// [`survey_class`]: crate::emporium::reconcile::survey_class
 fn salience_desired(store: &LocalValueStore) -> Vec<Triple> {
-    salience_value_triples(store)
-        .iter()
-        .map(rdf_triple_to_term)
-        .collect()
+    projectable_terms(&salience_value_triples(store))
 }
 
 /// The salience [`ClassScope`]: the `:projection:salience` NAMED graph
