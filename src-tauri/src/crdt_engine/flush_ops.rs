@@ -84,6 +84,12 @@ fn classify_flush_error(error: String) -> ApplyOperationError {
         "invalid graph",
         "outside the",
         "decode ",
+        // The desired graph is computed from the graph's state, so if it
+        // cannot be parsed for validation a retry fails the same way.
+        // Validator engine faults (for example a shape compile failure) are
+        // also reported as SHACL errors but can be transient, so they stay
+        // retryable.
+        "failed to parse desired graph for validation",
     ]
     .iter()
     .any(|marker| error.contains(marker));
@@ -2071,5 +2077,153 @@ mod tests {
         if let Err(payload) = result {
             std::panic::resume_unwind(payload);
         }
+    }
+
+    #[test]
+    fn flush_that_keeps_failing_stops_at_the_retry_ceiling_and_next_write_repairs_it() {
+        let _serial = crate::tauri_runtime::profile_env_serial()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let profile = temp_profile();
+        std::env::set_var("GARDEN_PROFILE_DIR", &profile);
+        std::env::set_var("GARDEN_CRDT_MAX_RETRIES", "2");
+
+        let result = std::panic::catch_unwind(|| {
+            crate::app_runtime::async_runtime::block_on(async {
+                let app = crate::tauri_runtime::build_mock_app_for_tests(true);
+                let graph_id = "flush-retry-ceiling";
+                create_graph_service(
+                    &app,
+                    CreateGraphInput {
+                        title: "Flush Retry Ceiling".to_string(),
+                        graph_id: Some(graph_id.to_string()),
+                        description: None,
+                        operation_id: None,
+                    },
+                )
+                .expect("create graph");
+                let graph_dir = crate::graph_paths::existing_graph_dir(&app, graph_id)
+                    .expect("graph directory");
+                let room = app
+                    .state::<RoomRegistry>()
+                    .get_or_create(
+                        &format!("workspace:{graph_id}"),
+                        crate::ydoc_paths::workspace_ydoc_state_path(&graph_dir),
+                    )
+                    .await
+                    .expect("workspace room");
+                room.configure_projection_flush(graph_id.to_string(), None)
+                    .expect("configure automatic flush");
+                let add_folder = |id: &'static str| {
+                    let room = room.clone();
+                    async move {
+                        room.update_doc(|_doc, txn| {
+                            let folders = txn.get_or_insert_map("folders");
+                            let folder = folders.insert(txn, id, MapPrelim::default());
+                            folder.insert(txn, "name", id);
+                            folder.insert(txn, "section", "documents");
+                            folder.insert(txn, "parentId", Any::Null);
+                            folder.insert(txn, "order", 1.0);
+                            Ok(())
+                        })
+                        .await
+                        .expect("hot mutation");
+                    }
+                };
+                add_folder("folder-first").await;
+
+                // Every attempt fails: the first try plus two retries.
+                fail_next_flush_attempts_for_test(graph_id, usize::MAX);
+                room.schedule_projection_flush(app.clone());
+                let journal_path = crate::crdt_operation_journal::crdt_operation_journal_path(&app)
+                    .expect("journal path");
+                let failed = tokio::time::timeout(std::time::Duration::from_secs(20), async {
+                    loop {
+                        let failed = std::fs::read_to_string(&journal_path)
+                            .unwrap_or_default()
+                            .lines()
+                            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+                            .find(|event| event["status"] == "failed");
+                        if let Some(event) = failed {
+                            break event;
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+                    }
+                })
+                .await
+                .expect("the flush reaches the retry ceiling");
+
+                assert_eq!(flush_attempts_for_test(graph_id), 3);
+                let error = failed["error"].as_str().expect("journaled error");
+                assert!(error.contains("failed after 3 attempts"), "{error}");
+                assert!(
+                    error.contains("injected cold-tail storage failure"),
+                    "the real error reaches the journal: {error}"
+                );
+                let operation_id = failed["operationId"].as_str().expect("operation id");
+                let queue = app.state::<CrdtOperationQueue>();
+                assert_eq!(queue.retry_attempt_count(operation_id), 0);
+                assert_eq!(queue.retry_wait_count_for_test().unwrap(), 0);
+                assert_eq!(queue.counts_for_test().unwrap(), (0, 0));
+                assert!(
+                    crate::crdt_operation_journal::recover_pending_crdt_operations(&app)
+                        .expect("read journal")
+                        .is_empty()
+                );
+                assert!(
+                    room.needs_projection_flush(),
+                    "the room stays dirty after the flush gives up"
+                );
+
+                // The next write to the room flushes it again.
+                fail_next_flush_attempts_for_test(graph_id, 0);
+                add_folder("folder-second").await;
+                room.schedule_projection_flush(app.clone());
+                tokio::time::timeout(std::time::Duration::from_secs(20), async {
+                    while room.needs_projection_flush() {
+                        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+                    }
+                })
+                .await
+                .expect("the next write repairs the projection");
+                let snapshot: Value = crate::storage::read_json(
+                    &crate::ydoc_paths::workspace_snapshot_path(&graph_dir),
+                )
+                .expect("workspace projection");
+                assert_eq!(snapshot["counts"]["folders"], 2);
+            });
+        });
+
+        std::env::remove_var("GARDEN_CRDT_MAX_RETRIES");
+        std::env::remove_var("GARDEN_PROFILE_DIR");
+        let _ = std::fs::remove_dir_all(&profile);
+        if let Err(payload) = result {
+            std::panic::resume_unwind(payload);
+        }
+    }
+
+    #[test]
+    fn an_unparseable_projection_is_terminal_and_engine_or_storage_faults_still_retry() {
+        use crate::crdt_engine::executor::ApplyOperationError;
+        let shacl = super::classify_flush_error(
+            "crdt.flush workspace g: SHACL: 1 violation(s) in desired graph for vocab 'w': w: SHACL: \
+             failed to parse desired graph for validation: N-Triples error"
+                .to_string(),
+        );
+        assert!(matches!(shacl, ApplyOperationError::Terminal(_)));
+        let engine = super::classify_flush_error(
+            "crdt.flush workspace g: SHACL: 1 violation(s) in desired graph for vocab 'w': w: SHACL: \
+             failed to compile vocab-derived shapes: busy"
+                .to_string(),
+        );
+        assert!(matches!(
+            engine,
+            ApplyOperationError::RetryableAfterHotCommit(_)
+        ));
+        let storage = super::classify_flush_error("write store: disk I/O error".to_string());
+        assert!(matches!(
+            storage,
+            ApplyOperationError::RetryableAfterHotCommit(_)
+        ));
     }
 }

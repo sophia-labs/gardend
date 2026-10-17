@@ -255,6 +255,16 @@ impl CrdtOperationQueue {
         Ok(())
     }
 
+    /// Number of times this operation has been requeued for retry (0 if
+    /// never). The executor compares it with its retry ceiling before it
+    /// requeues the operation again.
+    pub(crate) fn retry_attempt_count(&self, operation_id: &str) -> u32 {
+        self.inner
+            .lock()
+            .map(|inner| inner.retry_attempts.get(operation_id).copied().unwrap_or(0))
+            .unwrap_or(0)
+    }
+
     /// Retain a post-hot failure under its original operation ID and install a
     /// not-before barrier at the FIFO head. The caller responder and timing
     /// seed stay attached when the receiver is still live. The production
@@ -1029,6 +1039,47 @@ mod tests {
                 *applied.lock().expect("final application order"),
                 vec!["op-1".to_string(), "op-2".to_string()]
             );
+        });
+    }
+
+    #[test]
+    fn retry_attempt_count_tracks_requeues_and_clears_on_completion() {
+        current_thread_runtime().block_on(async {
+            tokio::time::pause();
+            let queue = CrdtOperationQueue::default();
+            assert_eq!(queue.retry_attempt_count("op-count"), 0);
+            queue
+                .enqueue_detached(retry_operation("op-count"))
+                .expect("enqueue operation");
+            let first = queue.poll(Some(1)).expect("poll first attempt").remove(0);
+            assert_eq!(queue.retry_attempt_count("op-count"), 0);
+
+            let schedule = queue
+                .requeue_retryable_after_hot_commit(first)
+                .expect("requeue first failure");
+            assert_eq!(queue.retry_attempt_count("op-count"), 1);
+            tokio::time::advance(schedule.delay).await;
+            assert!(queue
+                .wait_and_activate_scheduled_retry(schedule)
+                .await
+                .expect("activate retry"));
+            let second = queue.poll(Some(1)).expect("poll retry").remove(0);
+            queue
+                .requeue_retryable_after_hot_commit(second)
+                .expect("requeue second failure");
+            assert_eq!(queue.retry_attempt_count("op-count"), 2);
+            assert_eq!(queue.retry_attempt_count("op-other"), 0);
+
+            queue
+                .complete(CompleteCrdtOperationInput {
+                    operation_id: "op-count".to_string(),
+                    ok: false,
+                    value: None,
+                    error: Some("gave up".to_string()),
+                    timing: None,
+                })
+                .expect("complete operation");
+            assert_eq!(queue.retry_attempt_count("op-count"), 0);
         });
     }
 }
