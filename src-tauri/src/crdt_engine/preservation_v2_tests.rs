@@ -143,6 +143,7 @@ fn retained_dataset_quoted_triples_are_explicitly_held() {
 }
 
 #[test]
+#[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn remediation_c_manifest_full_prepare_and_original_reopen() {
     let row: Value = serde_json::from_slice(&fs::read(std::env::var("GARDEN_PRESERVATION_PROFILE_MANIFEST").expect("explicit manifest")).unwrap()).unwrap();
     let bytes = fs::read(std::env::var("GARDEN_PRESERVATION_RETAINED_ARCHIVE").expect("explicit archive")).unwrap();
@@ -487,6 +488,7 @@ fn actual_candidate23_archive() -> Vec<u8> {
 }
 
 #[test]
+#[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn actual_legacy_history_export_is_native_encoded_with_raw_custody() {
     let bytes = actual_history_archive();
     let members = unpack(&bytes).unwrap();
@@ -541,6 +543,7 @@ fn legacy_ampersand_repair_preserves_valid_entities_and_unicode() {
 }
 
 #[test]
+#[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn population_manifest_full_prepare() {
     let row:Value=serde_json::from_slice(&fs::read(std::env::var("GARDEN_PRESERVATION_PROFILE_MANIFEST").expect("explicit population manifest required")).unwrap()).unwrap();
     let bytes=fs::read(std::env::var("GARDEN_PRESERVATION_RETAINED_ARCHIVE").expect("explicit retained archive required")).unwrap();
@@ -568,6 +571,7 @@ fn population_manifest_full_prepare() {
 }
 
 #[test]
+#[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn actual_wf_emit_lab_rich_archive_full_prepare() {
     let bytes = actual_history_archive_08();
     let members = unpack(&bytes).unwrap();
@@ -598,6 +602,7 @@ fn actual_wf_emit_lab_rich_archive_full_prepare() {
 }
 
 #[test]
+#[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn actual_graph_a_rich_archive_full_prepare() {
     let bytes = actual_candidate23_archive();
     let members = unpack(&bytes).unwrap();
@@ -624,6 +629,7 @@ fn actual_graph_a_rich_archive_full_prepare() {
 }
 
 #[test]
+#[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn rdf_original_ownership_mismatch_and_ambiguity_are_refused() {
     for mutation in ["basis", "key", "filename", "mime", "file-type", "size", "duplicate", "workspace-file-type", "workspace-source-file"] {
         let mut members = unpack(&actual_candidate23_archive()).unwrap();
@@ -667,6 +673,7 @@ fn rdf_original_ownership_mismatch_and_ambiguity_are_refused() {
 }
 
 #[test]
+#[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn actual_rdf_original_ownership_join_is_exact() {
     let bytes = actual_history_archive();
     let members = unpack(&bytes).unwrap();
@@ -729,6 +736,7 @@ fn legacy_integral_size_lexical_is_exact_and_bounded() {
 }
 
 #[test]
+#[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn actual_history_payload_witness_matches_persisted_interpretation_bytes() {
     let bytes=actual_candidate23_archive();
     let members=unpack(&bytes).unwrap();
@@ -1261,6 +1269,7 @@ fn actual_empty_rdf_archive() -> Vec<u8> {
 }
 
 #[test]
+#[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn actual_empty_rdf_keeps_workspace_history_and_catalogue_without_synthetic_quad() {
     let bytes = actual_empty_rdf_archive();
     let members = unpack(&bytes).unwrap();
@@ -1281,6 +1290,7 @@ fn actual_empty_rdf_keeps_workspace_history_and_catalogue_without_synthetic_quad
 }
 
 #[test]
+#[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn empty_rdf_exception_refuses_nonempty_data_inventory_or_mismatched_counts() {
     let bytes = actual_empty_rdf_archive();
     for mutation in ["quads-count", "graphs-count", "unlisted-quad", "malformed",
@@ -1324,6 +1334,7 @@ fn empty_rdf_exception_refuses_nonempty_data_inventory_or_mismatched_counts() {
 }
 
 #[test]
+#[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn empty_rdf_still_requires_exact_source_custody_and_catalogue_identity() {
     let bytes = actual_empty_rdf_archive();
     let prepared = prepare(&bytes, &manifest_operation(&bytes)).unwrap();
@@ -1346,6 +1357,7 @@ fn empty_rdf_still_requires_exact_source_custody_and_catalogue_identity() {
 }
 
 #[test]
+#[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn actual_saved_state_with_orphan_history_fully_prepares_read_only() {
     let bytes = actual_orphan_archive();
     let original_members = unpack(&bytes).unwrap();
@@ -1392,6 +1404,7 @@ fn actual_saved_state_with_orphan_history_fully_prepares_read_only() {
 }
 
 #[test]
+#[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn orphan_history_still_refuses_duplicate_foreign_and_unresolved_references() {
     let bytes = actual_orphan_archive();
     let prepared = prepare(&bytes, &manifest_operation(&bytes)).unwrap();
@@ -1434,6 +1447,7 @@ fn orphan_history_still_refuses_duplicate_foreign_and_unresolved_references() {
 
 #[cfg(feature = "headless")]
 #[test]
+#[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn persisted_orphan_checkpoint_refuses_restore_without_any_disk_effect() {
     fn tree(root: &Path) -> BTreeMap<PathBuf, String> {
         fn visit(root: &Path, current: &Path, rows: &mut BTreeMap<PathBuf, String>) {
@@ -1550,6 +1564,7 @@ fn reseal(members: &mut Members) {
 }
 
 #[test]
+#[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn actual_producer_and_capture_envelopes_preflight() {
     for v22 in [false, true] {
         let bytes = fixture(v22);
@@ -1582,6 +1597,7 @@ fn actual_producer_and_capture_envelopes_preflight() {
 }
 
 #[test]
+#[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn explicit_v23_logical_saved_state_admits_literal_null_version() {
     let bytes = null_fixture();
     let prepared = prepare(&bytes, &operation(&bytes)).unwrap();
@@ -1598,6 +1614,7 @@ fn explicit_v23_logical_saved_state_admits_literal_null_version() {
 }
 
 #[test]
+#[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn actual_v23_logical_saved_state_null_custody_preflights() {
     let bytes = fs::read(
         std::env::var("GARDEN_PRESERVATION_REAL_NULL_ARCHIVE")
@@ -1614,6 +1631,7 @@ fn actual_v23_logical_saved_state_null_custody_preflights() {
 }
 
 #[test]
+#[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn v23_admits_hash_bound_raw_only_null_custody() {
     let bytes = custody_only_null_fixture();
     let prepared = prepare(&bytes, &operation(&bytes)).unwrap();
@@ -1640,6 +1658,7 @@ fn v23_admits_hash_bound_raw_only_null_custody() {
 }
 
 #[test]
+#[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn null_semantic_descriptor_requires_exact_raw_origin() {
     let mut members = unpack(&null_fixture()).unwrap();
     let mut manifest = parse_json(&members["manifest.json"]).unwrap();
@@ -1669,6 +1688,7 @@ fn null_semantic_descriptor_requires_exact_raw_origin() {
 }
 
 #[test]
+#[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn literal_null_version_requires_exact_readback_provenance() {
     for mutation in ["mode", "count", "bucket", "readback", "writer"] {
         let bytes = null_fixture();
@@ -1712,6 +1732,7 @@ fn literal_null_version_requires_exact_readback_provenance() {
 }
 
 #[test]
+#[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn older_transformations_do_not_admit_literal_null_version() {
     for transformation in [V21, V22] {
         let bytes = null_fixture();
@@ -1728,6 +1749,7 @@ fn older_transformations_do_not_admit_literal_null_version() {
 }
 
 #[test]
+#[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn missing_or_empty_source_version_remains_refused() {
     for mutation in ["missing", "empty"] {
         let bytes = null_fixture();
@@ -1781,6 +1803,7 @@ fn source_timestamp_adapter_preserves_native_milliseconds() {
 }
 
 #[test]
+#[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn actual_legacy_capture_retains_explicit_incompleteness_and_opaque_files() {
     let bytes = fs::read(
         std::env::var("GARDEN_PRESERVATION_LEGACY_ARCHIVE")
@@ -1856,6 +1879,7 @@ fn actual_legacy_capture_retains_explicit_incompleteness_and_opaque_files() {
 }
 
 #[test]
+#[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn integrity_is_checked_after_outer_reseal() {
     let bytes = fixture(false);
     let mut members = unpack(&bytes).unwrap();
@@ -1869,6 +1893,7 @@ fn integrity_is_checked_after_outer_reseal() {
 }
 
 #[test]
+#[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn native_original_manifest_collision_is_refused_before_effects() {
     let bytes = fixture(false);
     let mut members = unpack(&bytes).unwrap();
@@ -1884,6 +1909,7 @@ fn native_original_manifest_collision_is_refused_before_effects() {
 }
 
 #[test]
+#[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn authority_graph_not_imported_even_when_hashes_are_recomputed() {
     let bytes = fixture(false);
     let mut members = unpack(&bytes).unwrap();
@@ -1962,6 +1988,7 @@ fn migration_history_fixture(name: &str) -> Vec<u8> {
 }
 
 #[test]
+#[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn migration_history_actual_source_partition_and_negatives() {
     for (name, present, missing) in [("onboarding",4,7),("graph-b",56,2),("graph-c",11,0)] {
         let members = unpack(&migration_history_fixture(name)).unwrap();
@@ -2009,6 +2036,7 @@ fn migration_history_actual_source_partition_and_negatives() {
 }
 
 #[test]
+#[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn migration_legacy_history_corpus_partition_readback() {
     let corpus:Value=parse_json(&fs::read(std::env::var("GARDEN_PRESERVATION_HISTORY_CORPUS").unwrap()).unwrap()).unwrap();
     let output=PathBuf::from(std::env::var("GARDEN_PRESERVATION_PREPARE_OUTPUT").unwrap()).join("legacy-history-corpus");
@@ -2094,6 +2122,7 @@ fn migration_legacy_fidelity_never_conceals_unavailable_or_empty_history() {
 }
 
 #[test]
+#[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn migration_history_null_image_mime_preserves_source_absence() {
     let members = unpack(&migration_history_fixture("graph-b")).unwrap();
     let manifest = parse_json(&members["manifest.json"]).unwrap();
@@ -2155,6 +2184,7 @@ fn migration_history_full_prepare(name: &str, present: usize, unavailable: usize
 }
 
 #[test]
+#[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn migration_history_onboarding_full_prepare() { migration_history_full_prepare("onboarding",4,7,0); }
 
 #[test]
@@ -2201,6 +2231,7 @@ fn migration_wire_endpoints_require_saved_fields_scope_and_exact_native_projecti
 }
 
 #[test]
+#[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn migration_inline_atoms_onboarding_history_persistence_and_text_projection() {
     let bytes = migration_history_fixture("onboarding");
     let members = unpack(&bytes).unwrap();
@@ -2326,8 +2357,10 @@ fn migration_inline_atoms_full_link_attributes_are_independently_checked() {
     assert!(validate_legacy_history_blocks(&bad,&bad_rows,&parsed.tiptap_json).is_err());
 }
 #[test]
+#[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn migration_history_graph_b_full_prepare() { migration_history_full_prepare("graph-b",56,2,3); }
 #[test]
+#[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn migration_history_graph_c_originals_full_prepare() { migration_history_full_prepare("graph-c",11,0,2); }
 
 #[test]
@@ -2357,6 +2390,7 @@ fn unavailable_original_reference_is_inert_and_requires_saved_and_native_absence
 }
 
 #[test]
+#[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn actual_unavailable_bodies_preserve_metadata_without_fabricating_updates() {
     let bytes = actual_unavailable_archive();
     let source = unpack(&bytes).unwrap();
@@ -2377,6 +2411,7 @@ fn actual_unavailable_bodies_preserve_metadata_without_fabricating_updates() {
 }
 
 #[test]
+#[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn unavailable_body_partition_and_source_negatives() {
     for mutation in ["foreign-owner", "foreign-graph", "unknown-id", "reason", "inventory", "omit", "duplicate", "present"] {
         let bytes = actual_unavailable_archive();

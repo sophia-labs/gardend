@@ -700,6 +700,6 @@
     "rdfType": "http://mnemosyne.dev/doc#OpaqueBlock"
   },
   "schema": "sophia.block-contract.v1",
-  "sha256": "044ca21dac59168bba00d963c839e9cb893b10500cb1ad6b83eef33324f2e18a",
+  "sha256": "0a9e7d044490161b0b8a7a4025d1c89623b3a413cc24fddfd83144af29fdac38",
   "unknownMarks": "preserved verbatim, never wrapped"
 }

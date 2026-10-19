@@ -78,10 +78,6 @@ Main run:
 
 ```bash
 cargo test --manifest-path src-tauri/Cargo.toml --no-default-features --features headless --lib -- \
-  --skip preservation_v2 \
-  --skip owned_restore \
-  --skip restored_documents_rematerialize_even_when_marker_floor_ran_ahead_of_wall_clock \
-  --skip harness_fresh_parity_old_vs_new_net_state_identical \
   --skip semantic_model_state \
   --skip cell_self_heal_tests \
   --skip host_dry_run_apply_and_replay_preserve_the_exact_site_route
@@ -104,8 +100,9 @@ cargo build --manifest-path src-tauri/Cargo.toml --no-default-features --feature
 
 **Known exclusions:**
 
-- `preservation_v2`, `owned_restore` — need private `GARDEN_PRESERVATION_*`
-  fixture archives not available to public contributors.
+- The `preservation_v2` and `owned_restore` suites that read `GARDEN_PRESERVATION_*`
+  operator archives are `#[ignore]`d (44 tests); with the operator data,
+  `cargo test … --lib -- --include-ignored preservation_v2 owned_restore` runs them.
 - `semantic_model_state::tests::*` (9 tests) — order-dependent: a shared
   profile-env mutex gets poisoned by an unrelated panicking test when run
   in-process with the rest of the suite. Passes in isolation (above); run
@@ -118,11 +115,10 @@ cargo build --manifest-path src-tauri/Cargo.toml --no-default-features --feature
   test ("lock hold by current process"). Run separately with `--exact`.
 - `time_travel_restore_service::tests::restored_documents_rematerialize_even_when_marker_floor_ran_ahead_of_wall_clock`
   and `document_meaningful_object::harness_tests::harness_fresh_parity_old_vs_new_net_state_identical`
-  — known pre-existing failures, tracked, not fixed by this contract.
+  — known failures, `#[ignore]`d with the defect named in the reason; `--include-ignored` runs them.
 
-Formatting is **not** currently an enforced gate: `cargo fmt --check` is not
-clean on `main` (hundreds of hunks across live worktrees, and a repo-wide
-reformat would conflict with them), so CI does not run it.
+Formatting is a gate: `cargo fmt --check --manifest-path src-tauri/Cargo.toml` must be clean, and CI runs it. The one
+repository-wide reformat is listed in `.git-blame-ignore-revs`.
 
 Optional additional static cross-check (needs `node`, `jq`, and `rg` —
 verifies the SPARQL admission/cancellation invariants documented in

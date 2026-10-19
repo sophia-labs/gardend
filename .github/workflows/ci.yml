@@ -36,16 +36,15 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-headless-
 
+      - name: cargo fmt
+        run: cargo fmt --check --manifest-path src-tauri/Cargo.toml
+
       - name: Build gardend
         run: cargo build --locked --manifest-path src-tauri/Cargo.toml --no-default-features --features headless --example gardend
 
       - name: Library tests (headless)
         run: |
           cargo test --manifest-path src-tauri/Cargo.toml --no-default-features --features headless --lib -- \
-            --skip preservation_v2 \
-            --skip owned_restore \
-            --skip restored_documents_rematerialize_even_when_marker_floor_ran_ahead_of_wall_clock \
-            --skip harness_fresh_parity_old_vs_new_net_state_identical \
             --skip semantic_model_state \
             --skip cell_self_heal_tests \
             --skip host_dry_run_apply_and_replay_preserve_the_exact_site_route

@@ -333,6 +333,7 @@ fn actual_rich_signed_profile_owned(user: &str, graph: &str, input_env: &str, di
 }
 
 #[test]
+#[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn population_manifest_signed_import_profile() {
     let file = std::env::var("GARDEN_PRESERVATION_PROFILE_MANIFEST").expect("explicit profile manifest required");
     let row: Value = serde_json::from_slice(&std::fs::read(file).unwrap()).unwrap();
@@ -343,24 +344,28 @@ fn population_manifest_signed_import_profile() {
 }
 
 #[test]
+#[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn actual_wf_emit_lab_signed_import_profile() {
     actual_rich_signed_profile("wf-emit-lab","GARDEN_PRESERVATION_HISTORY_ARCHIVE_08",
         "3d092a7b9609fde7f5165cf497e236d2ab6d440c8b2404c80abbc32281fc212c",32,3289,39);
 }
 
 #[test]
+#[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn actual_workflow_commons_copy_unavailable_signed_import_profile() {
     actual_rich_signed_profile("workflow-commons-copy","GARDEN_PRESERVATION_UNAVAILABLE_ARCHIVE",
         "d5f7cfae99926e3acea0e47a252bb6db473d11e95a86000530cdb0d67b23ff6c",31,10314,0);
 }
 
 #[test]
+#[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn actual_graph_a_signed_import_profile() {
     actual_rich_signed_profile("graph-a","GARDEN_PRESERVATION_CANDIDATE23_ARCHIVE",
         "ecca0ebf97e31679420fea82eb5317933046bd23f1e7d968a6756d3f8851302f",62,124770,6);
 }
 
 #[test]
+#[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn independent_v2_tree_comparator_retains_attribute_values() {
     use yrs::{Doc,ReadTxn,StateVector,Transact,Update,Xml};
     use yrs::types::xml::{XmlFragment,XmlOut};
@@ -379,6 +384,7 @@ fn independent_v2_tree_comparator_retains_attribute_values() {
 }
 
 #[test]
+#[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn independent_v2_real_caller_preserves_and_refuses() {
     let _serial=crate::tauri_runtime::profile_env_serial().lock().unwrap_or_else(|p|p.into_inner());
     let base=std::env::temp_dir().join(format!("garden-independent-v2-{}",uuid::Uuid::new_v4()));
@@ -515,6 +521,7 @@ fn independent_v2_real_caller_preserves_and_refuses() {
 }
 
 #[test]
+#[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn independent_v2_partial_import_cannot_overwrite_later_edit() {
     let _serial=crate::tauri_runtime::profile_env_serial().lock().unwrap_or_else(|p|p.into_inner());
     let profile=std::env::temp_dir().join(format!("garden-independent-v2-partial-{}",uuid::Uuid::new_v4()));

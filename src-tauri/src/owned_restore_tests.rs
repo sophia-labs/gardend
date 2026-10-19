@@ -118,8 +118,10 @@ fn legacy_history_api_trial(reopen: bool) {
 }
 
 #[test]
+#[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn migration_legacy_history_api_first() {legacy_history_api_trial(false)}
 #[test]
+#[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn migration_legacy_history_api_reopen() {legacy_history_api_trial(true)}
 }
 

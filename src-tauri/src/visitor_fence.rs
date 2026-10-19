@@ -1962,7 +1962,7 @@ mod loopback_self_host_visitor_fence_unit {
     #[test]
     fn names_never_carry_an_email_or_claim_the_house() {
         assert!(valid_name("Moo Fan"));
-        assert!(!valid_name("vera@example.com"));
+        assert!(!valid_name("carol@example.com"));
         assert!(!valid_name("Owner"));
         assert!(!valid_name("sophia"));
         assert!(!valid_name(""));
@@ -2043,7 +2043,7 @@ mod loopback_self_host_visitor_fence_unit {
             json!({"type":"doc","content":[{"type":"image","attrs":{"src":"https://tracker.example/p.gif"}}]}),
             json!({"type":"doc","content":[{"type":"queryBlock","attrs":{"query":"SELECT * {?s ?p ?o}"}}]}),
             json!({"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"x","marks":[{"type":"link","attrs":{"href":"javascript:alert(1)"}}]}]}]}),
-            json!({"type":"doc","content":[{"type":"paragraph","content":[{"type":"wikilink","attrs":{"targetGraphId":"vera-private"}}]}]}),
+            json!({"type":"doc","content":[{"type":"paragraph","content":[{"type":"wikilink","attrs":{"targetGraphId":"owner-private"}}]}]}),
             json!({"type":"doc","content":[{"type":"opaqueBlock"}]}),
         ] {
             let (mut links, mut chars) = (0, 0);
