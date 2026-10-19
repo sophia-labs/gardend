@@ -113,6 +113,16 @@ cargo build --manifest-path src-tauri/Cargo.toml --no-default-features --feature
 - `emporium::site_projection_tests::headless::host_dry_run_apply_and_replay_preserve_the_exact_site_route`
   — order-dependent: its temporary store can be reopened by a co-scheduled
   test ("lock hold by current process"). Run separately with `--exact`.
+- macOS only: 14 tests that spawn child processes (`process_utils::tests::command_output_with_timeout_captures_stdout`,
+  `self_update::tests::*` (7), `runtime_config::self_heal_order_tests::*` (2), and four in `local_service_host` /
+  `loopback_service_routes`) fail with `Bad file descriptor (os error 9)` when they run inside the full parallel
+  library run on a Mac, and pass when run on their own (they also pass in CI on Linux). Run them on their own:
+
+  ```bash
+  cargo test --manifest-path src-tauri/Cargo.toml --no-default-features --features headless --lib -- \
+    process_utils::tests self_update::tests runtime_config::self_heal_order_tests local_service_host loopback_service_routes::proxy_tests
+  ```
+
 - `time_travel_restore_service::tests::restored_documents_rematerialize_even_when_marker_floor_ran_ahead_of_wall_clock`
   and `document_meaningful_object::harness_tests::harness_fresh_parity_old_vs_new_net_state_identical`
   — known failures, `#[ignore]`d with the defect named in the reason; `--include-ignored` runs them.

@@ -65,7 +65,7 @@ Need a real gardend without building one? Every commit on `main` has a prebuilt 
 Tests that load an embedding model use fastembed, which keeps model files in `HF_HOME` when it is set, else in
 `FASTEMBED_CACHE_DIR`, else in `.fastembed_cache` under the working directory. Point one of them at a directory you keep
 between runs, so the model is fetched once. A few suites are order-dependent and
-run isolated; the exact commands are in [`docs/headless-engine.md`](docs/headless-engine.md) and in CI. The suites that
+run isolated (on a Mac, 14 process-spawning tests do too); the exact commands are in [`docs/headless-engine.md`](docs/headless-engine.md) and in CI. The suites that
 need operator data (`GARDEN_PRESERVATION_*`) are `#[ignore]`d; `-- --include-ignored` runs them if you have the data.
 
 ## Validation
