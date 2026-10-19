@@ -32,7 +32,9 @@ scripts/buildbox unit launchd|systemd   print a unit file that keeps `serve` run
 `buildbox gate` runs what CI runs: `cargo fmt --check`; `cargo check` of the library and examples; the library tests with
 the three order-dependent suites skipped and then run isolated (see [headless-engine.md](headless-engine.md)); the
 `gardend` build. On a Mac, 14 process-spawning tests fail with `Bad file descriptor` inside the full parallel run and
-pass alone; the headless-engine page lists the command that runs them on their own. Linux CI runs them in the main run.
+pass alone, so `buildbox` skips that group in the main run and runs it on its own afterwards (Linux runs it in the main run,
+as CI does). A test that opens a macOS Keychain prompt (the provider-key tests) can wait on a dialog nobody sees: name it in
+`BUILDBOX_TEST_SKIP` to leave it out of the main run.
 
 ## Keeping it warm
 
