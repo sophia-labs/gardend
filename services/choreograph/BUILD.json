@@ -1,6 +1,6 @@
 {
 	"schema": "sophia.choreograph-service-build.v1",
-	"choreographCommit": "cac224ced1d68cf73abc793de73110a0879fecde",
+	"choreographCommit": "6ff0a7d8620dd3161065137f0ac60bbfa60f4ebe",
 	"dirty": false,
 	"pi": "1.2.0",
 	"libsql": "0.5.29",
@@ -15,9 +15,9 @@
 	"builtWith": "v22.23.2",
 	"files": {
 		"LICENSE": "74f3df1ea893175d8c660619eca25a6062cd1a47b898f4de6f5d682a8eaa31ef",
-		"NOTICE": "c7db41c1077e1a1192ba993632a8ffededaa7f43f79b3316aff009f083d6ba59",
+		"NOTICE": "6cf26671aa42ec444cb7b7c91c16aba2999a1c6cbd92e4e3373970612c9a7471",
 		"THIRD-PARTY-NOTICES.md": "06a81349c48d08b00d0d1a9be6446098f52d398fa5654842917569aa4ed22aac",
-		"app/main.mjs": "1b319c6c7a4b3ef9afe306e1bd8c04f1329b43c38160d7c5699cadaf2e508b60",
+		"app/main.mjs": "d8992a3e5cdd27f15e215e0f2dac03f1cc02e41c2a3a0f58f128496fd934fb7f",
 		"app/node_modules/@libsql/darwin-arm64/index.node": "3fd9e58190311b5ee027c3e5452a6a410b31a5d610fd55853d797bb3c9f5db0c",
 		"app/node_modules/@libsql/darwin-arm64/package.json": "6e7a953e9b488c562ec816c4fcbd998d39a6a88d1241d00f0ec26982415e9a51",
 		"app/node_modules/@libsql/darwin-x64/index.node": "f9351876c884c0fec20eccfb9ddbcdd753f3458f0ffc6757e3308fea37191bf3",

@@ -1,6 +1,6 @@
 {
 	"schema": "sophia.vehicle-service-build.v1",
-	"vehicleCommit": "5c8be6ccf80cb9daa8737d3bb4d4887ec8d04670",
+	"vehicleCommit": "328a33c73de4300cf1b2fba8a8a0da2de7e608db",
 	"dirty": false,
 	"pi": "1.2.0",
 	"node": ">=22.19",
@@ -10,7 +10,7 @@
 		"LICENSE": "c94bf3244b0368aa73786c2fabd609cecceab0c085088cf21a713f6d34376cc4",
 		"THIRD-PARTY-NOTICES.md": "3a16e1b62ff64d655d1b879e07dab46b185cb38a922b3b7c36b29f6008494f7c",
 		"app/image-resize-worker.js": "7526b0e9b73e98d0e262a73eb11fddf1f360029c40565450ad840e11b047465b",
-		"app/main.mjs": "91438dcb1092bd7885b122ee61dbfe422e3e25d1bf8edeff9a56cc6f04a7955d",
+		"app/main.mjs": "46f68de848e8340cd15a944306570ffa4b7271c000b565a1286355c758d84330",
 		"app/node_modules/@silvia-odwyer/photon-node/LICENSE.md": "c984c291167af70cc5fb7c7f4cec9b4560565110b766a718b3e12aba650327a7",
 		"app/node_modules/@silvia-odwyer/photon-node/package.json": "a1362f6a9e9d942d6b77555f1e40b19a6b3e2cc04bfb8af95e452a6f769fe7db",
 		"app/node_modules/@silvia-odwyer/photon-node/photon_rs.js": "d60656705f0d59baa79e36b0381eb023f1864eeb57e92956cf21dcd9fb8f879f",

@@ -1,6 +1,6 @@
 {
-  "repository": "https://github.com/sophia-labs/choreograph-internal (private; its source is published as sophia-labs/choreograph; the built folder is what gardend archives carry)",
-  "commit": "cac224ced1d68cf73abc793de73110a0879fecde",
+  "repository": "https://github.com/sophia-labs/choreograph (the built folder is what gardend archives carry)",
+  "commit": "6ff0a7d8620dd3161065137f0ac60bbfa60f4ebe",
   "build": "deploy/build-gardend-service.mjs",
   "pi": "1.2.0",
   "libsql": "0.5.29",
@@ -8,9 +8,9 @@
   "esbuild": "0.28.2",
   "files": {
     "LICENSE": "74f3df1ea893175d8c660619eca25a6062cd1a47b898f4de6f5d682a8eaa31ef",
-    "NOTICE": "c7db41c1077e1a1192ba993632a8ffededaa7f43f79b3316aff009f083d6ba59",
+    "NOTICE": "6cf26671aa42ec444cb7b7c91c16aba2999a1c6cbd92e4e3373970612c9a7471",
     "THIRD-PARTY-NOTICES.md": "06a81349c48d08b00d0d1a9be6446098f52d398fa5654842917569aa4ed22aac",
-    "app/main.mjs": "1b319c6c7a4b3ef9afe306e1bd8c04f1329b43c38160d7c5699cadaf2e508b60",
+    "app/main.mjs": "d8992a3e5cdd27f15e215e0f2dac03f1cc02e41c2a3a0f58f128496fd934fb7f",
     "app/package.json": "d404d48fe1a020cee37a870b66f405d3f3d65c64b6670d387310dddcad386d5a",
     "app/worker.mjs": "f6ad894fefe6e5d2e02f457005e9aefe9567a52b004592fc03e1023d70203731",
     "body/LICENSE": "0457f5bcec3b3b211605dfb5d1a49042fd638f3686a410fe099c24a25af13c48",

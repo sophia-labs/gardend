@@ -1,6 +1,6 @@
 {
   "repository": "https://github.com/sophia-labs/shrubbery.git",
-  "commit": "12268999349e020455e93e902ad02b03cd3dfead",
+  "commit": "54b37d96acbe3cbc5bdeb00d9996e28cb7515159",
   "package": "@shrubbery/organism",
   "dist": "apps/organism/dist"
 }
