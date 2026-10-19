@@ -38,8 +38,8 @@ fn legacy_history_api_trial(reopen: bool) {
         tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap().block_on(async {
             // Mixed originals/history/unavailable source fixtures plus a source orphan.
             let selected=corpus.as_array().unwrap().iter().filter(|row| {
-                matches!(row["input"]["graphId"].as_str(),Some("vera"|"nixon"|"marcy"))
-                    || (row["input"]["graphId"]=="onboarding" && row["input"]["sourceOwner"]=="e9e949fe-0091-7015-0ab8-10bf259084ab")
+                matches!(row["input"]["graphId"].as_str(),Some("graph-b"|"graph-c"|"graph-d"))
+                    || (row["input"]["graphId"]=="onboarding" && row["input"]["sourceOwner"]=="00000000-0000-4000-8000-0000000000a1")
             }).collect::<Vec<_>>();
             assert_eq!(selected.len(),4);
             for (number,row) in selected.iter().enumerate() {

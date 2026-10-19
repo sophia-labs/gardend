@@ -144,7 +144,7 @@ fn source_only_wire_readback(graph_dir: &Path, user: &str, graph: &str, digest: 
 // Actual retained inputs, but exclusively an isolated mock authority and private
 // profile. No production lease, account call, or runtime lifecycle is exercised.
 fn actual_rich_signed_profile(graph: &str, input_env: &str, digest: &str, documents: u64, quads: u64, histories: usize) {
-    actual_rich_signed_profile_owned("e9e949fe-0091-7015-0ab8-10bf259084ab", graph, input_env, digest, documents, quads, histories);
+    actual_rich_signed_profile_owned("00000000-0000-4000-8000-0000000000a1", graph, input_env, digest, documents, quads, histories);
 }
 
 fn actual_rich_signed_profile_owned(user: &str, graph: &str, input_env: &str, digest: &str, documents: u64, quads: u64, histories: usize) {
@@ -355,8 +355,8 @@ fn actual_workflow_commons_copy_unavailable_signed_import_profile() {
 }
 
 #[test]
-fn actual_choreograph_2_signed_import_profile() {
-    actual_rich_signed_profile("choreograph-2","GARDEN_PRESERVATION_CANDIDATE23_ARCHIVE",
+fn actual_graph_a_signed_import_profile() {
+    actual_rich_signed_profile("graph-a","GARDEN_PRESERVATION_CANDIDATE23_ARCHIVE",
         "ecca0ebf97e31679420fea82eb5317933046bd23f1e7d968a6756d3f8851302f",62,124770,6);
 }
 

@@ -598,7 +598,7 @@ fn actual_wf_emit_lab_rich_archive_full_prepare() {
 }
 
 #[test]
-fn actual_choreograph_2_rich_archive_full_prepare() {
+fn actual_graph_a_rich_archive_full_prepare() {
     let bytes = actual_candidate23_archive();
     let members = unpack(&bytes).unwrap();
     let prepared = prepare(&bytes, &manifest_operation(&bytes)).unwrap();
@@ -609,11 +609,11 @@ fn actual_choreograph_2_rich_archive_full_prepare() {
     assert_eq!(prepared.originals.len(), 1);
     assert_eq!(prepared.graph_history.len(), 1);
     assert_eq!(prepared.graph_history[0].manifest.schema_version, 1);
-    emit_actual_prepared_fixture(&prepared,&bytes,"choreograph-2");
+    emit_actual_prepared_fixture(&prepared,&bytes,"graph-a");
     let original = &prepared.originals[0];
     assert_eq!(original.kind, "document");
     assert_eq!(original.id, "34d72f96-7368-4ee8-9d3c-5c09af05deaa");
-    assert_eq!(original.filename, "Cantrip SPEC.md");
+    assert_eq!(original.filename, "Spec.md");
     assert_eq!(original.mime, "text/markdown");
     let body = &prepared.members[&original.member];
     assert_eq!(body.len(), 73_127);
@@ -673,16 +673,16 @@ fn actual_rdf_original_ownership_join_is_exact() {
     let rdf = std::str::from_utf8(&members["rdf/dataset.nq"]).unwrap();
     let expected = RdfOriginal {
         document_id: "34d72f96-7368-4ee8-9d3c-5c09af05deaa",
-        storage_key: "users/e9e949fe-0091-7015-0ab8-10bf259084ab/graphs/choreograph-2/artifacts/9a1f4ba2-cdf9-4ff4-b82a-ef9c3654a9c8/original/Cantrip SPEC.md",
-        filename: "Cantrip SPEC.md",
+        storage_key: "users/00000000-0000-4000-8000-0000000000a1/graphs/graph-a/artifacts/00000000-0000-4000-8000-0000000000b1/original/Spec.md",
+        filename: "Spec.md",
         mime: "text/markdown",
         file_type: "md",
         byte_length: 73_127,
     };
     assert!(authored_rdf_original_matches(
         rdf,
-        "e9e949fe-0091-7015-0ab8-10bf259084ab",
-        "choreograph-2",
+        "00000000-0000-4000-8000-0000000000a1",
+        "graph-a",
         &expected,
     )
     .unwrap());
@@ -695,8 +695,8 @@ fn actual_rdf_original_ownership_join_is_exact() {
         .unwrap();
     assert!(!authored_rdf_original_matches(
         &format!("{rdf}{duplicate}\n"),
-        "e9e949fe-0091-7015-0ab8-10bf259084ab",
-        "choreograph-2",
+        "00000000-0000-4000-8000-0000000000a1",
+        "graph-a",
         &expected,
     )
     .unwrap());
@@ -710,8 +710,8 @@ fn actual_rdf_original_ownership_join_is_exact() {
     ] {
         assert!(!authored_rdf_original_matches(
             rdf,
-            "e9e949fe-0091-7015-0ab8-10bf259084ab",
-            "choreograph-2",
+            "00000000-0000-4000-8000-0000000000a1",
+            "graph-a",
             &changed,
         )
         .unwrap());
@@ -1952,8 +1952,8 @@ fn actual_unavailable_archive() -> Vec<u8> {
 fn migration_history_fixture(name: &str) -> Vec<u8> {
     let (variable, digest) = match name {
         "onboarding" => ("GARDEN_PRESERVATION_ONBOARDING_ARCHIVE", "c0b2c9cea320a809b6542ba834f224c197751a9b5f771ae156a610be7921f045"),
-        "vera" => ("GARDEN_PRESERVATION_VERA_ARCHIVE", "016037f7c6af16717ebf464307258d353a57f5305d721740a2f3048312b1f3d4"),
-        "nixon" => ("GARDEN_PRESERVATION_NIXON_ARCHIVE", "97a1d5ec1906f765e18f7bb851ccb8bd180bb8e3ac5398d147cb4b720cfec9b6"),
+        "graph-b" => ("GARDEN_PRESERVATION_GRAPH_B_ARCHIVE", "016037f7c6af16717ebf464307258d353a57f5305d721740a2f3048312b1f3d4"),
+        "graph-c" => ("GARDEN_PRESERVATION_GRAPH_C_ARCHIVE", "97a1d5ec1906f765e18f7bb851ccb8bd180bb8e3ac5398d147cb4b720cfec9b6"),
         _ => panic!("unknown history fixture"),
     };
     let bytes = fs::read(std::env::var(variable).expect("retained history fixture required")).unwrap();
@@ -1963,7 +1963,7 @@ fn migration_history_fixture(name: &str) -> Vec<u8> {
 
 #[test]
 fn migration_history_actual_source_partition_and_negatives() {
-    for (name, present, missing) in [("onboarding",4,7),("vera",56,2),("nixon",11,0)] {
+    for (name, present, missing) in [("onboarding",4,7),("graph-b",56,2),("graph-c",11,0)] {
         let members = unpack(&migration_history_fixture(name)).unwrap();
         let manifest = parse_json(&members["manifest.json"]).unwrap();
         let user = manifest["source"]["userId"].as_str().unwrap();
@@ -2095,7 +2095,7 @@ fn migration_legacy_fidelity_never_conceals_unavailable_or_empty_history() {
 
 #[test]
 fn migration_history_null_image_mime_preserves_source_absence() {
-    let members = unpack(&migration_history_fixture("vera")).unwrap();
+    let members = unpack(&migration_history_fixture("graph-b")).unwrap();
     let manifest = parse_json(&members["manifest.json"]).unwrap();
     let originals = parse_json(&members["originals/index.json"]).unwrap();
     let mut nulls = 0;
@@ -2326,9 +2326,9 @@ fn migration_inline_atoms_full_link_attributes_are_independently_checked() {
     assert!(validate_legacy_history_blocks(&bad,&bad_rows,&parsed.tiptap_json).is_err());
 }
 #[test]
-fn migration_history_vera_full_prepare() { migration_history_full_prepare("vera",56,2,3); }
+fn migration_history_graph_b_full_prepare() { migration_history_full_prepare("graph-b",56,2,3); }
 #[test]
-fn migration_history_nixon_originals_full_prepare() { migration_history_full_prepare("nixon",11,0,2); }
+fn migration_history_graph_c_originals_full_prepare() { migration_history_full_prepare("graph-c",11,0,2); }
 
 #[test]
 fn unavailable_original_reference_is_inert_and_requires_saved_and_native_absence() {
