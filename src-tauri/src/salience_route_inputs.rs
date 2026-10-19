@@ -13,6 +13,15 @@ pub(super) struct SalienceUserValuationRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub(super) struct SalienceRenewRequest {
+    #[serde(alias = "document_id")]
+    pub(super) document_id: String,
+    #[serde(alias = "block_id")]
+    pub(super) block_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub(super) struct SalienceConfigPatch {
     #[serde(default, alias = "importance_prompt")]
     pub(super) importance_prompt: Option<String>,

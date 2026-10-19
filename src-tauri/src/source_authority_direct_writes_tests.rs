@@ -554,6 +554,72 @@ fn revaluate_after_activation_survives_every_ledger_writer() {
     });
 }
 
+/// `POST .../blocks/renew` (the value gutter's "this still matters"): it renews only the freshness clock of a
+/// block that carries a value, it refuses an unrated block and a block the human let go (both 422), and
+/// after activation the renewal is recorded like the rating it renews, so no ledger writer rewinds it.
+#[test]
+fn salience_renew_route_renews_only_the_clock_and_survives_every_ledger_writer() {
+    const AGED: &str = "2026-01-01T00:00:00Z";
+    with_profile("sa-salience-renew", |profile| async move {
+        let state = state_for(&profile);
+        let incarnation = activate_with_an_operation(&state).await;
+        let renew = format!("/salience/{GRAPH}/blocks/renew");
+        let ask = json!({"documentId": "doc-direct", "blockId": "block-renew"});
+
+        let (status, body) = send_json(&state, "POST", &renew, ask.clone()).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "an unrated block cannot be renewed: {body}");
+
+        let (status, body) = send_json(
+            &state,
+            "PUT",
+            &format!("/salience/{GRAPH}/blocks/user-value"),
+            json!({"documentId": "doc-direct", "blockId": "block-renew", "importance": 5, "valence": 4}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+
+        // Age the clock in the real store, so the renewal has something to move.
+        let path = graph_dir_of(&state).join("values").join("block-values.json");
+        let mut store: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        store["blocks"]["doc-direct:block-renew"]["lastValuatedAt"] = json!(AGED);
+        std::fs::write(&path, serde_json::to_vec(&store).unwrap()).unwrap();
+
+        let (status, body) = send_json(&state, "POST", &renew, ask.clone()).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["user_importance"].as_f64().or(body["userImportance"].as_f64()), Some(5.0), "{body}");
+
+        let probe = state.clone();
+        let check = move || {
+            let state = probe.clone();
+            Box::pin(async move {
+                let values = commons_values(&state);
+                let block = &values["blocks"]["doc-direct:block-renew"];
+                assert_ne!(
+                    block["lastValuatedAt"], json!(AGED),
+                    "a renewal made after activation was rewound: {block}"
+                );
+                assert_eq!(block["userImportance"], 5.0, "a renewal changed the rating: {block}");
+                assert_eq!(block["userValence"], 4.0, "a renewal changed the rating: {block}");
+                assert_eq!(block["importanceCount"], 0, "a renewal counted as a valuation: {block}");
+            }) as Check
+        };
+        check().await;
+        run_every_ledger_writer(&state, &incarnation, "salience-renew", check).await;
+
+        // A block the human let go stays forgotten until it is rated again.
+        let (status, body) = send_json(
+            &state,
+            "PUT",
+            &format!("/salience/{GRAPH}/blocks/user-value"),
+            json!({"documentId": "doc-direct", "blockId": "block-renew", "importance": 0}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let (status, body) = send_json(&state, "POST", &renew, ask).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "a block rated 0 cannot be renewed: {body}");
+    });
+}
+
 /// The salience routes the web app uses, after activation: the user value
 /// (`PUT .../user-value`), the configuration patch, and a valuation through
 /// `POST .../blocks/value` (which used to skip the ledger) all survive every

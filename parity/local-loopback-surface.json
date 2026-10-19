@@ -1240,6 +1240,14 @@
       ]
     },
     {
+      "method": "POST",
+      "path": "/salience/{graph_id}/blocks/renew",
+      "status": "implemented-local-salience",
+      "scopes": [
+        "salience.write"
+      ]
+    },
+    {
       "method": "PATCH",
       "path": "/salience/{graph_id}/config",
       "status": "implemented-local-salience",

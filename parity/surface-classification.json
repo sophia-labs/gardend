@@ -324,6 +324,10 @@
       "classification": "implemented",
       "note": "Hosted salience user overlay alias stores replaceable user importance/valence separately from agent valuation sums and recomputes composite block scores."
     },
+    "POST /salience/{graph_id}/blocks/renew": {
+      "classification": "implemented",
+      "note": "Local-only: renews a valued block's freshness (lastValuatedAt) without changing any rating, so the human can say a block still matters without re-scoring it. Refuses unvalued blocks and blocks the human rated 0."
+    },
     "PATCH /salience/{graph_id}/config": {
       "classification": "implemented",
       "note": "Hosted salience config alias updates the local scoring prompts and weight map used by block value scoring."

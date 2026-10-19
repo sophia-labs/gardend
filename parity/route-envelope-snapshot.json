@@ -428,7 +428,8 @@
       "kind": "object",
       "requiredKeys": ["block_id", "composite_score", "document_id"],
       "routes": [
-        "PUT /salience/{graph_id}/blocks/user-value"
+        "PUT /salience/{graph_id}/blocks/user-value",
+        "POST /salience/{graph_id}/blocks/renew"
       ]
     },
     {

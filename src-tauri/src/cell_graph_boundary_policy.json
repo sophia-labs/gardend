@@ -1,7 +1,7 @@
 {
-  "restSurfaceSha256": "f388b3aebd497dbf170da24c6fc1834caf1a0a449b1a004afa67b3de7d2eae0e",
+  "restSurfaceSha256": "628a6b1d60e2fcf12267e62c0d4d50e24a7efc1c92551d2aac37cb5fbbf58fc6",
   "mcpSurfaceSha256": "07f94eea8886514f7ded2bab19b7037c20a1186b54e29c47d4aa75cd8ca8201e",
-  "effectRegistrySha256": "066636a9b057135eb183598d1dd6dcb1b4014c0e96f3a3e7cea4c7ad3642d387",
+  "effectRegistrySha256": "73dc4be2d4764161ad450be9ab24b36760846fc19dd0b762bb36708c9a85b151",
   "restGlobal": [
     "GET /api/artifacts/ingestion/approaches",
     "GET /api/artifacts/ingestion/docling/status",
@@ -122,6 +122,7 @@
     "POST /graphs/{graph_id}/imports/roam",
     "POST /graphs/{graph_id}/imports/youtube",
     "POST /graphs/{graph_id}/restore-archive",
+    "POST /salience/{graph_id}/blocks/renew",
     "POST /salience/{graph_id}/blocks/value",
     "POST /v1/documents/{graph_id}/{doc_id}/snapshots",
     "POST /v1/documents/{graph_id}/{doc_id}/snapshots/{snapshot_id}/copy",

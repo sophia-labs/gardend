@@ -405,6 +405,7 @@
         "GET /salience/{graph_id}/blocks/values",
         "POST /salience/{graph_id}/blocks/value",
         "PUT /salience/{graph_id}/blocks/user-value",
+        "POST /salience/{graph_id}/blocks/renew",
         "PATCH /salience/{graph_id}/config"
       ],
       "schemaStatus": "accepted",

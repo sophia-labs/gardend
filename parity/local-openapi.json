@@ -10778,6 +10778,68 @@
         ]
       }
     },
+    "/salience/{graph_id}/blocks/renew": {
+      "post": {
+        "operationId": "postSalienceGraphIdBlocksRenew",
+        "tags": [
+          "salience"
+        ],
+        "summary": "POST /salience/{graph_id}/blocks/renew",
+        "description": "Local native loopback route. Surface status: implemented-local-salience. Scope mode: all.",
+        "x-sophia-status": "implemented-local-salience",
+        "x-sophia-required-scopes": [
+          "salience.write"
+        ],
+        "x-sophia-scope-mode": "all",
+        "parameters": [
+          {
+            "name": "graph_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonObject"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Rejected request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Missing, invalid, or forbidden local loopback bearer token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
     "/salience/{graph_id}/config": {
       "patch": {
         "operationId": "patchSalienceGraphIdConfig",

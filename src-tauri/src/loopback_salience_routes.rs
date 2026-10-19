@@ -2,8 +2,8 @@ use crate::{
     loopback_http::{loopback_app_result, loopback_error, loopback_result, require_loopback_scope},
     loopback_state::LoopbackState,
     salience_route_service::{
-        patch_local_salience_config, set_local_user_valuation, SalienceConfigPatch,
-        SalienceUserValuationRequest,
+        patch_local_salience_config, renew_local_user_valuation, set_local_user_valuation,
+        SalienceConfigPatch, SalienceRenewRequest, SalienceUserValuationRequest,
     },
     salience_service::{local_block_value_scores, mcp_local_value},
 };
@@ -52,6 +52,10 @@ pub(super) fn loopback_salience_router() -> Router<Arc<LoopbackState>> {
         .route(
             "/salience/{graph_id}/blocks/user-value",
             put(loopback_hosted_user_valuation),
+        )
+        .route(
+            "/salience/{graph_id}/blocks/renew",
+            post(loopback_hosted_user_renew),
         )
         .route(
             "/salience/{graph_id}/config",
@@ -149,6 +153,35 @@ pub(super) async fn loopback_hosted_user_valuation(
     match recorded {
         Ok(value) => Json(value).into_response(),
         Err(error) if error.contains("must be one of") => {
+            loopback_error(StatusCode::UNPROCESSABLE_ENTITY, &error)
+        }
+        Err(error) => loopback_error(StatusCode::BAD_REQUEST, &error),
+    }
+}
+
+pub(super) async fn loopback_hosted_user_renew(
+    State(state): State<Arc<LoopbackState>>,
+    headers: HeaderMap,
+    AxumPath(graph_id): AxumPath<String>,
+    Json(input): Json<SalienceRenewRequest>,
+) -> Response {
+    if let Err(response) = require_loopback_scope(&headers, &state, "salience.write") {
+        return response;
+    }
+    // Recorded like the user value it renews: once a graph's source ledger is active a renewal must
+    // replay with the rest, not be rewound by the next rebuild.
+    let writer = state.app.clone();
+    let recorded = crate::source_sync::record_authored_write(
+        &state.app,
+        &graph_id,
+        "userRenewal",
+        crate::source_sync::AuthoredScope::Values(String::new()),
+        async { renew_local_user_valuation(writer, &graph_id, input) },
+    )
+    .await;
+    match recorded {
+        Ok(value) => Json(value).into_response(),
+        Err(error) if error.contains("rate it") => {
             loopback_error(StatusCode::UNPROCESSABLE_ENTITY, &error)
         }
         Err(error) => loopback_error(StatusCode::BAD_REQUEST, &error),
