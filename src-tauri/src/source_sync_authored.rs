@@ -246,10 +246,14 @@ struct AuthoredUserValue {
     importance: Option<f64>,
     #[serde(default)]
     valence: Option<f64>,
+    /// The freshness clock of a record the human's hand touched: an affirming rating and a renewal
+    /// stamp it. Events stamp it too and replay on their own, so a replay only moves it forward.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    last_valuated_at: Option<String>,
 }
 
-/// A record that exists only because a user valuation created it and was then
-/// cleared: no event ever touched it.
+/// A record that exists only because a user valuation created it (and may since have been cleared):
+/// no event ever touched it. Its freshness clock, if any, is the human's.
 fn placeholder(record: &LocalBlockValueRecord) -> bool {
     record.raw_importance_sum == 0.0
         && record.raw_valence_sum == 0.0
@@ -259,7 +263,6 @@ fn placeholder(record: &LocalBlockValueRecord) -> bool {
         && record.valence_count == 0
         && record.valuation_count == 0
         && record.tags.is_empty()
-        && record.last_valuated_at.is_empty()
 }
 
 impl AuthoredValueFields {
@@ -280,6 +283,8 @@ impl AuthoredValueFields {
                         block_id: record.block_id.clone(),
                         importance: record.user_importance,
                         valence: record.user_valence,
+                        last_valuated_at: (!record.last_valuated_at.is_empty())
+                            .then(|| record.last_valuated_at.clone()),
                     },
                 )
             })
@@ -319,8 +324,23 @@ impl AuthoredValueFields {
                 });
             record.user_importance = user.importance;
             record.user_valence = user.valence;
+            if let Some(at) = &user.last_valuated_at {
+                // An event replayed later than the human's act wins.
+                if stamp_is_later(at, &record.last_valuated_at) {
+                    record.last_valuated_at = at.clone();
+                }
+            }
         }
         Ok(())
+    }
+}
+
+/// Is stamp `a` later than `b`? Stamps are epoch milliseconds (`clock::timestamp`); an older store may
+/// hold ISO-8601 text, which orders correctly as text. An empty stamp is earlier than any other.
+fn stamp_is_later(a: &str, b: &str) -> bool {
+    match (a.parse::<u128>(), b.parse::<u128>()) {
+        (Ok(a), Ok(b)) => a > b,
+        _ => a > b,
     }
 }
 
@@ -864,6 +884,17 @@ mod tests {
                 raw_importance_sum: 3.0,
                 importance_count: 1,
                 user_importance: Some(5.0),
+                last_valuated_at: "2026-10-18T10:00:00Z".into(),
+                ..LocalBlockValueRecord::default()
+            },
+        );
+        // Rated, renewed, then cleared: only the human's freshness stamp is left on it.
+        live.blocks.insert(
+            "d:stamped".to_string(),
+            LocalBlockValueRecord {
+                document_id: "d".into(),
+                block_id: "stamped".into(),
+                last_valuated_at: "2026-10-18T11:00:00Z".into(),
                 ..LocalBlockValueRecord::default()
             },
         );
@@ -905,6 +936,14 @@ mod tests {
         assert_eq!(replayed.config.importance_prompt, "live prompt");
         assert_eq!(replayed.blocks["d:rated"].user_importance, Some(5.0));
         assert_eq!(replayed.blocks["d:rated"].raw_importance_sum, 3.0);
+        assert_eq!(
+            replayed.blocks["d:rated"].last_valuated_at,
+            "2026-10-18T10:00:00Z"
+        );
+        assert_eq!(
+            replayed.blocks["d:stamped"].last_valuated_at,
+            "2026-10-18T11:00:00Z"
+        );
         assert!(replayed.blocks.contains_key("d:cleared"));
         assert_eq!(replayed.blocks["d:stale"].user_valence, None);
         assert_eq!(replayed.blocks["d:stale"].raw_valence_sum, 1.0);
