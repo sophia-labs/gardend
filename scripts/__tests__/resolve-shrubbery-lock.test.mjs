@@ -24,7 +24,7 @@ describe('Shrubbery lock resolver', () => {
     const source = JSON.parse(readFileSync(join(gardenRoot, 'shrubbery-ui.lock.json'), 'utf8'))
     const lock = readShrubberyLock()
     assert.deepEqual(lock, {
-      repository: 'sophia-labs/shrubbery-private',
+      repository: 'sophia-labs/shrubbery',
       repositoryUrl: source.repository,
       commit: source.commit,
       package: source.package,
@@ -35,9 +35,14 @@ describe('Shrubbery lock resolver', () => {
     assert.match(output, new RegExp(`^repository_url=${source.repository}$`, 'm'))
   })
 
+  it('does not resolve to a differently named repository', () => {
+    const lock = readShrubberyLock()
+    assert.notEqual(lock.repository, 'sophia-labs/shrubbery-private')
+  })
+
   it('rejects mutable refs and non-GitHub repository coordinates', () => {
     const base = {
-      repository: 'https://github.com/sophia-labs/shrubbery-private.git',
+      repository: 'https://github.com/sophia-labs/shrubbery.git',
       commit: 'a'.repeat(40),
       package: '@shrubbery/organism',
       dist: 'apps/organism/dist',
@@ -80,35 +85,18 @@ describe('Shrubbery lock resolver', () => {
     assert.equal(readFileSync(new URL('../resolve-shrubbery-lock.mjs', import.meta.url), 'utf8').includes('eval('), false)
   })
 
-  it('keeps both packaging workflows dependent on lock outputs, not an external action ref', () => {
-    for (const relativePath of [
-      '.github/workflows/release.yml',
-      '.github/workflows/native-tauri-prototype.yml',
-    ]) {
-      const workflow = readFileSync(join(gardenRoot, relativePath), 'utf8')
-      assert.doesNotMatch(workflow, /uses:\s*sophia-labs\/shrubbery@/)
-      assert.match(workflow, /node scripts\/resolve-shrubbery-lock\.mjs --github-output "\$GITHUB_OUTPUT"/)
-      assert.match(workflow, /repository: \$\{\{ steps\.shrubbery_lock\.outputs\.repository \}\}/)
-      assert.match(workflow, /ref: \$\{\{ steps\.shrubbery_lock\.outputs\.commit \}\}/)
-    }
+  it('keeps the release workflow dependent on lock outputs, not an external action ref', () => {
+    const workflow = readFileSync(join(gardenRoot, '.github/workflows/release.yml'), 'utf8')
+    assert.doesNotMatch(workflow, /uses:\s*sophia-labs\/shrubbery@/)
+    assert.match(workflow, /node scripts\/resolve-shrubbery-lock\.mjs --github-output "\$GITHUB_OUTPUT"/)
+    assert.match(workflow, /repository: \$\{\{ steps\.lock\.outputs\.repository \}\}/)
+    assert.match(workflow, /ref: \$\{\{ steps\.lock\.outputs\.commit \}\}/)
   })
 
-  it('keeps every canary entrypoint on the pinned Shrubbery deploy path', () => {
-    const legacyDeployer = readFileSync(join(gardenRoot, 'frontend/deploy.sh'), 'utf8')
-    const canaryStart = legacyDeployer.indexOf('# Deploy canary app')
-    const canaryEnd = legacyDeployer.indexOf('# Main deployment function')
-    assert.notEqual(canaryStart, -1)
-    assert.notEqual(canaryEnd, -1)
-    const canarySection = legacyDeployer.slice(canaryStart, canaryEnd)
-    assert.match(canarySection, /scripts\/deploy-shrubbery-canary\.sh/)
-    assert.doesNotMatch(canarySection, /build_app/)
-
-    const authoritativeDeployer = readFileSync(
-      join(gardenRoot, 'scripts/deploy-shrubbery-canary.sh'),
-      'utf8',
-    )
-    assert.match(authoritativeDeployer, /scripts\/shrubbery-frontend\.mjs" build/)
-    assert.match(authoritativeDeployer, /shrubbery-build\.json/)
-    assert.match(authoritativeDeployer, /type yes/)
+  it('needs no Shrubbery credential in any workflow', () => {
+    for (const name of ['ci.yml', 'release.yml']) {
+      const workflow = readFileSync(join(gardenRoot, '.github/workflows', name), 'utf8')
+      assert.doesNotMatch(workflow, /SHRUBBERY_READ_TOKEN/)
+    }
   })
 })

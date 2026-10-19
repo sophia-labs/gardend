@@ -308,9 +308,9 @@ change reaches are restarted through its API so it takes effect at once.
   (`check-choreograph-service.mjs --add-native <target>` fetches it from npm
   at the locked version and checks its sha256).
 
-`scripts/assemble-gardend-export.sh` needs `VEHICLE_SERVICE_DIR` and
-`CHOREOGRAPH_SERVICE_DIR`; the public release workflow checks both folders and
-packages them into every archive.
+The release workflow checks both folders (`services/vehicle/`, `services/choreograph/`)
+against their locks and packages them into every archive; `scripts/build-vehicle-service.sh`
+and `scripts/build-choreograph-service.sh` rebuild them from the public repositories.
 
 The desktop app's bundled-service path is opt-in. A normal source checkout can carry only
 `service.example.json`; the packaged app becomes out-of-the-box when the

@@ -1,5 +1,5 @@
 {
-  "source": "shrubbery-private 9eece44 packages/editor-kernel kernelExtensions({collaborative:true})",
+  "source": "Shrubbery packages/editor-kernel (sophia-labs/shrubbery, derived at pre-publication commit 9eece44) kernelExtensions({collaborative:true})",
   "topNode": "doc",
   "nodes": [
     {

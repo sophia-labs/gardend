@@ -5,15 +5,14 @@ Garden is a local-first knowledge-graph engine from Sophia Labs, licensed
 — not open source / OSS. The repo was extracted from the `mnemosyne-platform`
 prototype on 2026-05-08.
 
-**Public boundary vs. internal desktop app.** The Tauri desktop app (the
-native shell plus the Shrubbery frontend) is Sophia Labs' internal product
-surface: its dev/build/CI require a private Shrubbery checkout and a
-`SHRUBBERY_READ_TOKEN` credential external contributors do not have (see
-`.github/workflows/release.yml`, `native-tauri-prototype.yml`, and
-`docs/release-process.md`). `frontend/` is Garden's native-shell adapter
-code, not a vendored, self-sufficient copy of the UI.
+**One repository.** This is the canonical repository for Garden: there is no
+private mirror and no export step. The headless engine, the Tauri desktop shell and the
+release pipeline live here, and the UI is the public
+[Shrubbery](https://github.com/sophia-labs/shrubbery) pinned in
+`shrubbery-ui.lock.json`. Nothing here needs an organization credential
+(`docs/desktop-from-source.md`, `docs/release-process.md`).
 
-External contributions target the **public headless boundary**: the
+Contributions most often target the **headless engine**: the
 `gardend` engine (same Rust core, built with `--no-default-features
 --features headless --example gardend`, no Tauri/webview dependency) and
 `sophia-mcp`. See [`docs/headless-engine.md`](docs/headless-engine.md) for
@@ -21,10 +20,8 @@ the build/test contract — it needs zero organization credentials. See
 [`docs/oss-readiness.md`](docs/oss-readiness.md) for the remaining gates
 between today's state and a first public release of that boundary.
 
-Contributions should follow the boundaries expected from that eventual
-release, even while gates are still being closed. If your change only
-touches internal desktop/Shrubbery integration code, note that explicitly —
-it is out of scope for public review of the headless boundary.
+If your change only touches the desktop shell or its Shrubbery integration,
+say so in the pull request.
 
 ## Scope
 
@@ -55,16 +52,13 @@ cargo test --manifest-path src-tauri/Cargo.toml --no-default-features --features
 
 This is the gate external contributors can run end to end.
 
-### Internal desktop gate (Sophia Labs only — requires Shrubbery credentials)
+### Desktop gate
 
 The full native/desktop validation gate additionally builds and tests the
-Shrubbery frontend, which requires the private Shrubbery checkout and
-`SHRUBBERY_READ_TOKEN`:
+Shrubbery frontend, from the public checkout named in the lock:
 
 ```bash
-pnpm --dir frontend install
-pnpm frontend:build
-pnpm --dir frontend exec vitest run src/crdt src/native --testTimeout=15000
+pnpm frontend:build   # fetches the locked public Shrubbery and builds its bundle
 cargo fmt --check --manifest-path src-tauri/Cargo.toml
 RUSTFLAGS="-D warnings" cargo check --manifest-path src-tauri/Cargo.toml
 cargo test --manifest-path src-tauri/Cargo.toml --lib

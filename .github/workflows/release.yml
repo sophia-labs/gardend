@@ -1,6 +1,4 @@
-# Public release pipeline for the sophia-labs/gardend export. Lives inert in
-# the private repo (no private-repo GitHub CI, per the Rampart ruling); the
-# export assembly places it at .github/workflows/release.yml in the public tree.
+# Release pipeline for sophia-labs/gardend, the one canonical repository for the engine.
 #
 # On a v* tag: build the self-host UI once (public Shrubbery at the commit
 # shrubbery-ui.lock.json names, `build:selfhost`), check the local services

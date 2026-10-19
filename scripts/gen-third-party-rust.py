@@ -130,7 +130,7 @@ def render(rows: list) -> str:
         "used by `Dockerfile.gardend`. It does **not** cover the desktop "
         "(`--features desktop`) build, the `frontend/` npm dependency tree, or "
         "any Shrubbery-owned code — those are outside the public source-available "
-        "boundary (see `EXPORT-MANIFEST.md`)."
+        "boundary (see `docs/headless-engine.md`)."
     )
     lines.append("")
     lines.append(

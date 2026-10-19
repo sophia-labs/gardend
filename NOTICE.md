@@ -20,7 +20,7 @@ Required Notice (per the PolyForm Noncommercial license):
 repo root, is the third-party Rust crate license inventory for the
 `src-tauri` crate's **headless engine closure** — the exact dependency
 closure of `cargo build --release --no-default-features --features headless
---example gardend` (the boundary described in `EXPORT-MANIFEST.md`). It is
+--example gardend` (the boundary described in `docs/headless-engine.md`). It is
 packaged into every `gardend` container image at
 `/usr/local/share/gardend/THIRD-PARTY-RUST.md` (`Dockerfile.gardend`).
 Regenerate it with `scripts/gen-third-party-rust.py` whenever
@@ -30,6 +30,6 @@ Regenerate it with `scripts/gen-third-party-rust.py` whenever
 build (the `--features desktop` Cargo closure, i.e. Tauri/wry/GUI plugins)
 and for the `frontend/`/Shrubbery npm dependency tree, plus attributions for
 bundled runtime assets, icons, models, OCR/PDF helpers, and installer
-artifacts. None of those are part of the public source-available boundary
-today (see `EXPORT-MANIFEST.md`), so this remaining review blocks a future
+artifacts. None of those are part of the headless-engine boundary
+today (see `docs/headless-engine.md`), so this remaining review blocks a future
 desktop release, not the current headless-engine publication.

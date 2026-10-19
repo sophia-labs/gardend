@@ -21,8 +21,8 @@ your own profile directory, with no hosted backend.
 > **desktop app**, whose UI is the public
 > [Shrubbery](https://github.com/sophia-labs/shrubbery) pinned in
 > `shrubbery-ui.lock.json` ([`docs/desktop-from-source.md`](docs/desktop-from-source.md)).
-> Neither needs organization credentials. Sophia Labs' internal repository pins
-> its private Shrubbery line instead; that is the only difference. See also
+> Neither needs organization credentials. This is the one canonical repository: there is no private mirror
+> and no export step. See also
 > [`sophia-mcp`](https://github.com/sophia-labs/sophia-mcp) and the
 > [source-available readiness tracker](docs/oss-readiness.md).
 
@@ -90,10 +90,9 @@ narrow local-only slice:
 
 ## Prerequisites
 
-> For the public tree's credential-free desktop build, follow
+> For the credential-free desktop build, follow
 > [`docs/desktop-from-source.md`](docs/desktop-from-source.md); for the engine
-> alone, [`docs/headless-engine.md`](docs/headless-engine.md). The steps below
-> are Sophia Labs' internal workflow, which pins private Shrubbery.
+> alone, [`docs/headless-engine.md`](docs/headless-engine.md).
 
 - **Rust 1.88+** — for the Oxigraph-backed RDF store and the fastembed local
   embedding dependencies.
@@ -114,21 +113,18 @@ cargo install tauri-cli --version '^2.0' --locked
 ## Run
 
 ```bash
-pnpm --dir frontend install
 pnpm tauri dev
 ```
 
-The repository's root `package.json` declares only scripts, so the install
-under `frontend/` shown above is the only one required. `pnpm` will warn
-about a missing root `node_modules` directory; that warning is safe to
-ignore. `pnpm tauri dev`'s `beforeDevCommand` shells out to
-`node scripts/shrubbery-frontend.mjs dev` (`src-tauri/tauri.conf.json`),
-which requires the private Shrubbery checkout described above — this command
-does not run to completion without org credentials.
+The repository's root `package.json` declares only scripts, so there is no
+root install; `pnpm` may warn about a missing root `node_modules` directory,
+which is safe to ignore. `pnpm tauri dev`'s `beforeDevCommand` shells out to
+`node scripts/shrubbery-frontend.mjs dev` (`src-tauri/tauri.conf.json`), which
+fetches the public Shrubbery at the commit `shrubbery-ui.lock.json` names (or
+uses a checkout you point `SHRUBBERY_DIR` at).
 
 If an old Tauri dev window is already running, stop it and restart the Tauri
-dev command. The dev server serves `frontend/native.html`, and a running Tauri
-process will keep serving its previous URL until it restarts.
+dev command; a running Tauri process keeps serving its previous URL until it restarts.
 
 ## Build
 
@@ -406,7 +402,7 @@ The native entrypoint is deliberately part of the production frontend:
 
 This keeps native-specific code limited to provider adapters, bridge types,
 and platform affordances. The authoritative frontend source itself is *not*
-vendored here — it is Shrubbery, fetched from a private repo at build time
+vendored here — it is Shrubbery, fetched from its public repository at build time
 (see the public-boundary note at the top of this README).
 
 ## Semantic Scope
@@ -560,9 +556,9 @@ The detailed parity story is in
 
 ## Validation
 
-The checks below are the **internal desktop** validation gate; `pnpm
-frontend:build` and the Shrubbery test commands need the private checkout
-and `SHRUBBERY_READ_TOKEN`. For the public, credential-free build/test
+The checks below are the **desktop** validation gate; `pnpm
+frontend:build` and the Shrubbery test commands use the public Shrubbery checkout.
+Neither needs a credential. For the headless build/test
 contract, see [`docs/headless-engine.md`](docs/headless-engine.md).
 
 Current smoke checks:
@@ -585,27 +581,9 @@ the counted archive-import compatibility shim.
 The Shrubbery revision packaged by Garden is pinned in
 `shrubbery-ui.lock.json`. A release build uses an exact clean local checkout
 when one is supplied, otherwise it materializes that immutable revision in
-Garden's ignored Rust target cache using authenticated GitHub access. CI uses a
-private, organization-scoped Shrubbery action pinned to the same immutable SHA.
+Garden's ignored Rust target cache from the public repository. CI fetches the same immutable SHA.
 An explicit mismatched or dirty checkout fails rather than silently packaging a
 different UI.
-
-For the hosted cloud-2 canary, use the explicit SPA deployment path rather than
-the generic desktop frontend build:
-
-```bash
-AWS_PROFILE=terraform-user ./scripts/deploy-shrubbery-canary.sh --dry-run
-AWS_PROFILE=terraform-user ./scripts/deploy-shrubbery-canary.sh
-```
-
-The older `frontend/deploy.sh canary` command delegates to this same pinned
-path; it cannot build or publish Garden's legacy browser frontend.
-
-It builds the pinned Shrubbery revision with the canary gateway/Cognito/chat
-configuration, then verifies those values are embedded in the browser bundle
-before it can upload. This keeps the desktop's local loopback configuration
-separate from the hosted shell and prevents a playground/debug-pane fallback
-from being deployed to canary.
 
 For end-to-end parity smokes against legacy (Tauri must be running):
 
@@ -616,19 +594,13 @@ pnpm parity:compare --include-mutations --include-mcp-fidelity --markdown
 
 ## Docs map
 
-[`docs/README.md`](docs/README.md) is the full, internal documentation index
-(it also covers desktop/Shrubbery-only docs and is not part of the public
-export set — see `EXPORT-MANIFEST.md`). A quick orientation to what *is*
-public:
+A quick orientation to the documentation:
 
 - **Public headless boundary** — [`docs/headless-engine.md`](docs/headless-engine.md)
   (build/test contract, zero org credentials needed),
   [`docs/headless-gardend.md`](docs/headless-gardend.md) (architecture)
 - **Status & roadmap** — [`docs/oss-readiness.md`](docs/oss-readiness.md),
-  [`docs/release-process.md`](docs/release-process.md) (the latter documents
-  the internal desktop pipeline; kept public for boundary transparency).
-  [`docs/garden-v1-roadmap.md`](docs/garden-v1-roadmap.md) is internal-only
-  (whole-repo, frontend-inclusive) and not part of the public export.
+  [`docs/release-process.md`](docs/release-process.md) (the release pipeline).
 - **Architecture** — [`docs/architecture.md`](docs/architecture.md),
   [`docs/headless-gardend.md`](docs/headless-gardend.md),
   [`docs/storage-format.md`](docs/storage-format.md),
@@ -643,11 +615,7 @@ public:
   [`docs/local-service-hosting.md`](docs/local-service-hosting.md),
   [`docs/source-sync-offline-contract.md`](docs/source-sync-offline-contract.md)
 
-`docs/a2-ledger-design.md`, `docs/a2-replay-mitigations.md`, and
-`docs/replay-classification/` are internal-only: they audit **frontend**
-TypeScript CRDT handlers (`frontend/src/crdt/`,
-`frontend/src/native/native-local-runtime.ts`), which live outside the
-public boundary.
+
 
 ## License and notices
 

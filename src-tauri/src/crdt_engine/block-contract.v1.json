@@ -1,6 +1,6 @@
 {
   "contractVersion": 1,
-  "derivedFrom": "shrubbery-private 9eece44 packages/editor-kernel kernelExtensions({collaborative:true}) document profile, plus opaqueBlock",
+  "derivedFrom": "Shrubbery packages/editor-kernel (sophia-labs/shrubbery, derived at pre-publication commit 9eece44) kernelExtensions({collaborative:true}) document profile, plus opaqueBlock",
   "losslessMeans": "markdown -> store -> markdown keeps the node, its text and its semantic attributes (level, listType, indent, checked, language, src, alt, title, href). Block ids, source/PDF provenance, tags, outline state and presentation attributes (textAlign, size, colwidth, font) are never carried by Markdown.",
   "marks": [
     {

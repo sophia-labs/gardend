@@ -1,6 +1,4 @@
-# Public CI for the sophia-labs/gardend export. Lives inert in the private
-# repo (no private-repo GitHub CI, per the Rampart ruling); the export
-# assembly places it at .github/workflows/ci.yml in the public tree.
+# CI for sophia-labs/gardend, the one canonical repository for the engine.
 # Mirrors docs/headless-engine.md: Rust toolchain only, no credentials.
 name: CI
 

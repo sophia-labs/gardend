@@ -23,8 +23,7 @@
  * for file; with it, the folder holds that target's binding and no other.
  * --add-native fetches the target's binding (`npm pack <package>@<version>`),
  * checks its sha256s, places it, then checks the folder with --target.
- * <lock> defaults to export/choreograph-service.lock.json in a garden checkout,
- * or choreograph-service.lock.json at the root of the public tree. Exit 0 and
+ * <lock> defaults to choreograph-service.lock.json at the root of this repository. Exit 0 and
  * one line when everything matches; otherwise every difference and exit 1.
  */
 
@@ -158,7 +157,7 @@ export function addNative(serviceDir, lock, target) {
 
 function lockPathFrom(lockArg) {
   return lockArg
-    ?? [join(root, 'export', 'choreograph-service.lock.json'), join(root, 'choreograph-service.lock.json')].find(existsSync)
+    ?? [join(root, 'choreograph-service.lock.json')].find(existsSync)
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

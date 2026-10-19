@@ -4,8 +4,8 @@
 //!
 //! **Vocabulary.** `NODES` and `MARKS` are v1 of the contract, derived from
 //! what the web editor accepts today: the document profile's ProseMirror
-//! schema, `kernelExtensions({collaborative:true})` at shrubbery-private
-//! 9eece44 (`packages/editor-kernel`), including the `unsupportedBlock` /
+//! schema, `kernelExtensions({collaborative:true})` in Shrubbery's
+//! `packages/editor-kernel` (derived at pre-publication commit 9eece44), including the `unsupportedBlock` /
 //! `unsupportedMark` placeholders of 272912a. The dump is committed at
 //! `tests/fixtures/block_contract/editor-kernel-9eece44.schema.json` and a
 //! parity test asserts the node set, content expressions, attrs and marks
@@ -376,7 +376,7 @@ fn contract_content() -> Value {
     json!({
         "schema": CONTRACT_SCHEMA,
         "contractVersion": CONTRACT_VERSION,
-        "derivedFrom": "shrubbery-private 9eece44 packages/editor-kernel kernelExtensions({collaborative:true}) document profile, plus opaqueBlock",
+        "derivedFrom": "Shrubbery packages/editor-kernel (sophia-labs/shrubbery, derived at pre-publication commit 9eece44) kernelExtensions({collaborative:true}) document profile, plus opaqueBlock",
         "losslessMeans": LOSSLESS_MEANS,
         "unknownMarks": "preserved verbatim, never wrapped",
         "opaqueBlock": {

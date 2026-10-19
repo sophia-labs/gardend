@@ -4,24 +4,21 @@ This is the **public, credential-free** build/test contract for Garden's
 headless engine, `gardend`. It is the supported public artifact (together
 with [`sophia-mcp`](https://github.com/sophia-labs/sophia-mcp)) under
 Garden's source-available boundary — see the note at the top of the repo
-[`README.md`](../README.md) and [`../EXPORT-MANIFEST.md`](../EXPORT-MANIFEST.md).
+[`README.md`](../README.md).
 
 Everything on this page needs **only** a Rust toolchain and this
 repository's `src-tauri/` tree. It does **not** need:
 
-- the private Shrubbery frontend checkout,
-- a `SHRUBBERY_READ_TOKEN` (or any other org credential),
+- a Shrubbery frontend checkout,
+- any organization credential,
 - `pnpm` / Node, or
 - the Tauri CLI.
 
 Those are only needed for the internal desktop app (see
 [`docs/release-process.md`](release-process.md) and the "internal desktop
 gate" in [`CONTRIBUTING.md`](../CONTRIBUTING.md)) and are out of scope here.
-Do not follow the Shrubbery/frontend contract-suite steps from
-`.github/workflows/native-tauri-prototype.yml`'s `headless` job (its `Test
-Rust native shell (headless cell features)` and `Build the exact Gardend
-integration binary` steps are the token-free parts this doc mirrors; the
-rest of that job checks out the private Shrubbery UI and is internal-only).
+The Shrubbery/frontend contract suite is not part of this contract; it lives in
+the Shrubbery repository.
 
 ## What `gardend` is
 
@@ -75,8 +72,7 @@ cargo check --manifest-path src-tauri/Cargo.toml --no-default-features --feature
 The headless feature set gates test suites the default desktop build never
 compiles (Emporium reconcile, memory, SHACL evidence, etc.). This is the
 public test contract — the exact commands `.github/workflows/ci.yml` runs
-(placed there from `export/github/workflows/ci.yml` on export; see
-[`EXPORT-MANIFEST.md`](../EXPORT-MANIFEST.md)), verified against this tree.
+(`.github/workflows/ci.yml`), verified against this tree.
 
 Main run:
 
@@ -207,15 +203,15 @@ contract and threat model.
 ## What this contract deliberately excludes
 
 - The Shrubbery frontend contract suite
-  (`pnpm --dir "$SHRUBBERY_DIR" test:run` and friends) — that suite validates
-  the private, internal-only UI and is not part of the public boundary.
+  (`pnpm --dir "$SHRUBBERY_DIR" test:run` and friends) — that suite lives in
+  the Shrubbery repository and is not part of the engine boundary.
 - Desktop packaging, signing, notarization — see
-  [`release-process.md`](release-process.md) (internal).
+  [`release-process.md`](release-process.md).
 - `parity:*` npm scripts that shell out to the frontend toolchain — those
   need `pnpm`/Node and, for some, a running desktop app; they are part of
   the internal validation gate in `CONTRIBUTING.md`, not this contract.
 
 If you hit a build or test failure that traces back to a file outside
-`src-tauri/` (or the `parity/*.json` contract files it `include_str!`s —
-see `EXPORT-MANIFEST.md`), that's a genuine gap in this boundary; please
+`src-tauri/` (or the `parity/*.json` contract files it `include_str!`s),
+that's a genuine gap in this boundary; please
 file it rather than reaching for the Shrubbery checkout.

@@ -47,15 +47,13 @@ release is published manually after smoke-testing the downloaded artifacts.
 Shrubbery's `@shrubbery/organism` is the authoritative native frontend. Garden
 pins its exact revision in `shrubbery-ui.lock.json`; the Tauri before-build
 adapter verifies that revision, builds it, and copies only the generated bundle
-into `frontend/dist` for packaging. Garden owns the Rust/Tauri shell and
+into a generated `frontend/dist` (git-ignored) for packaging. Garden owns the Rust/Tauri shell and
 loopback capability, not a second browser implementation.
 
 `pnpm run frontend:build` automatically fetches the exact locked revision into
 Garden's ignored Rust target cache when no matching sibling checkout exists and
-the local `gh` client is authenticated. Garden CI materializes the same private
-source archive through Shrubbery's organization-scoped composite action, pinned
-to the immutable revision in the lock file; it does not carry a cross-repository
-credential.
+the machine can reach GitHub. Shrubbery is public, so no credential is involved;
+CI fetches the same immutable revision named in the lock file.
 Set `SHRUBBERY_DIR` to validate and package an existing checkout explicitly:
 
 ```bash

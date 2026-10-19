@@ -8,13 +8,12 @@ intentionally conservative: a checked item must have a file, gate, or
 implementation artifact that makes the claim true today.
 
 **Two boundaries.** This tracker covers the whole repository, including the
-internal Tauri desktop app and its private Shrubbery frontend dependency.
+Tauri desktop app and its Shrubbery frontend dependency.
 The narrower **public** boundary — what Sophia Labs actually intends to
 publish — is the headless `gardend` engine plus `sophia-mcp`; see
-[`headless-engine.md`](headless-engine.md) and
-[`../EXPORT-MANIFEST.md`](../EXPORT-MANIFEST.md). An item below being "done"
+[`headless-engine.md`](headless-engine.md). An item below being "done"
 for the full repo does not by itself mean it applies to, or is required by,
-that narrower public export.
+that narrower boundary.
 
 ## Done In This Initial Foundation
 
@@ -118,18 +117,11 @@ that narrower public export.
   Noncommercial 1.0.0 (`LICENSE`). Repo extraction `mnemosyne-platform/prototypes/open-core-native-tauri/`
   → standalone `garden/` repo landed 2026-05-08 with all path call-sites
   coordinated.
-- **Frontend extracted to `frontend/`, but not self-sufficient**: the
-  native-shell adapter code (bridge types, provider glue, `native.html`) now
-  lives under `frontend/`, replacing the old sibling `mnemosyne-platform`
-  checkout dependency. This is *not* OSS/public self-sufficiency, corrected
-  from an earlier claim here (see `CHANGELOG.md`'s 2026-09-22 correction
-  note): root scripts, Tauri `frontendDist`/before commands, the release
-  workflow, and the native-tauri-prototype validation workflow all still
-  fetch the authoritative UI from Shrubbery, a private Sophia Labs repo,
-  using a `SHRUBBERY_READ_TOKEN` credential (`scripts/shrubbery-frontend.mjs`,
-  `.github/workflows/release.yml:48-65`,
-  `native-tauri-prototype.yml:59-77,184-202`). The desktop app is internal
-  only; it is not part of the public source-available boundary.
+- **Frontend**: the desktop UI is Shrubbery, a public Sophia Labs repository
+  (`github.com/sophia-labs/shrubbery`). Root scripts, the Tauri
+  `frontendDist`/before commands and the release workflow fetch the exact
+  revision `shrubbery-ui.lock.json` names (`scripts/shrubbery-frontend.mjs`);
+  no organization credential is needed. See `desktop-from-source.md`.
 - **Deferred-surface promotion, two passes** (commits `a7acc75f` and the
   follow-up promotion pass): 18 entries in `parity/surface-contracts.json`
   flipped from `deferred` → `accepted` after audits confirmed each had a

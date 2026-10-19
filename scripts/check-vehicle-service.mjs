@@ -5,16 +5,15 @@
  *
  * The self-host chat (the agent core's `vehicle` service) rides in every gardend
  * release archive as `services/vehicle/` beside the binary. Its source is the
- * private sophia-labs/vehicle-internal repository; what is published is the folder its
+ * sophia-labs/vehicle repository; what is published is the folder its
  * `ts/scripts/build-service.mjs` builds (one bundled `app/main.mjs`, pi's
  * licence and package.json, photon-node, `LICENSE`, `THIRD-PARTY-NOTICES.md`).
  * The lock names the vehicle commit and the sha256 of every file, so the folder
- * the export carries is exactly the one built from that commit.
+ * the release carries is exactly the one built from that commit.
  *
  *   node scripts/check-vehicle-service.mjs <service-dir> [<lock>]
  *
- * <lock> defaults to export/vehicle-service.lock.json in a garden checkout, or
- * vehicle-service.lock.json at the root of the public tree. Exit 0 and one line
+ * <lock> defaults to vehicle-service.lock.json at the root of this repository. Exit 0 and one line
  * when every file matches; otherwise every difference and exit 1.
  */
 
@@ -81,7 +80,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     process.exit(2)
   }
   const lockPath = lockArg
-    ?? [join(root, 'export', 'vehicle-service.lock.json'), join(root, 'vehicle-service.lock.json')].find(existsSync)
+    ?? [join(root, 'vehicle-service.lock.json')].find(existsSync)
   if (!lockPath) {
     console.error('check-vehicle-service: no vehicle-service.lock.json found')
     process.exit(2)
