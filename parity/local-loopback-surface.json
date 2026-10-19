@@ -2080,8 +2080,7 @@
       "status": "implemented-workflow-plan-create",
       "scopes": [
         "workspace.write.crdt",
-        "documents.write.crdt",
-        "rdf.update"
+        "documents.write.crdt"
       ]
     },
     {
@@ -2096,7 +2095,7 @@
       "status": "implemented-workflow-plan-compose",
       "scopes": [
         "rdf.query",
-        "rdf.update"
+        "documents.write.crdt"
       ]
     },
     {

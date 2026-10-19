@@ -592,10 +592,229 @@ fn the_tools_are_registered_with_scopes_in_every_source_of_truth() {
         crate::loopback_scopes::mcp_tool_scopes("workflow_plan_read"),
         vec!["rdf.query"]
     );
-    let compose = crate::loopback_scopes::mcp_tool_scopes("workflow_plan_compose");
-    assert!(compose.contains(&"rdf.update"), "{compose:?}");
-    let create = crate::loopback_scopes::mcp_tool_scopes("workflow_plan_create");
-    for scope in ["rdf.update", "workspace.write.crdt", "documents.write.crdt"] {
-        assert!(create.contains(&scope), "{scope} not in {create:?}");
+    // Editing a workflow document, not general RDF write: no rdf.update.
+    assert_eq!(
+        crate::loopback_scopes::mcp_tool_scopes("workflow_plan_compose"),
+        vec!["rdf.query", "documents.write.crdt"]
+    );
+    assert_eq!(
+        crate::loopback_scopes::mcp_tool_scopes("workflow_plan_create"),
+        vec!["workspace.write.crdt", "documents.write.crdt"]
+    );
+}
+
+// ── who may call them: the tool's own scope gate, through the real router ──
+//
+// Changing a workflow's plan is editing that workflow document, not general
+// RDF write: the tools fence every write to the document's own `:draft` and
+// `:authoring` graphs, behind the kind check. So compose needs `rdf.query` +
+// `documents.write.crdt` and create `workspace.write.crdt` +
+// `documents.write.crdt`; neither needs `rdf.update`, which a member (and so a
+// supervised service such as the self-host Vehicle) does not hold. The RDF
+// writes inside the tools take no second scope check.
+
+const MASTER: &str = "workflow-plan-test-master-key";
+
+fn loopback_state(
+    app: crate::app_runtime::AppHandle,
+    dir: &std::path::Path,
+) -> Arc<crate::loopback_state::LoopbackState> {
+    let grant = crate::loopback_token_grants::session_all_token_grant();
+    Arc::new(crate::loopback_state::LoopbackState {
+        app,
+        token: MASTER.into(),
+        manifest: crate::loopback_state::LoopbackManifest {
+            runtime_profile: "test",
+            bind_host: "127.0.0.1",
+            port: 0,
+            api_url: "http://127.0.0.1:0".into(),
+            mcp_url: "http://127.0.0.1:0/mcp".into(),
+            openapi_url: "http://127.0.0.1:0/openapi.json".into(),
+            token: MASTER.into(),
+            pid: 0,
+            started_at: String::new(),
+            manifest_path: String::new(),
+            auth_header: "Authorization: Bearer <token>",
+            token_audience: "test",
+            token_storage: "memory",
+            security_warning: "synthetic test manifest",
+            cell_graph_id: None,
+            cell_owner: None,
+            cell_generation: None,
+            cell_registry_revision: None,
+            capabilities: grant.scopes.clone(),
+            token_scope_mode: grant.scope_mode,
+            token_scopes: grant.scopes,
+            scope_details: grant.scope_details,
+            grant_profiles: grant.grant_profiles,
+        },
+        jobs: Arc::new(LocalJobRegistry::new(dir.join("jobs")).unwrap()),
+        services: Arc::new(crate::local_service_host::LocalServiceHost::default()),
+        lifecycle: Arc::new(crate::cell_lifecycle::CellLifecycle::new()),
+        cell_graph: Arc::new(crate::cell_graph_boundary::CellGraphBoundary::for_test(
+            None,
+        )),
+        self_host: Arc::new(Default::default()),
+    })
+}
+
+fn client_token(
+    app: &crate::app_runtime::AppHandle,
+    grant: Option<&str>,
+    scopes: Option<&[&str]>,
+) -> String {
+    crate::loopback_client_token_service::create_client_token(
+        app,
+        crate::loopback_client_token_types::CreateLoopbackClientTokenInput {
+            label: Some(format!("{grant:?} {scopes:?}")),
+            grant_profile_id: grant.map(str::to_string),
+            scopes: scopes.map(|scopes| scopes.iter().map(|s| s.to_string()).collect()),
+            expires_in_days: None,
+        },
+    )
+    .unwrap()
+    .token
+}
+
+/// One JSON-RPC call to `/mcp` with `token`: the result, or the error message.
+async fn rpc(
+    state: &Arc<crate::loopback_state::LoopbackState>,
+    token: &str,
+    method: &str,
+    params: Value,
+) -> Result<Value, String> {
+    use tower::ServiceExt;
+    let body = json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": params });
+    let request = axum::http::Request::builder()
+        .method("POST")
+        .uri("/mcp")
+        .header("authorization", format!("Bearer {token}"))
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
+        .unwrap();
+    let response = crate::loopback_router::loopback_router(state.clone())
+        .oneshot(request)
+        .await
+        .unwrap();
+    let bytes = axum::body::to_bytes(response.into_body(), 10_000_000)
+        .await
+        .unwrap();
+    let reply: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+    match reply["error"]["message"].as_str() {
+        Some(message) => Err(message.to_string()),
+        None => Ok(reply["result"].clone()),
     }
+}
+
+async fn tool_call(
+    state: &Arc<crate::loopback_state::LoopbackState>,
+    token: &str,
+    name: &str,
+    mut arguments: Value,
+) -> Result<Value, String> {
+    arguments["graphId"] = json!(GRAPH);
+    rpc(
+        state,
+        token,
+        "tools/call",
+        json!({ "name": name, "arguments": arguments }),
+    )
+    .await
+    .map(|result| result["structuredContent"].clone())
+}
+
+#[test]
+fn a_document_writer_without_rdf_update_composes_and_a_reader_cannot() {
+    with_graph(|ctx| {
+        let dir = std::env::temp_dir().join(format!(
+            "garden-workflow-plan-state-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let state = loopback_state(ctx.app.clone(), &dir);
+        // Document scopes and RDF read, no rdf.update.
+        let writer = client_token(
+            &ctx.app,
+            None,
+            Some(&["mcp.tools.call", "rdf.query", "documents.write.crdt"]),
+        );
+        // A reader that may call tools.
+        let reader = client_token(&ctx.app, None, Some(&["mcp.tools.call", "rdf.query"]));
+        // What gardend's supervised services hold (the self-host Vehicle).
+        let member = client_token(&ctx.app, Some("member"), None);
+        crate::app_runtime::async_runtime::block_on(async {
+            let created = tool_call(
+                &state,
+                MASTER,
+                "workflow_plan_create",
+                json!({ "title": "Freud" }),
+            )
+            .await
+            .expect("the owner creates a workflow");
+            let id = created["documentId"]
+                .as_str()
+                .expect("documentId")
+                .to_string();
+
+            let composed = tool_call(
+                &state,
+                &writer,
+                "workflow_plan_compose",
+                json!({ "documentId": id, "rationale": "the plan", "moves": freud_moves() }),
+            )
+            .await
+            .expect("documents.write.crdt + rdf.query compose, without rdf.update");
+            assert_eq!(
+                composed["report"]["conforms"], true,
+                "{}",
+                composed["report"]
+            );
+
+            let refused = tool_call(
+                &state,
+                &reader,
+                "workflow_plan_compose",
+                json!({ "documentId": id, "rationale": "x",
+                        "moves": [{ "op": "set_title", "title": "Hijacked" }] }),
+            )
+            .await
+            .expect_err("a reader cannot compose");
+            assert!(refused.contains("documents.write.crdt"), "{refused}");
+            let read = tool_call(
+                &state,
+                &reader,
+                "workflow_plan_read",
+                json!({ "documentId": id }),
+            )
+            .await
+            .expect("a reader reads");
+            assert_eq!(read["title"], "Things done to sleepers, chapter I");
+
+            // A member (what gardend's supervised services hold) creates one too.
+            tool_call(
+                &state,
+                &member,
+                "workflow_plan_create",
+                json!({ "title": "Another" }),
+            )
+            .await
+            .expect("workspace.write.crdt + documents.write.crdt create, without rdf.update");
+
+            // And a member is offered all three (a client hides what it cannot call).
+            let listed = rpc(&state, &member, "tools/list", json!({})).await.unwrap();
+            let names: Vec<&str> = listed["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|tool| tool["name"].as_str())
+                .collect();
+            for name in [
+                "workflow_plan_create",
+                "workflow_plan_read",
+                "workflow_plan_compose",
+            ] {
+                assert!(names.contains(&name), "{name} not offered to a member");
+            }
+        });
+        let _ = std::fs::remove_dir_all(&dir);
+    });
 }
