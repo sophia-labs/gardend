@@ -644,3 +644,191 @@ fn a_deleted_document_comes_back_only_through_the_ledger_recreate() {
         });
     });
 }
+
+// ---------------------------------------------------------------------------
+// The Reader's comments (2026-10-19): kind / color / anchor / madeIn, a
+// highlight with no text, and agents reading people's notes.
+// ---------------------------------------------------------------------------
+
+const READER_KEYS: [&str; 4] = ["kind", "color", "anchor", "madeIn"];
+
+fn reader_args(extra: Value) -> Value {
+    let mut args = json!({ "graphId": GRAPH, "documentId": "book", "action": "set" });
+    for (key, value) in extra.as_object().unwrap() {
+        args[key] = value.clone();
+    }
+    args
+}
+
+/// Writes the book; returns the id of its first block.
+async fn book(state: &Arc<LoopbackState>) -> String {
+    tool(state, MASTER, "write_document", json!({
+        "graphId": GRAPH, "documentId": "book", "title": "Book",
+        "content": "Dreams are the royal road. A second sentence follows.",
+    }))
+    .await
+    .unwrap();
+    let ids = tool(state, MASTER, "read_document",
+        json!({ "graphId": GRAPH, "documentId": "book", "format": "ids_only" })).await.unwrap();
+    ids["block_ids"][0].as_str().expect("a first block").to_string()
+}
+
+#[test]
+fn edit_comment_stores_the_readers_keys_verbatim_and_refuses_the_rest() {
+    with_gardend("reader-allowlist", |state| {
+        crate::app_runtime::async_runtime::block_on(async {
+            book(&state).await;
+            let anchor = json!({ "page": 3, "chapter": 0, "prefix": "Dreams are the ", "suffix": " A second" });
+            tool(&state, MASTER, "edit_comment", reader_args(json!({
+                "commentId": "ok", "text": "my note", "find": "royal road",
+                "kind": "comment", "color": "pink", "anchor": anchor, "madeIn": "reader",
+            }))).await.unwrap();
+            let comments = stored_comments(&state, "book").await;
+            assert_eq!(comments["ok"]["kind"], "comment", "{comments}");
+            assert_eq!(comments["ok"]["color"], "pink");
+            assert_eq!(comments["ok"]["anchor"], anchor);
+            assert_eq!(comments["ok"]["madeIn"], "reader");
+
+            let max = "x".repeat(200);
+            tool(&state, MASTER, "edit_comment", reader_args(json!({
+                "commentId": "edge", "text": "t", "color": "green", "anchor": {"page": 1, "chapter": 0, "prefix": max, "suffix": max},
+            }))).await.expect("the limits themselves are accepted");
+
+            for (n, (extra, needle)) in [
+                (json!({"kind": "note"}), "kind must be one of"),
+                (json!({"color": "red"}), "color must be one of"),
+                (json!({"madeIn": "web"}), "madeIn must be one of"),
+                (json!({"anchor": "p3"}), "anchor must be an object"),
+                (json!({"anchor": {"page": 0}}), "anchor.page"),
+                (json!({"anchor": {"chapter": -1}}), "anchor.chapter"),
+                (json!({"anchor": {"prefix": "x".repeat(201)}}), "anchor.prefix"),
+                (json!({"anchor": {"cfi": "epubcfi(/6/4)"}}), "anchor.cfi is not allowed"),
+            ].into_iter().enumerate() {
+                let mut args = reader_args(extra);
+                args["commentId"] = json!(format!("bad-{n}"));
+                args["text"] = json!("x");
+                let error = tool(&state, MASTER, "edit_comment", args).await.expect_err(needle);
+                assert!(error.contains(needle), "{error} should mention {needle}");
+            }
+            // The raw op refuses too, and writes nothing.
+            let raw = tool(&state, MASTER, "crdt_operation", json!({
+                "kind": "document.editComment", "graphId": GRAPH, "documentId": "book",
+                "payload": { "documentId": "book", "commentId": "bad-raw", "action": "set", "text": "x", "color": "red" },
+            })).await;
+            assert!(raw.is_err(), "{raw:?}");
+            let comments = stored_comments(&state, "book").await;
+            let ids: Vec<&String> = comments.as_object().unwrap().keys().collect();
+            assert!(ids.iter().all(|id| !id.starts_with("bad-")), "{ids:?}");
+        });
+    });
+}
+
+#[test]
+fn a_highlight_may_be_empty_but_a_comment_may_not() {
+    with_gardend("reader-highlight", |state| {
+        crate::app_runtime::async_runtime::block_on(async {
+            let block = book(&state).await;
+            tool(&state, MASTER, "edit_comment", reader_args(json!({
+                "commentId": "h1", "kind": "highlight", "color": "yellow", "blockId": block, "find": "royal road", "madeIn": "reader",
+            }))).await.expect("a highlight with no text");
+            let comments = stored_comments(&state, "book").await;
+            assert_eq!(comments["h1"]["text"], "", "{comments}");
+            assert_eq!(comments["h1"]["kind"], "highlight");
+            assert_eq!(comments["h1"]["quotedText"], "royal road");
+
+            // The same highlight, set again with no text, stays a highlight.
+            tool(&state, MASTER, "edit_comment", reader_args(json!({ "commentId": "h1", "color": "blue" })))
+                .await.expect("a stored highlight needs no text either");
+            assert_eq!(stored_comments(&state, "book").await["h1"]["color"], "blue");
+
+            for extra in [json!({"commentId": "c1"}), json!({"commentId": "c2", "kind": "comment"})] {
+                let error = tool(&state, MASTER, "edit_comment", reader_args(extra)).await.expect_err("no text");
+                assert!(error.contains("text is required"), "{error}");
+            }
+        });
+    });
+}
+
+#[test]
+fn the_readers_keys_survive_every_later_edit() {
+    with_gardend("reader-survive", |state| {
+        crate::app_runtime::async_runtime::block_on(async {
+            book(&state).await;
+            let anchor = json!({ "chapter": 2, "prefix": "a", "suffix": "b" });
+            tool(&state, MASTER, "edit_comment", reader_args(json!({
+                "commentId": "k", "text": "first", "find": "royal road",
+                "kind": "comment", "color": "green", "anchor": anchor, "madeIn": "reader",
+            }))).await.unwrap();
+            let keep = |comments: &Value| {
+                for key in READER_KEYS {
+                    assert_eq!(comments["k"][key], if key == "anchor" { anchor.clone() } else {
+                        json!({"kind": "comment", "color": "green", "madeIn": "reader"})[key].clone() }, "{key}: {comments}");
+                }
+            };
+            keep(&stored_comments(&state, "book").await);
+
+            tool(&state, MASTER, "edit_comment", reader_args(json!({ "commentId": "k", "text": "second" }))).await.unwrap();
+            let comments = stored_comments(&state, "book").await;
+            assert_eq!(comments["k"]["text"], "second");
+            keep(&comments);
+
+            tool(&state, MASTER, "edit_comment", json!({ "graphId": GRAPH, "documentId": "book", "commentId": "k", "action": "resolve" }))
+                .await.unwrap();
+            let comments = stored_comments(&state, "book").await;
+            assert_eq!(comments["k"]["resolved"], true);
+            keep(&comments);
+
+            // And the op the Reader's note path uses.
+            tool(&state, MASTER, "crdt_operation", json!({
+                "kind": "document.editComments", "graphId": GRAPH, "documentId": "book",
+                "payload": { "documentId": "book", "comments": [{ "commentId": "k", "text": "third", "find": "royal road" }] },
+            })).await.unwrap();
+            let comments = stored_comments(&state, "book").await;
+            assert_eq!(comments["k"]["text"], "third");
+            keep(&comments);
+        });
+    });
+}
+
+/// The web app's sequence (apps/organism handleReaderAnnotate): it writes the
+/// entry straight into the room's `comments` map, then asks gardend to mark
+/// the text with `document.editComments`. The op must keep every key the
+/// browser wrote.
+#[test]
+fn editcomments_after_a_direct_room_write_keeps_the_entry() {
+    with_gardend("reader-direct", |state| {
+        crate::app_runtime::async_runtime::block_on(async {
+            book(&state).await;
+            let path = crate::ydoc_paths::checked_document_ydoc_state_path(&graph_dir(&state), "book").unwrap();
+            let room = state.app.state::<RoomRegistry>()
+                .get_or_create(&format!("doc:{GRAPH}:book"), path).await.unwrap();
+            let entry = json!({
+                "author": "Vera", "authorId": "user:vera", "text": "worth a note", "quotedText": "royal road",
+                "createdAt": 1_792_000_000_000u64, "updatedAt": 1_792_000_000_000u64, "resolved": false,
+                "kind": "comment", "color": "blue",
+                "anchor": { "page": 7, "prefix": "Dreams are the ", "suffix": ". A second" }, "madeIn": "reader",
+            });
+            let written = entry.clone();
+            room.update_doc(move |_doc, txn| {
+                use yrs::{Map as _, WriteTxn as _};
+                let comments = txn.get_or_insert_map("comments");
+                comments.insert(txn, "rd-1", crate::crdt_engine::builder::json_to_any(&written));
+                Ok::<_, String>(())
+            }).await.unwrap();
+
+            let placed = tool(&state, MASTER, "crdt_operation", json!({
+                "kind": "document.editComments", "graphId": GRAPH, "documentId": "book",
+                "payload": { "documentId": "book", "comments": [{
+                    "commentId": "rd-1", "text": "worth a note", "find": "royal road", "quotedText": "royal road" }] },
+            })).await.unwrap();
+            assert_eq!(placed["notFound"], json!([]), "{placed}");
+            let comments = stored_comments(&state, "book").await;
+            let stored = &comments["rd-1"];
+            for key in READER_KEYS {
+                assert_eq!(stored[key], entry[key], "{key}: {stored}");
+            }
+            assert_eq!(stored["createdAt"], entry["createdAt"], "{stored}");
+            assert_eq!(stored["blockId"].is_string(), true, "the text is marked: {stored}");
+        });
+    });
+}

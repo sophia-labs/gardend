@@ -1722,7 +1722,7 @@
     },
     {
       "name": "edit_comment",
-      "description": "Create, resolve, or delete a comment in a local document Y.Doc comments map, optionally anchoring it to matching block text with a commentMark.",
+      "description": "Create, resolve, or delete a comment in a local document Y.Doc comments map, optionally anchoring it to matching block text with a commentMark. Accepts the Reader's keys, stored verbatim and nothing else of their kind: kind (comment | highlight; a highlight may have empty text), color (yellow | green | blue | pink), anchor ({page?: integer >= 1, chapter?: integer >= 0, prefix?: string <= 200 chars, suffix?: string <= 200 chars}) and madeIn (reader). Other values are refused. Keys already on a stored comment survive later edits.",
       "inputSchema": {
         "type": "object",
         "required": [
@@ -1783,6 +1783,29 @@
           },
           "resolved": {
             "type": "boolean"
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["comment", "highlight"],
+            "description": "A highlight is a mark with no note; its text may be empty."
+          },
+          "color": {
+            "type": "string",
+            "enum": ["yellow", "green", "blue", "pink"]
+          },
+          "anchor": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "page": { "type": "integer", "minimum": 1 },
+              "chapter": { "type": "integer", "minimum": 0 },
+              "prefix": { "type": "string", "maxLength": 200 },
+              "suffix": { "type": "string", "maxLength": 200 }
+            }
+          },
+          "madeIn": {
+            "type": "string",
+            "enum": ["reader"]
           }
         }
       }

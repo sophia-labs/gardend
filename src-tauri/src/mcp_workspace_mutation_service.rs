@@ -117,8 +117,18 @@ pub(super) async fn mcp_local_edit_comment(
     if action != "set" && action != "resolve" && action != "delete" {
         return Err("action must be set, resolve, or delete".to_string());
     }
-    if action == "set" && mcp_arg_string(arguments, &["text"]).is_none() {
-        return Err("text is required for action=set".to_string());
+    if action == "set" {
+        if let Some(object) = arguments.as_object() {
+            crate::comment_reader_keys::validate(object)?;
+        }
+        // A highlight is a mark with no note; any other comment needs text.
+        // With no kind in this call, the engine decides from the stored entry.
+        let kind = arguments.get("kind").filter(|kind| !kind.is_null());
+        if mcp_arg_string(arguments, &["text"]).is_none()
+            && kind.map_or(false, |kind| kind.as_str() != Some("highlight"))
+        {
+            return Err("text is required for action=set".to_string());
+        }
     }
 
     let mut value = enqueue_crdt_operation(

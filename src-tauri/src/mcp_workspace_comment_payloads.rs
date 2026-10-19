@@ -17,6 +17,12 @@ pub(super) fn edit_comment_payload(
         "resolved": arguments.get("resolved").cloned().unwrap_or(serde_json::Value::Null),
     });
     if let Some(object) = payload.as_object_mut() {
+        // The Reader's keys travel verbatim; the engine validates them.
+        for key in crate::comment_reader_keys::READER_KEYS {
+            if let Some(value) = arguments.get(key) {
+                object.insert(key.to_string(), value.clone());
+            }
+        }
         object.retain(|_, value| !value.is_null());
     }
     payload

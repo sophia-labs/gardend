@@ -2621,8 +2621,16 @@ pub fn edit_comment_in_doc(
     }
 
     // action == "set"
-    let text = js_string_value(payload.get("text"))
-        .ok_or_else(|| "document.editComment: text is required for action=set".to_string())?;
+    crate::comment_reader_keys::validate(payload)
+        .map_err(|error| format!("document.editComment: {error}"))?;
+    // A highlight is a mark with no note: its text may be empty.
+    let text = match js_string_value(payload.get("text")) {
+        Some(text) => text,
+        None if crate::comment_reader_keys::is_highlight(payload, &existing) => String::new(),
+        None => {
+            return Err("document.editComment: text is required for action=set".to_string());
+        }
+    };
     // The server signs the comment (crate::comment_authorship): the
     // caller's `author`/`authorId` are not the author (2026-10-14).
     let author = crate::comment_authorship::CommentAuthor::from_payload(payload);
@@ -2676,6 +2684,7 @@ pub fn edit_comment_in_doc(
     data.insert("id".to_string(), json!(comment_id));
     data.insert("commentId".to_string(), json!(comment_id));
     data.insert("text".to_string(), json!(text));
+    crate::comment_reader_keys::apply(&mut data, payload);
     let stored = (!existing.is_empty()).then_some(&existing);
     crate::comment_authorship::sign_comment(&mut data, &author, payload.get("author"), stored);
     let block_id_entry = anchor_block_id

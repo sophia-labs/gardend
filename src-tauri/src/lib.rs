@@ -25,6 +25,7 @@ mod cell_registry_authority;
 mod chat_persistence;
 mod clock;
 mod comment_authorship;
+mod comment_reader_keys;
 pub mod conversation_archive;
 pub mod crdt_engine;
 mod crdt_operation_audit;
