@@ -269,7 +269,7 @@ mod tests {
     #[test]
     fn the_words_become_paragraphs_with_each_page_marked() {
         let word = |text: &str, par, line| OcrWord { text: text.into(), x0: 0.0, y0: 0.0, x1: 1.0, y1: 1.0, conf: 90.0, block: 1, par, line };
-        let page = |n, words| OcrPage { page: n, status: "ocr".into(), left: 0.0, bottom: 0.0, width: 612.0, height: 792.0, words, note: None };
+        let page = |n, words| OcrPage { page: n, status: "ocr".into(), rotation: 0, left: 0.0, bottom: 0.0, width: 612.0, height: 792.0, words, note: None };
         let layer = OcrTextLayer {
             schema: OCR_TEXT_LAYER_SCHEMA.into(),
             engine: "tesseract 5.5.2".into(),
