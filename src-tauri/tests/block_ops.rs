@@ -634,3 +634,195 @@ fn block_edits_parser_supports_lists_aliases_and_single_form() {
 
     assert!(block_edits_from_payload(&payload(json!({}))).is_empty());
 }
+
+#[test]
+fn equal_offset_replacement_preserves_new_text_in_both_payload_orders() {
+    for (original, offset, length, replacement, expected) in [
+        ("old text", 0.0, 8.0, "new", "new"),
+        ("a😀b", 1.0, 2.0, "planet", "aplanetb"),
+        ("hello world", 6.0, 5.0, "🌍", "hello 🌍"),
+    ] {
+        for reverse in [false, true] {
+            let (doc, fragment) = new_doc();
+            {
+                let mut txn = doc.transact_mut();
+                insert_blocks_into_fragment(
+                    &mut txn,
+                    &fragment,
+                    &[paragraph("b1", original)],
+                    None,
+                )
+                .unwrap();
+                let (element, _) = find_block_in_fragment(&txn, &fragment, "b1").unwrap();
+                let mut operations =
+                    vec![delete_op(offset, length), insert_op(offset, replacement)];
+                if reverse {
+                    operations.reverse();
+                }
+                let result = edit_block_text(&mut txn, &element, &ops_from(operations)).unwrap();
+                assert_eq!(result.applied, 2);
+                assert_eq!(result.length_after, expected.encode_utf16().count());
+            }
+            assert_eq!(block_texts(&doc), vec![expected]);
+        }
+    }
+}
+
+#[test]
+fn equal_offset_multiple_inserts_keep_payload_order_after_delete() {
+    let (doc, fragment) = new_doc();
+    {
+        let mut txn = doc.transact_mut();
+        insert_blocks_into_fragment(&mut txn, &fragment, &[paragraph("b1", "old!")], None).unwrap();
+        let (element, _) = find_block_in_fragment(&txn, &fragment, "b1").unwrap();
+        edit_block_text(
+            &mut txn,
+            &element,
+            &ops_from(vec![
+                delete_op(0.0, 3.0),
+                insert_op(0.0, "A"),
+                insert_op(0.0, "B"),
+            ]),
+        )
+        .unwrap();
+    }
+    assert_eq!(block_texts(&doc), vec!["AB!"]);
+}
+
+#[test]
+fn replacement_preserves_original_marks_at_start_and_boundary() {
+    for (content, offset, length, replacement, mark) in [
+        (
+            json!([{ "type":"text", "text":"a " }, {"type":"text","text":"bold","marks":[{"type":"bold"}]},{"type":"text","text":" c"}]),
+            2.0,
+            4.0,
+            "BOLD",
+            "bold",
+        ),
+        (
+            json!([{"type":"text","text":"linked","marks":[{"type":"link","attrs":{"href":"https://example.com"}}]}]),
+            0.0,
+            6.0,
+            "LINKED",
+            "link",
+        ),
+    ] {
+        let (doc, fragment) = new_doc();
+        {
+            let mut txn = doc.transact_mut();
+            insert_blocks_into_fragment(
+                &mut txn,
+                &fragment,
+                &[json!({"type":"paragraph","attrs":{"data-block-id":"b1"},"content":content})],
+                None,
+            )
+            .unwrap();
+            let (element, _) = find_block_in_fragment(&txn, &fragment, "b1").unwrap();
+            edit_block_text(
+                &mut txn,
+                &element,
+                &ops_from(vec![
+                    delete_op(offset, length),
+                    insert_op(offset, replacement),
+                ]),
+            )
+            .unwrap();
+        }
+        let projected = ydoc_to_tiptap_json(&doc);
+        let runs = projected["content"][0]["content"].as_array().unwrap();
+        let replaced = runs
+            .iter()
+            .find(|r| r["text"] == replacement)
+            .expect("replacement run");
+        assert_eq!(replaced["marks"][0]["type"], mark, "{projected}");
+    }
+}
+
+#[test]
+fn replacement_after_inline_atom_stays_after_it() {
+    for atom in [
+        json!({"type":"hardBreak"}),
+        json!({"type":"wikilink","attrs":{"target":"doc-other","label":"Link"}}),
+    ] {
+        let (doc, fragment) = new_doc();
+        {
+            let mut txn = doc.transact_mut();
+            insert_blocks_into_fragment(&mut txn, &fragment, &[json!({"type":"paragraph","attrs":{"data-block-id":"b1"},"content":[{"type":"text","text":"see"},atom,{"type":"text","text":" foo"}]})], None).unwrap();
+            let (element, _) = find_block_in_fragment(&txn, &fragment, "b1").unwrap();
+            edit_block_text(
+                &mut txn,
+                &element,
+                &ops_from(vec![delete_op(3.0, 4.0), insert_op(3.0, " bar")]),
+            )
+            .unwrap();
+        }
+        let projected = ydoc_to_tiptap_json(&doc);
+        let runs = projected["content"][0]["content"].as_array().unwrap();
+        assert_eq!(runs.len(), 3, "{projected}");
+        assert_eq!(runs[0]["text"], "see");
+        assert_eq!(runs[1]["type"], atom["type"]);
+        assert_eq!(runs[2]["text"], " bar");
+    }
+}
+
+#[test]
+fn insert_inside_delete_range_fails_before_any_mutation() {
+    for operations in [
+        vec![
+            insert_op(6.0, "!"),
+            delete_op(1.0, 3.0),
+            insert_op(2.0, "XY"),
+        ],
+        vec![
+            insert_op(2.0, "XY"),
+            delete_op(1.0, 3.0),
+            insert_op(6.0, "!"),
+        ],
+    ] {
+        let (doc, fragment) = new_doc();
+        {
+            let mut txn = doc.transact_mut();
+            insert_blocks_into_fragment(&mut txn, &fragment, &[paragraph("b1", "abcdef")], None)
+                .unwrap();
+            let (element, _) = find_block_in_fragment(&txn, &fragment, "b1").unwrap();
+            assert!(edit_block_text(&mut txn, &element, &ops_from(operations))
+                .unwrap_err()
+                .contains("split the call"));
+        }
+        assert_eq!(block_texts(&doc), vec!["abcdef"]);
+    }
+}
+
+#[test]
+fn replacement_explicit_format_overrides_inherited_marks() {
+    for (options, expected) in [
+        (json!({"inheritFormat":false}), None),
+        (json!({"attrs":{"italic":true}}), Some("italic")),
+    ] {
+        let (doc, fragment) = new_doc();
+        {
+            let mut txn = doc.transact_mut();
+            insert_blocks_into_fragment(&mut txn,&fragment,&[json!({"type":"paragraph","attrs":{"data-block-id":"b1"},"content":[{"type":"text","text":"old","marks":[{"type":"bold"}]}]})],None).unwrap();
+            let (element, _) = find_block_in_fragment(&txn, &fragment, "b1").unwrap();
+            let mut insert = insert_op(0.0, "new");
+            for (key, value) in options.as_object().unwrap() {
+                insert[key] = value.clone();
+            }
+            edit_block_text(
+                &mut txn,
+                &element,
+                &ops_from(vec![delete_op(0.0, 3.0), insert]),
+            )
+            .unwrap();
+        }
+        let projection = ydoc_to_tiptap_json(&doc);
+        let marks = &projection["content"][0]["content"][0]["marks"];
+        match expected {
+            Some(kind) => assert_eq!(marks[0]["type"], kind, "{projection}"),
+            None => assert!(
+                marks.is_null() || marks.as_array().is_some_and(|m| m.is_empty()),
+                "{projection}"
+            ),
+        }
+    }
+}

@@ -4,7 +4,7 @@ use crate::{
     emporium::terms::{Triple, TripleDiff},
     rdf::format_rdf_triple,
     rdf_authority::workspace_projection_graph_iri,
-    rdf_record_materializer::rdf_triple_to_term,
+    rdf_record_materializer::projectable_terms,
     rdf_workspace_materializer::{workspace_entity_triples, workspace_snapshot_triples},
     runtime_config::{DCTERMS_NS, MDOC_NS, NFO_NS, NIE_NS, RDF_TYPE, WIRE_NS},
 };
@@ -195,10 +195,7 @@ fn workspace_scopes(graph_id: &str) -> [ClassScope; 10] {
 /// reparses out of the store — else convergence breaks on a serialization
 /// mismatch).
 fn workspace_desired(graph_id: &str, snapshot: &serde_json::Value) -> Vec<Triple> {
-    workspace_entity_triples(graph_id, snapshot)
-        .iter()
-        .map(rdf_triple_to_term)
-        .collect()
+    projectable_terms(&workspace_entity_triples(graph_id, snapshot))
 }
 
 /// Partition `desired` into the 10 class subsets by each subject's

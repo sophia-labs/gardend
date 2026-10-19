@@ -1006,8 +1006,9 @@ fn format_attrs_at<T: ReadTxn>(txn: &T, text: &XmlTextRef, utf16_offset: f64) ->
 }
 
 /// Port of editBlockText. Operations apply in descending-offset order
-/// (ties: later payload entries first), against segment offsets frozen at
-/// collection time — exactly the TS semantics.
+/// (ties: deletes before inserts, then later payload entries first), against
+/// segment offsets frozen at collection time. Same-offset replacement must
+/// remove original text before inserting its replacement.
 pub fn edit_block_text(
     txn: &mut TransactionMut<'_>,
     element: &XmlElementRef,
@@ -1021,6 +1022,50 @@ pub fn edit_block_text(
     let block_id = read_block_id_from_element(txn, element).unwrap_or_default();
     let length_before: usize = segments.iter().map(|s| s.length).sum();
 
+    // Check the whole edit plan, in original coordinates, before any CRDT
+    // mutation, so a refused call leaves the block unchanged.
+    let offset_units = |offset: f64| offset.max(0.0).min(length_before as f64).floor() as usize;
+    let mut deletes = Vec::new();
+    for op in operations {
+        if !op.offset().is_finite() {
+            return Err("block.editText: offsets must be finite".into());
+        }
+        if let BlockTextEditOp::Delete { offset, length } = op {
+            if !length.is_finite() {
+                return Err("block.editText: lengths must be finite".into());
+            }
+            let start = offset_units(*offset);
+            let end = ((*offset).max(0.0).min(length_before as f64) + length.max(0.0))
+                .min(length_before as f64)
+                .floor() as usize;
+            if end > start {
+                deletes.push((start, end));
+            }
+        }
+    }
+    // An insert at the start of a delete range is a replacement. Resolve its
+    // position and marks from the original text before the delete runs, and
+    // take the segment to the right of an inline atom at that offset.
+    let mut replacements = Vec::with_capacity(operations.len());
+    for op in operations {
+        if let BlockTextEditOp::Insert { offset, text, .. } = op {
+            let start = offset_units(*offset);
+            if !text.is_empty() && deletes.iter().any(|&(a, b)| a < start && start < b) {
+                return Err(
+                    "block.editText: insert lies inside a delete range; split the call".into(),
+                );
+            }
+            if !text.is_empty() && deletes.iter().any(|&(a, _)| a == start) {
+                let (segment, local) =
+                    locate_text_segment(&segments, start as f64, length_before, false)?;
+                let attrs = format_attrs_at(txn, &segment.text, local + 1.0);
+                replacements.push(Some((segment, local, attrs)));
+                continue;
+            }
+        }
+        replacements.push(None);
+    }
+
     let mut order: Vec<usize> = (0..operations.len()).collect();
     order.sort_by(|&a, &b| {
         let (offset_a, offset_b) = (operations[a].offset(), operations[b].offset());
@@ -1028,7 +1073,11 @@ pub fn edit_block_text(
             .partial_cmp(&offset_a)
             .unwrap_or(std::cmp::Ordering::Equal)
         {
-            std::cmp::Ordering::Equal => b.cmp(&a),
+            std::cmp::Ordering::Equal => {
+                let delete_a = matches!(operations[a], BlockTextEditOp::Delete { .. });
+                let delete_b = matches!(operations[b], BlockTextEditOp::Delete { .. });
+                delete_b.cmp(&delete_a).then_with(|| b.cmp(&a))
+            }
             ordering => ordering,
         }
     });
@@ -1045,13 +1094,19 @@ pub fn edit_block_text(
                 if text.is_empty() {
                     continue;
                 }
-                let (segment, local_offset) =
-                    locate_text_segment(&segments, *offset, length_before, true)?;
+                let (segment, local_offset) = match &replacements[op_index] {
+                    Some((segment, local, _)) => (*segment, *local),
+                    None => locate_text_segment(&segments, *offset, length_before, true)?,
+                };
                 let inherit = !matches!(inherit_format, Some(false));
                 let resolved_attrs: Option<Attrs> = match attrs {
                     Some(map) => to_format_attrs(map),
                     None => {
-                        if inherit && local_offset > 0.0 {
+                        if let (true, Some((_, _, replaced_attrs))) =
+                            (inherit, &replacements[op_index])
+                        {
+                            replaced_attrs.clone()
+                        } else if inherit && local_offset > 0.0 {
                             format_attrs_at(txn, &segment.text, local_offset)
                         } else {
                             None

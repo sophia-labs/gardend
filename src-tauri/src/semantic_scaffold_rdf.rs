@@ -9,7 +9,7 @@ use crate::{
         push_string_triple, push_uri_triple,
     },
     rdf_authority::semantic_projection_graph_iri,
-    rdf_record_materializer::rdf_triple_to_term,
+    rdf_record_materializer::projectable_terms,
     runtime_config::{MNEMO_NS, RDF_TYPE},
     semantic_relation::SemanticRelationFile,
     semantic_scaffold::SemanticScaffoldFile,
@@ -218,7 +218,7 @@ pub(crate) fn semantic_scaffold_desired(
             membership.rank as i64,
         );
     }
-    raw.iter().map(rdf_triple_to_term).collect()
+    projectable_terms(&raw)
 }
 
 pub(crate) fn semantic_relation_desired(
@@ -367,7 +367,7 @@ pub(crate) fn semantic_relation_desired(
             edge.mutual,
         );
     }
-    raw.iter().map(rdf_triple_to_term).collect()
+    projectable_terms(&raw)
 }
 
 #[cfg_attr(not(test), allow(dead_code))]

@@ -36,12 +36,13 @@ use oxigraph::store::Store;
 
 use crate::document_service::DocumentRecord;
 use crate::emporium::survey::parse_term;
-use crate::emporium::terms::{diff_triples, render_updates, Term, Triple, TripleDiff};
-use crate::rdf::{format_rdf_triple, push_integer_triple, push_string_triple, RdfTriple};
+use crate::emporium::terms::{diff_triples, render_updates, Triple, TripleDiff};
+use crate::rdf::{push_integer_triple, push_string_triple, RdfTriple};
 use crate::rdf_authority::document_projection_graph_iri;
 use crate::rdf_document_tree::{
     document_tree_triples, CONTENT_PREDICATES, FS_SOURCED_PREDICATES, PROJECTION_META_PREDICATES,
 };
+use crate::rdf_record_materializer::projectable_terms;
 use crate::runtime_config::MNEMO_NS;
 
 // ───────────────────────── the owned span (DERIVED) ─────────────────────────
@@ -314,10 +315,7 @@ impl<'a> DocumentDeclaration<'a> {
 /// triples. The projection LOGIC is reused verbatim (`document_tree_triples`);
 /// this is pure adaptation.
 pub(crate) fn document_desired_triples(document: &DocumentRecord) -> Vec<Triple> {
-    document_tree_triples(document)
-        .iter()
-        .map(rdf_triple_to_term)
-        .collect()
+    projectable_terms(&document_tree_triples(document))
 }
 
 /// project(source)->desired for [`Face::StorageMetadataToRdf`]: the 7 FS-sourced
@@ -336,7 +334,7 @@ pub(crate) fn document_desired_triples(document: &DocumentRecord) -> Vec<Triple>
 /// an `xsd:integer` literal, matching how the record field is typed.
 ///
 /// Built through the SAME [`RdfTriple`] → engine-`Term` adapter the tree face
-/// uses ([`rdf_triple_to_term`]) so term serialization is byte-identical across
+/// uses ([`projectable_terms`]) so term serialization is byte-identical across
 /// both faces and round-trips through the store the same way.
 pub(crate) fn document_storage_metadata_triples(document: &DocumentRecord) -> Vec<Triple> {
     let subject = &document.rdf_subject;
@@ -385,7 +383,7 @@ pub(crate) fn document_storage_metadata_triples(document: &DocumentRecord) -> Ve
         &document.ydoc_state_path,
     );
 
-    raw.iter().map(rdf_triple_to_term).collect()
+    projectable_terms(&raw)
 }
 
 /// project(source)->desired for [`Face::ContentToRdf`]: the 2 Y.Doc-authored
@@ -417,7 +415,7 @@ pub(crate) fn document_storage_metadata_triples(document: &DocumentRecord) -> Ve
 ///
 /// Both land on the BARE subject the tree face never touches, over a span DISJOINT
 /// from the 7 FS-sourced and the 1 projection-meta predicate. Built through the SAME
-/// [`RdfTriple`] → engine-`Term` adapter ([`rdf_triple_to_term`]) so serialization is
+/// [`RdfTriple`] → engine-`Term` adapter ([`projectable_terms`]) so serialization is
 /// byte-identical across all bare-subject faces.
 pub(crate) fn document_content_triples(document: &DocumentRecord) -> Vec<Triple> {
     let subject = &document.rdf_subject;
@@ -440,7 +438,7 @@ pub(crate) fn document_content_triples(document: &DocumentRecord) -> Vec<Triple>
         &document.tiptap_xml,
     );
 
-    raw.iter().map(rdf_triple_to_term).collect()
+    projectable_terms(&raw)
 }
 
 /// project(source)->desired for [`Face::ProjectionMetaToRdf`]: the 1
@@ -471,7 +469,7 @@ pub(crate) fn document_projection_meta_triples(document: &DocumentRecord) -> Vec
         tree_triple_count as i64,
     );
 
-    raw.iter().map(rdf_triple_to_term).collect()
+    projectable_terms(&raw)
 }
 
 /// project(source)->desired for ONE face. Dispatches to the face's projection:
@@ -486,32 +484,6 @@ pub(crate) fn face_desired_triples(face: Face, document: &DocumentRecord) -> Vec
         Face::ContentToRdf => document_content_triples(document),
         Face::ProjectionMetaToRdf => document_projection_meta_triples(document),
     }
-}
-
-/// Adapt one [`RdfTriple`] → `(s, p, Term)` WITHOUT touching private fields.
-/// `format_rdf_triple(&t)` emits `<s> <p> OBJ .`; we split off `s`, `p` and feed
-/// `OBJ` to [`parse_term`], which already consumes `<uri>` / `"lit"` /
-/// `"lit"^^<dt>` exactly as `format_rdf_triple` emits them. No new vocab, no
-/// field access.
-fn rdf_triple_to_term(t: &RdfTriple) -> Triple {
-    let line = format_rdf_triple(t);
-    // Shape: `<s> <p> OBJ .`  — s and p are always angle-bracketed URIs.
-    let rest = line.trim();
-    let (subject, rest) = split_angle_iri(rest)
-        .unwrap_or_else(|| panic!("malformed serialized triple subject: {line}"));
-    let (predicate, rest) = split_angle_iri(rest.trim_start())
-        .unwrap_or_else(|| panic!("malformed serialized triple predicate: {line}"));
-    // The remainder is `OBJ .` — strip the trailing ` .` and parse the object.
-    let object_nt = rest.trim().strip_suffix('.').unwrap_or(rest).trim();
-    let object: Term = parse_term(object_nt);
-    (subject, predicate, object)
-}
-
-/// Split a leading `<iri>` token, returning `(iri, remainder)`.
-fn split_angle_iri(s: &str) -> Option<(String, &str)> {
-    let s = s.strip_prefix('<')?;
-    let close = s.find('>')?;
-    Some((s[..close].to_string(), &s[close + 1..]))
 }
 
 // ───────────────────────── survey current (the read) ─────────────────────────
@@ -764,7 +736,7 @@ mod tests {
     use oxigraph::sparql::QueryResults;
 
     use crate::document_service::{DocumentTreeSnapshot, TreeNodeAttributes, TreeNodeSnapshot};
-    use crate::emporium::terms::{canon_value, CanonValue};
+    use crate::emporium::terms::{canon_value, CanonValue, Term};
     use crate::rdf::document_subject;
     use crate::rdf_authority::{document_projection_graph_iri, user_rdf_graph_iri};
     use crate::rdf_record_materializer::materialize_document_record_with_triples;
@@ -1556,6 +1528,49 @@ mod tests {
             "the document sink wrote outside its per-doc graph"
         );
     }
+
+    /// Add a second paragraph whose block id makes no IRI.
+    fn document_record_with_block_id(block_id: &str) -> DocumentRecord {
+        let mut rec = document_record_with_text("kept");
+        let root = &mut rec.tree.as_mut().expect("tree").root;
+        let mut paragraph = root.children[0].clone();
+        paragraph.attributes.block_id = Some(block_id.to_string());
+        root.children.push(paragraph);
+        rec
+    }
+
+    #[test]
+    fn block_id_that_is_not_an_iri_is_left_out_of_the_projection() {
+        for bad_id in ["block>a", "block a"] {
+            let rec = document_record_with_block_id(bad_id);
+            let desired = document_desired_triples(&rec);
+            for (subject, predicate, object) in &desired {
+                assert!(crate::rdf::is_valid_iri(subject), "{bad_id:?}: {subject}");
+                assert!(
+                    crate::rdf::is_valid_iri(predicate),
+                    "{bad_id:?}: {predicate}"
+                );
+                if let Term::Uri(node) = object {
+                    assert!(crate::rdf::is_valid_iri(node.as_str()), "{bad_id:?}");
+                }
+            }
+            let kept_block = format!("{}#block-block-a", rec.rdf_subject);
+            assert!(
+                desired.iter().any(|(subject, _, _)| *subject == kept_block),
+                "{bad_id:?}: the valid block still projects"
+            );
+            let fragment = format!("{}#frag", rec.rdf_subject);
+            assert!(
+                desired.iter().any(|(subject, _, _)| *subject == fragment),
+                "{bad_id:?}: the document fragment still projects"
+            );
+
+            let store = Store::new().expect("store");
+            materialize_document_record_with_triples(&store, &rec, &document_tree_triples(&rec))
+                .expect("wholesale materialization leaves the triple out");
+            reconcile_document_record(&store, &rec).expect("reconcile");
+        }
+    }
 }
 
 /// REAL-HARNESS parity oracle.
@@ -1586,7 +1601,7 @@ mod harness_tests {
     use crate::crdt_operation_types::EnqueueCrdtOperationInput;
     use crate::crdt_queue::enqueue_crdt_operation;
     use crate::document_service::DocumentRecord;
-    use crate::emporium::terms::{canon_value, CanonValue};
+    use crate::emporium::terms::{canon_value, CanonValue, Term};
     use crate::graph_service::{create_graph_service, CreateGraphInput};
     use crate::rdf_record_materializer::materialize_document_record_with_triples;
     use crate::rdf_service::{run_sparql_query_service, SparqlInput};
@@ -2117,6 +2132,7 @@ mod harness_tests {
 #[cfg(all(test, feature = "headless"))]
 mod faithfulness_oracle_tests {
     use super::*;
+    use crate::emporium::terms::Term;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
