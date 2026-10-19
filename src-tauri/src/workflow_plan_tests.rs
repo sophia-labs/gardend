@@ -1097,3 +1097,70 @@ fn publish_is_fenced_and_needs_a_run() {
         ));
     });
 }
+
+/// The live run's misses, on the book's own chapter I text: a wrapped and
+/// elided quote, straight for curly quotes, a quote whose `blockId` names
+/// the passage's first block while the text sits in the next, and a quote
+/// the book does not hold. Three land, one is reported.
+#[test]
+fn publish_anchors_quotes_as_the_clerks_copied_them() {
+    with_graph(|ctx| {
+        let fixture: Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/comment_anchoring/freud-ch1-blocks.json"
+        )))
+        .unwrap();
+        ok(
+            ctx,
+            "write_document",
+            json!({ "document_id": "freud-ch1", "title": "Chapter I", "tiptapJson": fixture["tiptapJson"] }),
+        );
+        let ids = ok(
+            ctx,
+            "read_document",
+            json!({ "document_id": "freud-ch1", "format": "ids_only" }),
+        )["block_ids"]
+            .clone();
+        let block = |n: usize| ids[n].as_str().unwrap().to_string();
+        let (id, _) = create(ctx, "Margins");
+        ok(
+            ctx,
+            "workflow_plan_compose",
+            json!({ "documentId": id, "rationale": "the plan", "moves": finding_moves() }),
+        );
+        let finding = |block_id: String, quote: &str| json!({ "documentId": "freud-ch1", "blockId": block_id, "quote": quote, "note": "Seen." });
+        write_run(
+            ctx,
+            &format!("urn:sophia:wf:{id}"),
+            "run-ch1",
+            &[
+                ("findings", finding(block(1), "The younger Strümpell,\nson of the philosopher whose writings on the subject have\nalready more than once served us…")),
+                ("findings", finding(block(3), "\"Every indistinctly perceived noise gives rise to corresponding dream pictures")),
+                ("findings", finding(block(1), "There are a great many stimuli of such nature, ranging from those that are unavoidable")),
+                ("findings", finding(block(1), "The dreamer counts the sheep twice and wakes in Lisbon.")),
+            ],
+        );
+        let published = ok(
+            ctx,
+            "workflow_plan_publish",
+            json!({ "documentId": id, "runId": "run-ch1" }),
+        );
+        assert_eq!(published["placed"], 3, "{published}");
+        let missed: Vec<i64> = published["notFound"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|miss| miss["index"].as_i64().unwrap())
+            .collect();
+        assert_eq!(missed, vec![4], "{published}");
+        let comments = stored_comments(ctx, "freud-ch1");
+        assert_eq!(comments.len(), 3, "{comments:?}");
+        assert_eq!(comments["wf-run-ch1-1"]["blockId"], block(1).as_str());
+        assert_eq!(
+            comments["wf-run-ch1-3"]["blockId"],
+            block(2).as_str(),
+            "the next block holds it"
+        );
+        assert!(!comments.contains_key("wf-run-ch1-4"));
+    });
+}

@@ -1,0 +1,193 @@
+//! Comment anchoring tolerates how a quote was copied (2026-10-18). The
+//! clerks of a workflow run copied quotes from `read_blocks` markdown and
+//! elided their ends with `…`; the book's text has soft line wraps, curly
+//! quotes and em dashes. Exact `find` missed 21 of 33 verified findings. A
+//! quote now matches after both sides are normalized the way Shrubbery's
+//! reader overlay normalizes them (`source-quote-annotations.ts`), and the
+//! mark covers exactly the original characters; a quote that is not in its
+//! block is looked for in the document's other blocks.
+//!
+//! Real text: four consecutive paragraphs of chapter I of The Interpretation
+//! of Dreams, as gardend imported the EPUB (`tests/fixtures/comment_anchoring`).
+use super::builder::ydoc_from_tiptap_json;
+use super::document_ops::edit_comment_in_doc;
+use super::projection::ydoc_to_tiptap_json;
+use serde_json::{json, Map, Value};
+use yrs::{Doc, Transact};
+
+const BOOK: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/fixtures/comment_anchoring/freud-ch1-blocks.json"
+));
+
+fn book() -> Doc {
+    let fixture: Value = serde_json::from_str(BOOK).unwrap();
+    ydoc_from_tiptap_json(&fixture["tiptapJson"])
+}
+
+fn set(doc: &Doc, comment_id: &str, block_id: Option<&str>, find: &str) -> Result<Value, String> {
+    let mut payload = Map::new();
+    payload.insert("text".into(), json!("a note"));
+    payload.insert("find".into(), json!(find));
+    if let Some(block_id) = block_id {
+        payload.insert("blockId".into(), json!(block_id));
+    }
+    let mut txn = doc.transact_mut();
+    edit_comment_in_doc(&mut txn, &payload, "set", comment_id, 1_792_000_000_000.0)
+}
+
+/// `(block id, the exact text the comment's mark covers)`, in document order.
+fn marked(doc: &Doc, comment_id: &str) -> Vec<(String, String)> {
+    let json = ydoc_to_tiptap_json(doc);
+    let mut out: Vec<(String, String)> = Vec::new();
+    for block in json["content"].as_array().unwrap() {
+        let id = block["attrs"]["data-block-id"]
+            .as_str()
+            .or_else(|| block["attrs"]["blockId"].as_str())
+            .unwrap_or_default()
+            .to_string();
+        let mut text = String::new();
+        for node in block["content"].as_array().into_iter().flatten() {
+            let ours = node["marks"].as_array().into_iter().flatten().any(|mark| {
+                mark["type"] == "commentMark" && mark["attrs"]["commentId"] == comment_id
+            });
+            if ours {
+                text.push_str(node["text"].as_str().unwrap_or_default());
+            }
+        }
+        if !text.is_empty() {
+            out.push((id, text));
+        }
+    }
+    out
+}
+
+fn stored(doc: &Doc, comment_id: &str) -> Option<Value> {
+    use yrs::types::ToJson;
+    use yrs::{Map as _, ReadTxn};
+    let txn = doc.transact();
+    let comments = txn.get_map("comments")?;
+    comments
+        .get(&txn, comment_id)
+        .map(|value| serde_json::to_value(value.to_json(&txn)).unwrap())
+}
+
+/// 1. The live miss, verbatim: soft wraps as `\n` and an elided end (`…`).
+/// And the same quote with spaces where the book wraps.
+#[test]
+fn a_wrapped_elided_quote_anchors_on_its_exact_original_span() {
+    let doc = book();
+    let live = "The younger Strümpell,\nson of the philosopher whose writings on the subject have\nalready more than once served us…";
+    let result = set(&doc, "c-live", Some("block-be1fe535"), live).expect("the live quote anchors");
+    assert_eq!(result["blockId"], "block-be1fe535");
+    assert_eq!(
+        marked(&doc, "c-live"),
+        vec![(
+            "block-be1fe535".to_string(),
+            "The younger Strümpell,\nson of the philosopher whose writings on the subject have\nalready more than once served us"
+                .to_string()
+        )]
+    );
+    set(
+        &doc,
+        "c-spaced",
+        Some("block-be1fe535"),
+        "The younger Strümpell, son of the philosopher whose writings",
+    )
+    .expect("spaces where the book wraps");
+    assert_eq!(
+        marked(&doc, "c-spaced"),
+        vec![(
+            "block-be1fe535".to_string(),
+            "The younger Strümpell,\nson of the philosopher whose writings".to_string()
+        )]
+    );
+}
+
+/// 2. Straight quotes for curly ones, `--` for an em dash across an italic.
+#[test]
+fn typographic_quotes_and_dashes_match_their_plain_forms() {
+    let doc = book();
+    set(
+        &doc,
+        "c-double",
+        Some("block-c01fe85b"),
+        "\"Every indistinctly perceived noise gives rise to corresponding dream pictures",
+    )
+    .expect("straight double quotes");
+    assert_eq!(
+        marked(&doc, "c-double"),
+        vec![(
+            "block-c01fe85b".to_string(),
+            "“Every indistinctly perceived noise gives\nrise to corresponding dream pictures"
+                .to_string()
+        )]
+    );
+    set(
+        &doc,
+        "c-single",
+        Some("block-be1fe535"),
+        "Strümpell's experiment",
+    )
+    .expect("straight apostrophe");
+    assert_eq!(
+        marked(&doc, "c-single"),
+        vec![(
+            "block-be1fe535".to_string(),
+            "Strümpell’s experiment".to_string()
+        )]
+    );
+    set(
+        &doc,
+        "c-dash",
+        Some("block-be1fe535"),
+        "The External Sensory Stimuli. -- The younger Strümpell",
+    )
+    .expect("a double hyphen for an em dash");
+    assert_eq!(
+        marked(&doc, "c-dash"),
+        vec![(
+            "block-be1fe535".to_string(),
+            "The External Sensory Stimuli.—The younger Strümpell".to_string()
+        )]
+    );
+}
+
+/// 3. The clerk names its passage's first block; the quote sits in the next.
+#[test]
+fn a_quote_outside_its_named_block_anchors_where_it_is() {
+    let doc = book();
+    let result = set(
+        &doc,
+        "c-next",
+        Some("block-be1fe535"),
+        "There are a great many stimuli of such nature, ranging from those that are unavoidable",
+    )
+    .expect("found in the following block");
+    assert_eq!(result["blockId"], "block-bf1fe6c8", "{result}");
+    assert_eq!(stored(&doc, "c-next").unwrap()["blockId"], "block-bf1fe6c8");
+    assert_eq!(
+        marked(&doc, "c-next"),
+        vec![(
+            "block-bf1fe6c8".to_string(),
+            "There are a great many stimuli of such nature, ranging\nfrom those that are unavoidable".to_string()
+        )]
+    );
+}
+
+/// 4. A quote the book does not hold: reported, nothing written.
+#[test]
+fn an_absent_quote_is_reported_and_writes_nothing() {
+    let doc = book();
+    let before = ydoc_to_tiptap_json(&doc);
+    let error = set(
+        &doc,
+        "c-absent",
+        Some("block-be1fe535"),
+        "The dreamer counts the sheep twice and wakes in Lisbon.",
+    )
+    .expect_err("not in the book");
+    assert!(error.contains("text not found"), "{error}");
+    assert!(stored(&doc, "c-absent").is_none());
+    assert_eq!(ydoc_to_tiptap_json(&doc), before);
+}

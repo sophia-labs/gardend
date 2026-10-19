@@ -2155,6 +2155,286 @@ pub fn occurrence_offsets(text: &str, find: &str, occurrence: f64) -> Vec<usize>
         .unwrap_or_default()
 }
 
+// ---------------------------------------------------------------------------
+// Quote matching that tolerates how a quote was copied. A port of Shrubbery's
+// reader overlay (apps/organism/src/cell/source-quote-annotations.ts:
+// `canonical`, `QuoteTextBuilder`, `searchFormOf`, `findIn`, `findElided`), so
+// a quote the margin finds is a quote gardend anchors: whitespace (soft line
+// wraps, NBSP) is one space, curly quotes are straight ones, every dash is
+// `-` with no space around it, `…` is `...`, case folds when the exact form
+// misses, and an elided quote (`a … b`) matches its pieces in order. Each
+// normalized character keeps the UTF-16 range of the source character it
+// came from, so a match maps back to the exact original span.
+// ---------------------------------------------------------------------------
+
+const QUOTE_MIN_LENGTH: usize = 2;
+const QUOTE_MAX_ELISION_GAP: usize = 2400;
+
+/// JavaScript's `\s`.
+fn quote_space(c: char) -> bool {
+    const SPACES: &[char] = &[
+        '\t', '\n', '\u{b}', '\u{c}', '\r', ' ', '\u{a0}', '\u{1680}', '\u{2028}', '\u{2029}',
+        '\u{202f}', '\u{205f}', '\u{3000}', '\u{feff}',
+    ];
+    SPACES.contains(&c) || ('\u{2000}'..='\u{200a}').contains(&c)
+}
+
+/// The search form of a text: its normalized characters, their case-folded
+/// twins, and for each the UTF-16 `(offset, length)` of its source character.
+struct QuoteForm {
+    chars: Vec<char>,
+    folded: Vec<char>,
+    source: Vec<(usize, usize)>,
+}
+
+impl QuoteForm {
+    fn of(text: &str) -> Self {
+        let mut form = Self {
+            chars: Vec::new(),
+            folded: Vec::new(),
+            source: Vec::new(),
+        };
+        let mut offset = 0usize;
+        for c in text.chars() {
+            let at = (offset, c.len_utf16());
+            if quote_space(c) {
+                form.emit(' ', at);
+            } else if matches!(c, '\u{ad}' | '\u{200b}'..='\u{200d}' | '\u{2060}') {
+                // dropped: soft hyphen, zero-width characters, word joiner
+            } else if matches!(c, '‘' | '’' | '‚' | '‛' | '′' | 'ʼ') {
+                form.emit('\'', at);
+            } else if matches!(c, '“' | '”' | '„' | '‟' | '″' | '«' | '»') {
+                form.emit('"', at);
+            } else if matches!(c, '\u{2010}'..='\u{2015}' | '\u{2212}') {
+                form.emit('-', at);
+            } else if c == '…' {
+                for _ in 0..3 {
+                    form.emit('.', at);
+                }
+            } else {
+                form.emit(c, at);
+            }
+            offset += c.len_utf16();
+        }
+        while form.chars.last() == Some(&' ') {
+            form.pop();
+        }
+        form
+    }
+
+    /// A quote's form: a spaced ellipsis (`. . .`) first becomes `...`.
+    fn of_quote(quote: &str) -> Self {
+        let chars: Vec<char> = quote.chars().collect();
+        let mut text = String::with_capacity(quote.len());
+        let mut index = 0;
+        while index < chars.len() {
+            if chars[index] == '.' {
+                let (mut cursor, mut dots) = (index + 1, 1);
+                loop {
+                    let mut probe = cursor;
+                    while probe < chars.len() && matches!(chars[probe], ' ' | '\t' | '\u{a0}') {
+                        probe += 1;
+                    }
+                    if probe < chars.len() && chars[probe] == '.' {
+                        dots += 1;
+                        cursor = probe + 1;
+                    } else {
+                        break;
+                    }
+                }
+                if dots >= 3 {
+                    text.push_str("...");
+                    index = cursor;
+                    continue;
+                }
+            }
+            text.push(chars[index]);
+            index += 1;
+        }
+        Self::of(&text)
+    }
+
+    fn last(&self, back: usize) -> Option<char> {
+        self.chars
+            .len()
+            .checked_sub(back)
+            .map(|index| self.chars[index])
+    }
+
+    fn pop(&mut self) {
+        self.chars.pop();
+        self.folded.pop();
+        self.source.pop();
+    }
+
+    fn emit(&mut self, c: char, at: (usize, usize)) {
+        if c == ' ' {
+            if self.chars.is_empty() || matches!(self.last(1), Some(' ' | '-')) {
+                return;
+            }
+        } else if c == '-' {
+            if self.last(1) == Some(' ') {
+                self.pop();
+            }
+            if self.last(1) == Some('-') {
+                return;
+            }
+        } else if c == '.'
+            && self.last(1) == Some('.')
+            && self.last(2) == Some('.')
+            && self.last(3) == Some('.')
+        {
+            // A fourth dot and beyond: "floor...." keeps three.
+            return;
+        }
+        let mut lower = c.to_lowercase();
+        let folded = match (lower.next(), lower.next()) {
+            (Some(one), None) => one,
+            _ => c,
+        };
+        self.chars.push(c);
+        self.folded.push(folded);
+        self.source.push(at);
+    }
+
+    /// The UTF-16 `(offset, length)` in the source of normalized `[start, end)`.
+    fn source_span(&self, start: usize, end: usize) -> (usize, usize) {
+        let (first, _) = self.source[start];
+        let (last, last_len) = self.source[end - 1];
+        (first, last + last_len - first)
+    }
+}
+
+fn quote_index_of(haystack: &[char], needle: &[char], from: usize) -> Option<usize> {
+    if needle.is_empty() || needle.len() > haystack.len() {
+        return None;
+    }
+    (from..=haystack.len() - needle.len()).find(|&at| haystack[at..at + needle.len()] == *needle)
+}
+
+/// Every non-overlapping match (`findIn`: exact form, else case-folded), or
+/// the first elided match (`findElided`), as normalized `[start, end)`.
+fn quote_matches(haystack: &QuoteForm, needle: &QuoteForm) -> Vec<(usize, usize)> {
+    if needle.chars.len() < QUOTE_MIN_LENGTH {
+        return Vec::new();
+    }
+    for (hay, find) in [
+        (&haystack.chars, &needle.chars),
+        (&haystack.folded, &needle.folded),
+    ] {
+        let mut found = Vec::new();
+        let mut from = 0;
+        while let Some(at) = quote_index_of(hay, find, from) {
+            found.push((at, at + find.len()));
+            from = at + find.len();
+        }
+        if !found.is_empty() {
+            return found;
+        }
+    }
+    quote_elided(haystack, needle).into_iter().collect()
+}
+
+fn quote_elided(haystack: &QuoteForm, needle: &QuoteForm) -> Option<(usize, usize)> {
+    let folded = &needle.folded;
+    let dots = ['.', '.', '.'];
+    quote_index_of(folded, &dots, 0)?;
+    let mut pieces: Vec<Vec<char>> = Vec::new();
+    let mut cursor = 0;
+    while cursor <= folded.len() {
+        let end = quote_index_of(folded, &dots, cursor).unwrap_or(folded.len());
+        let piece: String = folded[cursor..end].iter().collect();
+        let piece: Vec<char> = piece.trim().chars().collect();
+        if piece.len() >= QUOTE_MIN_LENGTH {
+            pieces.push(piece);
+        }
+        cursor = end + 3;
+    }
+    let (first, rest) = pieces.split_first()?;
+    let hay = &haystack.folded;
+    let mut start = quote_index_of(hay, first, 0);
+    while let Some(at) = start {
+        let mut cursor = at + first.len();
+        let mut complete = true;
+        for piece in rest {
+            let next = quote_index_of(hay, piece, cursor)?;
+            if next - cursor > QUOTE_MAX_ELISION_GAP {
+                complete = false;
+                break;
+            }
+            cursor = next + piece.len();
+        }
+        if complete {
+            return Some((at, cursor));
+        }
+        start = quote_index_of(hay, first, at + 1);
+    }
+    None
+}
+
+/// Where `find` is in `text`, as UTF-16 `(offset, length)` ranges chosen by
+/// `occurrence` (0 = all, -1 = the last, n = the nth): the exact text first,
+/// as before; else the normalized match, mapped back to the original span.
+pub(crate) fn quote_ranges(text: &str, find: &str, occurrence: f64) -> Vec<(usize, usize)> {
+    let exact = occurrence_offsets(text, find, occurrence);
+    if !exact.is_empty() {
+        let length = block_ops::utf16_len(find);
+        return exact.into_iter().map(|offset| (offset, length)).collect();
+    }
+    let haystack = QuoteForm::of(text);
+    let matches = quote_matches(&haystack, &QuoteForm::of_quote(find));
+    let chosen: Vec<(usize, usize)> = if occurrence == 0.0 {
+        matches
+    } else if occurrence == -1.0 {
+        matches.last().copied().into_iter().collect()
+    } else {
+        let index = (occurrence.floor().max(1.0) as usize) - 1;
+        matches.get(index).copied().into_iter().collect()
+    };
+    chosen
+        .into_iter()
+        .map(|(start, end)| haystack.source_span(start, end))
+        .collect()
+}
+
+/// The first block holding `find`, searching the blocks after `after` (the
+/// block a caller named: a passage runs on into the next ones) and then those
+/// before it; every block, in order, when `after` is `None`.
+pub(crate) fn find_quote_in_blocks<T: ReadTxn>(
+    txn: &T,
+    fragment: &yrs::XmlFragmentRef,
+    after: Option<u32>,
+    find: &str,
+    occurrence: f64,
+) -> Option<(XmlElementRef, String, Vec<(usize, usize)>)> {
+    let blocks: Vec<(u32, XmlElementRef)> = fragment
+        .children(txn)
+        .enumerate()
+        .filter_map(|(index, child)| match child {
+            XmlOut::Element(element) => Some((index as u32, element)),
+            _ => None,
+        })
+        .collect();
+    let order = blocks
+        .iter()
+        .filter(|(index, _)| after.is_none_or(|after| *index > after))
+        .chain(
+            blocks
+                .iter()
+                .filter(|(index, _)| after.is_some_and(|after| *index < after)),
+        );
+    for (_, element) in order {
+        let Some(id) = block_ops::read_block_id_from_element(txn, element) else {
+            continue;
+        };
+        let ranges = quote_ranges(&read_block_text(txn, element), find, occurrence);
+        if !ranges.is_empty() {
+            return Some((element.clone(), id, ranges));
+        }
+    }
+    None
+}
+
 /// Port of formatBlockTextRange: apply formatting attrs to the UTF-16 range
 /// [offset, offset+length) across the block's text segments. Returns the
 /// number of segments formatted (`applied`).
@@ -2321,27 +2601,38 @@ pub fn edit_comment_in_doc(
     let mut effective_quoted_text = quoted_text;
 
     if let (Some(block_id), Some(find)) = (&block_id, &find) {
-        let (element, _) = block_ops::find_block_in_fragment(txn, &fragment, block_id)
-            .ok_or_else(|| format!("Block not found: {block_id}"))?;
-        let block_text = read_block_text(txn, &element);
-        let offsets = occurrence_offsets(&block_text, find, occurrence);
-        if offsets.is_empty() {
-            return Err(format!("text not found in block {block_id}: {find}"));
-        }
+        // The quote as it was copied (soft wraps, typographic quotes and
+        // dashes, an elided end) in the named block; else in the blocks
+        // after it, then before it. Only a quote no block holds is refused.
+        let named = block_ops::find_block_in_fragment(txn, &fragment, block_id);
+        let in_named = named.as_ref().and_then(|(element, _)| {
+            let ranges = quote_ranges(&read_block_text(txn, element), find, occurrence);
+            (!ranges.is_empty()).then(|| (element.clone(), block_id.clone(), ranges))
+        });
+        let (element, found_in, ranges) = match in_named {
+            Some(found) => found,
+            None => find_quote_in_blocks(
+                txn,
+                &fragment,
+                named.as_ref().map(|(_, index)| *index),
+                find,
+                occurrence,
+            )
+            .ok_or_else(|| match named {
+                Some(_) => format!(
+                    "text not found in block {block_id} or in any other block of the document: {find}"
+                ),
+                None => format!("Block not found: {block_id}"),
+            })?,
+        };
         let mark_attrs = json!({ "commentMark": { "commentId": comment_id } })
             .as_object()
             .cloned()
             .unwrap_or_default();
-        for offset in offsets {
-            anchored += format_block_text_range(
-                txn,
-                &element,
-                offset,
-                block_ops::utf16_len(find),
-                &mark_attrs,
-            );
+        for (offset, length) in ranges {
+            anchored += format_block_text_range(txn, &element, offset, length, &mark_attrs);
         }
-        anchor_block_id = Some(block_id.clone());
+        anchor_block_id = Some(found_in);
         if effective_quoted_text.is_none() {
             effective_quoted_text = Some(find.clone());
         }
@@ -2603,14 +2894,8 @@ pub(crate) async fn edit_comments_classified(
                             .push(json!({ "commentId": comment_id, "reason": "nothing to find" }));
                         continue;
                     };
-                    let holder = fragment.children(txn).find_map(|child| match child {
-                        XmlOut::Element(element)
-                            if read_block_text(txn, &element).contains(find.as_str()) =>
-                        {
-                            block_ops::read_block_id_from_element(txn, &element)
-                        }
-                        _ => None,
-                    });
+                    let holder = find_quote_in_blocks(txn, &fragment, None, &find, 1.0)
+                        .map(|(_, block_id, _)| block_id);
                     match holder {
                         Some(block_id) => {
                             fields.insert("blockId".to_string(), json!(block_id));
