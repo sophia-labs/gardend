@@ -101,6 +101,9 @@ pub(super) async fn mcp_local_sparql_update(
             "maxRows/max_rows applies only to SPARQL queries",
         ));
     }
+    if options.cursor.is_some() {
+        return Err(AppError::validation("cursor applies only to SPARQL queries"));
+    }
     let result =
         run_external_sparql_update(app, sparql_update_input_from_mcp_args(arguments)).await?;
     serde_json::to_value(result).map_err(|error| {
@@ -149,18 +152,36 @@ pub(super) fn run_sparql_query_service(
 
 /// Controlled external-boundary variant. The caller owns admission, deadline,
 /// blocking-executor placement, and the graph lifecycle lease.
+///
+/// Returns the store revision read before evaluation (for minting `next`).
+/// A `page` from a cursor is refused as stale when the revision moved.
 pub(super) fn run_sparql_query_service_controlled(
     app: AppHandle,
     input: SparqlInput,
     max_rows: usize,
+    page: Option<crate::sparql_cursor::PageStart>,
     cancellation: CancellationToken,
-) -> AppResult<SparqlQueryResult> {
+    hidden_graphs: &[String],
+) -> AppResult<(SparqlQueryResult, Option<String>)> {
     let graph_dir = existing_graph_dir(&app, &input.graph_id).map_err(AppError::storage)?;
     ensure_graph_store_seeded_with_cancellation(&graph_dir, &cancellation)
         .map_err(AppError::rdf)?;
     let store = open_graph_store(&graph_dir).map_err(AppError::rdf)?;
-    execute_sparql_query_capped_with_control(&store, &input.query, max_rows, cancellation)
-        .map_err(AppError::rdf)
+    let revision = crate::rdf_store_service::graph_store_revision(&store);
+    if let Some(page) = page.as_ref() {
+        crate::sparql_cursor::require_revision(page, revision.as_deref())?;
+    }
+    let offset = page.as_ref().map_or(0, |page| page.offset);
+    let result = execute_sparql_query_capped_with_control(
+        &store,
+        &input.query,
+        max_rows,
+        offset,
+        cancellation,
+        hidden_graphs,
+    )
+    .map_err(AppError::rdf)?;
+    Ok((result, revision))
 }
 
 #[cfg_attr(feature = "desktop", tauri::command)]

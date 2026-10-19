@@ -73,6 +73,10 @@ hmac = "0.12"
 chrono = { version = "0.4.44", default-features = false, features = ["clock", "std"] }
 candle-core = "0.10.2"
 fastembed = { version = "5", default-features = false, features = ["hf-hub-native-tls", "nomic-v2-moe", "ort-load-dynamic"] }
+# The RDF entity index drives ONNX Runtime itself (same versions and features
+# fastembed resolves) so its intra-op threads are a budget, not every core.
+ort = { version = "=2.0.0-rc.12", default-features = false, features = ["ndarray", "std", "api-24", "load-dynamic"] }
+tokenizers = { version = "0.22", default-features = false }
 fs4 = { version = "0.13", features = ["sync"] }
 log = "0.4"
 oxigraph = { version = "0.5.9", features = ["rdf-12"] }
@@ -147,6 +151,10 @@ tower = { version = "0.5", features = ["util"] }
 # Self-host Access tests sign real RS256 tokens with an RSA key generated in
 # the test (ring verifies but cannot generate RSA keys).
 rsa = "0.9"
+
+# W6 visitor-fence tests drive the real document and workspace rooms as a
+# y-websocket client (already in the lock through axum's ws).
+tokio-tungstenite = { version = "0.29", default-features = false, features = ["connect"] }
 
 # macOS-only: runtime title-bar style tweaks (transparent titlebar / hidden
 # title / full-size content view) for the Minimal window mode, applied live via

@@ -564,6 +564,9 @@ async fn enqueue_crdt_operation_outcome_inner(
     // Comments are signed by the principal this request acts for, never by
     // the caller's say-so (2026-10-14).
     crate::comment_authorship::stamp_comment_author(&app, &input.kind, &mut input.payload);
+    // W6: a write admitted under a visitor's fence carries the fence, and a
+    // kind the fence does not admit is refused here, before anything is queued.
+    crate::visitor_fence::stamp_at_enqueue(&input.kind, &input.graph_id, &mut input.payload)?;
     let enqueue_lease =
         match app
             .try_state::<crate::crdt_engine::persistence_coordinator::GraphPersistenceCoordinator>()

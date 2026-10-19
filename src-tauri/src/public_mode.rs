@@ -111,7 +111,7 @@ const DEFAULT_PER_MINUTE: f64 = 120.0;
 const DEFAULT_BURST: f64 = 60.0;
 const DEFAULT_MAX_BODY_BYTES: usize = 32 * 1024;
 const DEFAULT_SPARQL_TIMEOUT_MS: u64 = 10_000;
-const DEFAULT_SPARQL_MAX_ROWS: usize = 1_000;
+pub(crate) const DEFAULT_SPARQL_MAX_ROWS: usize = 1_000;
 const MAX_TRACKED_ADDRESSES: usize = 50_000;
 const KEY_REFETCH_INTERVAL: Duration = Duration::from_secs(10);
 const KEY_FETCH_TIMEOUT: Duration = Duration::from_secs(10);
@@ -132,6 +132,10 @@ struct PublicFile {
     #[serde(default)]
     sparql: SparqlFile,
     accounts: Option<AccountsFile>,
+    /// W6: the one folder of a public graph that signed-in accounts may write
+    /// in (`visitor_fence`).
+    #[serde(default)]
+    visitor_folders: Vec<crate::visitor_fence::VisitorFolderFile>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -167,6 +171,10 @@ struct CognitoFile {
     callback_url: Option<String>,
     /// Default `<issuer>/.well-known/jwks.json`.
     jwks_url: Option<String>,
+    /// Where the site's sign-in keeps the person's tokens in the browser
+    /// (`sessionStorage`/`localStorage`, a JSON object holding `id_token`), so
+    /// the app on the same origin signs in with them too (W6).
+    token_storage_key: Option<String>,
 }
 
 /// Public mode, loaded. `None` anywhere means off.
@@ -184,6 +192,8 @@ pub(crate) struct PublicMode {
     /// The site's `mcp-server-card.json`, read at start: served at
     /// `/mcp/server-card`, and `/mcp`'s `serverInfo` names itself by it.
     server_card: Option<serde_json::Value>,
+    /// W6: where signed-in accounts may write (`visitor_fence`), if anywhere.
+    visitor_folders: Option<crate::visitor_fence::VisitorFolders>,
 }
 
 /// The SPARQL ceilings a public caller's queries get (lower than the
@@ -325,6 +335,16 @@ impl PublicMode {
             .accounts
             .map(|accounts| CognitoAccounts::new(accounts.cognito))
             .transpose()?;
+        let visitor_folders = crate::visitor_fence::VisitorFolders::from_file(
+            file.visitor_folders,
+            &graphs,
+            profile_dir,
+        )?;
+        if visitor_folders.is_some() && accounts.is_none() {
+            return Err(
+                "public mode: visitorFolders needs accounts (only signed-in accounts write)".into(),
+            );
+        }
         let server_card = match site_dir.as_ref().map(|dir| dir.join(SERVER_CARD_FILE)) {
             Some(path) if path.is_file() => Some(
                 serde_json::from_slice::<serde_json::Value>(
@@ -346,6 +366,7 @@ impl PublicMode {
             accounts,
             config_source,
             server_card,
+            visitor_folders,
         }))
     }
 
@@ -397,6 +418,11 @@ impl PublicMode {
         self.accounts.as_ref()
     }
 
+    /// W6: the visitor folders, when `public.json` opens any.
+    pub(crate) fn visitor_folders(&self) -> Option<&crate::visitor_fence::VisitorFolders> {
+        self.visitor_folders.as_ref()
+    }
+
     pub(crate) fn sparql_ceiling(&self) -> SparqlCeiling {
         self.sparql
     }
@@ -425,6 +451,7 @@ impl PublicMode {
                 "sparqlMaxRows": self.sparql.max_rows,
             },
             "accounts": self.accounts.as_ref().map(CognitoAccounts::describe),
+            "visitorFolders": self.visitor_folders.as_ref().map(crate::visitor_fence::VisitorFolders::describe),
         })
     }
 
@@ -550,6 +577,7 @@ pub(crate) struct CognitoAccounts {
     domain: Option<String>,
     callback_url: Option<String>,
     jwks_url: String,
+    token_storage_key: Option<String>,
     validation: Validation,
     keys: RwLock<HashMap<String, DecodingKey>>,
     last_fetch: tokio::sync::Mutex<Option<Instant>>,
@@ -606,6 +634,10 @@ impl CognitoAccounts {
                 .map(|url| url.trim().to_string())
                 .filter(|url| !url.is_empty()),
             jwks_url,
+            token_storage_key: file
+                .token_storage_key
+                .map(|key| key.trim().to_string())
+                .filter(|key| !key.is_empty()),
             validation,
             keys: RwLock::new(HashMap::new()),
             last_fetch: tokio::sync::Mutex::new(None),
@@ -620,6 +652,7 @@ impl CognitoAccounts {
             "clientId": self.client_id,
             "domain": self.domain,
             "callbackUrl": self.callback_url,
+            "tokenStorageKey": self.token_storage_key,
             "token": "Authorization: Bearer <ID token>",
         })
     }
@@ -977,6 +1010,35 @@ pub(crate) async fn public_mode_middleware(
         accounts.ensure_signing_key(token).await;
     }
     let path = request.uri().path().to_string();
+    // W6: a signed-in account's trash and restore of its own documents in the
+    // visitors' folder: admitted by its fence, with that route's scopes lent
+    // for this one request.
+    if let Some(admission) = crate::visitor_fence::rest_admission(
+        &state,
+        public,
+        request.method(),
+        &matched_path,
+        &path,
+        request.uri().query(),
+        account_token.as_deref(),
+    )
+    .await
+    {
+        return match admission {
+            Ok(context) => {
+                let visitor = PublicRequest {
+                    visitor_id: visitor_id(request.headers(), ip),
+                    ip,
+                    account_token: account_token.is_some(),
+                    sparql: public.sparql,
+                };
+                PUBLIC_REQUEST
+                    .scope(visitor, crate::visitor_fence::within_context(context, next.run(request)))
+                    .await
+            }
+            Err((status, code, message)) => public_error(status, code, &message),
+        };
+    }
     let request = match gate(public, request.method(), &matched_path, &path) {
         Gate::Allow => request,
         Gate::Deny(response) => return response,
@@ -1013,6 +1075,10 @@ pub(crate) async fn public_mode_middleware(
             Request::from_parts(parts, Body::from(bytes))
         }
     };
+    // What is in the Trash is the owner's to see (W6, sealed exam C1).
+    if let Some(why) = crate::visitor_fence::trashed_route_refusal(&state.app, &matched_path, &path).await {
+        return public_error(StatusCode::NOT_FOUND, "not_found", &why);
+    }
     let visitor = PublicRequest {
         visitor_id: visitor_id(request.headers(), ip),
         ip,

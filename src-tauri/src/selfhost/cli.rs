@@ -3,6 +3,7 @@
 //! older `--version` / `--check-update` / `update`) keeps its old path.
 
 use super::chat;
+use super::index::{self, IndexArgs};
 use super::load::{self, LoadArgs};
 use super::service::{self, ServiceArgs};
 use super::tokens::{self, TokenCreateArgs, GRANT_PROFILES};
@@ -25,6 +26,8 @@ pub enum Command {
     Serve(ServeArgs),
     /// `gardend load`: stream an RDF file into a graph (bulk loader).
     Load(LoadArgs),
+    /// `gardend index`: turn `find` on (and build its entity index) or off.
+    Index(IndexArgs),
     Url(ServeArgs),
     TokenCreate(TokenCreateArgs),
     TokenList { profile_dir: Option<String>, json: bool },
@@ -57,6 +60,21 @@ pub enum Command {
         enabled: bool,
         profile_dir: Option<String>,
     },
+    /// W6: the visitors' folder of a public Sophia.
+    Visitors {
+        action: VisitorsAction,
+        profile_dir: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VisitorsAction {
+    Status,
+    Off,
+    On,
+    List,
+    Ban(String),
+    Unban(String),
 }
 
 const HELP: &str = "\
@@ -84,9 +102,15 @@ gardend: the Sophia engine. Run your own Sophia with it.
       `choreograph`, is off until you enable it).
   gardend chat key set | clear [--profile <dir>]
       The OpenRouter key chat uses (`service env set OPENROUTER_API_KEY`).
+  gardend visitors status | off | on | list | ban <account> | unban <account> [--profile <dir>]
+      A public Sophia's visitors' folder: turn visitor writing off or on at
+      once, list who wrote, ban an account.
   gardend load --graph <id> [--profile <dir>] [--format nt|nq|ttl|trig] <file|->
       Stream a large RDF file (gzip too) into a graph, while no gardend
       serves the profile.
+  gardend index --graph <id> [--profile <dir>] [--langs es,en] [--documents] [--off]
+      Turn on `find` for a graph (search its RDF entities by meaning, in
+      any language) and build its index; --off turns it off.
   gardend --version [--json] | --check-update | update
 
 The profile directory is --profile (--profile-dir for `token`), else
@@ -114,6 +138,27 @@ everything; give agents and other people `gardend token create --grant member`
 tokens instead. A `ui/` folder next to the gardend binary is served as the app
 when GARDEN_UI_DIR is unset; without one, Sophia serves its API and MCP only.
 Ctrl-C stops it after a final flush.
+";
+
+const VISITORS_HELP: &str = "\
+gardend visitors status [--profile <dir>]
+gardend visitors off | on [--profile <dir>]
+gardend visitors list [--profile <dir>]
+gardend visitors ban | unban <account> [--profile <dir>]
+
+A public Sophia (public.json) may open one folder of a public graph to people
+signed in with a Sophia account (`visitorFolders`). There each account makes
+documents and edits only its own.
+
+  off     no visitor writes anywhere, from the next request or room frame on
+          (the file <profile>/public/visitor-writes.off; `on` removes it).
+          Reading goes on. gardend also turns it off itself when more new
+          documents arrive in an hour than newDocumentsPerHour allows.
+  list    the accounts that have written (acct-…, their name, first seen)
+          and how many documents each has.
+  ban     an account (acct-… as `list` shows it, or cognito:<sub>) writes
+          no more; its documents stay until you trash or delete them.
+A running gardend needs no restart for any of these.
 ";
 
 const URL_HELP: &str = "\
@@ -232,6 +277,31 @@ adds nothing (RDF quads are a set). Progress goes to standard error, then a
 count of quads per named graph.
 ";
 
+const INDEX_HELP: &str = "\
+gardend index --graph <id> [--profile <dir>] [--langs es,en] [--model <id>]
+              [--documents] [--threads <n>] [--off]
+
+Turns on `find` for one graph: every entity of the graph's own RDF (datasets,
+code lists, classes and properties, people, places; never Data Cube
+observations) becomes one short sentence, embedded with a multilingual model
+(intfloat/multilingual-e5-small, downloaded once), and `find` searches them by
+meaning and by words together. The index lives in the graph's
+indexes/entities/ and travels with the graph folder.
+
+  --langs <a,b>   label and description preference (default en,es)
+  --model <id>    intfloat/multilingual-e5-small (default) or
+                  intfloat/multilingual-e5-base (better top hit, ~3x slower)
+  --documents     also index the graph's documents (title and opening)
+  --threads <n>   embedding threads (default GARDEN_EMBED_THREADS, else up to 4)
+  --off           turn find off (the index files stay)
+
+With no gardend serving the profile, the index is built here; with one, that
+gardend builds it (a semantic refresh job) and this command follows the job.
+Only changed entities are embedded again. After `gardend load` into a graph
+with find on, the index refreshes by itself (--no-index skips that). Embedding
+is the slow part: about 20 entities a second per 4 laptop threads.
+";
+
 /// Flags and positionals of one verb.
 #[derive(Debug, Default)]
 struct Parsed {
@@ -343,6 +413,8 @@ pub fn parse(args: &[String]) -> Result<Option<Command>, String> {
         "service" => parse_service(rest),
         "chat" => parse_chat(rest),
         "load" => parse_load(rest),
+        "index" => parse_index(rest),
+        "visitors" => parse_visitors(rest),
         _ => Ok(None),
     }
 }
@@ -562,6 +634,42 @@ fn parse_chat(rest: &[String]) -> Result<Option<Command>, String> {
     }
 }
 
+fn parse_visitors(rest: &[String]) -> Result<Option<Command>, String> {
+    let help: Result<Option<Command>, String> = Ok(Some(Command::Help(Some("visitors".to_string()))));
+    let Some(action) = rest.first().map(String::as_str) else {
+        return Err(format!("which visitors action?\n\n{VISITORS_HELP}"));
+    };
+    if matches!(action, "-h" | "--help" | "help") {
+        return help;
+    }
+    let parsed = split(&rest[1..], &["--profile", "--profile-dir"], &[], VISITORS_HELP)?;
+    if parsed.help {
+        return help;
+    }
+    let profile_dir = profile_dir_flag(&parsed, VISITORS_HELP)?;
+    let account = || -> Result<String, String> {
+        match parsed.positionals.as_slice() {
+            [one] => Ok(one.clone()),
+            _ => Err(format!("name one account (acct-… or cognito:<sub>)\n\n{VISITORS_HELP}")),
+        }
+    };
+    let action = match action {
+        "status" | "off" | "on" | "list" => {
+            no_positionals(&parsed, VISITORS_HELP)?;
+            match action {
+                "status" => VisitorsAction::Status,
+                "off" => VisitorsAction::Off,
+                "on" => VisitorsAction::On,
+                _ => VisitorsAction::List,
+            }
+        }
+        "ban" => VisitorsAction::Ban(account()?),
+        "unban" => VisitorsAction::Unban(account()?),
+        other => return Err(format!("unknown visitors action {other:?}\n\n{VISITORS_HELP}")),
+    };
+    Ok(Some(Command::Visitors { action, profile_dir }))
+}
+
 fn parse_load(rest: &[String]) -> Result<Option<Command>, String> {
     let parsed = split(
         rest,
@@ -574,7 +682,7 @@ fn parse_load(rest: &[String]) -> Result<Option<Command>, String> {
             "--threads",
             "--max-memory-mb",
         ],
-        &[],
+        &["--no-index"],
         LOAD_HELP,
     )?;
     if parsed.help {
@@ -604,6 +712,40 @@ fn parse_load(rest: &[String]) -> Result<Option<Command>, String> {
         input: input.clone(),
         threads: number("--threads")?,
         max_memory_mb: number("--max-memory-mb")?,
+        no_index: parsed.switches.contains("--no-index"),
+    })))
+}
+
+fn parse_index(rest: &[String]) -> Result<Option<Command>, String> {
+    let parsed = split(
+        rest,
+        &["--graph", "--profile", "--profile-dir", "--langs", "--model", "--threads"],
+        &["--off", "--documents"],
+        INDEX_HELP,
+    )?;
+    if parsed.help {
+        return Ok(Some(Command::Help(Some("index".to_string()))));
+    }
+    let graph = parsed
+        .value("--graph")
+        .ok_or_else(|| format!("gardend index needs --graph <id>\n\n{INDEX_HELP}"))?;
+    if !parsed.positionals.is_empty() {
+        return Err(format!("gardend index takes no file\n\n{INDEX_HELP}"));
+    }
+    let threads = parsed
+        .value("--threads")
+        .map(|value| value.parse::<usize>().map_err(|error| format!("--threads {value:?}: {error}")))
+        .transpose()?;
+    Ok(Some(Command::Index(IndexArgs {
+        profile: profile_dir_flag(&parsed, INDEX_HELP)?,
+        graph,
+        off: parsed.switches.contains("--off"),
+        langs: parsed.value("--langs").map(|value| {
+            value.split(',').map(|lang| lang.trim().to_string()).filter(|lang| !lang.is_empty()).collect()
+        }),
+        model: parsed.value("--model"),
+        documents: parsed.switches.contains("--documents"),
+        threads,
     })))
 }
 
@@ -615,6 +757,8 @@ pub(crate) fn help_text(topic: Option<&str>) -> &'static str {
         Some("service") => SERVICE_HELP,
         Some("chat") => CHAT_HELP,
         Some("load") => LOAD_HELP,
+        Some("index") => INDEX_HELP,
+        Some("visitors") => VISITORS_HELP,
         _ => HELP,
     }
 }
@@ -629,6 +773,9 @@ pub fn run(command: Command) -> i32 {
         Command::Serve(_) => Err("serve boots the engine from gardend's main".to_string()),
         Command::Load(args) => resolve_profile_dir(args.profile.as_deref(), os, env)
             .and_then(|dir| load::load(&dir, &args))
+            .map(|text| (text, 0)),
+        Command::Index(args) => resolve_profile_dir(args.profile.as_deref(), os, env)
+            .and_then(|dir| index::index(&dir, &args))
             .map(|text| (text, 0)),
         Command::Url(args) => url(&args, os, env).map(|text| (text, 0)),
         Command::TokenCreate(args) => resolve_profile_dir(args.profile_dir.as_deref(), os, env)
@@ -693,6 +840,9 @@ pub fn run(command: Command) -> i32 {
             profile_dir,
         } => resolve_profile_dir(profile_dir.as_deref(), os, env)
             .and_then(|dir| chat::set_enabled(&dir, &service, enabled))
+            .map(|text| (text, 0)),
+        Command::Visitors { action, profile_dir } => resolve_profile_dir(profile_dir.as_deref(), os, env)
+            .and_then(|dir| super::visitors::run(&dir, &action))
             .map(|text| (text, 0)),
         Command::ChatKeyClear { profile_dir } => {
             resolve_profile_dir(profile_dir.as_deref(), os, env)

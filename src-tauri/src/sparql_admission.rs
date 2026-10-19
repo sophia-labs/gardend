@@ -47,10 +47,12 @@ const DEFAULT_TIMEOUT_MS: u64 = 30_000;
 const MAX_TIMEOUT_MS: u64 = 120_000;
 const MIN_TIMEOUT_MS: u64 = 100;
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct ExternalSparqlOptions {
     pub(crate) timeout_ms: Option<u64>,
     pub(crate) max_rows: Option<usize>,
+    /// The `next` of a truncated SELECT page (`sparql_cursor`).
+    pub(crate) cursor: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -159,7 +161,31 @@ pub(crate) async fn run_external_sparql_query(
     let admission = app
         .try_state::<SparqlAdmission>()
         .ok_or_else(|| AppError::internal("SPARQL admission state is not installed"))?;
-    let limits = admission.effective_query_limits(requested);
+    // A public request does not see what is in the Trash (W6, sealed exam C1).
+    let hidden_graphs = if crate::public_mode::current_public_request().is_some() {
+        crate::visitor_fence::hidden_graphs_for_public(&app, &input.graph_id)
+            .await
+            .map_err(AppError::storage)?
+    } else {
+        Vec::new()
+    };
+    // Paging (`sparql_cursor`): a cursor is verified before admission; the
+    // page size is the cursor's, never above this caller's ceiling.
+    let fingerprint =
+        crate::sparql_cursor::query_fingerprint(&input.graph_id, &input.query, &hidden_graphs);
+    let page = requested
+        .cursor
+        .as_deref()
+        .map(|cursor| crate::sparql_cursor::open(cursor, &input.graph_id, &fingerprint))
+        .transpose()?;
+    let limits = admission.effective_query_limits(ExternalSparqlOptions {
+        max_rows: requested
+            .max_rows
+            .or(page.as_ref().map(|page| page.page_size)),
+        ..requested
+    });
+    let graph_id = input.graph_id.clone();
+    let page_offset = page.as_ref().map(|page| page.offset);
     let started = Instant::now();
     let deadline = tokio::time::Instant::now() + limits.timeout;
     let permit = admission.acquire_before(deadline).await?;
@@ -175,7 +201,9 @@ pub(crate) async fn run_external_sparql_query(
             worker_app,
             input,
             limits.max_rows,
+            page,
             worker_cancellation,
+            &hidden_graphs,
         );
         if result.is_ok() {
             if let Some(graph_lease) = graph_lease.as_ref() {
@@ -189,7 +217,21 @@ pub(crate) async fn run_external_sparql_query(
     match tokio::time::timeout_at(deadline, &mut worker).await {
         Ok(joined) => {
             cancel_on_drop.disarm();
-            joined.map_err(join_error)?
+            let (mut result, revision) = joined.map_err(join_error)??;
+            let offset = page_offset.unwrap_or(0);
+            result.offset = page_offset;
+            if result.truncated && result.result_type == "solutions" {
+                if let Some(revision) = revision.as_deref() {
+                    result.next = Some(crate::sparql_cursor::mint(
+                        &graph_id,
+                        &fingerprint,
+                        offset + result.rows.len(),
+                        limits.max_rows,
+                        revision,
+                    ));
+                }
+            }
+            Ok(result)
         }
         Err(_) => {
             cancellation.cancel();
@@ -358,6 +400,7 @@ mod tests {
             admission.effective_query_limits(ExternalSparqlOptions {
                 timeout_ms: Some(99_000),
                 max_rows: Some(server_max_rows.saturating_mul(2)),
+                cursor: None,
             }),
             EffectiveQueryLimits {
                 timeout: Duration::from_secs(10),
@@ -368,6 +411,7 @@ mod tests {
             admission.effective_query_limits(ExternalSparqlOptions {
                 timeout_ms: Some(0),
                 max_rows: Some(0),
+                cursor: None,
             }),
             EffectiveQueryLimits {
                 timeout: Duration::from_millis(MIN_TIMEOUT_MS),

@@ -1,7 +1,7 @@
 {
   "restSurfaceSha256": "f388b3aebd497dbf170da24c6fc1834caf1a0a449b1a004afa67b3de7d2eae0e",
-  "mcpSurfaceSha256": "640876cf4fdc40a0e21c3d05bcf7b044402ba435924bc8e0cb19bc15c63cd5e0",
-  "effectRegistrySha256": "f02535f47aed4db4b99361bf26cae6d4fa0079956004fb111c8fd0c5459b78c9",
+  "mcpSurfaceSha256": "07f94eea8886514f7ded2bab19b7037c20a1186b54e29c47d4aa75cd8ca8201e",
+  "effectRegistrySha256": "066636a9b057135eb183598d1dd6dcb1b4014c0e96f3a3e7cea4c7ad3642d387",
   "restGlobal": [
     "GET /api/artifacts/ingestion/approaches",
     "GET /api/artifacts/ingestion/docling/status",
@@ -270,6 +270,7 @@
   "mcpProfileDenied": [
     "create_graph",
     "duplicate_graph",
+    "find",
     "graph_intuition",
     "list_graphs",
     "manage_graph",

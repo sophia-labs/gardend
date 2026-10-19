@@ -31,6 +31,11 @@ pub(crate) struct SemanticIndexManifest {
     pub(crate) document_count: usize,
     pub(crate) indexed_at: String,
     pub(crate) index_path: String,
+    /// The prefixes the passages were embedded with (`SemanticModelSpec`'s
+    /// scheme); absent = built before prefixes were per model (legacy task
+    /// prefixes), and queried that way.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) prefix_scheme: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

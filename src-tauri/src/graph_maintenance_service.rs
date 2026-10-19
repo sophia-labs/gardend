@@ -45,6 +45,7 @@ pub(crate) fn reindex_graph_job_response(
         RefreshSemanticIndexInput {
             graph_id: input.graph_id.clone(),
             flush_boundary: Default::default(),
+            entities_only: false,
         },
     )?;
     let value = serde_json::to_value(response)

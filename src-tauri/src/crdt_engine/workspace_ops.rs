@@ -943,6 +943,15 @@ pub(super) fn write_workspace_document(
         "readOnly",
         boolean_value(pick(&value, &["readOnly", "read_only"]), false),
     );
+    // W6: a document a visitor makes is theirs. Only the server writes
+    // `createdBy` (from the fence the enqueue stamped; no caller field is
+    // read), and only when the document is new.
+    if !existed {
+        if let Some(fence) = crate::visitor_fence::fence_of(payload) {
+            document_map.insert(txn, crate::visitor_fence::CREATED_BY_FIELD, fence.account.as_str());
+            document_map.insert(txn, crate::visitor_fence::CREATED_BY_NAME_FIELD, fence.name.as_str());
+        }
+    }
     // Optional kind discriminator (unit G4; interfaces.md §A): the workspace
     // entry's `documentKind` extra field, written through this same
     // createDocument path when the caller supplies it (`flow.seed` passes

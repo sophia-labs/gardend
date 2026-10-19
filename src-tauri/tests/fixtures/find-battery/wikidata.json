@@ -1,0 +1,402 @@
+[
+ {
+  "id": "wd-01",
+  "lang": "en",
+  "q": "Rio Uruguay river",
+  "gold": [
+   "http://www.wikidata.org/entity/Q18278"
+  ],
+  "kind": "name",
+  "note": "Uruguay River; 'Rio Uruguay' is its es alias. Other 'Uruguay River' items are a basin and a pulp-mill dispute, not the river."
+ },
+ {
+  "id": "wd-02",
+  "lang": "en",
+  "q": "Uruguayan footballer born in Salto who played for Manchester United",
+  "gold": [
+   "http://www.wikidata.org/entity/Q167790"
+  ],
+  "kind": "descriptive",
+  "note": "Edinson Cavani: P19 Salto + P54 Manchester United F.C.; the only Uruguayan in the slice with both (Forlán/Varela/Ugarte not born in Salto)."
+ },
+ {
+  "id": "wd-03",
+  "lang": "en",
+  "q": "Argentine peak that is one of the Seven Summits",
+  "gold": [
+   "http://www.wikidata.org/entity/Q39739"
+  ],
+  "kind": "descriptive",
+  "note": "Aconcagua: only item with P361 Seven Summits."
+ },
+ {
+  "id": "wd-04",
+  "lang": "es",
+  "q": "Club Atletico Penarol",
+  "gold": [
+   "http://www.wikidata.org/entity/Q16320"
+  ],
+  "kind": "name",
+  "note": "Club Atlético Peñarol (Montevideo), spelled without accent or ñ; exact label match. Peñarol de Paraná/Mar del Plata carry a city suffix."
+ },
+ {
+  "id": "wd-05",
+  "lang": "en",
+  "q": "bandoneonist born in Mar del Plata who pioneered nuevo tango",
+  "gold": [
+   "http://www.wikidata.org/entity/Q172505"
+  ],
+  "kind": "descriptive",
+  "note": "Astor Piazzolla: P19 Mar del Plata + P136 nuevo tango; Roberto Pansera is also a bandoneonist from Mar del Plata but has no nuevo tango genre."
+ },
+ {
+  "id": "wd-06",
+  "lang": "en",
+  "q": "waterfalls on the Uruguay River at the Argentina–Brazil border",
+  "gold": [
+   "http://www.wikidata.org/entity/Q2215506"
+  ],
+  "kind": "descriptive",
+  "note": "Saltos del Moconá: only waterfall that is P361 Uruguay River / whose description names the Uruguay River (no English description, tests es desc)."
+ },
+ {
+  "id": "wd-07",
+  "lang": "en",
+  "q": "Jorge Luis Borjes",
+  "gold": [
+   "http://www.wikidata.org/entity/Q909"
+  ],
+  "kind": "name",
+  "note": "Misspelling of Jorge Luis Borges."
+ },
+ {
+  "id": "wd-08",
+  "lang": "en",
+  "q": "Mendoza department where Aconcagua is located",
+  "gold": [
+   "http://www.wikidata.org/entity/Q1190729"
+  ],
+  "kind": "descriptive",
+  "note": "Las Heras Department (Mendoza): Aconcagua's P131. Relational: answer is the object of Aconcagua's located-in."
+ },
+ {
+  "id": "wd-09",
+  "lang": "es",
+  "q": "cantante de tango nacido en Toulouse",
+  "gold": [
+   "http://www.wikidata.org/entity/Q229613"
+  ],
+  "kind": "descriptive",
+  "note": "Carlos Gardel: 5 slice people born in Toulouse (P19), the only singer / tango genre is Gardel."
+ },
+ {
+  "id": "wd-10",
+  "lang": "en",
+  "q": "Uruguayan left-wing coalition founded in 1971",
+  "gold": [
+   "http://www.wikidata.org/entity/Q1066799"
+  ],
+  "kind": "descriptive",
+  "note": "Frente Amplio (Broad Front), P571 1971-02-05; other 1971 Uruguayan parties (PST, 26 de Marzo) are not coalitions."
+ },
+ {
+  "id": "wd-11",
+  "lang": "en",
+  "q": "Pepe Mujica, Uruguayan politician",
+  "gold": [
+   "http://www.wikidata.org/entity/Q9094"
+  ],
+  "kind": "name",
+  "note": "Alias of José Mujica (the person, not the 'Presidency of José Mujica' item)."
+ },
+ {
+  "id": "wd-12",
+  "lang": "en",
+  "q": "Argentine biochemist who won the Nobel Prize in Chemistry",
+  "gold": [
+   "http://www.wikidata.org/entity/Q233985"
+  ],
+  "kind": "descriptive",
+  "note": "Luis Federico Leloir: only slice item with P166 Nobel Prize in Chemistry."
+ },
+ {
+  "id": "wd-13",
+  "lang": "es",
+  "q": "lago compartido entre Uruguay y Brasil",
+  "gold": [
+   "http://www.wikidata.org/entity/Q876280"
+  ],
+  "kind": "descriptive",
+  "note": "Laguna Merín / Lagoa Mirim: only lake described as on the Brazil–Uruguay border."
+ },
+ {
+  "id": "wd-14",
+  "lang": "en",
+  "q": "Uruguayan beach where the Thirty-Three Orientals landed in 1825",
+  "gold": [
+   "http://www.wikidata.org/entity/Q3817775"
+  ],
+  "kind": "descriptive",
+  "note": "Playa de la Agraciada: description 'landing of 33 Orientales in 1825'; the 'Landing of the 33 Patriots Day' item is a holiday, not a beach."
+ },
+ {
+  "id": "wd-15",
+  "lang": "en",
+  "q": "Teatro Colon opera house",
+  "gold": [
+   "http://www.wikidata.org/entity/Q827401"
+  ],
+  "kind": "name",
+  "note": "Colón Theater, Buenos Aires (alias 'Teatro Colon', class opera house). Other Teatro Colón items are a Uruguayan theatre building, a former Rosario theatre, a metrobus stop, and an opera company."
+ },
+ {
+  "id": "wd-16",
+  "lang": "en",
+  "q": "Uruguayan city on the Uruguay River, capital of Paysandú Department",
+  "gold": [
+   "http://www.wikidata.org/entity/Q309442"
+  ],
+  "kind": "descriptive",
+  "note": "Paysandú city (no English label): P206 Uruguay River + desc 'capital of Paysandú Department'."
+ },
+ {
+  "id": "wd-17",
+  "lang": "en",
+  "q": "racing driver born in Balcarce who drove for Mercedes",
+  "gold": [
+   "http://www.wikidata.org/entity/Q2069"
+  ],
+  "kind": "descriptive",
+  "note": "Juan Manuel Fangio: P19 Balcarce + P54 Mercedes F1 Team; only slice item with that team."
+ },
+ {
+  "id": "wd-18",
+  "lang": "es",
+  "q": "universidad pública argentina fundada en 1613",
+  "gold": [
+   "http://www.wikidata.org/entity/Q1570489"
+  ],
+  "kind": "descriptive",
+  "note": "Universidad Nacional de Córdoba: P571 1613; the only other 1613 item is a Chilean crucifix."
+ },
+ {
+  "id": "wd-19",
+  "lang": "en",
+  "q": "Argentina's national flag-carrier airline",
+  "gold": [
+   "http://www.wikidata.org/entity/Q83535"
+  ],
+  "kind": "descriptive",
+  "note": "Aerolíneas Argentinas (no English label): only item described as flag carrier; ~30 other Argentine airlines are not."
+ },
+ {
+  "id": "wd-20",
+  "lang": "en",
+  "q": "1956 novel written by Antonio Di Benedetto",
+  "gold": [
+   "http://www.wikidata.org/entity/Q28163003"
+  ],
+  "kind": "descriptive",
+  "note": "Zama: only literary work mentioning Di Benedetto."
+ },
+ {
+  "id": "wd-21",
+  "lang": "en",
+  "q": "Salvo Palace Montevideo",
+  "gold": [
+   "http://www.wikidata.org/entity/Q1519373"
+  ],
+  "kind": "name",
+  "note": "Palacio Salvo, alias 'Salvo Palace'."
+ },
+ {
+  "id": "wd-22",
+  "lang": "es",
+  "q": "libro autobiográfico de Evita",
+  "gold": [
+   "http://www.wikidata.org/entity/Q6466373"
+  ],
+  "kind": "descriptive",
+  "note": "La razón de mi vida: the only item described as Eva Perón's autobiography ('Mi mensaje' is just 'libro de Eva Perón')."
+ },
+ {
+  "id": "wd-23",
+  "lang": "en",
+  "q": "Uruguayan short story writer born in Salto who died in Buenos Aires",
+  "gold": [
+   "http://www.wikidata.org/entity/Q16864"
+  ],
+  "kind": "descriptive",
+  "note": "Horacio Quiroga: P106 short story writer + P19 Salto + P20 Buenos Aires; María Inés Silva Vila (Salto-born short story writer) did not die in Buenos Aires."
+ },
+ {
+  "id": "wd-24",
+  "lang": "en",
+  "q": "song by Enrique Santos Discépolo and Mariano Mores",
+  "gold": [
+   "http://www.wikidata.org/entity/Q11334296"
+  ],
+  "kind": "descriptive",
+  "note": "Cafetín de Buenos Aires: only work described as by Discépolo and Mores ('En esta tarde gris' is Mores with Contursi)."
+ },
+ {
+  "id": "wd-25",
+  "lang": "en",
+  "q": "2019 Argentine documentary film co-directed by Mariano Mucci",
+  "gold": [
+   "http://www.wikidata.org/entity/Q63982184"
+  ],
+  "kind": "descriptive",
+  "note": "River, el más grande siempre: P57 includes Mariano Mucci; only film with that director."
+ },
+ {
+  "id": "wd-26",
+  "lang": "es",
+  "q": "Isla Martin Garcia",
+  "gold": [
+   "http://www.wikidata.org/entity/Q719903"
+  ],
+  "kind": "name",
+  "note": "Martín García Island, alias without accents. The airport item carries 'Aeropuerto' in its name."
+ },
+ {
+  "id": "wd-27",
+  "lang": "en",
+  "q": "Juan Manuel Blanes painting of the 1871 Buenos Aires epidemic",
+  "gold": [
+   "http://www.wikidata.org/entity/Q54006414"
+  ],
+  "kind": "descriptive",
+  "note": "'Un episodio de la fiebre amarilla en Buenos Aires' (P571 1871): one of two Blanes paintings; the other is the Oath of the 33 Orientales. Tests epidemic ~ fiebre amarilla."
+ },
+ {
+  "id": "wd-28",
+  "lang": "es",
+  "q": "batalla de 1852 en la que Urquiza derrotó a Rosas",
+  "gold": [
+   "http://www.wikidata.org/entity/Q616931"
+  ],
+  "kind": "descriptive",
+  "note": "Battle of Caseros: only 1852 battle; description names Urquiza and Rosas."
+ },
+ {
+  "id": "wd-29",
+  "lang": "en",
+  "q": "first football World Cup, hosted by Uruguay",
+  "gold": [
+   "http://www.wikidata.org/entity/Q48432"
+  ],
+  "kind": "descriptive",
+  "note": "1930 FIFA World Cup (the tournament); the final, groups, matches and 'Uruguay at the 1930 World Cup' are parts or participations, not the tournament."
+ },
+ {
+  "id": "wd-30",
+  "lang": "en",
+  "q": "1969 uprising in Córdoba against the Onganía dictatorship",
+  "gold": [
+   "http://www.wikidata.org/entity/Q2504044"
+  ],
+  "kind": "descriptive",
+  "note": "Cordobazo: only revolt/uprising mentioning Córdoba, 1969 and Onganía."
+ },
+ {
+  "id": "wd-31",
+  "lang": "es",
+  "q": "himno oficial de la provincia del Neuquén",
+  "gold": [
+   "http://www.wikidata.org/entity/Q5898133"
+  ],
+  "kind": "descriptive",
+  "note": "Neuquén trabun mapu: only anthem/regional hymn mentioning Neuquén."
+ },
+ {
+  "id": "wd-32",
+  "lang": "en",
+  "q": "River Plate football club Montevideo",
+  "gold": [
+   "http://www.wikidata.org/entity/Q980573"
+  ],
+  "kind": "name",
+  "note": "The Uruguayan Club Atlético River Plate (Montevideo, 1932), not the Buenos Aires club Q15799; tests disambiguation of a shared name."
+ },
+ {
+  "id": "wd-33",
+  "lang": "en",
+  "q": "Montevideo football stadium inaugurated in 1930",
+  "gold": [
+   "http://www.wikidata.org/entity/Q498245"
+  ],
+  "kind": "descriptive",
+  "note": "Estadio Centenario: only stadium/venue with P571 1930."
+ },
+ {
+  "id": "wd-34",
+  "lang": "en",
+  "q": "seat of the executive and office of Argentina's president",
+  "gold": [
+   "http://www.wikidata.org/entity/Q478926"
+  ],
+  "kind": "descriptive",
+  "note": "Casa Rosada; Torre Ejecutiva is Uruguay's, Chapadmalal is a retreat, the Casa Rosada museum is a museum."
+ },
+ {
+  "id": "wd-35",
+  "lang": "es",
+  "q": "tratado de 1820 entre Sarratea y gobernadores de la Liga Federal",
+  "gold": [
+   "http://www.wikidata.org/entity/Q1519697"
+  ],
+  "kind": "descriptive",
+  "note": "Treaty of Pilar: only item naming Sarratea and the Liga Federal; Treaty of Benegas (1820) is between Buenos Aires and Santa Fe."
+ },
+ {
+  "id": "wd-36",
+  "lang": "en",
+  "q": "UNESCO-listed meatpacking factory on the Uruguay River",
+  "gold": [
+   "http://www.wikidata.org/entity/Q5504530"
+  ],
+  "kind": "descriptive",
+  "note": "Frigorífico Anglo del Uruguay: class factory, P452 meat industry, P206 Uruguay River, UNESCO in description. The enclosing 'Fray Bentos Industrial Landscape' is a cultural landscape, not a factory."
+ },
+ {
+  "id": "wd-37",
+  "lang": "en",
+  "q": "Perito Moreno glacier",
+  "gold": [
+   "http://www.wikidata.org/entity/Q367943"
+  ],
+  "kind": "name",
+  "note": "Perito Moreno Glacier; other Perito Moreno items are a town, park, airport, etc."
+ },
+ {
+  "id": "wd-38",
+  "lang": "en",
+  "q": "Uruguayan painter who created América Invertida",
+  "gold": [
+   "http://www.wikidata.org/entity/Q520713"
+  ],
+  "kind": "descriptive",
+  "note": "Joaquín Torres-García: only item with P800 América Invertida."
+ },
+ {
+  "id": "wd-39",
+  "lang": "en",
+  "q": "Argentine newspaper of record founded in 1870",
+  "gold": [
+   "http://www.wikidata.org/entity/Q1507630"
+  ],
+  "kind": "descriptive",
+  "note": "La Nación: only newspaper with P571 1870."
+ },
+ {
+  "id": "wd-40",
+  "lang": "es",
+  "q": "poeta Juana de América",
+  "gold": [
+   "http://www.wikidata.org/entity/Q237914"
+  ],
+  "kind": "name",
+  "note": "'Juana de América' is an alias of Juana de Ibarbourou; a school is also named after it, hence 'poeta'."
+ }
+]

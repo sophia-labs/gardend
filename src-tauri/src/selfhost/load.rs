@@ -45,6 +45,9 @@ pub struct LoadArgs {
     pub threads: Option<usize>,
     /// A rough ceiling on the loader's buffers, in megabytes.
     pub max_memory_mb: Option<usize>,
+    /// `--no-index`: skip refreshing the graph's entity index (`find`) after
+    /// the load, on a graph where it is on.
+    pub no_index: bool,
 }
 
 /// What a load did, for the person and for tests.
@@ -89,7 +92,21 @@ pub fn load(profile_dir: &Path, args: &LoadArgs) -> Result<String, String> {
         ));
     }
     let report = load_into_profile(profile_dir, args, &mut |line| eprintln!("{line}"))?;
-    Ok(report.summary())
+    let mut text = report.summary();
+    // `find` on: what was loaded is indexed now (only changed entities embed)
+    if !args.no_index {
+        match super::index::refresh_after_load(profile_dir, &args.graph, args.threads) {
+            Some(Ok(summary)) => text.push_str(&format!("{summary}\n")),
+            Some(Err(error)) => {
+                return Err(format!(
+                    "{text}the load committed, but the entity index failed: {error}\n(retry with `gardend index --graph {}`)",
+                    args.graph
+                ))
+            }
+            None => {}
+        }
+    }
+    Ok(text)
 }
 
 /// The load itself, with progress lines handed to `progress`. Does not check

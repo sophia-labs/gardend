@@ -19,7 +19,7 @@ use crate::{
     app_runtime::AppHandle,
     crdt_engine::{
         persistence_coordinator::{GraphPersistenceCoordinator, SharedLease},
-        rooms::{serve_room, RoomRegistry},
+        rooms::{serve_room_with, RoomAccess, RoomRegistry},
     },
     document_paths::document_dir,
     document_record_store::{read_document_record_for_identity, SidecarBackfill},
@@ -109,6 +109,95 @@ pub(crate) fn authorize_ws(
         StatusCode::UNAUTHORIZED,
         "missing or invalid loopback token (Authorization header or bearer.<token> subprotocol)",
     ))
+}
+
+/// Largest frame a visitor's connection takes (W6): a fenced writer's, and a
+/// read-only reader's (which should send none that matter).
+const FENCED_MAX_MESSAGE: usize = 256 * 1024;
+const READ_ONLY_MAX_MESSAGE: usize = 64 * 1024;
+
+/// Who may use a room, and how (W6). Every credential `authorize_ws` admits
+/// keeps `ReadWrite`, exactly as before. Then, on a public Sophia and a
+/// public graph only: a Sophia account (an ID token, as a bearer or a
+/// `bearer.<token>` subprotocol) reads, and writes its own documents inside
+/// its fence; a caller with no credential at all reads.
+pub(crate) async fn room_access(
+    headers: &HeaderMap,
+    state: &LoopbackState,
+    graph_id: &str,
+    document_id: Option<&str>,
+    required_scope: &str,
+) -> Result<(Option<String>, RoomAccess), Response> {
+    let refused = match authorize_ws(headers, state, required_scope) {
+        Ok(subprotocol) => return Ok((subprotocol, RoomAccess::ReadWrite)),
+        Err(response) => response,
+    };
+    let Some(public) = state.self_host.public() else {
+        return Err(refused);
+    };
+    if !public.is_public_graph(graph_id) {
+        return Err(refused);
+    }
+    let offered = headers
+        .get("sec-websocket-protocol")
+        .and_then(|v| v.to_str().ok())
+        .map(|protocols| protocols.split(',').map(str::trim).map(str::to_string).collect::<Vec<_>>())
+        .unwrap_or_default();
+    let jwt_entry = offered
+        .iter()
+        .find(|entry| {
+            entry
+                .strip_prefix("bearer.")
+                .is_some_and(crate::public_mode::looks_like_jwt)
+        })
+        .cloned();
+    let jwt = bearer_token(headers)
+        .filter(|token| crate::public_mode::looks_like_jwt(token))
+        .map(str::to_string)
+        .or_else(|| jwt_entry.as_deref().and_then(|entry| entry.strip_prefix("bearer.")).map(str::to_string));
+    if let (Some(jwt), Some(accounts)) = (jwt, public.accounts()) {
+        accounts.ensure_signing_key(&jwt).await;
+        let identity = accounts.verify(&jwt).map_err(|error| {
+            log::debug!("public mode: refused an account token on a room: {error}");
+            loopback_error(StatusCode::UNAUTHORIZED, "invalid or expired Sophia account token (sign in again)")
+        })?;
+        let account = crate::visitor_fence::VisitorAccount {
+            sub: identity.sub,
+            email_verified: identity.email_verified,
+        };
+        let subprotocol = jwt_entry.or_else(|| offered.first().cloned());
+        let account_id = public
+            .visitor_folders()
+            .map(|folders| folders.account_id(&account.sub));
+        if let Some(document_id) = document_id {
+            if let Ok(fence) = crate::visitor_fence::fence_for(Some(public), Some(&account), graph_id) {
+                return Ok((
+                    subprotocol,
+                    RoomAccess::Fenced {
+                        fence,
+                        document_id: document_id.to_string(),
+                    },
+                ));
+            }
+        }
+        return Ok((subprotocol, RoomAccess::ReadOnly { account: account_id }));
+    }
+    // No credential of its own at all: an anonymous reader. A wrong key stays 401.
+    let carries_credential = bearer_token(headers).is_some()
+        || offered.iter().any(|entry| entry.starts_with("bearer."))
+        || headers.contains_key(crate::loopback_self_host::ACCESS_JWT_HEADER);
+    if carries_credential {
+        return Err(refused);
+    }
+    Ok((offered.first().cloned(), RoomAccess::ReadOnly { account: None }))
+}
+
+fn with_access_limits(ws: WebSocketUpgrade, access: &RoomAccess) -> WebSocketUpgrade {
+    match access {
+        RoomAccess::ReadWrite => ws,
+        RoomAccess::ReadOnly { .. } => ws.max_message_size(READ_ONLY_MAX_MESSAGE),
+        RoomAccess::Fenced { .. } => ws.max_message_size(FENCED_MAX_MESSAGE),
+    }
 }
 
 fn ws_client_token_scopes(state: &LoopbackState, token: &str) -> Option<Vec<String>> {
@@ -264,10 +353,20 @@ async fn doc_room(
     headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> Response {
-    let subprotocol = match authorize_ws(&headers, &state, DOC_ROOM_SCOPE) {
-        Ok(value) => value,
-        Err(response) => return response,
-    };
+    let (subprotocol, access) =
+        match room_access(&headers, &state, &graph_id, Some(&doc_id), DOC_ROOM_SCOPE).await {
+            Ok(value) => value,
+            Err(response) => return response,
+        };
+    // A public reader (or visitor) does not open a document in the Trash: it is
+    // the owner's to see (W6, sealed exam C1).
+    if !matches!(access, RoomAccess::ReadWrite) {
+        if let Ok(trashed) = crate::visitor_fence::trashed_documents(&state.app, &graph_id).await {
+            if trashed.contains(doc_id.as_str()) {
+                return loopback_error(StatusCode::NOT_FOUND, "document not found");
+            }
+        }
+    }
     // Room construction participates in graph lifecycle. Deletion evicts the
     // registry under this same lease, so lookup + insertion + scheduler setup
     // cannot land a fresh uncancelled room immediately after deletion.
@@ -317,6 +416,7 @@ async fn doc_room(
         Some(protocol) => ws.protocols([protocol]),
         None => ws,
     };
+    let ws = with_access_limits(ws, &access);
     let socket_lease = match state.lifecycle.open_websocket() {
         Ok(lease) => lease,
         Err(_) => {
@@ -329,7 +429,7 @@ async fn doc_room(
     let app = state.app.clone();
     ws.on_upgrade(move |socket| async move {
         let _socket_lease = socket_lease;
-        serve_room(socket, room, app, graph_id).await;
+        serve_room_with(socket, room, app, graph_id, access).await;
     })
 }
 
@@ -340,10 +440,11 @@ async fn workspace_room(
     headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> Response {
-    let subprotocol = match authorize_ws(&headers, &state, WORKSPACE_ROOM_SCOPE) {
-        Ok(value) => value,
-        Err(response) => return response,
-    };
+    let (subprotocol, access) =
+        match room_access(&headers, &state, &graph_id, None, WORKSPACE_ROOM_SCOPE).await {
+            Ok(value) => value,
+            Err(response) => return response,
+        };
     let coordinator = state.app.state::<GraphPersistenceCoordinator>();
     let graph_lease = match coordinator.acquire_lifecycle_shared(&graph_id).await {
         Ok(lease) => lease,
@@ -387,6 +488,7 @@ async fn workspace_room(
         Some(protocol) => ws.protocols([protocol]),
         None => ws,
     };
+    let ws = with_access_limits(ws, &access);
     let socket_lease = match state.lifecycle.open_websocket() {
         Ok(lease) => lease,
         Err(_) => {
@@ -399,6 +501,6 @@ async fn workspace_room(
     let app = state.app.clone();
     ws.on_upgrade(move |socket| async move {
         let _socket_lease = socket_lease;
-        serve_room(socket, room, app, graph_id).await;
+        serve_room_with(socket, room, app, graph_id, access).await;
     })
 }

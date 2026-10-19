@@ -766,6 +766,22 @@ impl Room {
     /// The returned update is the canonical subset safe to broadcast. It may
     /// include synthetic clock+1 removals for client IDs superseded by a newer
     /// incarnation. Stale or non-owning frames are omitted.
+    /// The entries of `update` whose client id no other live socket holds
+    /// (a visitor's awareness; `None` when nothing is left).
+    async fn awareness_held_by_this_socket(
+        &self,
+        mut update: AwarenessUpdate,
+        owner: ConnectionId,
+    ) -> Option<AwarenessUpdate> {
+        let state = self.awareness.lock().await;
+        update.clients.retain(|client, _| {
+            !state
+                .get(client)
+                .is_some_and(|existing| existing.owner.is_some_and(|holder| holder != owner))
+        });
+        (!update.clients.is_empty()).then_some(update)
+    }
+
     async fn merge_awareness(
         &self,
         update: &AwarenessUpdate,
@@ -997,7 +1013,15 @@ impl Room {
         let mutation = {
             let doc = self.doc.lock().await;
             let mut txn = doc.transact_mut();
-            match mutate(&doc, &mut txn) {
+            match mutate(&doc, &mut txn).and_then(|result| {
+                // W6: a fenced operation's document writes meet the visitor
+                // content policy before they commit (an Err evicts the room,
+                // so nothing of it persists).
+                match crate::visitor_fence::current_room_policy() {
+                    Some(policy) => self.check_visitor_policy(&policy, &txn).map(|()| result),
+                    None => Ok(result),
+                }
+            }) {
                 Ok(result) => {
                     let update = txn.encode_update_v1();
                     if update.len() > 3 {
@@ -1031,6 +1055,80 @@ impl Room {
             let _ = self.tx.send(message);
         }
         Ok(result)
+    }
+
+    /// The document this room holds, from its state path
+    /// (`ydocs/documents/<id>/update-v1.bin`); `None` for the workspace room.
+    fn document_id(&self) -> Option<String> {
+        let dir = self.state_path.parent()?;
+        let parent = dir.parent()?;
+        (parent.file_name()? == "documents" && parent.parent()?.file_name()? == "ydocs")
+            .then(|| dir.file_name()?.to_str().map(str::to_string))
+            .flatten()
+    }
+
+    /// W6: a fenced operation writes only its own document's room, and leaves
+    /// it within the visitor content policy.
+    fn check_visitor_policy(
+        &self,
+        policy: &crate::visitor_fence::RoomPolicy,
+        txn: &yrs::TransactionMut<'_>,
+    ) -> Result<(), String> {
+        let Some(document_id) = self.document_id() else {
+            return Ok(()); // the workspace room: the operation's own checks hold
+        };
+        if policy.document_id.as_deref() != Some(document_id.as_str()) {
+            return Err(format!(
+                "{}a visitor's write reached the document {document_id:?}, which it does not name",
+                crate::visitor_fence::POLICY_REFUSAL
+            ));
+        }
+        let size = txn
+            .encode_state_as_update_v1(&yrs::StateVector::default())
+            .len();
+        crate::visitor_fence::check_document_policy(txn, &policy.fence, size, None)
+            .map_err(|error| format!("{}{error}", crate::visitor_fence::POLICY_REFUSAL))
+    }
+
+    /// W6: what one client update would do to this room, worked out on a copy
+    /// (the room is untouched): whether it changes anything, and if so whether
+    /// `check` accepts the document it would make (`check` gets the copy, its
+    /// encoded size and the comments before the update).
+    pub(crate) async fn shadow_apply(
+        &self,
+        update: &[u8],
+        check: impl FnOnce(&yrs::Transaction<'_>, usize, &serde_json::Map<String, serde_json::Value>) -> Result<(), String>,
+    ) -> Result<bool, String> {
+        let state = {
+            let doc = self.doc.lock().await;
+            let txn = doc.transact();
+            txn.encode_state_as_update_v1(&yrs::StateVector::default())
+        };
+        let shadow = Doc::new();
+        {
+            let mut txn = shadow.transact_mut();
+            let base = Update::decode_v1(&state).map_err(|error| format!("decode room state: {error}"))?;
+            txn.apply_update(base).map_err(|error| format!("copy room state: {error}"))?;
+        }
+        let before = {
+            let txn = shadow.transact();
+            crate::visitor_fence::document_comments(&txn)
+        };
+        let changed = {
+            let decoded = Update::decode_v1(update).map_err(|error| format!("decode client update: {error}"))?;
+            let mut txn = shadow.transact_mut();
+            txn.apply_update(decoded).map_err(|error| format!("apply client update: {error}"))?;
+            txn.encode_update_v1().len() > 3
+        };
+        if !changed {
+            return Ok(false);
+        }
+        let txn = shadow.transact();
+        let size = txn
+            .encode_state_as_update_v1(&yrs::StateVector::default())
+            .len();
+        check(&txn, size, &before)?;
+        Ok(true)
     }
 
     /// Apply a sync-client update through the same path used by the websocket
@@ -1453,9 +1551,45 @@ where
         .map_err(|_| "websocket state delivery timed out".to_string())?
 }
 
+/// What the other end of a room connection may send (W6). Every caller the
+/// rooms admitted before public mode is `ReadWrite`, exactly as before.
+#[derive(Debug, Clone)]
+pub(crate) enum RoomAccess {
+    /// A credential holding the room's write scope.
+    ReadWrite,
+    /// A public-mode visitor: reads the room; a frame that would change it
+    /// closes the connection (4403). `account`: a signed-in account's id, so
+    /// its presence is stamped; an anonymous visitor publishes none.
+    ReadOnly { account: Option<String> },
+    /// A signed-in account with a fence: its frames land only while the
+    /// document is its own and inside the fence, and pass the content policy.
+    Fenced {
+        fence: crate::visitor_fence::WriteFence,
+        document_id: String,
+    },
+}
+
+/// The close code a refused visitor frame gets (application range).
+pub(crate) const VISITOR_REFUSED_CLOSE: u16 = 4403;
+
 /// Drive one client connection through the room (y-websocket protocol).
 pub async fn serve_room(socket: WebSocket, room: Arc<Room>, app: AppHandle, graph_id: String) {
+    serve_room_with(socket, room, app, graph_id, RoomAccess::ReadWrite).await
+}
+
+/// [`serve_room`] for a connection with the given [`RoomAccess`].
+pub(crate) async fn serve_room_with(
+    socket: WebSocket,
+    room: Arc<Room>,
+    app: AppHandle,
+    graph_id: String,
+    access: RoomAccess,
+) {
     let connection_id = room.allocate_connection_id();
+    // W6: a visitor's frames that change nothing still cost a copy of the room;
+    // a connection gets a few, then it is closed.
+    let mut visitor_noop_frames: u32 = 0;
+    const VISITOR_NOOP_FRAMES: u32 = 16;
     let (mut sink, mut stream) = socket.split();
     let mut rx = room.tx.subscribe();
 
@@ -1535,6 +1669,55 @@ pub async fn serve_room(socket: WebSocket, room: Arc<Room>, app: AppHandle, grap
                     }
                     Message::Sync(SyncMessage::SyncStep2(update))
                     | Message::Sync(SyncMessage::Update(update)) => {
+                        // W6: what a visitor may send.
+                        // An empty update (a fresh client's SyncStep2) costs nothing.
+                        let empty = !matches!(access, RoomAccess::ReadWrite)
+                            && Update::decode_v1(&update).is_ok_and(|decoded| decoded.is_empty());
+                        if empty {
+                            continue;
+                        }
+                        let refused = match &access {
+                            RoomAccess::ReadWrite => None,
+                            RoomAccess::ReadOnly { .. } => match room.shadow_apply(&update, |_, _, _| Ok(())).await {
+                                Ok(false) => {
+                                    visitor_noop_frames += 1;
+                                    if visitor_noop_frames <= VISITOR_NOOP_FRAMES {
+                                        continue;
+                                    }
+                                    Some("too many frames that change nothing".to_string())
+                                }
+                                Ok(true) => Some("read-only: visitors read this room".to_string()),
+                                Err(error) => Some(error),
+                            },
+                            RoomAccess::Fenced { fence, document_id } => {
+                                match crate::visitor_fence::admit_room_update(
+                                    &app, &graph_id, fence, document_id, &room, &update,
+                                )
+                                .await
+                                {
+                                    Ok(true) => None,
+                                    Ok(false) => {
+                                        visitor_noop_frames += 1;
+                                        if visitor_noop_frames <= VISITOR_NOOP_FRAMES {
+                                            continue;
+                                        }
+                                        Some("too many frames that change nothing".to_string())
+                                    }
+                                    Err(error) => Some(error),
+                                }
+                            }
+                        };
+                        if let Some(reason) = refused {
+                            log::info!("visitor room frame refused on {graph_id}: {reason}");
+                            let reason: String = reason.chars().take(110).collect();
+                            let _ = sink
+                                .send(WsMessage::Close(Some(axum::extract::ws::CloseFrame {
+                                    code: VISITOR_REFUSED_CLOSE,
+                                    reason: reason.into(),
+                                })))
+                                .await;
+                            break;
+                        }
                         let _graph_lease = if let Some(coordinator) = app.try_state::<
                             super::persistence_coordinator::GraphPersistenceCoordinator,
                         >() {
@@ -1577,6 +1760,33 @@ pub async fn serve_room(socket: WebSocket, room: Arc<Room>, app: AppHandle, grap
                         }
                     }
                     Message::Awareness(update) => {
+                        // W6: a visitor's presence is the account's own (or
+                        // none, for an anonymous visitor).
+                        let update = match &access {
+                            RoomAccess::ReadWrite => update,
+                            RoomAccess::ReadOnly { account } => {
+                                match crate::visitor_fence::stamp_awareness_update(&app, account.as_deref(), update) {
+                                    Some(update) => update,
+                                    None => continue,
+                                }
+                            }
+                            RoomAccess::Fenced { fence, .. } => {
+                                match crate::visitor_fence::stamp_awareness_update(&app, Some(&fence.account), update) {
+                                    Some(update) => update,
+                                    None => continue,
+                                }
+                            }
+                        };
+                        // A visitor never takes over a client id another live
+                        // socket holds (sealed exam 2026-10-15: a higher clock
+                        // displaced a collaborator's presence).
+                        let update = match &access {
+                            RoomAccess::ReadWrite => update,
+                            _ => match room.awareness_held_by_this_socket(update, connection_id).await {
+                                Some(update) => update,
+                                None => continue,
+                            },
+                        };
                         if let Some(accepted) = room.merge_awareness(&update, connection_id).await {
                             let rebroadcast = Message::Awareness(accepted).encode_v1();
                             let _ = room.tx.send(rebroadcast);

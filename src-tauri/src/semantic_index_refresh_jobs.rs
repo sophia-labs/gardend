@@ -23,6 +23,10 @@ pub(super) struct RefreshSemanticIndexInput {
     pub(super) graph_id: String,
     #[serde(default, alias = "flush_boundary")]
     pub(super) flush_boundary: SemanticRefreshFlushBoundary,
+    /// Refresh only the RDF entity index (`find`), not the document blocks:
+    /// what `gardend index` asks a running gardend for.
+    #[serde(default, alias = "entities_only")]
+    pub(super) entities_only: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
@@ -113,16 +117,34 @@ fn spawn_semantic_index_refresh_job(
 
         let sink =
             SemanticIndexProgressSink::new(jobs.clone(), job_id.clone(), input.graph_id.clone());
-        let result = refresh_semantic_index_with_progress(
-            &app,
-            &input.graph_id,
-            input.flush_boundary,
-            Some(&sink),
-        )
-        .and_then(|status| {
-            serde_json::to_value(status)
-                .map_err(|error| format!("serialize semantic index status: {error}"))
-        });
+        let result = if input.entities_only {
+            Ok(serde_json::json!({ "graphId": input.graph_id }))
+        } else {
+            refresh_semantic_index_with_progress(
+                &app,
+                &input.graph_id,
+                input.flush_boundary,
+                Some(&sink),
+            )
+            .and_then(|status| {
+                serde_json::to_value(status)
+                    .map_err(|error| format!("serialize semantic index status: {error}"))
+            })
+        };
+
+        // A graph whose owner enabled `find` gets its RDF entity index
+        // refreshed in the same job (inert otherwise).
+        let result = match refresh_entity_index_if_enabled(&app, &input.graph_id, &sink) {
+            Ok(None) => result,
+            Ok(Some(report)) => result.map(|mut value| {
+                value["entityIndex"] = serde_json::to_value(&report).unwrap_or_default();
+                value
+            }),
+            Err(error) => match result {
+                Ok(_) => Err(format!("entity index: {error}")),
+                Err(blocks) => Err(format!("{blocks}; entity index: {error}")),
+            },
+        };
 
         if jobs.is_cancelled(&job_id).unwrap_or(false) {
             return;
@@ -144,6 +166,41 @@ fn spawn_semantic_index_refresh_job(
             log::error!("Failed to finish semantic index job {job_id}: {error}");
         }
     });
+}
+
+/// The RDF entity index of `graph_id`, when its owner enabled it.
+pub(super) fn refresh_entity_index_if_enabled(
+    app: &AppHandle,
+    graph_id: &str,
+    sink: &SemanticIndexProgressSink,
+) -> Result<Option<crate::entity_index::EntityIndexReport>, String> {
+    let graph_dir = existing_graph_dir(app, graph_id)?;
+    if !crate::entity_index::entity_index_enabled(&graph_dir) {
+        return Ok(None);
+    }
+    let store = crate::rdf_service::open_graph_store(&graph_dir)?;
+    let report = crate::entity_index::refresh_entity_index(
+        graph_id,
+        &graph_dir,
+        &store,
+        &crate::entity_index::RefreshOptions::default(),
+        &mut |stage, done, total| {
+            if sink.is_cancelled().unwrap_or(false) {
+                return Err("cancelled".to_string());
+            }
+            sink.report(
+                &format!("entities-{stage}"),
+                "Refreshing the RDF entity index",
+                done,
+                total,
+                serde_json::json!({}),
+            )
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+        },
+    )?;
+    log::info!("{}", report.summary());
+    Ok(Some(report))
 }
 
 #[cfg(test)]

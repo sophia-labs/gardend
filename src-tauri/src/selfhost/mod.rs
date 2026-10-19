@@ -9,12 +9,14 @@
 
 mod chat;
 mod cli;
+mod index;
 mod load;
 mod serve;
 mod service;
 mod tokens;
+mod visitors;
 
-pub use cli::{parse, run, Command, ServeArgs};
+pub use cli::{parse, run, Command, ServeArgs, VisitorsAction};
 pub use load::{LoadArgs, LoadReport};
 pub use serve::{prepare_serve, ServePlan, ServeStart};
 pub use service::ServiceArgs;

@@ -2541,7 +2541,7 @@
     },
     {
       "name": "sparql_query",
-      "description": "Run a read SPARQL query against a local graph.",
+      "description": "Run a read SPARQL query against a local graph. A SELECT answer longer than the row ceiling is truncated and carries `next`; pass it back as `cursor` with the same query for the next page.",
       "inputSchema": {
         "type": "object",
         "required": [
@@ -2564,6 +2564,10 @@
             "type": "integer",
             "minimum": 1,
             "description": "Requested materialized row/triple ceiling; clamped by the server."
+          },
+          "cursor": {
+            "type": "string",
+            "description": "The `next` of a truncated SELECT answer: send it with the same query to fetch the next page. Refused if the query differs or the graph was written since."
           }
         }
       }
@@ -4060,6 +4064,72 @@
             "type": "integer",
             "minimum": 1,
             "maximum": 50
+          }
+        }
+      }
+    },
+    {
+      "name": "find",
+      "description": "Find things in a graph's own RDF data by meaning and by words (Spanish, English and other languages): datasets, code-list concepts, classes and properties, organizations, places, people. Each hit is {iri, label, type, score, says, via?}: a distribution or other part answers as the dataset it belongs to, with `via` naming the part that matched. The response names each hit's named graph with its rights or licence, and `next` says how to read every fact of a hit with sparql_query. Use find for data and entities; use search_documents or semantic_search for documents and notes. Answers only for graphs whose owner enabled it (gardend index --graph <id>).",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graphId",
+          "query"
+        ],
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string",
+            "description": "What you are looking for, in any language: a name, a description, or a need (\"fuel prices at the pump\")."
+          },
+          "k": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 25,
+            "description": "How many hits (default 5)."
+          },
+          "kinds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "dataset",
+                "distribution",
+                "concept",
+                "scheme",
+                "class",
+                "property",
+                "entity",
+                "document"
+              ]
+            },
+            "description": "Only these kinds."
+          },
+          "types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Only these type labels, as hits show them (e.g. \"department\")."
+          },
+          "graphs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Only entities from these named graphs."
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "fused",
+              "vector",
+              "lexical"
+            ],
+            "description": "fused (default): meaning 0.7 + words 0.3; vector: meaning only; lexical: words only (exact names, codes)."
           }
         }
       }

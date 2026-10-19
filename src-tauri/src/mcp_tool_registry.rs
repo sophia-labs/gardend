@@ -208,8 +208,9 @@ mod tests {
         // (custom_css/read_custom_css/write_custom_css, agent_status,
         // status, create_document_once, create_artifact_text,
         // write_artifact_text) = 112 (113 with the one added since), then
-        // + datasheet_import and datasheet_facts (datasheets slice 1) = 115.
-        assert_eq!(tools.len(), 115);
+        // + datasheet_import and datasheet_facts (datasheets slice 1) = 115,
+        // + find (the RDF entity index) = 116.
+        assert_eq!(tools.len(), 116);
 
         let known_scopes = loopback_scope_keys()
             .into_iter()
@@ -327,8 +328,8 @@ mod tests {
         .expect("desktop tools list serializes");
         let tools = result["tools"].as_array().expect("tools");
 
-        // 115 registered tools minus the two explicitly optional CSS schemas.
-        assert_eq!(tools.len(), 113);
+        // 116 registered tools minus the two explicitly optional CSS schemas.
+        assert_eq!(tools.len(), 114);
         assert!(tools.iter().any(|tool| tool["name"] == "read_document"));
         assert!(tools.iter().any(|tool| tool["name"] == "write_document"));
         assert!(tools.iter().any(|tool| tool["name"] == "create_document_once"));
@@ -545,7 +546,7 @@ mod tests {
             tools.len()
         }
 
-        assert_eq!(audit("catalog", &mcp_tools_list_result()), 115);
+        assert_eq!(audit("catalog", &mcp_tools_list_result()), 116);
         let desktop = crate::cell_graph_boundary::CellGraphBoundary::for_test(None);
         let cell = crate::cell_graph_boundary::CellGraphBoundary::for_test(Some("graph-a"));
         for role in [

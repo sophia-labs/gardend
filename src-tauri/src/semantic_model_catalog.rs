@@ -31,6 +31,12 @@ pub(crate) struct SemanticModelSpec {
     pub(crate) hf_repo: &'static str,
     pub(crate) dimensions: usize,
     pub(crate) max_tokens: usize,
+    /// What the model was trained to see before a query and before a passage,
+    /// and the name of that pair. An index records the scheme it was built
+    /// with; a query against it uses the same one.
+    pub(crate) query_prefix: &'static str,
+    pub(crate) passage_prefix: &'static str,
+    pub(crate) prefix_scheme: &'static str,
     pub(crate) backend: SemanticModelBackend,
     pub(crate) runtime: &'static str,
     pub(crate) default_batch_size: usize,
@@ -52,6 +58,9 @@ pub(crate) fn semantic_model_specs() -> Vec<SemanticModelSpec> {
             hf_repo: "Qdrant/bge-small-en-v1.5-onnx-Q",
             dimensions: 384,
             max_tokens: 512,
+            query_prefix: BGE_QUERY_PREFIX,
+            passage_prefix: "",
+            prefix_scheme: "bge-v1.5",
             backend: SemanticModelBackend::FastembedText(EmbeddingModel::BGESmallENV15Q),
             runtime: "local-fastembed-onnx-cpu",
             default_batch_size: 4,
@@ -77,6 +86,9 @@ pub(crate) fn semantic_model_specs() -> Vec<SemanticModelSpec> {
             hf_repo: "Xenova/bge-small-en-v1.5",
             dimensions: 384,
             max_tokens: 512,
+            query_prefix: BGE_QUERY_PREFIX,
+            passage_prefix: "",
+            prefix_scheme: "bge-v1.5",
             backend: SemanticModelBackend::FastembedText(EmbeddingModel::BGESmallENV15),
             runtime: "local-fastembed-onnx-cpu",
             default_batch_size: 4,
@@ -102,6 +114,9 @@ pub(crate) fn semantic_model_specs() -> Vec<SemanticModelSpec> {
             hf_repo: "Qdrant/all-MiniLM-L6-v2-onnx",
             dimensions: 384,
             max_tokens: 256,
+            query_prefix: "",
+            passage_prefix: "",
+            prefix_scheme: "none",
             backend: SemanticModelBackend::FastembedText(EmbeddingModel::AllMiniLML6V2),
             runtime: "local-fastembed-onnx-cpu",
             default_batch_size: 8,
@@ -123,6 +138,9 @@ pub(crate) fn semantic_model_specs() -> Vec<SemanticModelSpec> {
             hf_repo: "nomic-ai/nomic-embed-text-v2-moe",
             dimensions: 768,
             max_tokens: 512,
+            query_prefix: "search_query: ",
+            passage_prefix: "search_document: ",
+            prefix_scheme: "nomic",
             backend: SemanticModelBackend::NomicV2Moe,
             runtime: "local-fastembed-candle-cpu",
             default_batch_size: if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
@@ -175,6 +193,9 @@ fn remote_pool_spec(identity: &RemotePoolIdentity) -> SemanticModelSpec {
         hf_repo: "",
         dimensions: identity.dimensions,
         max_tokens: 512,
+        query_prefix: remote_prefixes(identity.pool_model_id).0,
+        passage_prefix: remote_prefixes(identity.pool_model_id).1,
+        prefix_scheme: remote_prefixes(identity.pool_model_id).2,
         backend: SemanticModelBackend::RemotePool,
         runtime: "remote-embeddings-pool-http",
         default_batch_size: 32,
@@ -190,6 +211,37 @@ fn remote_pool_spec(identity: &RemotePoolIdentity) -> SemanticModelSpec {
             "requires network connectivity to the configured pool",
             "a mid-process pool model swap surfaces as a mismatch until the cell recycles",
         ],
+    }
+}
+
+const BGE_QUERY_PREFIX: &str = "Represent this sentence for searching relevant passages: ";
+
+/// The pool serves whatever model its operator chose; its prefixes follow the
+/// model family named by its identity.
+fn remote_prefixes(model_id: &str) -> (&'static str, &'static str, &'static str) {
+    let id = model_id.to_ascii_lowercase();
+    if id.contains("e5") {
+        ("query: ", "passage: ", "e5")
+    } else if id.contains("bge-m3") {
+        ("", "", "none")
+    } else if id.contains("bge") && id.contains("en") {
+        (BGE_QUERY_PREFIX, "", "bge-v1.5")
+    } else if id.contains("nomic") {
+        ("search_query: ", "search_document: ", "nomic")
+    } else {
+        ("", "", "none")
+    }
+}
+
+/// Indexes built before prefixes were per model carry no scheme: they were
+/// embedded with `search_document: ` and must be queried with `search_query: `.
+pub(crate) const LEGACY_PREFIX_SCHEME: &str = "legacy-task";
+
+/// (query, passage) prefixes for an index built with `scheme`.
+pub(crate) fn semantic_prefixes_for(spec: &SemanticModelSpec, scheme: Option<&str>) -> (String, String) {
+    match scheme {
+        Some(scheme) if scheme == spec.prefix_scheme => (spec.query_prefix.to_string(), spec.passage_prefix.to_string()),
+        _ => ("search_query: ".to_string(), "search_document: ".to_string()),
     }
 }
 

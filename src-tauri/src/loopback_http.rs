@@ -169,14 +169,24 @@ fn public_account_caller(
         return None;
     }
     Some(match accounts.verify(token) {
-        Ok(account) => Ok(LoopbackCaller {
-            principal: LoopbackPrincipal::Account {
-                sub: account.sub,
-                email: account.email,
-                email_verified: account.email_verified,
-            },
-            scopes: public_scopes(),
-        }),
+        Ok(account) => {
+            // W6: a route the account's fence admitted lends it that route's
+            // scopes, for this one request (`visitor_fence::rest_admission`).
+            let mut scopes = public_scopes();
+            for scope in crate::visitor_fence::current_lent_scopes(&format!("cognito:{}", account.sub)) {
+                if !scopes.contains(&scope) {
+                    scopes.push(scope);
+                }
+            }
+            Ok(LoopbackCaller {
+                principal: LoopbackPrincipal::Account {
+                    sub: account.sub,
+                    email: account.email,
+                    email_verified: account.email_verified,
+                },
+                scopes,
+            })
+        }
         Err(error) => {
             log::debug!("public mode: refused an account token: {error}");
             Err(loopback_error(

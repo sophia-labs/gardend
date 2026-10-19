@@ -624,8 +624,12 @@ it as a delegation token binds one (another graph anywhere in the arguments is
 refused). A write tool answers `-32003` ("not open to visitors"), a graph not
 listed `-32004` ("graph not found").
 
-**The UI.** WebSocket rooms need write scopes, so a visitor has none: the app
-must read documents over HTTP for them.
+**The UI.** A visitor (and an account) reads the rooms: the workspace room
+and every document room of a listed graph serve their state to a caller with
+no credential, and close (code `4403`) on a frame that would change anything.
+An anonymous reader's presence is dropped. So the app works for visitors as it
+does for the owner, read-only (and an account writes its own notes; next
+section).
 
 **Services.** A visitor reaches the services `services` lists, on a listed
 graph's path (`/services/<id>/g/<graph>/...`) or on the service's own paths;
@@ -679,8 +683,87 @@ Without a site, the app stays at `/`. Content types an agent reads by: `.md`
 `GET /self-host.json` carries `"public": {"graphs", "services", "site",
 "app", "mcp": "/mcp", "visitorIdHeader", "modelKeyHeader", "limits": {...},
 "accounts": {"kind": "cognito", "issuer", "clientId", "domain",
-"callbackUrl"} | null}`: what a page or an agent needs to use this Sophia with
-no account.
+"callbackUrl", "tokenStorageKey"} | null, "visitorFolders": [{"graphId",
+"folderId", "open", "requires"}] | null}`: what a page or an agent needs to
+use this Sophia with no account, and where a signed-in one may write.
+
+### Visitors who write: one folder for signed-in accounts
+
+`public.json` may open **one folder of one public graph** to people signed in
+with a Sophia account (verified email). There each account makes documents,
+and writes, renames, moves (inside the folder), wires and trashes **its own**;
+everything else stays read-only, other visitors' documents included.
+
+```json
+"visitorFolders": [ { "graphId": "cow-tools-guide", "folderId": "moo-vements-of-the-spirit",
+  "quotas": { "documentsPerAccount": 20, "totalDocuments": 2000, "newDocumentsPerHour": 200,
+              "writesPerMinute": 30, "documentBytes": 524288, "roomBytesPerMinute": 262144,
+              "linksPerDocument": 20, "wiresPerAccount": 50 } } ],
+"accounts": { "cognito": { ..., "tokenStorageKey": "cow-tools.account.tokens" } }
+```
+
+(the quotas shown are the defaults; `accounts` is required; `tokenStorageKey`
+is where the site's sign-in keeps the tokens in the browser, so the app on the
+same origin signs in with them).
+
+How it holds (`src-tauri/src/visitor_fence.rs`):
+
+- **An account holds no write scope.** A write is admitted only where the
+  fence is asked: the tools `create_document` (no `documentId`: the server
+  names it, it lands in the folder), `write_document`, `insert_blocks`,
+  `update_blocks`, `edit_block_text`, `delete_blocks`, `edit_comment`,
+  `rename` (documents), `move_documents`, `create_wires`, `delete` (blocks and
+  wires); the REST trash and restore of a document; and the document rooms.
+  Every other path sees a viewer.
+- **The fence travels with the write**: the CRDT queue stamps it into the
+  operation (a server-only key, stripped from every caller), refuses any other
+  operation kind, and the executor checks ownership and place again when the
+  operation runs (and on recovery).
+- **Ownership** is `createdBy` on the workspace entry (`get_workspace` shows
+  it as `extra.createdBy`, with `extra.createdByName`), `acct-` and a salted
+  hash of the Cognito subject (never the subject, never the email), written by
+  the server only.
+- **Rooms.** A visitor never writes the workspace room. A document room takes
+  an account's frames only for its own documents inside the folder, each one
+  applied to a copy first and checked: only the `content`, `comments` and
+  `metadata` parts, at most `documentBytes`, no images, query blocks or
+  opaque blocks, links `http`/`https`/`mailto` only (at most
+  `linksPerDocument`), comments signed as the account. Anything else closes
+  the socket (`4403`) and lands nothing. Frames are capped at 256 KiB.
+- **Names.** A visitor's name and colour are its collaboration-presence
+  identity: the name it picks in the app's presence control, bound to the
+  account by gardend (`<profile>/public/visitors.json`) and stamped on its
+  presence, its documents (`createdByName`) and its comments. Latin letters
+  (accents too), digits, single spaces and `. ' - _ ( ) &`, at most 40; never
+  an email, an id, a name another account holds, or one that reads as the
+  house's (`Owner`, `Sophia`, `admin`, `Visitor 1a2b`, ...), compared with
+  accents, case, punctuation and look-alikes (`0wner`) folded; default
+  "Visitor 1a2b" in the colour the app would give.
+- **Quotas** count an account's documents in the Trash too (so a restore
+  never overflows them).
+- **The Trash is the owner's to see.** A public request (anonymous, an
+  account, or a delegation made for one) reads no document in the Trash: not
+  over the document routes (`404`), MCP (`-32004`), its room (`404`), or
+  SPARQL (its named graph is left out of the query's dataset). The listings
+  already leave it out. Moving a visitor's note to the Trash takes it out of
+  public reading at once; its title stays in the workspace's own CRDT (the
+  workspace room) until you delete it from the Trash.
+- **The owner** keeps everything (the key opens every route), and:
+
+| `gardend visitors ...` | |
+|---|---|
+| `off` / `on` | visitor writing stops / starts at the next request or room frame (the file `<profile>/public/visitor-writes.off`); reading goes on. gardend writes the file itself when more than `newDocumentsPerHour` new documents arrive in an hour |
+| `status` | the folder, the switch, accounts seen, bans |
+| `list` | each account: id, documents, name, first seen |
+| `ban <account>` / `unban <account>` | `acct-...` (or `cognito:<sub>`): no more writes; its documents stay until you trash or delete them |
+
+To remove a visitor's document for good, delete it from the Trash. `tools/list` tells an account where it may write:
+`_meta["sophia.writeFence"]` (`graphId`, `folderId`, `account`, `name`,
+`color`). A service an account reaches through the proxy hears it too
+(`X-Sophia-Write-Fence: <graph>/<folder>`, `X-Sophia-Visitor-Account`), and
+the account's delegation token writes inside the fence and nowhere else, as
+the account (`via` the service). A hosted cell never loads public mode, so
+never a fence.
 
 ### Talking to an agent: the two doors
 

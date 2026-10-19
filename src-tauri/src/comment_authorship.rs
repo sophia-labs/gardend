@@ -85,6 +85,20 @@ impl CommentAuthor {
 
 /// The principal of the request this task serves, as a comment author.
 pub(crate) fn current_comment_author(app: &AppHandle) -> CommentAuthor {
+    // W6: a visitor signs with its account id and presence name, never its
+    // Cognito subject or its email.
+    if let Some(fence) = crate::visitor_fence::current_fence() {
+        let via = crate::request_actor::current_request_actor().and_then(|actor| actor.via);
+        let name = match via.as_deref() {
+            Some(via) => format!("{} via {}", fence.name, via.strip_prefix("service:").unwrap_or(via)),
+            None => fence.name.clone(),
+        };
+        return CommentAuthor {
+            id: fence.account,
+            name,
+            via,
+        };
+    }
     if let Some(actor) = crate::request_actor::current_request_actor() {
         let mut name = display_name(app, &actor.user_id);
         if let Some(via) = actor.via.as_deref() {

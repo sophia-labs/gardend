@@ -872,6 +872,7 @@ mod local_service_host_lending_tests {
                         role: "viewer".into(),
                         scopes: entry.clone(),
                         public: false,
+                        visitor: None,
                     })
                     .unwrap();
                 let listed = rpc(&state, &bound, "tools/list", json!({})).await;
@@ -889,6 +890,7 @@ mod local_service_host_lending_tests {
                         role: "viewer".into(),
                         scopes: entry,
                         public: false,
+                        visitor: None,
                     })
                     .unwrap();
                 let listed = rpc(&state, &elsewhere, "tools/list", json!({})).await;

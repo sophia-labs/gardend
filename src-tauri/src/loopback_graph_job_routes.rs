@@ -51,6 +51,7 @@ pub(super) async fn loopback_graph_query_job(
             ExternalSparqlOptions {
                 timeout_ms: input.timeout_ms,
                 max_rows: input.max_rows,
+                cursor: input.cursor,
             },
         )
         .await,

@@ -25,7 +25,7 @@ store; and a client-visible timeout did not prove that engine work had stopped.
 |---|---|---|
 | `POST /graphs/query`, `/api/graphs/query`, `/api/sparql/query` | Shared admission, blocking executor, graph lease, server-clamped deadline and row/triple ceiling, real Oxigraph cancellation, inline `200` | — |
 | `POST /graphs/update`, `/api/graphs/update`, `/api/sparql/update` | — | Shared admission, blocking executor, graph lease, inline `200` after the real commit/failure |
-| MCP `sparql_query`, `query_graph` | Same controlled query path; accepts `timeoutMs`/`timeout_ms` and `maxRows`/`max_rows` | — |
+| MCP `sparql_query`, `query_graph` | Same controlled query path; accepts `timeoutMs`/`timeout_ms`, `maxRows`/`max_rows` and `cursor` | — |
 | MCP `sparql_update` | — | Same controlled update path |
 | Tauri IPC `run_sparql_query`, `run_sparql_update` | Legacy synchronous desktop path | Legacy synchronous desktop path |
 | Internal materializers/Emporium/workflow helpers | Deliberately outside external caps; many require full result sets | Deliberately outside external admission |
@@ -63,6 +63,24 @@ partial projection work.
 Reaching the collector ceiling also fires the engine token before dropping the
 iterator. Truncation remains explicit in the result warning. The ceiling is not
 presented as a substitute for deadline cancellation.
+
+**Paging past the ceiling.** A truncated SELECT answer carries `next`, a
+signed cursor (`sq1.<payload>.<HMAC-SHA256>`, `src/sparql_cursor.rs`) naming
+the graph, a fingerprint of the exact query text and of the caller's dataset,
+the next offset, the page size and the store revision. Send the same query
+with `cursor` (MCP argument, or the `cursor` field of the HTTP query body) for
+the next page, which also reports its `offset`; the last page has no `next`.
+The page size is the cursor's, never above the caller's ceiling (a public
+visitor still gets 1,000 rows a page). A page is evaluated with the query as
+written, skipping the earlier solutions without materializing them; the
+server never injects an `ORDER BY` (sorting would materialize the whole
+answer on every page), so without one pages follow Oxigraph's evaluation
+order, which is deterministic for an unchanged store. Add your own `ORDER BY`
+when the order matters. A cursor that does not verify (edited, made up, or
+issued before the cell restarted) or that belongs to another query is refused
+with 400; one issued before any write to the graph is refused as stale with
+409: re-run the query from the start. Revisions and the signing key live in
+memory, so cursors do not survive a cell restart.
 
 `ensure_graph_store_seeded` may perform an incidental projection repair before
 a read. It precisely calls `mark_rdf_store_written` after a successful reseed.

@@ -92,6 +92,10 @@ mod document_types;
 mod document_ydoc_projection;
 mod emporium;
 mod emporium_mcp_surface;
+mod entity_embedder;
+mod entity_find;
+mod entity_index;
+mod entity_verbalize;
 mod file_search;
 mod files_service;
 mod flow_board;
@@ -320,6 +324,7 @@ mod rdf_workspace_materializer;
 mod rdf_workspace_store_materializer;
 mod public_mode;
 mod request_actor;
+mod visitor_fence;
 mod rdf_workspace_terms;
 mod rdf_workspace_values;
 mod restore_guard;
@@ -373,6 +378,8 @@ mod source_pull_tree_tests;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod block_contract_store_tests;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
+mod selfhost_sparql_paging_tests;
+#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod markdown_fidelity_store_tests;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod json_text_face_store_tests;
@@ -380,6 +387,7 @@ mod json_text_face_store_tests;
 mod write_placement_store_tests;
 mod graph_incarnation_admission;
 mod sparql_admission;
+mod sparql_cursor;
 mod storage;
 mod storage_atomic;
 mod storage_file_ops;

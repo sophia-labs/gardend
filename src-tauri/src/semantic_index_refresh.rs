@@ -121,6 +121,18 @@ pub(super) fn refresh_semantic_index_with_progress(
     let previous_index = read_semantic_index(&graph_dir).ok().filter(|index| {
         index.manifest.model_id == spec.model_id && index.manifest.dimensions == spec.dimensions
     });
+    // An index keeps the prefix scheme its vectors were embedded with (vectors
+    // are reused across refreshes); a new index takes the model's own.
+    let prefix_scheme = match &previous_index {
+        Some(previous) => previous
+            .manifest
+            .prefix_scheme
+            .clone()
+            .unwrap_or_else(|| crate::semantic_model_catalog::LEGACY_PREFIX_SCHEME.to_string()),
+        None => spec.prefix_scheme.to_string(),
+    };
+    let (_, passage_prefix) =
+        crate::semantic_model_catalog::semantic_prefixes_for(&spec, Some(prefix_scheme.as_str()));
     let previous_by_iri = previous_blocks_by_iri(previous_index.as_ref());
     let mut blocks = Vec::with_capacity(sources.len());
     let mut embed_queue = Vec::<(usize, SemanticBlockSource)>::new();
@@ -170,7 +182,13 @@ pub(super) fn refresh_semantic_index_with_progress(
             }),
         )?;
     }
-    let vectors = embed_texts_with_progress(app, &texts, "search_document", batch_size, progress)?;
+    let vectors = crate::semantic_embedder::embed_prefixed_with_progress(
+        app,
+        &texts,
+        &passage_prefix,
+        batch_size,
+        progress,
+    )?;
     if vectors.len() != embed_queue.len() {
         return Err(format!(
             "fastembed returned {} vectors for {} semantic blocks",
@@ -207,6 +225,7 @@ pub(super) fn refresh_semantic_index_with_progress(
             document_count,
             indexed_at,
             index_path: display_path(&index_path),
+            prefix_scheme: Some(prefix_scheme),
         },
         blocks,
         entities,
@@ -421,6 +440,7 @@ mod tests {
                 document_count: 1,
                 indexed_at: "2026-01-01T00:00:00Z".to_string(),
                 index_path: "blocks.json".to_string(),
+                prefix_scheme: None,
             },
             blocks: vec![SemanticBlockEmbedding {
                 iri: iri.to_string(),

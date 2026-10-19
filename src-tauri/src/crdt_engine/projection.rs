@@ -168,6 +168,18 @@ pub fn ydoc_to_tiptap_json(doc: &Doc) -> Value {
     json!({ "type": "doc", "content": content })
 }
 
+/// The `content` fragment as TipTap JSON, read inside an open transaction
+/// (the visitor fence checks a document before its write commits).
+pub(crate) fn tiptap_json_in<T: ReadTxn>(txn: &T) -> Value {
+    let mut content = Vec::new();
+    if let Some(fragment) = txn.get_xml_fragment("content") {
+        for child in fragment.children(txn) {
+            content.extend(xml_node_to_json(txn, &child));
+        }
+    }
+    json!({ "type": "doc", "content": content })
+}
+
 /// Port of materializeDocumentYDoc (sans XML string, which callers obtain
 /// via `ydoc_to_tiptap_xml`).
 pub fn materialize_ydoc(doc: &Doc, doc_id: &str) -> ProjectionSnapshot {

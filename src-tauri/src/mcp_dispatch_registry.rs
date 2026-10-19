@@ -83,6 +83,7 @@ use crate::{
     salience_service::{mcp_local_get_block_values, mcp_local_get_values, mcp_local_revaluate},
     semantic_reasoner::mcp_local_semantic_reason,
     semantic_search_service::mcp_local_semantic_search,
+    entity_find::mcp_local_find,
     source_sync::{
         mcp_authoritative_value, mcp_local_source_pull, mcp_local_source_push,
         mcp_local_source_rebuild,
@@ -813,6 +814,17 @@ fn tramp_semantic_search<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHan
     Box::pin(async move { mcp_local_semantic_search(app, args).map_err(AppError::internal) })
 }
 
+fn tramp_find<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
+    let app = ctx.app.clone();
+    // the query embedding is CPU work: off the async workers
+    Box::pin(async move {
+        let args = args.clone();
+        tokio::task::spawn_blocking(move || mcp_local_find(app, &args))
+            .await
+            .map_err(|error| AppError::internal(format!("find worker: {error}")))?
+    })
+}
+
 fn tramp_memory_semantic_recall<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
     let app = ctx.app.clone();
     Box::pin(async move { mcp_local_memory_semantic_recall(app, args).map_err(AppError::internal) })
@@ -1282,6 +1294,10 @@ const REGISTRY: &[McpToolEntry] = &[
         handler: tramp_semantic_search,
     },
     McpToolEntry {
+        name: "find",
+        handler: tramp_find,
+    },
+    McpToolEntry {
         name: "memory_semantic_recall",
         handler: tramp_memory_semantic_recall,
     },
@@ -1408,6 +1424,7 @@ mod tests {
         assert!(lookup("graph_intuition").is_some());
         assert!(lookup("restore_to_restore_point").is_some());
         assert!(lookup("memory_semantic_recall").is_some());
+        assert!(lookup("find").is_some());
         assert!(lookup("not_a_real_tool").is_none());
     }
 

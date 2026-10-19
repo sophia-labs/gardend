@@ -44,6 +44,9 @@ pub(super) struct LocalGraphQueryRequest {
     pub(super) timeout_ms: Option<u64>,
     #[serde(default, alias = "maxRows")]
     pub(super) max_rows: Option<usize>,
+    /// The `next` of a truncated SELECT page (`sparql_cursor`).
+    #[serde(default)]
+    pub(super) cursor: Option<String>,
 }
 
 impl LocalGraphQueryRequest {

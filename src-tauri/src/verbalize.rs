@@ -32,8 +32,17 @@ pub(crate) fn verbalize(iri: &str, store: &Store, cfg: &VerbalizeCfg) -> Option<
     literal_object(store, iri, &format!("{MDOC_NS}textContent"))
         .or_else(|| literal_object(store, iri, &format!("{MNEMO_NS}body")))
         .or_else(|| verbalize_relation(iri, store, cfg))
+        .or_else(|| verbalize_entity(iri, store))
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
+}
+
+/// Any other entity (an open dataset's class, concept or dataset, a Wikidata item…) is told by the generic entity
+/// verbalizer that `find` indexes with: labels, types, descriptions and a few relations (SEMMA+'s "hard branch").
+fn verbalize_entity(iri: &str, store: &Store) -> Option<String> {
+    let ctx = crate::entity_verbalize::Ctx::new(store, crate::entity_verbalize::VerbalizeCfg::default());
+    let mut stats = crate::entity_verbalize::VerbalizeStats::default();
+    ctx.verbalize(iri, &mut stats).map(|record| record.text)
 }
 
 fn literal_object(store: &Store, subject: &str, predicate: &str) -> Option<String> {
@@ -173,6 +182,27 @@ mod tests {
             ),
             None
         );
+    }
+
+    #[test]
+    fn verbalize_tells_an_open_dataset_entity_by_its_labels_and_type() {
+        let store = store_from_turtle(
+            r#"@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix ex: <http://example.org/> .
+
+ex:Department rdfs:label "Department"@en .
+ex:florida a ex:Department ;
+  rdfs:label "Florida"@es ;
+  rdfs:comment "Departamento del centro-sur del Uruguay, cuenca lechera."@es .
+"#,
+        );
+
+        let text = verbalize("http://example.org/florida", &store, &VerbalizeCfg::default())
+            .expect("an entity with a label verbalizes");
+        assert!(text.contains("Florida"), "{text}");
+        assert!(text.contains("Department"), "{text}");
+        assert!(!text.contains("http://"), "no opaque ids in the text: {text}");
+        assert_eq!(verbalize("http://example.org/nothing-here", &store, &VerbalizeCfg::default()), None);
     }
 
     #[test]

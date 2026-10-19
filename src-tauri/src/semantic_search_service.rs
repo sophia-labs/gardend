@@ -1,7 +1,6 @@
 use crate::app_runtime::AppHandle;
 use crate::{
     paths::existing_graph_dir,
-    semantic_embedder::embed_texts,
     semantic_index::{normalize_vector, read_semantic_index},
     semantic_mcp_inputs::semantic_search_input_from_mcp_args,
     semantic_models::{read_semantic_model_config, semantic_model_spec_by_id},
@@ -60,7 +59,12 @@ pub(super) fn semantic_search(
             spec.model_id, spec.dimensions, index.manifest.model_id, index.manifest.dimensions
         ));
     }
-    let mut query_vectors = embed_texts(&app, &[query.to_string()], "search_query")?;
+    let (query_prefix, _) = crate::semantic_model_catalog::semantic_prefixes_for(
+        &spec,
+        index.manifest.prefix_scheme.as_deref(),
+    );
+    let mut query_vectors =
+        crate::semantic_embedder::embed_texts_prefixed(&app, &[query.to_string()], &query_prefix)?;
     let Some(query_vector) = query_vectors.pop() else {
         return Err("fastembed returned no query vector".to_string());
     };

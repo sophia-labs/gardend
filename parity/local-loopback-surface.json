@@ -2101,6 +2101,13 @@
       ]
     },
     {
+      "name": "find",
+      "status": "implemented-if-enabled",
+      "scopes": [
+        "search.semantic.read"
+      ]
+    },
+    {
       "name": "memory_semantic_recall",
       "status": "implemented-memory-projection",
       "scopes": [

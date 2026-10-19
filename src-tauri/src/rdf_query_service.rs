@@ -30,6 +30,17 @@ pub(super) struct SparqlQueryResult {
     /// existing consumers that don't know this key exists are unaffected.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) warnings: Option<Vec<String>>,
+    /// ADDITIVE: a signed cursor (`sparql_cursor`) for the next page of a
+    /// truncated SELECT answer; send the same query with `cursor` set to it.
+    /// Absent when the answer is complete.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) next: Option<String>,
+    /// ADDITIVE: where this page starts, when it was fetched with a cursor.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) offset: Option<usize>,
+    /// The row/triple ceiling cut this answer short.
+    #[serde(skip)]
+    pub(super) truncated: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -118,13 +129,25 @@ pub(super) fn execute_sparql_query_capped(
 /// cancellation token. The admission layer fires it on request deadline or
 /// client disconnect; the collector also fires it as soon as the row/triple
 /// ceiling is reached so no further algebra work remains admissible.
+///
+/// `offset` solutions are skipped before collecting (cursor paging,
+/// `sparql_cursor`): they are evaluated but never materialized.
 pub(super) fn execute_sparql_query_capped_with_control(
     store: &Store,
     query: &str,
     max_rows: usize,
+    offset: usize,
     cancellation: CancellationToken,
+    hidden_graphs: &[String],
 ) -> Result<SparqlQueryResult, String> {
-    execute_sparql_query_inner(store, query, Some(max_rows.max(1)), Some(cancellation))
+    execute_sparql_query_inner_hiding(
+        store,
+        query,
+        Some(max_rows.max(1)),
+        Some(offset),
+        Some(cancellation),
+        hidden_graphs,
+    )
 }
 
 /// Shared implementation. `max_rows` is `Some(cap)` only at the external
@@ -135,14 +158,66 @@ fn execute_sparql_query_inner(
     max_rows: Option<usize>,
     cancellation: Option<CancellationToken>,
 ) -> Result<SparqlQueryResult, String> {
+    execute_sparql_query_inner_hiding(store, query, max_rows, None, cancellation, &[])
+}
+
+/// The query's dataset without `hidden` named graphs (W6: a public request
+/// does not see the projections of documents in the Trash). Without a
+/// `FROM NAMED` of its own, the query would see every named graph; it now sees
+/// every one but those.
+fn hide_named_graphs(
+    store: &Store,
+    dataset: &mut oxigraph::sparql::QueryDataset,
+    hidden: &[String],
+) -> Result<(), String> {
+    use oxigraph::model::{GraphName, NamedOrBlankNode};
+    let hides = |iri: &str| hidden.iter().any(|hidden| hidden == iri);
+    let available: Vec<NamedOrBlankNode> = match dataset.available_named_graphs() {
+        Some(graphs) => graphs.to_vec(),
+        None => store
+            .named_graphs()
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| format!("list named graphs: {error}"))?,
+    };
+    dataset.set_available_named_graphs(
+        available
+            .into_iter()
+            .filter(|graph| !matches!(graph, NamedOrBlankNode::NamedNode(node) if hides(node.as_str())))
+            .collect(),
+    );
+    if let Some(defaults) = dataset.default_graph_graphs() {
+        let kept: Vec<GraphName> = defaults
+            .iter()
+            .filter(|graph| !matches!(graph, GraphName::NamedNode(node) if hides(node.as_str())))
+            .cloned()
+            .collect();
+        dataset.set_default_graph(kept);
+    }
+    Ok(())
+}
+
+/// `offset`: `Some` on the cursor-paging path (the solutions to skip; the
+/// truncation warning then points at `next`), `None` elsewhere.
+fn execute_sparql_query_inner_hiding(
+    store: &Store,
+    query: &str,
+    max_rows: Option<usize>,
+    offset: Option<usize>,
+    cancellation: Option<CancellationToken>,
+    hidden_graphs: &[String],
+) -> Result<SparqlQueryResult, String> {
     let quad_count = crate::rdf_store_service::graph_store_quad_count(store)?;
     let mut evaluator = SparqlEvaluator::new();
     if let Some(cancellation) = cancellation.as_ref() {
         evaluator = evaluator.with_cancellation_token(cancellation.clone());
     }
-    let results = evaluator
+    let mut prepared = evaluator
         .parse_query(query)
-        .map_err(|error| format!("parse SPARQL query: {error}"))?
+        .map_err(|error| format!("parse SPARQL query: {error}"))?;
+    if !hidden_graphs.is_empty() {
+        hide_named_graphs(store, prepared.dataset_mut(), hidden_graphs)?;
+    }
+    let results = prepared
         .on_store(store)
         .execute()
         .map_err(|error| format!("execute SPARQL query: {error}"))?;
@@ -156,9 +231,14 @@ fn execute_sparql_query_inner(
                 .collect::<Vec<_>>();
             let mut rows = Vec::new();
             let mut truncated = false;
+            let mut to_skip = offset.unwrap_or(0);
             while let Some(solution) = solutions.next() {
                 let solution =
                     solution.map_err(|error| format!("read SPARQL solution: {error}"))?;
+                if to_skip > 0 {
+                    to_skip -= 1;
+                    continue;
+                }
                 if max_rows.is_some_and(|cap| rows.len() >= cap) {
                     if let Some(cancellation) = cancellation.as_ref() {
                         cancellation.cancel();
@@ -183,10 +263,17 @@ fn execute_sparql_query_inner(
                      (store holds {quad_count} quads); raise {SPARQL_MAX_ROWS_ENV} or add \
                      LIMIT/OFFSET paging"
                 );
-                warnings.push(format!(
-                    "result truncated at {cap} rows ({SPARQL_MAX_ROWS_ENV}); \
-                     add LIMIT/OFFSET paging to see the rest"
-                ));
+                warnings.push(if offset.is_some() {
+                    format!(
+                        "result truncated at {cap} rows (the row ceiling for this caller); \
+                         send the same query with `cursor` set to `next` for the next page"
+                    )
+                } else {
+                    format!(
+                        "result truncated at {cap} rows ({SPARQL_MAX_ROWS_ENV}); \
+                         add LIMIT/OFFSET paging to see the rest"
+                    )
+                });
             }
             let warnings = if warnings.is_empty() {
                 None
@@ -201,6 +288,9 @@ fn execute_sparql_query_inner(
                 graph: None,
                 quad_count,
                 warnings,
+                next: None,
+                offset: None,
+                truncated,
             })
         }
         QueryResults::Boolean(value) => Ok(SparqlQueryResult {
@@ -211,6 +301,9 @@ fn execute_sparql_query_inner(
             graph: None,
             quad_count,
             warnings: None,
+            next: None,
+            offset: None,
+            truncated: false,
         }),
         QueryResults::Graph(triples) => {
             let mut graph = String::new();
@@ -249,6 +342,9 @@ fn execute_sparql_query_inner(
                 graph: Some(graph),
                 quad_count,
                 warnings,
+                next: None,
+                offset: None,
+                truncated,
             })
         }
     }
@@ -737,7 +833,7 @@ mod tests {
         let cancelled_before_start = CancellationToken::new();
         cancelled_before_start.cancel();
         let error =
-            execute_sparql_query_capped_with_control(&store, query, 5, cancelled_before_start)
+            execute_sparql_query_capped_with_control(&store, query, 5, 0, cancelled_before_start, &[])
                 .expect_err("a pre-cancelled engine token must abort query evaluation");
         assert!(
             error.to_ascii_lowercase().contains("cancel"),
@@ -745,7 +841,7 @@ mod tests {
         );
 
         let cap_token = CancellationToken::new();
-        let capped = execute_sparql_query_capped_with_control(&store, query, 5, cap_token.clone())
+        let capped = execute_sparql_query_capped_with_control(&store, query, 5, 0, cap_token.clone(), &[])
             .expect("bounded query");
         assert_eq!(capped.rows.len(), 5);
         assert!(

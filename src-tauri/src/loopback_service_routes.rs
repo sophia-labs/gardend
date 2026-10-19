@@ -63,6 +63,10 @@ const ACCOUNT_EMAIL_VERIFIED_HEADER: &str = "x-sophia-account-email-verified";
 /// Public mode: every public graph, a comma list (a public caller's delegation
 /// reads them all).
 const PUBLIC_GRAPHS_HEADER: &str = "x-sophia-public-graphs";
+/// W6: `<graph>/<folder>`, where a signed-in account may write (its fence).
+const WRITE_FENCE_HEADER: &str = "x-sophia-write-fence";
+/// W6: the account's public id (`acct-…`), what its documents carry.
+const VISITOR_ACCOUNT_HEADER: &str = "x-sophia-visitor-account";
 /// Who owns every graph of a gardend: the profile's owner, the identity the
 /// master key is minted as (`X-User-ID: owner`). A member or an Access login
 /// acts on the owner's graph with its own `actorRef`, as an editor acts on a
@@ -984,6 +988,17 @@ async fn proxy_service_path(
             .header(GRAPH_ID_HEADER, graph_id)
             .header(GRAPH_OWNER_HEADER, GRAPH_OWNER)
             .header(GRAPH_ROLE_HEADER, graph_role(&caller));
+        // W6: where this account may write, if a visitor folder is open to it
+        // in this graph: `<graph>/<folder>` (the delegation's `/mcp` admits
+        // writes there and nowhere else).
+        if let Some(public) = state.self_host.public() {
+            let account = crate::visitor_fence::VisitorAccount::of(&caller.principal);
+            if let Ok(fence) = crate::visitor_fence::fence_for(Some(public), account.as_ref(), graph_id) {
+                request = request
+                    .header(WRITE_FENCE_HEADER, format!("{}/{}", fence.graph_id, fence.root_folder_id))
+                    .header(VISITOR_ACCOUNT_HEADER, fence.account);
+            }
+        }
         // A service that asked for it (`"delegateCaller": true`) may act for
         // this caller on this graph, through gardend's `/mcp`, for an hour.
         if state.services.delegates_caller(service_id, &state.app) {
@@ -995,6 +1010,7 @@ async fn proxy_service_path(
                 role: role.to_string(),
                 scopes: delegated_scopes(&caller, role),
                 public: caller.is_public(),
+                visitor: crate::visitor_fence::VisitorAccount::of(&caller.principal),
             };
             if let Some(token) = state.services.delegate(delegation) {
                 request = request.header(DELEGATED_TOKEN_HEADER, token);

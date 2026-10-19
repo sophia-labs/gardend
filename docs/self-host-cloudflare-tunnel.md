@@ -404,6 +404,9 @@ gardend load --profile ~/sophia --graph <graph-id> data.nq.gz
 The graph must exist already. The load streams the file (gzip too), commits once at the end, and refuses to run while
 Sophia serves the folder. `gardend load --help` says more.
 
+**Searching that RDF by meaning** (`find`, for you and your agents): `gardend index --profile ~/sophia --graph <graph-id>`
+turns it on for one graph and builds its index (while Sophia runs, or not). `gardend index --help` says more.
+
 Keep cloudflared up to date too: `brew upgrade cloudflared` on a Mac, your package manager on Linux.
 
 ## 11. Chat

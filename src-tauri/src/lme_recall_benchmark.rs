@@ -656,6 +656,7 @@ mod tests {
                 document_count: 2,
                 indexed_at: "2026-06-25T00:00:00Z".to_string(),
                 index_path: "indexes/semantic/blocks.json".to_string(),
+                prefix_scheme: None,
             },
             entities: semantic_entities_from_blocks(&blocks, 2),
             blocks,

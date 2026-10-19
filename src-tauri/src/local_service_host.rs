@@ -144,6 +144,9 @@ pub(crate) struct Delegation {
     /// it reads every public graph (each call names one; `graph_id`, the
     /// session's own, when it names none), never more.
     pub(crate) public: bool,
+    /// W6: the Sophia account it acts for, whose fence may admit a write in
+    /// the visitors' folder (`visitor_fence`); `None` for everyone else.
+    pub(crate) visitor: Option<crate::visitor_fence::VisitorAccount>,
 }
 
 #[derive(Default)]
@@ -2046,6 +2049,7 @@ mod tests {
             role: role.into(),
             scopes: vec!["mcp.tools.call".into(), "documents.read".into()],
             public: false,
+            visitor: None,
         }
     }
 
@@ -2767,6 +2771,8 @@ pub(crate) mod child {
             "modelKey": header("x-model-key"),
             "visitorId": header("x-visitor-id"),
             "publicGraphs": header("x-sophia-public-graphs"),
+            "writeFence": header("x-sophia-write-fence"),
+            "visitorAccount": header("x-sophia-visitor-account"),
             "body": serde_json::from_slice::<serde_json::Value>(&body)
                 .unwrap_or_else(|_| serde_json::Value::String(String::from_utf8_lossy(&body).into())),
             "env": {
@@ -2836,9 +2842,12 @@ mod supervision_tests {
     }
 
     fn assert_heartbeat_stops(path: &Path) {
+        // Ending a group may take its whole stop grace (SIGTERM, then SIGKILL) and the
+        // cells lane runs this beside 48 build jobs: 10 s timed out there twice
+        // (ship-cells:62791d77 on 10-14, ship-cells:32549f45 on 10-15).
         wait_until(
             "the grandchild's heartbeat to stop",
-            Duration::from_secs(10),
+            Duration::from_secs(30),
             || heartbeat_age(path).is_some_and(|age| age > Duration::from_millis(600)),
         );
         let before = std::fs::read_to_string(path).unwrap();

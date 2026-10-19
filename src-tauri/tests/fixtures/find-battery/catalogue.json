@@ -1,0 +1,910 @@
+[
+ {
+  "id": "cat-01-es",
+  "need": "cat-01",
+  "lang": "es",
+  "q": "consumo de electricidad por departamento",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/1737fc66-58b7-4286-a246-f1864533975d"
+  ],
+  "difficulty": "paraphrase",
+  "note": "Demo-brief need. No dataset in the catalogue breaks electricity consumption down by department (no UTE data is published here). The closest genuine answer is the national Balance Energetico Nacional final consumption by source, where electricity is one source line. The per-sector BEN consumption sets carry electricity only inside one sector; MIDES indicators on NBI en electricidad / alumbrado electrico por departamento measure access to electricity, not consumption, and are distractors."
+ },
+ {
+  "id": "cat-01-en",
+  "need": "cat-01",
+  "lang": "en",
+  "q": "electricity consumption by department",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/1737fc66-58b7-4286-a246-f1864533975d"
+  ],
+  "difficulty": "paraphrase",
+  "note": "Demo-brief need. No dataset in the catalogue breaks electricity consumption down by department (no UTE data is published here). The closest genuine answer is the national Balance Energetico Nacional final consumption by source, where electricity is one source line. The per-sector BEN consumption sets carry electricity only inside one sector; MIDES indicators on NBI en electricidad / alumbrado electrico por departamento measure access to electricity, not consumption, and are distractors."
+ },
+ {
+  "id": "cat-02-es",
+  "need": "cat-02",
+  "lang": "es",
+  "q": "qué parte de la electricidad del país se genera con parques eólicos",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/91118d5f-11be-4c84-82f0-79370ab7b089"
+  ],
+  "difficulty": "need",
+  "note": "Generation split by source (fossil, hydro, biomass, wind, solar). Potencia instalada is installed capacity, not generation; abastecimiento por fuente lists electricity as one aggregate primary source."
+ },
+ {
+  "id": "cat-02-en",
+  "need": "cat-02",
+  "lang": "en",
+  "q": "how much of the country's electricity comes from wind farms",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/91118d5f-11be-4c84-82f0-79370ab7b089"
+  ],
+  "difficulty": "need",
+  "note": "Generation split by source (fossil, hydro, biomass, wind, solar). Potencia instalada is installed capacity, not generation; abastecimiento por fuente lists electricity as one aggregate primary source."
+ },
+ {
+  "id": "cat-03-es",
+  "need": "cat-03",
+  "lang": "es",
+  "q": "cuánto cuesta el litro de nafta y gasoil en el surtidor",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/556beb30-02fc-4d06-909a-f42083c89ef7"
+  ],
+  "difficulty": "need",
+  "note": "Maximum retail prices including VAT set by Executive decree. ANCAP ex-planta prices strip taxes and margins; URSEA PPI series are import-parity references, not pump prices."
+ },
+ {
+  "id": "cat-03-en",
+  "need": "cat-03",
+  "lang": "en",
+  "q": "how much does a litre of petrol and diesel cost at the pump",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/556beb30-02fc-4d06-909a-f42083c89ef7"
+  ],
+  "difficulty": "need",
+  "note": "Maximum retail prices including VAT set by Executive decree. ANCAP ex-planta prices strip taxes and margins; URSEA PPI series are import-parity references, not pump prices."
+ },
+ {
+  "id": "cat-04-es",
+  "need": "cat-04",
+  "lang": "es",
+  "q": "precios diarios de productos en supermercados y almacenes durante 2024",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/0c9edcfa-e10e-4068-b967-f1730107bddb"
+  ],
+  "difficulty": "paraphrase",
+  "note": "SIPC is published one dataset per year since 2023; the 2007-2022 historical set and the 2023/2025/2026 sets do not cover 2024."
+ },
+ {
+  "id": "cat-04-en",
+  "need": "cat-04",
+  "lang": "en",
+  "q": "daily grocery store product prices across Uruguay in 2024",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/0c9edcfa-e10e-4068-b967-f1730107bddb"
+  ],
+  "difficulty": "paraphrase",
+  "note": "SIPC is published one dataset per year since 2023; the 2007-2022 historical set and the 2023/2025/2026 sets do not cover 2024."
+ },
+ {
+  "id": "cat-05-es",
+  "need": "cat-05",
+  "lang": "es",
+  "q": "votos de la segunda vuelta presidencial de 2019 por circuito",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/8a20dcc5-77c7-499d-9932-5d0ebea4df37"
+  ],
+  "difficulty": "paraphrase",
+  "note": "Title says Balotaje 2019. The 2019 first round (Elecciones Nacionales 2019) and the 2014/2024 runoffs are different events."
+ },
+ {
+  "id": "cat-05-en",
+  "need": "cat-05",
+  "lang": "en",
+  "q": "2019 presidential runoff vote counts by polling station",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/8a20dcc5-77c7-499d-9932-5d0ebea4df37"
+  ],
+  "difficulty": "paraphrase",
+  "note": "Title says Balotaje 2019. The 2019 first round (Elecciones Nacionales 2019) and the 2014/2024 runoffs are different events."
+ },
+ {
+  "id": "cat-06-es",
+  "need": "cat-06",
+  "lang": "es",
+  "q": "cómo votó la gente en el referéndum para derogar artículos de la LUC",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/55b88af7-9364-4735-aad9-b5db5f49d828"
+  ],
+  "difficulty": "need",
+  "note": "Referendum against 135 articles of Ley 19.889 (LUC), 2022; the only referendum in the catalogue."
+ },
+ {
+  "id": "cat-06-en",
+  "need": "cat-06",
+  "lang": "en",
+  "q": "how people voted in the referendum to repeal parts of the LUC law",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/55b88af7-9364-4735-aad9-b5db5f49d828"
+  ],
+  "difficulty": "need",
+  "note": "Referendum against 135 articles of Ley 19.889 (LUC), 2022; the only referendum in the catalogue."
+ },
+ {
+  "id": "cat-07-es",
+  "need": "cat-07",
+  "lang": "es",
+  "q": "monitoreo de material particulado PM 2.5 en Montevideo",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/b9904d06-d466-4a2a-b582-ec01c6700a3c",
+   "https://catalogodatos.gub.uy/dataset/13c5b4a6-ff33-454f-8e9f-c3871052f464"
+  ],
+  "difficulty": "near-title",
+  "note": "The dedicated PM2.5 set plus the Montevideo air-quality network, which reports particulate fractions. MIDES indicator 10737 is PM10 only."
+ },
+ {
+  "id": "cat-07-en",
+  "need": "cat-07",
+  "lang": "en",
+  "q": "PM2.5 particulate matter monitoring in Montevideo",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/b9904d06-d466-4a2a-b582-ec01c6700a3c",
+   "https://catalogodatos.gub.uy/dataset/13c5b4a6-ff33-454f-8e9f-c3871052f464"
+  ],
+  "difficulty": "near-title",
+  "note": "The dedicated PM2.5 set plus the Montevideo air-quality network, which reports particulate fractions. MIDES indicator 10737 is PM10 only."
+ },
+ {
+  "id": "cat-08-es",
+  "need": "cat-08",
+  "lang": "es",
+  "q": "cuánto polen hay en el aire de Montevideo para personas con alergia",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/49511984-8111-4848-afd6-48275b054f95"
+  ],
+  "difficulty": "need",
+  "note": "Only pollen/fungal spore counts in the catalogue; notes tie them to respiratory allergies."
+ },
+ {
+  "id": "cat-08-en",
+  "need": "cat-08",
+  "lang": "en",
+  "q": "how much pollen is in Montevideo's air for allergy sufferers",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/49511984-8111-4848-afd6-48275b054f95"
+  ],
+  "difficulty": "need",
+  "note": "Only pollen/fungal spore counts in the catalogue; notes tie them to respiratory allergies."
+ },
+ {
+  "id": "cat-09-es",
+  "need": "cat-09",
+  "lang": "es",
+  "q": "es seguro bañarse en las playas de Montevideo según los análisis del agua",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/b51c24fd-ee40-4eec-a84c-0c4f064859b0"
+  ],
+  "difficulty": "need",
+  "note": "Coliform and enterococcus sampling at beaches. Boya meteorologica holds weather/sea sensor data; residuos retirados por playa is litter."
+ },
+ {
+  "id": "cat-09-en",
+  "need": "cat-09",
+  "lang": "en",
+  "q": "is it safe to swim at Montevideo beaches based on water tests",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/b51c24fd-ee40-4eec-a84c-0c4f064859b0"
+  ],
+  "difficulty": "need",
+  "note": "Coliform and enterococcus sampling at beaches. Boya meteorologica holds weather/sea sensor data; residuos retirados por playa is litter."
+ },
+ {
+  "id": "cat-10-es",
+  "need": "cat-10",
+  "lang": "es",
+  "q": "horarios de ómnibus urbanos por parada en Montevideo",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/e8bf101d-214e-41ee-b6c6-d8185d60b7f1"
+  ],
+  "difficulty": "near-title",
+  "note": "Per-stop schedule. The sibling 'por puntos de control' set has times only at control points (near miss, not an equal answer); the paradas/recorridos set has stop locations without times."
+ },
+ {
+  "id": "cat-10-en",
+  "need": "cat-10",
+  "lang": "en",
+  "q": "Montevideo city bus timetables for each stop",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/e8bf101d-214e-41ee-b6c6-d8185d60b7f1"
+  ],
+  "difficulty": "near-title",
+  "note": "Per-stop schedule. The sibling 'por puntos de control' set has times only at control points (near miss, not an equal answer); the paradas/recorridos set has stop locations without times."
+ },
+ {
+  "id": "cat-11-es",
+  "need": "cat-11",
+  "lang": "es",
+  "q": "a qué hora sale el ómnibus de Montevideo a Salto",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/1d50ccf7-121d-48a7-951e-28a02858d24e"
+  ],
+  "difficulty": "need",
+  "note": "MTOP/DNT authorised interdepartmental timetables with departure times by locality; the only intercity schedule dataset."
+ },
+ {
+  "id": "cat-11-en",
+  "need": "cat-11",
+  "lang": "en",
+  "q": "what time does the bus from Montevideo to Salto leave",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/1d50ccf7-121d-48a7-951e-28a02858d24e"
+  ],
+  "difficulty": "need",
+  "note": "MTOP/DNT authorised interdepartmental timetables with departure times by locality; the only intercity schedule dataset."
+ },
+ {
+  "id": "cat-12-es",
+  "need": "cat-12",
+  "lang": "es",
+  "q": "heridos en choques y accidentes de tránsito en Montevideo en 2022",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/d8b39296-5fcf-4a8e-ac9f-d02a24698b97"
+  ],
+  "difficulty": "paraphrase",
+  "note": "Injured persons in Montevideo (resource for 2022, SINATRAN data). UNASEV 2011 has national injured counts for 2011 only; the other UNASEV and MIDES sets are deaths."
+ },
+ {
+  "id": "cat-12-en",
+  "need": "cat-12",
+  "lang": "en",
+  "q": "people hurt in road crashes in Montevideo in 2022",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/d8b39296-5fcf-4a8e-ac9f-d02a24698b97"
+  ],
+  "difficulty": "paraphrase",
+  "note": "Injured persons in Montevideo (resource for 2022, SINATRAN data). UNASEV 2011 has national injured counts for 2011 only; the other UNASEV and MIDES sets are deaths."
+ },
+ {
+  "id": "cat-13-es",
+  "need": "cat-13",
+  "lang": "es",
+  "q": "femicidios y asesinatos de mujeres por violencia de género",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/5b6e988a-6e12-401e-9bf0-2d93c8208e68"
+  ],
+  "difficulty": "paraphrase",
+  "note": "Title is Homicidios a mujeres (domestic and gender-based). Violencia domestica y asociados covers complaints and ankle monitors, not homicides; MIDES homicide indicators are not by sex."
+ },
+ {
+  "id": "cat-13-en",
+  "need": "cat-13",
+  "lang": "en",
+  "q": "femicides and killings of women in gender-based violence",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/5b6e988a-6e12-401e-9bf0-2d93c8208e68"
+  ],
+  "difficulty": "paraphrase",
+  "note": "Title is Homicidios a mujeres (domestic and gender-based). Violencia domestica y asociados covers complaints and ankle monitors, not homicides; MIDES homicide indicators are not by sex."
+ },
+ {
+  "id": "cat-14-es",
+  "need": "cat-14",
+  "lang": "es",
+  "q": "dónde queda el cuartel de bomberos más cercano",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/cc6a849b-86ac-4a55-ba7c-c08d2fe616a8"
+  ],
+  "difficulty": "need",
+  "note": "Locations of Direccion Nacional de Bomberos stations; police station sets are distractors."
+ },
+ {
+  "id": "cat-14-en",
+  "need": "cat-14",
+  "lang": "en",
+  "q": "where is the nearest fire station",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/cc6a849b-86ac-4a55-ba7c-c08d2fe616a8"
+  ],
+  "difficulty": "need",
+  "note": "Locations of Direccion Nacional de Bomberos stations; police station sets are distractors."
+ },
+ {
+  "id": "cat-15-es",
+  "need": "cat-15",
+  "lang": "es",
+  "q": "dónde hay un desfibrilador instalado cerca de mí",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/7b3298be-45a0-413a-b397-9a0ae731d3ab"
+  ],
+  "difficulty": "need",
+  "note": "MSP registry of installed automatic external defibrillators (Ley 18.360); unique."
+ },
+ {
+  "id": "cat-15-en",
+  "need": "cat-15",
+  "lang": "en",
+  "q": "where can I find a public defibrillator nearby",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/7b3298be-45a0-413a-b397-9a0ae731d3ab"
+  ],
+  "difficulty": "need",
+  "note": "MSP registry of installed automatic external defibrillators (Ley 18.360); unique."
+ },
+ {
+  "id": "cat-16-es",
+  "need": "cat-16",
+  "lang": "es",
+  "q": "altas hospitalarias con diagnóstico principal y causa",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/58cca240-4384-4a5a-80f6-8687d218f228"
+  ],
+  "difficulty": "paraphrase",
+  "note": "Registro Nacional de Egresos Hospitalarios ('egreso' = discharge), with diagnosis dictionaries; unique."
+ },
+ {
+  "id": "cat-16-en",
+  "need": "cat-16",
+  "lang": "en",
+  "q": "hospital discharge records with main diagnosis",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/58cca240-4384-4a5a-80f6-8687d218f228"
+  ],
+  "difficulty": "paraphrase",
+  "note": "Registro Nacional de Egresos Hospitalarios ('egreso' = discharge), with diagnosis dictionaries; unique."
+ },
+ {
+  "id": "cat-17-es",
+  "need": "cat-17",
+  "lang": "es",
+  "q": "valor de la hectárea en ventas de campos agropecuarios por departamento",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/af9a3948-7b33-4862-b1ae-a11e2e43f277"
+  ],
+  "difficulty": "paraphrase",
+  "note": "Sales series (compraventas) by semester, year and department. The arrendamientos sibling is rents, a different need."
+ },
+ {
+  "id": "cat-17-en",
+  "need": "cat-17",
+  "lang": "en",
+  "q": "price per hectare paid in farmland sales by department",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/af9a3948-7b33-4862-b1ae-a11e2e43f277"
+  ],
+  "difficulty": "paraphrase",
+  "note": "Sales series (compraventas) by semester, year and department. The arrendamientos sibling is rents, a different need."
+ },
+ {
+  "id": "cat-18-es",
+  "need": "cat-18",
+  "lang": "es",
+  "q": "cantidad de líneas de celular activas prepago y con contrato",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/338c3127-5151-44d2-b3b1-aaf75a482c50",
+   "https://catalogodatos.gub.uy/dataset/07aa43af-890a-4a96-b96d-6b05a1be48da",
+   "https://catalogodatos.gub.uy/dataset/d886a7d1-913c-4741-8f0f-21622a87c27c"
+  ],
+  "difficulty": "paraphrase",
+  "note": "URSEC monthly mobile subscriber counts: total, prepaid and postpaid. MIDES 'personas que cuentan con telefono celular' are survey ownership shares, not line counts."
+ },
+ {
+  "id": "cat-18-en",
+  "need": "cat-18",
+  "lang": "en",
+  "q": "number of active cell phone lines, prepaid and contract",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/338c3127-5151-44d2-b3b1-aaf75a482c50",
+   "https://catalogodatos.gub.uy/dataset/07aa43af-890a-4a96-b96d-6b05a1be48da",
+   "https://catalogodatos.gub.uy/dataset/d886a7d1-913c-4741-8f0f-21622a87c27c"
+  ],
+  "difficulty": "paraphrase",
+  "note": "URSEC monthly mobile subscriber counts: total, prepaid and postpaid. MIDES 'personas que cuentan con telefono celular' are survey ownership shares, not line counts."
+ },
+ {
+  "id": "cat-19-es",
+  "need": "cat-19",
+  "lang": "es",
+  "q": "gasto de los turistas que bajan de los buques que hacen escala en el puerto",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/56eab9e5-a47a-4844-87df-3cac44b57d27",
+   "https://catalogodatos.gub.uy/dataset/e1675117-d04b-46ed-b169-f097013820bb"
+  ],
+  "difficulty": "paraphrase",
+  "note": "Cruise passenger surveys: Ministerio de Turismo national data since 2016 and the Montevideo-segmented microdata published by the Intendencia."
+ },
+ {
+  "id": "cat-19-en",
+  "need": "cat-19",
+  "lang": "en",
+  "q": "spending by tourists who come ashore from ships calling at the port",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/56eab9e5-a47a-4844-87df-3cac44b57d27",
+   "https://catalogodatos.gub.uy/dataset/e1675117-d04b-46ed-b169-f097013820bb"
+  ],
+  "difficulty": "paraphrase",
+  "note": "Cruise passenger surveys: Ministerio de Turismo national data since 2016 and the Montevideo-segmented microdata published by the Intendencia."
+ },
+ {
+  "id": "cat-20-es",
+  "need": "cat-20",
+  "lang": "es",
+  "q": "caños de agua potable rotos por localidad y año",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/53134221-23d8-4fc8-9c39-992898118a0c"
+  ],
+  "difficulty": "paraphrase",
+  "note": "OSE network breaks by department and locality, 2019-2025. Reclamos operativos are citizen complaints; RANC is the non-revenue water balance."
+ },
+ {
+  "id": "cat-20-en",
+  "need": "cat-20",
+  "lang": "en",
+  "q": "burst drinking-water pipes by town and year",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/53134221-23d8-4fc8-9c39-992898118a0c"
+  ],
+  "difficulty": "paraphrase",
+  "note": "OSE network breaks by department and locality, 2019-2025. Reclamos operativos are citizen complaints; RANC is the non-revenue water balance."
+ },
+ {
+  "id": "cat-21-es",
+  "need": "cat-21",
+  "lang": "es",
+  "q": "relevamiento de árboles en las veredas con especie y ubicación",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/38f494be-aff8-4a1d-aeea-5dd577439be0",
+   "https://catalogodatos.gub.uy/dataset/b6a8017d-47db-4806-a675-e5f45c2dc858",
+   "https://catalogodatos.gub.uy/dataset/9c398873-c4bf-4c80-9eb8-3e450733d92d"
+  ],
+  "difficulty": "paraphrase",
+  "note": "All three street-tree censuses: Montevideo 2005-2008, Paysandu 2018, San Jose. Reclamos de arbolado are service requests, not an inventory."
+ },
+ {
+  "id": "cat-21-en",
+  "need": "cat-21",
+  "lang": "en",
+  "q": "survey of street trees with species and location",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/38f494be-aff8-4a1d-aeea-5dd577439be0",
+   "https://catalogodatos.gub.uy/dataset/b6a8017d-47db-4806-a675-e5f45c2dc858",
+   "https://catalogodatos.gub.uy/dataset/9c398873-c4bf-4c80-9eb8-3e450733d92d"
+  ],
+  "difficulty": "paraphrase",
+  "note": "All three street-tree censuses: Montevideo 2005-2008, Paysandu 2018, San Jose. Reclamos de arbolado are service requests, not an inventory."
+ },
+ {
+  "id": "cat-22-es",
+  "need": "cat-22",
+  "lang": "es",
+  "q": "nuevos diagnósticos de VIH reportados cada año",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/4880e35e-2dd6-42a0-a79d-6c371fd7e1e4"
+  ],
+  "difficulty": "paraphrase",
+  "note": "Annual notified HIV and AIDS cases. MIDES 9291 is HIV/AIDS mortality, a different measure."
+ },
+ {
+  "id": "cat-22-en",
+  "need": "cat-22",
+  "lang": "en",
+  "q": "new HIV diagnoses reported each year",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/4880e35e-2dd6-42a0-a79d-6c371fd7e1e4"
+  ],
+  "difficulty": "paraphrase",
+  "note": "Annual notified HIV and AIDS cases. MIDES 9291 is HIV/AIDS mortality, a different measure."
+ },
+ {
+  "id": "cat-23-es",
+  "need": "cat-23",
+  "lang": "es",
+  "q": "catálogo de pinturas y esculturas de la colección nacional de arte",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/4da56fa9-4982-4d7e-ae3f-e3ca1bc92a41"
+  ],
+  "difficulty": "paraphrase",
+  "note": "MNAV collection (obras del acervo) with artists. The Intendencia 'Museos y parques' set is museum activities, not artworks."
+ },
+ {
+  "id": "cat-23-en",
+  "need": "cat-23",
+  "lang": "en",
+  "q": "catalogue of paintings and sculptures in the national art collection",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/4da56fa9-4982-4d7e-ae3f-e3ca1bc92a41"
+  ],
+  "difficulty": "paraphrase",
+  "note": "MNAV collection (obras del acervo) with artists. The Intendencia 'Museos y parques' set is museum activities, not artworks."
+ },
+ {
+  "id": "cat-24-es",
+  "need": "cat-24",
+  "lang": "es",
+  "q": "áreas afectadas por incendios forestales",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/16cf64da-8593-48a9-b248-e5182ac73531",
+   "https://catalogodatos.gub.uy/dataset/9650fdcf-b63c-44fb-90de-323c752537c7"
+  ],
+  "difficulty": "near-title",
+  "note": "Both SINAE fire sets: burnt-area polygons and fire hotspots (MIRA)."
+ },
+ {
+  "id": "cat-24-en",
+  "need": "cat-24",
+  "lang": "en",
+  "q": "areas affected by forest fires",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/16cf64da-8593-48a9-b248-e5182ac73531",
+   "https://catalogodatos.gub.uy/dataset/9650fdcf-b63c-44fb-90de-323c752537c7"
+  ],
+  "difficulty": "near-title",
+  "note": "Both SINAE fire sets: burnt-area polygons and fire hotspots (MIRA)."
+ },
+ {
+  "id": "cat-25-es",
+  "need": "cat-25",
+  "lang": "es",
+  "q": "erosión de los suelos en Uruguay",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/46fd9ef4-7085-4cf5-a4d5-7c7fcd2ea1f2",
+   "https://catalogodatos.gub.uy/dataset/e32ddcb3-97ab-4743-8cd6-b2a51a9fc13c"
+  ],
+  "difficulty": "near-title",
+  "note": "Both INIA erosion sets: estimated water erosion for 99 basins and soil erodibility (factor K)."
+ },
+ {
+  "id": "cat-25-en",
+  "need": "cat-25",
+  "lang": "en",
+  "q": "soil erosion in Uruguay",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/46fd9ef4-7085-4cf5-a4d5-7c7fcd2ea1f2",
+   "https://catalogodatos.gub.uy/dataset/e32ddcb3-97ab-4743-8cd6-b2a51a9fc13c"
+  ],
+  "difficulty": "near-title",
+  "note": "Both INIA erosion sets: estimated water erosion for 99 basins and soil erodibility (factor K)."
+ },
+ {
+  "id": "cat-26-es",
+  "need": "cat-26",
+  "lang": "es",
+  "q": "kilómetros de fibra óptica por departamento",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/d5332975-7e47-4984-ad6c-4e37a2e019f0"
+  ],
+  "difficulty": "near-title",
+  "note": "URSEC; unique."
+ },
+ {
+  "id": "cat-26-en",
+  "need": "cat-26",
+  "lang": "en",
+  "q": "kilometres of fibre optic cable by department",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/d5332975-7e47-4984-ad6c-4e37a2e019f0"
+  ],
+  "difficulty": "near-title",
+  "note": "URSEC; unique."
+ },
+ {
+  "id": "cat-27-es",
+  "need": "cat-27",
+  "lang": "es",
+  "q": "inventario nacional de gases de efecto invernadero",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/45cad49d-9dfa-4ce5-afe4-6ba2849a907c"
+  ],
+  "difficulty": "near-title",
+  "note": "INGEI (all sectors, UNFCCC). ANCAP's GHG set covers only its own plants; MIEM CO2 por sector covers energy CO2 only."
+ },
+ {
+  "id": "cat-27-en",
+  "need": "cat-27",
+  "lang": "en",
+  "q": "national greenhouse gas emissions inventory",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/45cad49d-9dfa-4ce5-afe4-6ba2849a907c"
+  ],
+  "difficulty": "near-title",
+  "note": "INGEI (all sectors, UNFCCC). ANCAP's GHG set covers only its own plants; MIEM CO2 por sector covers energy CO2 only."
+ },
+ {
+  "id": "cat-28-es",
+  "need": "cat-28",
+  "lang": "es",
+  "q": "leyes promulgadas por el Poder Ejecutivo desde 1985",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/0481d0a2-34e5-44ba-9464-d86d37414476"
+  ],
+  "difficulty": "near-title",
+  "note": "Laws since 1985 with IMPO text. 'Proyectos entrados' sets are bills, not enacted laws."
+ },
+ {
+  "id": "cat-28-en",
+  "need": "cat-28",
+  "lang": "en",
+  "q": "laws promulgated by the executive since 1985",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/0481d0a2-34e5-44ba-9464-d86d37414476"
+  ],
+  "difficulty": "near-title",
+  "note": "Laws since 1985 with IMPO text. 'Proyectos entrados' sets are bills, not enacted laws."
+ },
+ {
+  "id": "cat-29-es",
+  "need": "cat-29",
+  "lang": "es",
+  "q": "listado de ediles de las juntas departamentales de todo el país",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/045adf15-9af7-4787-9994-4f5590362a8b"
+  ],
+  "difficulty": "near-title",
+  "note": "Nationwide list of ediles by Junta. Maldonado and Florida sets are attendance for a single Junta."
+ },
+ {
+  "id": "cat-29-en",
+  "need": "cat-29",
+  "lang": "en",
+  "q": "list of departmental board councillors across the whole country",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/045adf15-9af7-4787-9994-4f5590362a8b"
+  ],
+  "difficulty": "near-title",
+  "note": "Nationwide list of ediles by Junta. Maldonado and Florida sets are attendance for a single Junta."
+ },
+ {
+  "id": "cat-30-es",
+  "need": "cat-30",
+  "lang": "es",
+  "q": "lista de personas expuestas políticamente",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/bcf06dc6-c41e-4307-b466-8168e7556542",
+   "https://catalogodatos.gub.uy/dataset/f60f540c-2460-4a49-a06c-858e7b19ae16"
+  ],
+  "difficulty": "near-title",
+  "note": "SENACLAFT publishes the national PEP list; Correo Uruguayo's set is its own senior staff entry in that list (partial but a genuine PEP list)."
+ },
+ {
+  "id": "cat-30-en",
+  "need": "cat-30",
+  "lang": "en",
+  "q": "list of politically exposed persons",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/bcf06dc6-c41e-4307-b466-8168e7556542",
+   "https://catalogodatos.gub.uy/dataset/f60f540c-2460-4a49-a06c-858e7b19ae16"
+  ],
+  "difficulty": "near-title",
+  "note": "SENACLAFT publishes the national PEP list; Correo Uruguayo's set is its own senior staff entry in that list (partial but a genuine PEP list)."
+ },
+ {
+  "id": "cat-31-es",
+  "need": "cat-31",
+  "lang": "es",
+  "q": "encuesta de uso de tecnologías de la información y comunicación",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/aa34c126-6bb6-4a4f-a860-45cbb86b794f",
+   "https://catalogodatos.gub.uy/dataset/293b22fa-17a2-439d-a35c-25082be11574"
+  ],
+  "difficulty": "near-title",
+  "note": "EUTIC survey published twice: AGESIC (all editions) and INE (first edition). Encuesta CAP de ciudadania digital is a different survey."
+ },
+ {
+  "id": "cat-31-en",
+  "need": "cat-31",
+  "lang": "en",
+  "q": "survey on use of information and communication technologies",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/aa34c126-6bb6-4a4f-a860-45cbb86b794f",
+   "https://catalogodatos.gub.uy/dataset/293b22fa-17a2-439d-a35c-25082be11574"
+  ],
+  "difficulty": "near-title",
+  "note": "EUTIC survey published twice: AGESIC (all editions) and INE (first edition). Encuesta CAP de ciudadania digital is a different survey."
+ },
+ {
+  "id": "cat-32-es",
+  "need": "cat-32",
+  "lang": "es",
+  "q": "plazas de deportes de la Secretaría Nacional del Deporte",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/ae054f5f-bc79-41a9-bb98-f52bff024ff0",
+   "https://catalogodatos.gub.uy/dataset/6479dad1-5dc3-4dbc-9f3c-27e6336e23f9",
+   "https://catalogodatos.gub.uy/dataset/0e49fa8f-88e8-4882-a1de-224876f09051"
+  ],
+  "difficulty": "near-title",
+  "note": "The series as a whole: SND-run, co-managed and transferred plazas."
+ },
+ {
+  "id": "cat-32-en",
+  "need": "cat-32",
+  "lang": "en",
+  "q": "public sports plazas run by the National Sports Secretariat",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/ae054f5f-bc79-41a9-bb98-f52bff024ff0",
+   "https://catalogodatos.gub.uy/dataset/6479dad1-5dc3-4dbc-9f3c-27e6336e23f9",
+   "https://catalogodatos.gub.uy/dataset/0e49fa8f-88e8-4882-a1de-224876f09051"
+  ],
+  "difficulty": "near-title",
+  "note": "The series as a whole: SND-run, co-managed and transferred plazas."
+ },
+ {
+  "id": "cat-33-es",
+  "need": "cat-33",
+  "lang": "es",
+  "q": "microdatos de la Encuesta Continua de Hogares 2014",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/0d8e26bc-0daa-4cd7-b627-5fcbadef15d8"
+  ],
+  "difficulty": "near-title",
+  "note": "INE ECH, one dataset per year; narrowed to 2014."
+ },
+ {
+  "id": "cat-33-en",
+  "need": "cat-33",
+  "lang": "en",
+  "q": "Continuous Household Survey 2014 microdata",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/0d8e26bc-0daa-4cd7-b627-5fcbadef15d8"
+  ],
+  "difficulty": "near-title",
+  "note": "INE ECH, one dataset per year; narrowed to 2014."
+ },
+ {
+  "id": "cat-34-es",
+  "need": "cat-34",
+  "lang": "es",
+  "q": "remates judiciales del Poder Judicial",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/04d733e8-244f-4fc9-9414-0caa57714f33"
+  ],
+  "difficulty": "near-title",
+  "note": "Lots auctioned by the Division Remates y Depositos Judiciales; unique."
+ },
+ {
+  "id": "cat-34-en",
+  "need": "cat-34",
+  "lang": "en",
+  "q": "court-ordered judicial auction lots",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/04d733e8-244f-4fc9-9414-0caa57714f33"
+  ],
+  "difficulty": "near-title",
+  "note": "Lots auctioned by the Division Remates y Depositos Judiciales; unique."
+ },
+ {
+  "id": "cat-35-es",
+  "need": "cat-35",
+  "lang": "es",
+  "q": "cuántas vacas y ovejas declararon los productores ganaderos en 2023",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/e6c13353-84e4-4bf5-ba2c-5ac373c06a9f"
+  ],
+  "difficulty": "need",
+  "note": "DICOSE sworn livestock declaration, one dataset per year; narrowed to 2023."
+ },
+ {
+  "id": "cat-35-en",
+  "need": "cat-35",
+  "lang": "en",
+  "q": "how many cattle and sheep did livestock farmers declare in 2023",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/e6c13353-84e4-4bf5-ba2c-5ac373c06a9f"
+  ],
+  "difficulty": "need",
+  "note": "DICOSE sworn livestock declaration, one dataset per year; narrowed to 2023."
+ },
+ {
+  "id": "cat-36-es",
+  "need": "cat-36",
+  "lang": "es",
+  "q": "cuál es el código postal de mi dirección",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/7eb3681f-3e58-475d-9cd4-4527dc6ab234"
+  ],
+  "difficulty": "need",
+  "note": "Correo Uruguayo postal codes; unique."
+ },
+ {
+  "id": "cat-36-en",
+  "need": "cat-36",
+  "lang": "en",
+  "q": "what is the postal code for my street address",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/7eb3681f-3e58-475d-9cd4-4527dc6ab234"
+  ],
+  "difficulty": "need",
+  "note": "Correo Uruguayo postal codes; unique."
+ },
+ {
+  "id": "cat-37-es",
+  "need": "cat-37",
+  "lang": "es",
+  "q": "cuántos pasajeros pasan por el aeropuerto de Carrasco cada mes y año",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/458afe25-1650-4469-abf6-497ac2575d22",
+   "https://catalogodatos.gub.uy/dataset/cfa91519-cd9c-4dd1-87df-7a5eb5da55d9"
+  ],
+  "difficulty": "need",
+  "note": "DINACIA monthly (since 2013) and annual historical passenger movements at Carrasco. Cabotaje covers domestic flights; carga sets are freight."
+ },
+ {
+  "id": "cat-37-en",
+  "need": "cat-37",
+  "lang": "en",
+  "q": "how many passengers travel through Carrasco airport each month and year",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/458afe25-1650-4469-abf6-497ac2575d22",
+   "https://catalogodatos.gub.uy/dataset/cfa91519-cd9c-4dd1-87df-7a5eb5da55d9"
+  ],
+  "difficulty": "need",
+  "note": "DINACIA monthly (since 2013) and annual historical passenger movements at Carrasco. Cabotaje covers domestic flights; carga sets are freight."
+ },
+ {
+  "id": "cat-38-es",
+  "need": "cat-38",
+  "lang": "es",
+  "q": "empresas habilitadas para salir a ver ballenas en la costa",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/4e0c1511-e149-42ae-8621-e55060ea63ff"
+  ],
+  "difficulty": "need",
+  "note": "Registro de operadores turisticos, avistamiento de cetaceos; unique."
+ },
+ {
+  "id": "cat-38-en",
+  "need": "cat-38",
+  "lang": "en",
+  "q": "licensed companies offering whale watching trips",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/4e0c1511-e149-42ae-8621-e55060ea63ff"
+  ],
+  "difficulty": "need",
+  "note": "Registro de operadores turisticos, avistamiento de cetaceos; unique."
+ },
+ {
+  "id": "cat-39-es",
+  "need": "cat-39",
+  "lang": "es",
+  "q": "cuánto dinero público recibieron las películas uruguayas",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/1ec6fc92-0e5c-4337-8734-b8fae4240466",
+   "https://catalogodatos.gub.uy/dataset/5658b600-bae0-4ae9-b78c-b7f53e4dde9e"
+  ],
+  "difficulty": "need",
+  "note": "National film agency (ACAU/ICAU) grants since 2013 and the Intendencia's Montevideo Audiovisual fund winners (FONA, Montevideo Filma). MEC Fondo Concursable para la Cultura is a general culture fund."
+ },
+ {
+  "id": "cat-39-en",
+  "need": "cat-39",
+  "lang": "en",
+  "q": "how much public money Uruguayan films have received",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/1ec6fc92-0e5c-4337-8734-b8fae4240466",
+   "https://catalogodatos.gub.uy/dataset/5658b600-bae0-4ae9-b78c-b7f53e4dde9e"
+  ],
+  "difficulty": "need",
+  "note": "National film agency (ACAU/ICAU) grants since 2013 and the Intendencia's Montevideo Audiovisual fund winners (FONA, Montevideo Filma). MEC Fondo Concursable para la Cultura is a general culture fund."
+ },
+ {
+  "id": "cat-40-es",
+  "need": "cat-40",
+  "lang": "es",
+  "q": "cuántos estudiantes abandonan el liceo público cada año",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/347a8591-dba9-4ecc-a55d-352b52de7e42"
+  ],
+  "difficulty": "need",
+  "note": "Desvinculacion ('desertor' in ANEP-CES records) in public lower-secondary. MIDES 'abandono intermitente' indicators are primary school."
+ },
+ {
+  "id": "cat-40-en",
+  "need": "cat-40",
+  "lang": "en",
+  "q": "how many students drop out of public secondary school each year",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/347a8591-dba9-4ecc-a55d-352b52de7e42"
+  ],
+  "difficulty": "need",
+  "note": "Desvinculacion ('desertor' in ANEP-CES records) in public lower-secondary. MIDES 'abandono intermitente' indicators are primary school."
+ }
+]

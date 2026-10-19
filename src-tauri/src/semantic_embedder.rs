@@ -142,10 +142,28 @@ impl SemanticEmbeddingProgress for NoSemanticEmbeddingProgress {
     }
 }
 
+/// `task_prefix` is the legacy task name ("search_document"), sent as
+/// `"{task}: {text}"` whatever the model. Indexes that record a prefix scheme
+/// use `embed_prefixed_with_progress` with the model's own prefixes.
 pub(crate) fn embed_texts_with_progress<P: SemanticEmbeddingProgress>(
     app: &AppHandle,
     texts: &[String],
     task_prefix: &str,
+    batch_size: usize,
+    progress: Option<&P>,
+) -> AppResult<Vec<Vec<f32>>> {
+    embed_prefixed_with_progress(app, texts, &format!("{task_prefix}: "), batch_size, progress)
+}
+
+pub(crate) fn embed_texts_prefixed(app: &AppHandle, texts: &[String], prefix: &str) -> AppResult<Vec<Vec<f32>>> {
+    embed_prefixed_with_progress::<NoSemanticEmbeddingProgress>(app, texts, prefix, 64, None)
+}
+
+/// Every text is sent as `"{prefix}{text}"`, the prefix verbatim.
+pub(crate) fn embed_prefixed_with_progress<P: SemanticEmbeddingProgress>(
+    app: &AppHandle,
+    texts: &[String],
+    prefix: &str,
     batch_size: usize,
     progress: Option<&P>,
 ) -> AppResult<Vec<Vec<f32>>> {
@@ -166,7 +184,7 @@ pub(crate) fn embed_texts_with_progress<P: SemanticEmbeddingProgress>(
         }
         let batch = chunk
             .iter()
-            .map(|text| format!("{task_prefix}: {text}"))
+            .map(|text| format!("{prefix}{text}"))
             .collect::<Vec<_>>();
         let mut embedded = {
             let mut loaded = embedder

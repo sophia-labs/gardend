@@ -331,6 +331,7 @@ fn finish_profile_hydration(
 /// Garden persistence transaction. Stores first opened later are dirty by
 /// construction when the flusher first observes their identity.
 fn mark_registered_stores_written(origin: DirtyOrigin, crdt_kind: Option<KnownCrdtKind>) {
+    crate::rdf_store_service::note_all_stores_written();
     let trace = tracing_enabled();
     let Ok(mut bookkeeping) = store_backup_epochs().lock() else {
         // Poisoned: there is no per-store write left to make atomic with the
@@ -407,6 +408,7 @@ pub(crate) fn mark_graph_rdf_stores_written_with_context(
     origin: DirtyOrigin,
     crdt_kind: Option<KnownCrdtKind>,
 ) {
+    crate::rdf_store_service::note_graph_stores_written(graph_id);
     let trace = tracing_enabled();
     let Ok(mut bookkeeping) = store_backup_epochs().lock() else {
         STORE_DIRTY_UNKNOWN.store(true, Ordering::Release);

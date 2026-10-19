@@ -357,6 +357,21 @@ fn compact_workspace_entry(kind: &str, entry: &serde_json::Value) -> serde_json:
         "blockCount": entry.get("blockCount").or_else(|| entry.get("block_count")).cloned().unwrap_or(serde_json::Value::Null),
         "rdfTripleCount": entry.get("rdfTripleCount").cloned().unwrap_or(serde_json::Value::Null),
     });
+    // W6: a public Sophia's visitor's document says whose it is (the account's
+    // public id and its name then; server-written, `visitor_fence`), so an app
+    // knows which notes it may offer to edit. Absent on every other document.
+    if kind == "document" {
+        let extra = entry.get("extra");
+        for key in [crate::visitor_fence::CREATED_BY_FIELD, crate::visitor_fence::CREATED_BY_NAME_FIELD] {
+            if let Some(value) = entry
+                .get(key)
+                .or_else(|| extra.and_then(|extra| extra.get(key)))
+                .and_then(serde_json::Value::as_str)
+            {
+                compact[key] = serde_json::json!(value);
+            }
+        }
+    }
     // A file says whether it is ready, and why its ingest failed when it did
     // (`status: "error"`, 2026-10-14), as the files canvas shows it.
     if kind == "artifact" {

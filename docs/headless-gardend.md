@@ -235,13 +235,62 @@ input and needs `--format`.
   have to copy the graph's document projections into the new store first, and
   stopping costs less.
 - **The graph must exist** (`create_graph`, or the app); the load touches its
-  `graph.json` so the graph shows as updated. Nothing else needs rebuilding:
-  the semantic index embeds documents, not RDF, and SPARQL reads the store.
+  `graph.json` so the graph shows as updated. The document semantic index
+  embeds documents, not RDF, and SPARQL reads the store; a graph with `find`
+  on (`gardend index`, below) has its entity index refreshed right after the
+  load, embedding only what changed (`--no-index` skips that).
 - Progress goes to standard error every 5 s; at the end, the quads per named
   graph. Loading the same file twice adds nothing (quads are a set).
 - `--threads` (default up to 4) and `--max-memory-mb` bound the loader.
 
 Never in a hosted cell: it is a CLI verb on a profile folder.
+
+### `gardend index` and the `find` tool
+
+```sh
+gardend index --graph <id> [--profile <dir>] [--langs es,en] [--model <id>]
+              [--documents] [--threads <n>] [--off]
+```
+
+Turns on `find` for one graph: a search of the graph's own RDF by meaning and
+by words, in any language, for agents. Every entity worth naming (a label or a
+description, or a schema type: classes, properties, Data Cube structure,
+DCAT/VoID datasets, SKOS schemes) becomes one short sentence: its label and
+alternates, types, descriptions in the preferred languages, and up to eight
+relations read through their objects' labels. Instances of `qb:Observation`
+(and every subclass the graph declares) are never indexed, nor are Sophia's own
+projection graphs (the document index covers those); no opaque id ever enters
+a sentence. The sentences are embedded with `intfloat/multilingual-e5-small`
+(`--model intfloat/multilingual-e5-base` for a better top hit at about three
+times the cost), downloaded once into fastembed's cache, on at most
+`GARDEN_EMBED_THREADS` threads (default: the CPUs the process may use, up to 4).
+
+- **Where it lives:** `graphs/<id>/indexes/entities/` (`config.json`,
+  `manifest.json`, `entities.jsonl`, `vectors.f32`, `vectors.i8`): it travels
+  with the graph folder, so an index built on a faster machine can be copied.
+- **When a gardend serves the profile**, the setting is written and that
+  gardend builds the index in a semantic refresh job; the command follows it.
+  Otherwise the index is built by the command itself.
+- **Only changes are embedded again:** every row keeps a content hash, so a
+  second run (or the refresh after `gardend load`) embeds what changed.
+  Embedding is the cost: about 35 entities a second on four laptop threads;
+  verbalizing is thousands a second.
+- **`find`** (MCP): `{graphId, query, k?, kinds?, types?, graphs?, mode?}`.
+  Each hit is `{iri, label, type, score, says, via?}`; a distribution or slice
+  answers as its dataset, with `via: {label, iri}` naming the part. The
+  response names each hit's named graph with its `dct:rights`/`dct:license`,
+  and `next` gives the `sparql_query` that reads a hit's facts. Scores fuse the
+  embedding (0.7) and BM25 over the sentences (0.3). Visitors of a public
+  graph may call it (`search.semantic.read`).
+- **Inert unless on:** a graph without `config.json` (or with `--off`) is
+  never read or written, and `find` answers how to turn it on. Hosted cells do
+  not offer `find`.
+
+The measurements behind these choices (three datasets, five models, six
+nearest-neighbour indexes) are in the hub's
+`plans/2026-10-14-agents-find-stuff/semantic-rdf.md`;
+`scripts/find-battery.py` asks a running gardend the 160 questions with known
+answers from that work.
 
 ## Cell runtime knobs (env)
 

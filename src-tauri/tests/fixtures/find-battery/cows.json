@@ -1,0 +1,446 @@
+[
+ {
+  "id": "cow-01",
+  "lang": "es",
+  "q": "vacas lecheras en ordeñe",
+  "gold": [
+   "urn:sophia:cow:animal-category/11/2"
+  ],
+  "kind": "concept",
+  "difficulty": "near-title",
+  "note": "Dairy-herd category VACAS EN ORDEÑE (species BOVINOS DE LECHE). Near misses: VACAS SECAS, goat HEMBRAS EN ORDEÑE."
+ },
+ {
+  "id": "cow-02",
+  "lang": "es",
+  "q": "tierras tomadas en alquiler",
+  "gold": [
+   "urn:sophia:cow:land-tenure/2"
+  ],
+  "kind": "concept",
+  "difficulty": "paraphrase",
+  "note": "Land tenure 'Arrendada' (leased). Near miss: 'Pastoreo a 11 meses' is a grazing contract, not a lease."
+ },
+ {
+  "id": "cow-03",
+  "lang": "es",
+  "q": "¿cuánta superficie está plantada con eucaliptos y pinos?",
+  "gold": [
+   "urn:sophia:cow:land-use/7"
+  ],
+  "kind": "concept",
+  "difficulty": "need",
+  "note": "Planted eucalyptus/pine = land use 'Montes artificiales (forestación)'. Near miss: giro 'Forestación' (a business line, not a land use)."
+ },
+ {
+  "id": "cow-04",
+  "lang": "es",
+  "q": "especie de ganado equino",
+  "gold": [
+   "urn:sophia:cow:species/3"
+  ],
+  "kind": "concept",
+  "difficulty": "paraphrase",
+  "note": "YEGUARIZOS is the horse species. Distractors: giros 'Tenedor de equinos con/sin campo', 'ACOPIADOR DE EQUINOS'."
+ },
+ {
+  "id": "cow-05",
+  "lang": "es",
+  "q": "dueños de vacas u ovejas que no tienen tierra",
+  "gold": [
+   "urn:sophia:cow:official-code/scheme-giros/18"
+  ],
+  "kind": "concept",
+  "difficulty": "need",
+  "note": "Giro 'Propietarios de ganado sin campo'. Activity 'PROPIETARIO DE ANIMALES SIN GRANJA' sits in the poultry block of activities, so not gold."
+ },
+ {
+  "id": "cow-06",
+  "lang": "es",
+  "q": "sociedad anónima con acciones al portador",
+  "gold": [
+   "urn:sophia:cow:official-code/scheme-legal-natures/3"
+  ],
+  "kind": "concept",
+  "difficulty": "near-title",
+  "note": "Bearer-share SA. Near misses: SA por acciones nominativas, comanditarias por acciones al portador."
+ },
+ {
+  "id": "cow-07",
+  "lang": "es",
+  "q": "ovejas ya servidas por el carnero",
+  "gold": [
+   "urn:sophia:cow:animal-category/2/2"
+  ],
+  "kind": "concept",
+  "difficulty": "paraphrase",
+  "note": "Mated breeding ewes = OVEJAS DE CRIA (ENCARNERADAS). Near misses: CARNEROS, BORREGAS SIN ENCARNERAR."
+ },
+ {
+  "id": "cow-08",
+  "lang": "es",
+  "q": "carnicería con matadero propio",
+  "gold": [
+   "urn:sophia:cow:official-code/scheme-activities/44",
+   "urn:sophia:cow:official-code/scheme-giros/9"
+  ],
+  "kind": "concept",
+  "difficulty": "near-title",
+  "note": "Same notion in two schemes: activity 'MATADERO - CARNICERÍA' and giro 'Matadero carnicería'. Near miss: giro 'Carnicería sin planta de faena'."
+ },
+ {
+  "id": "cow-09",
+  "lang": "es",
+  "q": "¿qué parte de la leche se vende a la industria?",
+  "gold": [
+   "urn:sophia:cow:official-code/scheme-production-types/2"
+  ],
+  "kind": "concept",
+  "difficulty": "need",
+  "note": "Milk destination 'Venta de leche industria:'. Near misses: 'Venta de LECHE', 'Venta de LECHE CUOTA o de reparto propio'."
+ },
+ {
+  "id": "cow-10",
+  "lang": "es",
+  "q": "departamento de la capital del país",
+  "gold": [
+   "urn:sophia:cow:department/10"
+  ],
+  "kind": "concept",
+  "difficulty": "paraphrase",
+  "note": "The capital is in MONTEVIDEO department; needs world knowledge, no shared words."
+ },
+ {
+  "id": "cow-11",
+  "lang": "es",
+  "q": "existencias de ganado bovino",
+  "gold": [
+   "https://sophia.dev/ontology/cattle-aggregates#metric_bovine_count"
+  ],
+  "kind": "metric",
+  "difficulty": "near-title",
+  "note": "Metric 'Existencias bovinas'. Near misses: metric_animals_count (all species), species BOVINOS."
+ },
+ {
+  "id": "cow-12",
+  "lang": "es",
+  "q": "¿cuántos terneros nacieron en el año?",
+  "gold": [
+   "https://sophia.dev/ontology/cattle-aggregates#metric_bovine_births_count"
+  ],
+  "kind": "metric",
+  "difficulty": "need",
+  "note": "Calves are bovine, so 'Nacimientos bovinos' rather than births_count (all species). Distractor: category TERNEROS/TERNERAS."
+ },
+ {
+  "id": "cow-13",
+  "lang": "es",
+  "q": "muertes de vacunos en el período",
+  "gold": [
+   "https://sophia.dev/ontology/cattle-aggregates#metric_bovine_deaths_count"
+  ],
+  "kind": "metric",
+  "difficulty": "paraphrase",
+  "note": "'Mortandad bovina'. Near miss: deaths_count (all species)."
+ },
+ {
+  "id": "cow-14",
+  "lang": "es",
+  "q": "calcular la carga animal de cada departamento",
+  "gold": [
+   "https://sophia.dev/ontology/cattle-aggregates#metric_livestock_units_per_livestock_hectare"
+  ],
+  "kind": "metric",
+  "difficulty": "need",
+  "note": "'Carga animal' (stocking rate) is livestock units per livestock hectare. Near misses: livestock_units, bovine_per_livestock_hectare."
+ },
+ {
+  "id": "cow-15",
+  "lang": "es",
+  "q": "propiedad que indica si un valor fue medido o derivado",
+  "gold": [
+   "https://sophia.dev/ontology/cattle-aggregates#measuredOrDerived"
+  ],
+  "kind": "property",
+  "difficulty": "paraphrase",
+  "note": "Attribute property 'measured or derived'. Near misses: class ValueStatus and its members measured/derived."
+ },
+ {
+  "id": "cow-16",
+  "lang": "es",
+  "q": "clase de observación de flujos de animales",
+  "gold": [
+   "https://sophia.dev/ontology/cattle-aggregates#AnimalFlowObservation"
+  ],
+  "kind": "class",
+  "difficulty": "near-title",
+  "note": "Class 'animal flow observation' (cross-lingual). Near miss: dsd_animal_flows (the structure, not the class)."
+ },
+ {
+  "id": "cow-17",
+  "lang": "es",
+  "q": "seccional policial donde está ubicado el establecimiento",
+  "gold": [
+   "https://sophia.dev/ontology/cattle-aggregates#policeSectionCode"
+  ],
+  "kind": "property",
+  "difficulty": "need",
+  "note": "Dimension 'police section code'. Near misses: supervisionAreaCode, enumerationArea."
+ },
+ {
+  "id": "cow-18",
+  "lang": "es",
+  "q": "ficha en el catálogo de la declaración jurada de existencias DICOSE 2025",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/mgap-datos-preliminares-basados-en-la-declaracion-jurada-de-existencias-dicose-snig-2025"
+  ],
+  "kind": "dataset",
+  "difficulty": "near-title",
+  "note": "The DCAT catalogue record for 2025. Near misses: snapshot/2025 (derived from it), the 2024 dataset."
+ },
+ {
+  "id": "cow-19",
+  "lang": "es",
+  "q": "descargar el CSV de tenencia de la tierra de 2025",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/8c99ab66-e547-4d6a-b7d3-55b80473b3c6/resource/6d679cce-a062-4618-b657-06052a0a3346/download/datostenenciastierra.csv"
+  ],
+  "kind": "distribution",
+  "difficulty": "need",
+  "note": "2025 distribution 'Tenencia de tierra'. Near misses: the 2024 file of the same title, 2025 'Metadatos de tenencia de tierra', 'Códigos de tenencia de tierra'."
+ },
+ {
+  "id": "cow-20",
+  "lang": "es",
+  "q": "licencia de datos abiertos de Uruguay",
+  "gold": [
+   "https://www.gub.uy/agencia-gobierno-electronico-sociedad-informacion-conocimiento/sites/agencia-gobierno-electronico-sociedad-informacion-conocimiento/files/documentos/publicaciones/licencia_de_datos_abiertos_0.pdf"
+  ],
+  "kind": "license",
+  "difficulty": "near-title",
+  "note": "The license entity the datasets point to."
+ },
+ {
+  "id": "cow-21",
+  "lang": "en",
+  "q": "sheep as a livestock species",
+  "gold": [
+   "urn:sophia:cow:species/2"
+  ],
+  "kind": "concept",
+  "difficulty": "paraphrase",
+  "note": "OVINOS. Near misses: metric 'Existencias ovinas', MGAP production type 'Ovinos exclusivamente'."
+ },
+ {
+  "id": "cow-22",
+  "lang": "en",
+  "q": "dry cows in the dairy herd",
+  "gold": [
+   "urn:sophia:cow:animal-category/11/3"
+  ],
+  "kind": "concept",
+  "difficulty": "paraphrase",
+  "note": "VACAS SECAS (BOVINOS DE LECHE). Near misses: VACAS EN ORDEÑE, goat HEMBRAS SECAS."
+ },
+ {
+  "id": "cow-23",
+  "lang": "en",
+  "q": "land worked under a sharecropping deal",
+  "gold": [
+   "urn:sophia:cow:land-tenure/5"
+  ],
+  "kind": "concept",
+  "difficulty": "paraphrase",
+  "note": "Medianería = sharecropping. Near misses: Arrendada, 'Ocupada a cualquier otro titulo'."
+ },
+ {
+  "id": "cow-24",
+  "lang": "en",
+  "q": "feedlot operations finishing cattle in pens",
+  "gold": [
+   "urn:sophia:cow:official-code/scheme-giros/60",
+   "urn:sophia:cow:official-code/scheme-mgap-production-types/2"
+  ],
+  "kind": "concept",
+  "difficulty": "paraphrase",
+  "note": "'Engorde a corral' exists as a giro and as an MGAP production type. Near miss: Invernador (pasture finishing)."
+ },
+ {
+  "id": "cow-25",
+  "lang": "en",
+  "q": "producers who breed and fatten their own cattle start to finish",
+  "gold": [
+   "urn:sophia:cow:official-code/scheme-mgap-production-types/5"
+  ],
+  "kind": "concept",
+  "difficulty": "need",
+  "note": "MGAP production type 'Ciclo Completo'. Near misses: Criador (breeder only), Invernador (finisher only)."
+ },
+ {
+  "id": "cow-26",
+  "lang": "en",
+  "q": "pastures sown with no-till drilling",
+  "gold": [
+   "urn:sophia:cow:land-improvement/2a"
+  ],
+  "kind": "concept",
+  "difficulty": "paraphrase",
+  "note": "'Hás de praderas realizadas en siembra directa'. Near misses: 'Siembra en cobertura' (oversowing), 1a (conventional sowing)."
+ },
+ {
+  "id": "cow-27",
+  "lang": "en",
+  "q": "size stratum of 50 to 99",
+  "gold": [
+   "urn:sophia:cow:official-code/scheme-strata/3"
+  ],
+  "kind": "concept",
+  "difficulty": "near-title",
+  "note": "Label 'stratum 2) 50 a 99'. Near misses: neighbouring strata."
+ },
+ {
+  "id": "cow-28",
+  "lang": "en",
+  "q": "cooperative as the holder's legal form",
+  "gold": [
+   "urn:sophia:cow:official-code/scheme-legal-natures/4"
+  ],
+  "kind": "concept",
+  "difficulty": "near-title",
+  "note": "Cognate of 'Cooperativa'. Near misses: class LegalNature, property legalNature, scheme legal natures."
+ },
+ {
+  "id": "cow-29",
+  "lang": "en",
+  "q": "how many sheep are there in each department",
+  "gold": [
+   "https://sophia.dev/ontology/cattle-aggregates#metric_ovine_count"
+  ],
+  "kind": "metric",
+  "difficulty": "need",
+  "note": "'Existencias ovinas (Ovine count)'. Near misses: species OVINOS, animals_count (all species)."
+ },
+ {
+  "id": "cow-30",
+  "lang": "en",
+  "q": "holders count by department and year",
+  "gold": [
+   "https://sophia.dev/ontology/cattle-aggregates#metric_holders_count",
+   "https://sophia.dev/ontology/cattle-aggregates#holdersCount"
+  ],
+  "kind": "metric",
+  "difficulty": "near-title",
+  "note": "The metric definition and the measure property it sums."
+ },
+ {
+  "id": "cow-31",
+  "lang": "en",
+  "q": "average milk output per dairy producer",
+  "gold": [
+   "https://sophia.dev/ontology/cattle-aggregates#metric_milk_liters_per_holder"
+  ],
+  "kind": "metric",
+  "difficulty": "paraphrase",
+  "note": "'Milk liters per holder'. Near misses: milk_liters, milk_liters_per_livestock_hectare, animals_per_holder."
+ },
+ {
+  "id": "cow-32",
+  "lang": "en",
+  "q": "what share of the cattle herd each animal category makes up",
+  "gold": [
+   "https://sophia.dev/ontology/cattle-aggregates#metric_category_share_of_bovine"
+  ],
+  "kind": "metric",
+  "difficulty": "need",
+  "note": "'Category share of bovine'. Near misses: class AnimalCategory, metric bovine_count."
+ },
+ {
+  "id": "cow-33",
+  "lang": "en",
+  "q": "data structure definition for land tenure",
+  "gold": [
+   "https://sophia.dev/ontology/cattle-aggregates#dsd_land_tenure"
+  ],
+  "kind": "structure",
+  "difficulty": "near-title",
+  "note": "Data Cube DSD. Near misses: class LandTenureObservation, class LandTenure, property landTenure."
+ },
+ {
+  "id": "cow-34",
+  "lang": "en",
+  "q": "which column of the original CSV did this value come from",
+  "gold": [
+   "https://sophia.dev/ontology/cattle-aggregates#SourceColumn",
+   "https://sophia.dev/ontology/cattle-aggregates#sourceColumnName"
+  ],
+  "kind": "class",
+  "difficulty": "need",
+  "note": "Provenance to the source column: the class and its name property. Near misses: sourceFile, sourceRowNumber, sourceColumnDescription."
+ },
+ {
+  "id": "cow-35",
+  "lang": "en",
+  "q": "the dimension that tags each observation with its business line",
+  "gold": [
+   "https://sophia.dev/ontology/cattle-aggregates#giro"
+  ],
+  "kind": "property",
+  "difficulty": "paraphrase",
+  "note": "Business line = giro; asks for the dimension property, not the class Giro or the scheme."
+ },
+ {
+  "id": "cow-36",
+  "lang": "en",
+  "q": "dataset snapshot for the year 2024",
+  "gold": [
+   "urn:sophia:cow:snapshot/2024"
+  ],
+  "kind": "snapshot",
+  "difficulty": "near-title",
+  "note": "Near misses: snapshot/2025, class DatasetSnapshot, the 2024 DCAT dataset it derives from."
+ },
+ {
+  "id": "cow-37",
+  "lang": "en",
+  "q": "where can I download the 2024 department code table as CSV",
+  "gold": [
+   "https://catalogodatos.gub.uy/dataset/07376382-ff03-446d-86d6-62b7d5a9cf89/resource/3008bb5f-0317-430f-89ce-018b36809b06/download/departamentos.csv"
+  ],
+  "kind": "distribution",
+  "difficulty": "need",
+  "note": "2024 distribution 'Códigos de departamentos'. Near misses: the 2025 file of the same title, 2025 metadata file."
+ },
+ {
+  "id": "cow-38",
+  "lang": "en",
+  "q": "who publishes the livestock declaration open data",
+  "gold": [
+   "https://catalogodatos.gub.uy/organization/mgap"
+  ],
+  "kind": "organization",
+  "difficulty": "need",
+  "note": "Publisher of both datasets: MGAP – SNIG."
+ },
+ {
+  "id": "cow-39",
+  "lang": "en",
+  "q": "ontology for aggregate cattle and livestock statistics",
+  "gold": [
+   "https://sophia.dev/ontology/cattle-aggregates#"
+  ],
+  "kind": "ontology",
+  "difficulty": "near-title",
+  "note": "The ontology node 'Ontologia de agregados ganaderos Sophia (Sophia Cattle Aggregates Ontology)'."
+ },
+ {
+  "id": "cow-40",
+  "lang": "en",
+  "q": "why the 2025 MGAP production type codes were copied from 2024",
+  "gold": [
+   "urn:sophia:cow:codelist-borrow/2025/scheme-mgap-production-types"
+  ],
+  "kind": "provenance",
+  "difficulty": "need",
+  "note": "The codelist-borrow activity recording the cross-year borrow. Near miss: scheme_mgap_production_types itself."
+ }
+]

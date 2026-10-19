@@ -31,6 +31,9 @@ mod tests {
         // One tree (2026-10-08): document trash is an additive store at format 1. A format-1 binary
         // that predates it opens the profile, lists a trashed document again and ignores the record.
         "document_trash_service.rs:DOCUMENT_TRASH_SCHEMA_VERSION=1",
+        // The RDF entity index behind `find` (2026-10-15): an additive store at format 1, read only
+        // where a graph's owner turned it on; a binary that predates it ignores the folder.
+        "entity_index.rs:ENTITY_INDEX_SCHEMA_VERSION=1",
         // Two new stores from the Files rudiments (2026-10-06), pinned at format 1: no existing
         // store changed, and a format-1 binary that predates them opens the profile and ignores them.
         "files_service.rs:TRASH_SCHEMA_VERSION=1",

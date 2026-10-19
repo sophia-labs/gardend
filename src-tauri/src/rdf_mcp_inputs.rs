@@ -32,6 +32,10 @@ pub(super) fn external_sparql_options_from_mcp_args(
         timeout_ms: mcp_u64_arg(arguments, &["timeoutMs", "timeout_ms"]),
         max_rows: mcp_u64_arg(arguments, &["maxRows", "max_rows"])
             .and_then(|value| usize::try_from(value).ok()),
+        cursor: arguments
+            .get("cursor")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string),
     }
 }
 

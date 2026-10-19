@@ -324,6 +324,42 @@ async fn apply_operation_inner(
     app: &AppHandle,
     operation: &CrdtOperation,
 ) -> ApplyOperationResult<Value> {
+    // W6: an operation admitted under a visitor's fence is checked again here,
+    // against the workspace it meets (and on recovery), before it runs; its
+    // document-room writes are checked against the content policy before they
+    // commit (`Room::update_doc`).
+    match crate::visitor_fence::admit_operation(app, operation).await {
+        Ok(None) => {}
+        Ok(Some(fence)) => {
+            #[cfg(test)]
+            assert!(
+                crate::visitor_fence::FENCED_KINDS.contains(&operation.kind.as_str()),
+                "tripwire: a fenced {} reached the executor",
+                operation.kind
+            );
+            let document_id = operation
+                .document_id
+                .clone()
+                .or_else(|| operation.payload.get("documentId").and_then(Value::as_str).map(str::to_string));
+            let policy = crate::visitor_fence::RoomPolicy { fence, document_id };
+            return match crate::visitor_fence::under_room_policy(policy, apply_operation_dispatch(app, operation)).await {
+                // The policy refuses inside the room's transaction, before the
+                // mutation commits (the room is evicted): nothing to retry.
+                Err(error) if error.message().contains(crate::visitor_fence::POLICY_REFUSAL) => {
+                    Err(ApplyOperationError::terminal(error.message().to_string()))
+                }
+                other => other,
+            };
+        }
+        Err(error) => return Err(ApplyOperationError::terminal(error)),
+    }
+    apply_operation_dispatch(app, operation).await
+}
+
+async fn apply_operation_dispatch(
+    app: &AppHandle,
+    operation: &CrdtOperation,
+) -> ApplyOperationResult<Value> {
     let kind = operation.kind.as_str();
     if let Some(ids) = operation.payload.get("documentIds").and_then(Value::as_array) {
         let graph_dir = crate::paths::existing_graph_dir(app, &operation.graph_id)

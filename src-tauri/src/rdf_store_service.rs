@@ -3,7 +3,10 @@ use oxigraph::store::Store;
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, OnceLock, RwLock, RwLockReadGuard},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex, OnceLock, RwLock, RwLockReadGuard,
+    },
 };
 
 static GRAPH_STORES: OnceLock<Mutex<BTreeMap<PathBuf, Arc<Store>>>> = OnceLock::new();
@@ -57,13 +60,84 @@ pub(crate) fn graph_store_quad_count(store: &Store) -> Result<usize, String> {
     Ok(count)
 }
 
-/// The store was written: its remembered count is gone.
+/// The store was written (or left the cache): its remembered count is gone,
+/// and so is its revision ([`graph_store_revision`]).
 pub(crate) fn forget_quad_count(store: &Store) {
     if let Some(counts) = QUAD_COUNTS.get() {
         counts
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .remove(&store_key(store));
+    }
+    forget_store_generation(store_key(store));
+}
+
+/// Store revisions for cursor paging (`sparql_cursor`). A cached graph
+/// store's generation is drawn from a process-wide counter the first time it
+/// is asked for and forgotten at every write to that store
+/// (`cell_durability::mark_rdf_store_written`, and graph-scoped marks such as
+/// a persistence lease's), so the next ask draws a new one. Broad Garden
+/// persistence transactions (`mark_registered_stores_written`) move every
+/// store's revision at once. In memory only: a restarted cell starts over,
+/// and its cursors were signed under another key anyway.
+static STORE_GENERATIONS: OnceLock<Mutex<BTreeMap<usize, u64>>> = OnceLock::new();
+static NEXT_STORE_GENERATION: AtomicU64 = AtomicU64::new(1);
+static BROAD_WRITE_GENERATION: AtomicU64 = AtomicU64::new(0);
+
+fn store_generations() -> std::sync::MutexGuard<'static, BTreeMap<usize, u64>> {
+    STORE_GENERATIONS
+        .get_or_init(|| Mutex::new(BTreeMap::new()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn forget_store_generation(key: usize) {
+    if STORE_GENERATIONS.get().is_some() {
+        store_generations().remove(&key);
+    }
+}
+
+/// The revision of a cached graph store: it changes at every write to the
+/// store. `None` for a store outside the cache (no cursor is minted for it).
+pub(crate) fn graph_store_revision(store: &Store) -> Option<String> {
+    if !is_cached_graph_store(store) {
+        return None;
+    }
+    let broad = BROAD_WRITE_GENERATION.load(Ordering::SeqCst);
+    let generation = *store_generations()
+        .entry(store_key(store))
+        .or_insert_with(|| NEXT_STORE_GENERATION.fetch_add(1, Ordering::SeqCst));
+    Some(format!("{broad}.{generation}"))
+}
+
+/// Every graph store's revision moves (a broad persistence transaction).
+pub(crate) fn note_all_stores_written() {
+    BROAD_WRITE_GENERATION.fetch_add(1, Ordering::SeqCst);
+}
+
+/// The cached stores of `graph_id` were written (a graph-scoped mark).
+pub(crate) fn note_graph_stores_written(graph_id: &str) {
+    let Some(stores) = GRAPH_STORES.get() else {
+        return;
+    };
+    let keys: Vec<usize> = match stores.lock() {
+        Ok(stores) => stores
+            .iter()
+            .filter(|(path, _)| {
+                path.parent()
+                    .and_then(Path::file_name)
+                    .is_some_and(|name| name == graph_id)
+            })
+            .map(|(_, store)| store_key(store))
+            .collect(),
+        // Unknown which store was written: move them all.
+        Err(_) => {
+            note_all_stores_written();
+            return;
+        }
+    };
+    for key in keys {
+        forget_store_generation(key);
     }
 }
 
@@ -195,7 +269,18 @@ mod cell_durability_quad_count_tests {
         store.insert(QuadRef::new(s, s, s, g)).unwrap();
         crate::cell_durability::mark_rdf_store_written(&store);
         assert_eq!(graph_store_quad_count(&store).unwrap(), 1, "the write was marked");
-        assert_eq!(quad_counts().get(&store_key(&store)).copied(), Some(1), "remembered");
+        // A write by any other test bumps the process-wide epoch, and a count
+        // that overlapped it is (rightly) not remembered: count again until one
+        // ran clear (the cells check failed on this race once, 2026-10-15).
+        let mut remembered = quad_counts().get(&store_key(&store)).copied();
+        for _ in 0..200 {
+            if remembered.is_some() {
+                break;
+            }
+            assert_eq!(graph_store_quad_count(&store).unwrap(), 1);
+            remembered = quad_counts().get(&store_key(&store)).copied();
+        }
+        assert_eq!(remembered, Some(1), "remembered");
         let o = NamedNodeRef::new("urn:o").unwrap();
         store.insert(QuadRef::new(s, s, o, g)).unwrap();
         crate::cell_durability::mark_rdf_store_written(&store);
