@@ -304,6 +304,8 @@ mod pdf_pipeline_engine_specs;
 mod pdf_pipeline_python_runtime;
 mod pdf_pipeline_resolution;
 mod pdf_pipeline_runtime;
+mod pdf_ocr_text_layer;
+mod scan_text_service;
 mod pdf_pymupdf_job;
 mod pdf_runtime_processes;
 mod pdf_runtimes;

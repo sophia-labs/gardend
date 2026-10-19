@@ -604,6 +604,25 @@ fn tramp_delete<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'
     })
 }
 
+fn tramp_read_scan_text<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
+    let app = ctx.app.clone();
+    let jobs = ctx.jobs.clone();
+    Box::pin(async move {
+        crate::scan_text_service::mcp_local_read_scan_text(app, jobs, args)
+            .await
+            .map_err(AppError::internal)
+    })
+}
+
+fn tramp_scan_text_layer<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
+    let app = ctx.app.clone();
+    Box::pin(async move {
+        crate::scan_text_service::mcp_local_scan_text_layer(app, args)
+            .await
+            .map_err(AppError::internal)
+    })
+}
+
 fn tramp_make_document_editable<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
     let app = ctx.app.clone();
     Box::pin(async move {
@@ -1238,6 +1257,14 @@ const REGISTRY: &[McpToolEntry] = &[
     McpToolEntry {
         name: "make_document_editable",
         handler: tramp_make_document_editable,
+    },
+    McpToolEntry {
+        name: "read_scan_text",
+        handler: tramp_read_scan_text,
+    },
+    McpToolEntry {
+        name: "scan_text_layer",
+        handler: tramp_scan_text_layer,
     },
     McpToolEntry {
         name: "edit_comment",

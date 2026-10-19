@@ -65,6 +65,10 @@ tauri-build = { version = "2.5.6", features = [], optional = true }
 # `json.dumps` (which preserves dict order) byte-for-byte — see
 # emporium/content.rs. API-compatible; only ordering changes.
 serde_json = { version = "1.0", features = ["preserve_order"] }
+# Scans: pdfium (BSD/Apache, loaded at run time, bundled beside gardend) renders a page that has no text so Tesseract can
+# read it. The png feature is ours: page images go to Tesseract as PNG files.
+pdfium-render = { version = "0.9.4", default-features = false, features = ["pdfium_latest", "image_latest", "thread_safe"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
 serde_json_canonicalizer = "0.3.2"
 serde = { version = "1.0", features = ["derive"] }
 axum = { version = "0.8", features = ["multipart", "ws"] }
