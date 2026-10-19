@@ -383,6 +383,8 @@ mod source_pull_budget;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod source_pull_tree_tests;
 mod source_sync;
+#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
+mod document_kind_store_tests;
 mod sparql_admission;
 mod sparql_cursor;
 mod storage;

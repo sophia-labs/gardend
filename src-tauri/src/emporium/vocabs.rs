@@ -116,7 +116,7 @@ pub(crate) const WORKSPACE_GOLDEN_JSON: &str =
     include_str!("vocabs/emporium-workspace.golden.json");
 /// Pinned sha256 — recompute with `shasum -a 256 src/emporium/vocabs/emporium-workspace.golden.json`.
 pub(crate) const WORKSPACE_GOLDEN_SHA: &str =
-    "cf6c525d43c312cf8d13b0bc6b003e36105603e9034ebbb4ae37ee1a84de12ca";
+    "81fa68afd17146b61651818a3d6127f31e4a428e48fa2405b13e6323ff4818fc";
 
 /// The `emporium-bookmark` EXAMPLE product vocab (EA-3), embedded verbatim. Unlike
 /// the EA-2b retrofit contracts this IS a served pack — it is the minimal real

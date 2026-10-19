@@ -43,6 +43,19 @@ pub(super) fn create_document_payload(arguments: &serde_json::Value) -> serde_js
     {
         payload["ifExists"] = if_exists.clone();
     }
+    // The workspace entry's kind ("workflow", "daily-note", ...), which
+    // `workspace_ops::write_workspace_document` stores and the workspace
+    // projection emits as `doc:documentKind`. Only a non-empty string is
+    // carried: absent leaves an existing kind untouched.
+    if let Some(kind) = arguments
+        .get("documentKind")
+        .or_else(|| arguments.get("document_kind"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|kind| !kind.is_empty())
+    {
+        payload["documentKind"] = serde_json::json!(kind);
+    }
     payload
 }
 
@@ -130,6 +143,40 @@ mod tests {
                 "order": null,
             })
         );
+    }
+
+    /// `create_document` carries a non-empty `documentKind` to the
+    /// `workspace.createDocument` op (the writer stores it on the workspace
+    /// entry); an absent, null, empty or non-string kind stays absent, so the
+    /// writer leaves an existing kind untouched.
+    #[test]
+    fn create_document_payload_passes_document_kind_through() {
+        let payload = create_document_payload(&serde_json::json!({
+            "documentId": "doc-wf",
+            "title": "Plan",
+            "documentKind": "workflow",
+        }));
+        assert_eq!(payload["documentKind"], "workflow", "{payload}");
+
+        let snake = create_document_payload(&serde_json::json!({
+            "title": "Today",
+            "document_kind": " daily-note ",
+        }));
+        assert_eq!(snake["documentKind"], "daily-note", "{snake}");
+
+        for absent in [
+            serde_json::json!({ "title": "Plain" }),
+            serde_json::json!({ "title": "Plain", "documentKind": null }),
+            serde_json::json!({ "title": "Plain", "documentKind": "" }),
+            serde_json::json!({ "title": "Plain", "documentKind": "  " }),
+            serde_json::json!({ "title": "Plain", "documentKind": 7 }),
+        ] {
+            let payload = create_document_payload(&absent);
+            assert!(
+                payload.get("documentKind").is_none(),
+                "{absent} -> {payload}"
+            );
+        }
     }
 
     #[test]

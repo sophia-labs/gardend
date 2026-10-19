@@ -2123,6 +2123,10 @@
           },
           "order": {
             "type": "number"
+          },
+          "documentKind": {
+            "type": "string",
+            "description": "Optional. The document's kind, e.g. workflow or daily-note: stored on its workspace entry and projected as doc:documentKind. Omit it to leave an existing kind as it is."
           }
         }
       }

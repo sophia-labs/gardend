@@ -19,6 +19,7 @@
                 "dcterms:title": { "datatype": "string", "multi": false, "required": false },
                 "dcterms:description": { "datatype": "string", "multi": false, "required": false },
                 "flow:documentKind": { "datatype": "string", "multi": false, "required": false, "comment": "Workspace-declared document kind (unit G3). \"flow-board\" marks a Mithras Flow board entry, which additionally types flow:Board beside mdoc:TipTapDocument (rdf:type rides sh:ignoredProperties)." },
+                "mdoc:documentKind": { "datatype": "string", "multi": false, "required": false, "comment": "Workspace-declared document kind, any non-empty value (\"workflow\", \"daily-note\", \"flow-board\", ...): the entry's documentKind field, as create_document and POST /documents carry it. A flow board carries it beside flow:documentKind." },
                 "nfo:belongsToContainer": { "datatype": "uri", "multi": false, "required": false },
                 "mdoc:order": { "datatype": "float", "multi": false, "required": false },
                 "mdoc:section": { "datatype": "string", "multi": false, "required": false },

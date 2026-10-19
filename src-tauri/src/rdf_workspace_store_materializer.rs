@@ -107,6 +107,7 @@ WHERE {{
       doc:lastAccessedAt
       doc:describedAt
       doc:readOnly
+      doc:documentKind
       doc:sourceStorageKey
       doc:sourceOriginalFilename
       doc:sourceMimeType
@@ -1278,6 +1279,41 @@ mod shacl_workspace_conformance_oracle {
         assert!(
             result.is_ok(),
             "a described document CONFORMS to the completed workspace contract: {result:?}"
+        );
+    }
+
+    /// A kinded document projects `mdoc:documentKind`, which the closed
+    /// `TipTapDocument` shape must declare: undeclared, the GATED reconcile
+    /// loud-halts every save of a graph holding a kinded document (a workflow,
+    /// a daily note, a flow board). The flow board's `flow:` pair rides beside.
+    #[test]
+    fn workspace_kinded_document_conforms() {
+        let store = Store::new().expect("store");
+        let snap = serde_json::json!({
+            "folders": [],
+            "documents": [
+                { "id": "doc-wf", "title": "Plan", "order": 0, "documentKind": "workflow",
+                  "createdAt": "1700000000000", "updatedAt": "1700000001000" },
+                { "id": "flow-board", "title": "Board", "order": 1,
+                  "extra": { "documentKind": "flow-board" },
+                  "createdAt": "1700000000000", "updatedAt": "1700000001000" }
+            ],
+            "artifacts": [],
+            "wires": []
+        });
+        reconcile_workspace_snapshot(&store, GID, &snap)
+            .expect("the GATED reconcile accepts a kinded document");
+        let projection = read_back_entity_projection(&store);
+        let kind_predicate = format!("{MDOC_NS}documentKind");
+        let kinded = projection
+            .iter()
+            .filter(|(_, p, _)| *p == kind_predicate)
+            .count();
+        assert_eq!(kinded, 2, "both kinds are projected: {projection:?}");
+        let result = validate_desired(&projection, workspace_vocabulary());
+        assert!(
+            result.is_ok(),
+            "a kinded document CONFORMS to the workspace contract: {result:?}"
         );
     }
 

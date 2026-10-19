@@ -99,6 +99,13 @@ pub(super) fn push_document_snapshot_triples(
             crate::flow_board::FLOW_BOARD_KIND,
         );
     }
+    // Every kind (a workflow, a daily note, a flow board) also projects as
+    // `doc:documentKind`, which is what readers ask for (Shrubbery's daily
+    // notes: `?doc doc:documentKind ?kind`). The golden's closed
+    // TipTapDocument shape declares it, so the gated reconcile accepts it.
+    if let Some(kind) = document_kind.as_deref() {
+        push_string_triple(triples, &subject, &format!("{MDOC_NS}documentKind"), kind);
+    }
     if let Some(title) = json_string(document.get("title")) {
         push_string_triple(triples, &subject, &format!("{DCTERMS_NS}title"), &title);
     }
@@ -780,6 +787,72 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         assert!(!plain_rendered.contains("urn:sophia:flow:vocab"));
+    }
+
+    /// Any non-empty workspace `documentKind` projects as
+    /// `doc:documentKind "<kind>"` on the document subject (Shrubbery's daily
+    /// notes ask `?doc doc:documentKind ?kind`), from either carriage of the
+    /// field. A flow board keeps its `flow:` typing exactly as before and
+    /// gains the `doc:` literal beside it; a plain or empty-kind document
+    /// gains nothing.
+    #[test]
+    fn document_kind_projects_as_doc_document_kind() {
+        let render = |document: serde_json::Value| {
+            let mut triples = Vec::new();
+            push_document_snapshot_triples(&mut triples, "graph-a", &document);
+            triples
+                .iter()
+                .map(format_rdf_triple)
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        let doc_kind = |id: &str, kind: &str| {
+            format!(
+                "<urn:mnemosyne:local:document:{id}> <http://mnemosyne.dev/doc#documentKind> \"{kind}\" ."
+            )
+        };
+
+        let workflow = render(serde_json::json!({
+            "id": "doc-wf", "title": "Plan", "order": 1,
+            "extra": { "documentKind": "workflow" }
+        }));
+        assert!(
+            workflow.contains(&doc_kind("doc-wf", "workflow")),
+            "{workflow}"
+        );
+        assert!(workflow.contains("TipTapDocument>"), "{workflow}");
+        assert!(!workflow.contains("urn:sophia:flow:vocab"), "{workflow}");
+
+        let daily = render(serde_json::json!({
+            "id": "daily-note-2026-10-18", "title": "Sunday", "order": 2,
+            "documentKind": "daily-note"
+        }));
+        assert!(
+            daily.contains(&doc_kind("daily-note-2026-10-18", "daily-note")),
+            "{daily}"
+        );
+
+        let board = render(serde_json::json!({
+            "id": "flow-board", "title": "Mission Board", "order": 3,
+            "extra": { "documentKind": "flow-board" }
+        }));
+        assert!(
+            board.contains(&doc_kind("flow-board", "flow-board")),
+            "{board}"
+        );
+        assert!(board.contains("<urn:sophia:flow:vocab:Board>"), "{board}");
+        assert!(
+            board.contains("<urn:sophia:flow:vocab:documentKind> \"flow-board\""),
+            "{board}"
+        );
+
+        for plain in [
+            serde_json::json!({ "id": "doc-plain", "title": "Plain", "order": 4 }),
+            serde_json::json!({ "id": "doc-empty", "title": "Empty", "order": 5, "documentKind": "" }),
+        ] {
+            let rendered = render(plain);
+            assert!(!rendered.contains("documentKind"), "{rendered}");
+        }
     }
 
     #[test]

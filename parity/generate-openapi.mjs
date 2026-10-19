@@ -495,6 +495,7 @@ const components = {
         title: { type: 'string' },
         parentId: { type: 'string' },
         order: { type: 'number' },
+        documentKind: { type: 'string' },
       },
     },
     WorkspaceCreateFolderRequest: {

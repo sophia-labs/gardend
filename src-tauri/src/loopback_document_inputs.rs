@@ -7,6 +7,10 @@ pub(super) struct WorkspaceCreateDocumentInput {
     pub(super) title: String,
     pub(super) parent_id: Option<String>,
     pub(super) order: Option<f64>,
+    /// The workspace entry's kind (`doc:documentKind`); absent leaves an
+    /// existing kind untouched.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) document_kind: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -81,6 +85,28 @@ mod tests {
                 "order": 2.5,
             })
         );
+    }
+
+    /// `POST /api/graphs/{g}/documents` carries `documentKind` into the
+    /// `workspace.createDocument` payload when the body names one, and leaves
+    /// it out (untouched) when it does not.
+    #[test]
+    fn workspace_create_document_input_carries_document_kind() {
+        let route_payload = |body: serde_json::Value| {
+            serde_json::to_value(
+                serde_json::from_value::<WorkspaceCreateDocumentInput>(body).unwrap(),
+            )
+            .unwrap()
+        };
+        let kinded = route_payload(serde_json::json!({
+            "documentId": "doc-wf",
+            "title": "Plan",
+            "documentKind": "workflow",
+        }));
+        assert_eq!(kinded["documentKind"], "workflow", "{kinded}");
+
+        let plain = route_payload(serde_json::json!({ "title": "Plain" }));
+        assert!(plain.get("documentKind").is_none(), "{plain}");
     }
 
     #[test]

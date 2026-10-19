@@ -14218,6 +14218,9 @@
           },
           "order": {
             "type": "number"
+          },
+          "documentKind": {
+            "type": "string"
           }
         }
       },
