@@ -832,3 +832,50 @@ fn editcomments_after_a_direct_room_write_keeps_the_entry() {
         });
     });
 }
+
+#[test]
+fn read_document_hands_an_agent_the_notes() {
+    with_gardend("reader-read", |state| {
+        crate::app_runtime::async_runtime::block_on(async {
+            let block = book(&state).await;
+            let plain = tool(&state, MASTER, "read_document", json!({ "graphId": GRAPH, "documentId": "book" }))
+                .await.unwrap();
+            assert!(plain.get("comments").is_none() && plain.get("commentCount").is_none(), "{plain}");
+
+            tool(&state, MASTER, "edit_comment", reader_args(json!({
+                "commentId": "b-note", "text": "why royal?", "blockId": block, "find": "royal road", "author": "Vera",
+                "kind": "comment", "color": "pink", "madeIn": "reader", "anchor": {"page": 2},
+            }))).await.unwrap();
+            tool(&state, MASTER, "edit_comment", reader_args(json!({
+                "commentId": "a-mark", "kind": "highlight", "color": "yellow", "blockId": block, "find": "second sentence",
+                "anchor": {"chapter": 1, "prefix": "A "},
+            }))).await.unwrap();
+
+            let read = tool(&state, MASTER, "read_document", json!({ "graphId": GRAPH, "documentId": "book" }))
+                .await.unwrap();
+            assert_eq!(read["commentCount"], 2, "{read}");
+            let comments = read["comments"].as_array().unwrap();
+            assert_eq!(comments.len(), 2);
+            let note = comments.iter().find(|c| c["id"] == "b-note").unwrap();
+            assert_eq!(note["text"], "why royal?");
+            assert_eq!(note["quotedText"], "royal road");
+            assert_eq!(note["claimedAuthor"], "Vera", "{note}");
+            assert_eq!(note["kind"], "comment");
+            assert_eq!(note["color"], "pink");
+            assert_eq!(note["anchor"], json!({"page": 2}));
+            assert_eq!(note["resolved"], false);
+            assert!(note["blockId"].is_string() && note["createdAt"].is_number() && note["author"].is_string(), "{note}");
+            assert!(note.get("madeIn").is_none() && note.get("updatedAt").is_none(), "compact: {note}");
+            let mark = comments.iter().find(|c| c["id"] == "a-mark").unwrap();
+            assert_eq!((mark["kind"].as_str(), mark["text"].as_str()), (Some("highlight"), Some("")));
+            // Stable order: createdAt, then id.
+            let again = tool(&state, MASTER, "read_document", json!({ "graphId": GRAPH, "documentId": "book" }))
+                .await.unwrap();
+            assert_eq!(again["comments"], read["comments"]);
+
+            let left_out = tool(&state, MASTER, "read_document",
+                json!({ "graphId": GRAPH, "documentId": "book", "includeComments": false })).await.unwrap();
+            assert!(left_out.get("comments").is_none() && left_out.get("commentCount").is_none(), "{left_out}");
+        });
+    });
+}

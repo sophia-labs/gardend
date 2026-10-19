@@ -156,7 +156,19 @@ pub(super) fn mcp_local_read_document(
     let next_offset = offset + visible_content.chars().count();
     let complete = next_offset >= total_chars;
 
-    Ok(serde_json::json!({
+    let include_comments = !matches!(
+        arguments
+            .get("includeComments")
+            .or_else(|| arguments.get("include_comments")),
+        Some(serde_json::Value::Bool(false))
+    );
+    let comments = if include_comments {
+        crate::document_comments_read::comments_for_read(&document)
+    } else {
+        Vec::new()
+    };
+
+    let mut result = serde_json::json!({
         "graph_id": graph_id,
         "document_id": document_id,
         "title": document.title,
@@ -174,7 +186,14 @@ pub(super) fn mcp_local_read_document(
         "block_count": blocks.len(),
         "rdfTripleCount": document.rdf_triple_count,
         "schemaVersion": document.schema_version,
-    }))
+    });
+    if !comments.is_empty() {
+        // People's notes and highlights on this document (resolved ones
+        // included, flagged). Pass includeComments:false to leave them out.
+        result["commentCount"] = serde_json::json!(comments.len());
+        result["comments"] = serde_json::Value::Array(comments);
+    }
+    Ok(result)
 }
 
 fn document_summary(document: &DocumentRecord) -> serde_json::Value {

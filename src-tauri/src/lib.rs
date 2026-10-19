@@ -26,6 +26,7 @@ mod chat_persistence;
 mod clock;
 mod comment_authorship;
 mod comment_reader_keys;
+mod document_comments_read;
 pub mod conversation_archive;
 pub mod crdt_engine;
 mod crdt_operation_audit;
