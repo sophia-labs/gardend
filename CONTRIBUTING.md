@@ -43,7 +43,7 @@ CI runs the same commands, so a green local run is a green PR. From the reposito
 ```bash
 cargo fmt --check --manifest-path src-tauri/Cargo.toml
 cargo test --manifest-path src-tauri/Cargo.toml --no-default-features --features headless --lib
-pnpm parity:inventory    # only if you touched routes, MCP tools, scopes, storage or security
+pnpm parity:openapi:check && pnpm parity:cell-boundary && pnpm parity:security   # if you touched routes, MCP tools, scopes, storage or security
 ```
 
 The first Rust build is a cold compile of a large dependency tree (tens of minutes). Do not pay it twice: the **build

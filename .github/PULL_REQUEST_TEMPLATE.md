@@ -24,7 +24,7 @@ Run the checks below locally first: CI runs the same ones.
 
 - [ ] `cargo fmt --check --manifest-path src-tauri/Cargo.toml`
 - [ ] `cargo test --manifest-path src-tauri/Cargo.toml --no-default-features --features headless --lib` (or `scripts/garden-build-service.py test`)
-- [ ] `pnpm parity:inventory` (if routes, MCP tools, scopes, storage or security changed)
+- [ ] `pnpm parity:openapi:check && pnpm parity:cell-boundary && pnpm parity:security` (if routes, MCP tools, scopes, storage or security changed)
 - [ ] Added or updated a real test for the change (no mocks)
 
 ## Notes for reviewers
