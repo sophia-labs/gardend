@@ -2401,6 +2401,41 @@
       }
     },
     {
+      "name": "read_scan_text",
+      "description": "Read the text of a scanned PDF (its pages are pictures) with OCR, in the background: the words are kept beside the document as its text layer (scan_text_layer returns them, each with its box on the page), and a document made from a PDF with no text at all gets the words as its text. Returns status running (with jobId), done, or unavailable (OCR is not set up on this host).",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "document_id"
+        ],
+        "properties": {
+          "graph_id": { "type": "string" },
+          "graphId": { "type": "string" },
+          "document_id": { "type": "string" },
+          "documentId": { "type": "string" },
+          "lang": { "type": "string", "description": "Tesseract language codes, e.g. eng or eng+fra (default eng)." },
+          "force": { "type": "boolean", "description": "Read again, even when the words were read before or a page has text." }
+        }
+      }
+    },
+    {
+      "name": "scan_text_layer",
+      "description": "Where reading a scanned PDF stands (status none, running with progress, failed, or done), and when done its words: per page, each word with its box in the page's coordinates (sophia.ocr-text-layer/1).",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "document_id"
+        ],
+        "properties": {
+          "graph_id": { "type": "string" },
+          "graphId": { "type": "string" },
+          "document_id": { "type": "string" },
+          "documentId": { "type": "string" },
+          "includeWords": { "type": "boolean", "description": "Default true; false answers with the status only." }
+        }
+      }
+    },
+    {
       "name": "make_document_editable",
       "description": "Clear the local workspace readOnly flag for an uploaded or ingested document.",
       "inputSchema": {

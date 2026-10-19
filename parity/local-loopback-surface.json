@@ -1901,6 +1901,20 @@
       ]
     },
     {
+      "name": "read_scan_text",
+      "status": "implemented-async-job",
+      "scopes": [
+        "documents.write.crdt"
+      ]
+    },
+    {
+      "name": "scan_text_layer",
+      "status": "implemented",
+      "scopes": [
+        "documents.read"
+      ]
+    },
+    {
       "name": "make_document_editable",
       "status": "implemented-crdt-queued",
       "scopes": [
