@@ -1,0 +1,16 @@
+# gitleaks configuration for sophia-labs/gardend. Extends the default rules.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "built service bundles and documented test constants"
+paths = [
+  # The built vehicle and choreograph services are minified third-party bundles pinned by sha256 in the *.lock.json files.
+  '''services/(vehicle|choreograph)/(app|body)/.*''',
+]
+regexes = [
+  # RFC 6455 sample nonce used in a handshake test.
+  '''dGhlIHNhbXBsZSBub25jZQ''',
+  # A made-up key in an env-file parser test.
+  '''sk-or-v1-abc=def''',
+]
