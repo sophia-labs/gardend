@@ -23,7 +23,11 @@ pub(super) async fn loopback_hosted_list_graphs(
     headers: HeaderMap,
     Query(query): Query<HostedGraphListQuery>,
 ) -> Response {
-    let caller = match crate::loopback_http::authorized_loopback_caller(&headers, &state, &["graphs.read"]) {
+    let caller = match crate::loopback_http::authorized_loopback_caller(
+        &headers,
+        &state,
+        &["graphs.read"],
+    ) {
         Ok(caller) => caller,
         Err(response) => return response,
     };
@@ -72,7 +76,11 @@ pub(super) async fn loopback_hosted_read_graph(
     AxumPath(graph_id): AxumPath<String>,
     Query(query): Query<HostedGraphListQuery>,
 ) -> Response {
-    let caller = match crate::loopback_http::authorized_loopback_caller(&headers, &state, &["graphs.read"]) {
+    let caller = match crate::loopback_http::authorized_loopback_caller(
+        &headers,
+        &state,
+        &["graphs.read"],
+    ) {
         Ok(caller) => caller,
         Err(response) => return response,
     };

@@ -59,8 +59,14 @@ const CRDT_OPERATION_SCOPE_RULES: &[CrdtOperationScopeRule] = &[
     crdt_rule("workspace.refreshWire", &["wires.write"]),
     crdt_rule("workspace.deleteWire", &["wires.delete"]),
     crdt_rule("document.write", &["documents.write.crdt"]),
-    crdt_rule("document.createOnce", &["documents.write.crdt", "workspace.write.crdt"]),
-    crdt_rule("artifact.mutateText", &["artifacts.write", "workspace.write.crdt"]),
+    crdt_rule(
+        "document.createOnce",
+        &["documents.write.crdt", "workspace.write.crdt"],
+    ),
+    crdt_rule(
+        "artifact.mutateText",
+        &["artifacts.write", "workspace.write.crdt"],
+    ),
     crdt_rule("document.editComment", &["documents.write.crdt"]),
     crdt_rule("document.liveProjection", &["documents.write.crdt"]),
     // Unit G4: seeding the Mithras Flow board is a document write (the brief's
@@ -215,10 +221,17 @@ mod tests {
         }
         let declared = mcp_tool_scopes("crdt_operation");
         let declared_set = declared.iter().copied().collect::<BTreeSet<_>>();
-        assert_eq!(declared.len(), declared_set.len(), "declared generic scopes must not contain duplicates");
+        assert_eq!(
+            declared.len(),
+            declared_set.len(),
+            "declared generic scopes must not contain duplicates"
+        );
         // Authorization requires every scope by membership; role selection
         // takes their maximum. Neither promises first-encounter ordering.
         // The early workspace.setCustomCss rule changes only that ordering.
-        assert_eq!(declared_set, union, "declared generic scopes must equal the complete operation union");
+        assert_eq!(
+            declared_set, union,
+            "declared generic scopes must equal the complete operation union"
+        );
     }
 }

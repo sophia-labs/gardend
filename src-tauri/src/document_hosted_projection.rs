@@ -144,17 +144,27 @@ pub(super) fn hosted_document_summaries(
         })
         .collect();
     for row in crate::document_body_availability::unavailable_documents(&graph_dir)? {
-        let id = row["documentId"].as_str().ok_or("unavailable document ID missing")?;
+        let id = row["documentId"]
+            .as_str()
+            .ok_or("unavailable document ID missing")?;
         if crate::document_tombstone_store::document_is_tombstoned(&graph_dir, id)? {
             return Err("unavailable body conflicts with destination tombstone".into());
         }
         let metadata = &row["metadata"];
         summaries.push(HostedDocumentSummary {
-            entity_type: entity_type_document(), id: id.to_string(), graph_id: graph_id.to_string(),
-            title: metadata["title"].as_str().ok_or("unavailable source title missing")?.to_string(),
-            revision: None, snippet: None, last_accessed_at: None,
+            entity_type: entity_type_document(),
+            id: id.to_string(),
+            graph_id: graph_id.to_string(),
+            title: metadata["title"]
+                .as_str()
+                .ok_or("unavailable source title missing")?
+                .to_string(),
+            revision: None,
+            snippet: None,
+            last_accessed_at: None,
             updated_at: hosted_entity_timestamp(Some(metadata), "updatedAt", None),
-            parent_id: hosted_entity_parent_id(Some(metadata)), read_only: true,
+            parent_id: hosted_entity_parent_id(Some(metadata)),
+            read_only: true,
             body_availability: Some(serde_json::json!({"state":"source-body-unavailable",
                 "reason":row["reason"],"sourceUserId":row["sourceUserId"],
                 "sourceGraphId":row["sourceGraphId"],"inventorySha256":row["inventorySha256"]})),

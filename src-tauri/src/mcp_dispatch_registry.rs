@@ -42,6 +42,7 @@ use crate::{
         mcp_local_emporium_read, mcp_local_emporium_retract, mcp_local_emporium_sweep,
         mcp_local_emporium_write, mcp_local_sparql_query_named,
     },
+    entity_find::mcp_local_find,
     flow_board_mcp::{mcp_local_flow_export_board, mcp_local_flow_seed_board},
     geist_memory_backfill::mcp_local_backfill_memory_projection,
     geist_memory_recall_service::mcp_local_recall_memories,
@@ -83,7 +84,6 @@ use crate::{
     salience_service::{mcp_local_get_block_values, mcp_local_get_values, mcp_local_revaluate},
     semantic_reasoner::mcp_local_semantic_reason,
     semantic_search_service::mcp_local_semantic_search,
-    entity_find::mcp_local_find,
     source_sync::{
         mcp_authoritative_value, mcp_local_source_pull, mcp_local_source_push,
         mcp_local_source_rebuild,
@@ -174,20 +174,32 @@ fn tramp_context_bundle<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHand
 
 fn tramp_remember<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
     let app = ctx.app.clone();
-    recorded(ctx, args, "remember", crate::source_sync::AuthoredScope::UserGraphs, Box::pin(async move {
-        mcp_local_remember(app, args)
-            .await
-            .map_err(AppError::internal)
-    }))
+    recorded(
+        ctx,
+        args,
+        "remember",
+        crate::source_sync::AuthoredScope::UserGraphs,
+        Box::pin(async move {
+            mcp_local_remember(app, args)
+                .await
+                .map_err(AppError::internal)
+        }),
+    )
 }
 
 fn tramp_remember_batch<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
     let app = ctx.app.clone();
-    recorded(ctx, args, "rememberBatch", crate::source_sync::AuthoredScope::UserGraphs, Box::pin(async move {
-        mcp_local_remember_batch(app, args)
-            .await
-            .map_err(AppError::internal)
-    }))
+    recorded(
+        ctx,
+        args,
+        "rememberBatch",
+        crate::source_sync::AuthoredScope::UserGraphs,
+        Box::pin(async move {
+            mcp_local_remember_batch(app, args)
+                .await
+                .map_err(AppError::internal)
+        }),
+    )
 }
 
 fn tramp_recall<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
@@ -200,16 +212,24 @@ fn tramp_propose_domain_ontology<'a>(
     args: &'a Value,
 ) -> McpHandlerFut<'a> {
     let app = ctx.app.clone();
-    recorded(ctx, args, "proposeDomainOntology", crate::source_sync::AuthoredScope::Authored, Box::pin(async move {
-        propose_domain_ontology(&app, args).await
-    }))
+    recorded(
+        ctx,
+        args,
+        "proposeDomainOntology",
+        crate::source_sync::AuthoredScope::Authored,
+        Box::pin(async move { propose_domain_ontology(&app, args).await }),
+    )
 }
 
 fn tramp_care<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
     let app = ctx.app.clone();
-    recorded(ctx, args, "care", crate::source_sync::AuthoredScope::UserGraphs, Box::pin(async move {
-        mcp_local_care_memories(app, args).map_err(AppError::internal)
-    }))
+    recorded(
+        ctx,
+        args,
+        "care",
+        crate::source_sync::AuthoredScope::UserGraphs,
+        Box::pin(async move { mcp_local_care_memories(app, args).map_err(AppError::internal) }),
+    )
 }
 
 fn tramp_emporium_vocab<'a>(_ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
@@ -233,16 +253,24 @@ fn tramp_emporium_heads<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHand
 
 fn tramp_emporium_sweep<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
     let app = ctx.app.clone();
-    recorded(ctx, args, "emporiumSweep", crate::source_sync::AuthoredScope::Authored, Box::pin(async move {
-        mcp_local_emporium_sweep(app, args)
-    }))
+    recorded(
+        ctx,
+        args,
+        "emporiumSweep",
+        crate::source_sync::AuthoredScope::Authored,
+        Box::pin(async move { mcp_local_emporium_sweep(app, args) }),
+    )
 }
 
 fn tramp_datasheet_import<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
     let app = ctx.app.clone();
-    recorded(ctx, args, "datasheetImport", crate::source_sync::AuthoredScope::Authored, Box::pin(async move {
-        mcp_local_datasheet_import(app, args)
-    }))
+    recorded(
+        ctx,
+        args,
+        "datasheetImport",
+        crate::source_sync::AuthoredScope::Authored,
+        Box::pin(async move { mcp_local_datasheet_import(app, args) }),
+    )
 }
 
 fn tramp_datasheet_facts<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
@@ -289,9 +317,13 @@ fn tramp_backfill_memory_projection<'a>(
 
 fn tramp_archive_memories<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
     let app = ctx.app.clone();
-    recorded(ctx, args, "archiveMemories", crate::source_sync::AuthoredScope::Authored, Box::pin(async move {
-        mcp_local_archive_memories(app, args).map_err(AppError::internal)
-    }))
+    recorded(
+        ctx,
+        args,
+        "archiveMemories",
+        crate::source_sync::AuthoredScope::Authored,
+        Box::pin(async move { mcp_local_archive_memories(app, args).map_err(AppError::internal) }),
+    )
 }
 
 fn tramp_music<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
@@ -301,9 +333,13 @@ fn tramp_music<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a
 
 fn tramp_sing<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
     let app = ctx.app.clone();
-    recorded(ctx, args, "sing", crate::source_sync::AuthoredScope::Authored, Box::pin(async move {
-        mcp_local_sing(app, args).map_err(AppError::internal)
-    }))
+    recorded(
+        ctx,
+        args,
+        "sing",
+        crate::source_sync::AuthoredScope::Authored,
+        Box::pin(async move { mcp_local_sing(app, args).map_err(AppError::internal) }),
+    )
 }
 
 fn tramp_surface<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
@@ -428,7 +464,8 @@ fn tramp_create_document_once<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> M
     let app = ctx.app.clone();
     Box::pin(async move {
         crate::document_create_once_mcp::create_document_once(app, args)
-            .await.map_err(AppError::internal)
+            .await
+            .map_err(AppError::internal)
     })
 }
 
@@ -462,11 +499,16 @@ fn tramp_get_values<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerF
 
 fn tramp_revaluate<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
     let app = ctx.app.clone();
-    let observer = crate::mcp_utils::mcp_arg_string(args, &["observer_agent_id", "observerAgentId"])
-        .unwrap_or_default();
-    recorded(ctx, args, "revaluate", crate::source_sync::AuthoredScope::Values(observer), Box::pin(async move {
-        mcp_local_revaluate(app, args).map_err(AppError::internal)
-    }))
+    let observer =
+        crate::mcp_utils::mcp_arg_string(args, &["observer_agent_id", "observerAgentId"])
+            .unwrap_or_default();
+    recorded(
+        ctx,
+        args,
+        "revaluate",
+        crate::source_sync::AuthoredScope::Values(observer),
+        Box::pin(async move { mcp_local_revaluate(app, args).map_err(AppError::internal) }),
+    )
 }
 
 fn tramp_get_block_values<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
@@ -601,7 +643,11 @@ fn tramp_read_artifact<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandl
     Box::pin(async move { mcp_local_read_artifact(app, args).await })
 }
 fn tramp_create_artifact_text<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
-    Box::pin(crate::artifact_text_service::mcp_mutate(ctx.app.clone(),args,"create"))
+    Box::pin(crate::artifact_text_service::mcp_mutate(
+        ctx.app.clone(),
+        args,
+        "create",
+    ))
 }
 fn tramp_read_custom_css<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
     Box::pin(crate::custom_css::mcp_read(ctx.app.clone(), args))
@@ -613,9 +659,13 @@ fn tramp_agent_self_image<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHa
     Box::pin(crate::agent_self_image::mcp(ctx.app.clone(), args))
 }
 fn tramp_status<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
-    recorded(ctx, args, "status", crate::source_sync::AuthoredScope::UserGraphs, Box::pin(
-        crate::agent_status::write(ctx.app.clone(), args),
-    ))
+    recorded(
+        ctx,
+        args,
+        "status",
+        crate::source_sync::AuthoredScope::UserGraphs,
+        Box::pin(crate::agent_status::write(ctx.app.clone(), args)),
+    )
 }
 fn tramp_custom_css<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
     Box::pin(crate::custom_css::mcp_capability(ctx.app.clone(), args))
@@ -624,7 +674,11 @@ fn tramp_write_custom_css<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHa
     Box::pin(crate::custom_css::mcp_write(ctx.app.clone(), args))
 }
 fn tramp_write_artifact_text<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
-    Box::pin(crate::artifact_text_service::mcp_mutate(ctx.app.clone(),args,"write"))
+    Box::pin(crate::artifact_text_service::mcp_mutate(
+        ctx.app.clone(),
+        args,
+        "write",
+    ))
 }
 
 fn tramp_list_artifact_kinds<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
@@ -755,9 +809,13 @@ fn tramp_sparql_update<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandl
 
 fn tramp_rdf_load<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
     let app = ctx.app.clone();
-    recorded(ctx, args, "rdfLoad", crate::source_sync::AuthoredScope::UserGraphs, Box::pin(async move {
-        mcp_local_rdf_load(app, args)
-    }))
+    recorded(
+        ctx,
+        args,
+        "rdfLoad",
+        crate::source_sync::AuthoredScope::UserGraphs,
+        Box::pin(async move { mcp_local_rdf_load(app, args) }),
+    )
 }
 
 fn tramp_rdf_dump<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
@@ -1173,14 +1231,38 @@ const REGISTRY: &[McpToolEntry] = &[
         name: "read_artifact",
         handler: tramp_read_artifact,
     },
-    McpToolEntry { name:"agent_status", handler:tramp_agent_status },
-    McpToolEntry { name:"agent_self_image", handler:tramp_agent_self_image },
-    McpToolEntry { name:"status", handler:tramp_status },
-    McpToolEntry { name:"read_custom_css", handler:tramp_read_custom_css },
-    McpToolEntry { name:"custom_css", handler:tramp_custom_css },
-    McpToolEntry { name:"write_custom_css", handler:tramp_write_custom_css },
-    McpToolEntry { name:"create_artifact_text", handler:tramp_create_artifact_text },
-    McpToolEntry { name:"write_artifact_text", handler:tramp_write_artifact_text },
+    McpToolEntry {
+        name: "agent_status",
+        handler: tramp_agent_status,
+    },
+    McpToolEntry {
+        name: "agent_self_image",
+        handler: tramp_agent_self_image,
+    },
+    McpToolEntry {
+        name: "status",
+        handler: tramp_status,
+    },
+    McpToolEntry {
+        name: "read_custom_css",
+        handler: tramp_read_custom_css,
+    },
+    McpToolEntry {
+        name: "custom_css",
+        handler: tramp_custom_css,
+    },
+    McpToolEntry {
+        name: "write_custom_css",
+        handler: tramp_write_custom_css,
+    },
+    McpToolEntry {
+        name: "create_artifact_text",
+        handler: tramp_create_artifact_text,
+    },
+    McpToolEntry {
+        name: "write_artifact_text",
+        handler: tramp_write_artifact_text,
+    },
     McpToolEntry {
         name: "list_artifact_kinds",
         handler: tramp_list_artifact_kinds,
@@ -1611,9 +1693,9 @@ mod headless_dispatch_tests {
         // `emporium_sweep` / `emporium_violations` are built to surface.
         let h = memory_record("r-h", "vera prefers fish CLI", None);
         let h_subject = memory_record_subject(graph_id, &h);
-        crate::app_runtime::async_runtime::block_on(crate::geist_memory_service::ingest_memory_record(
-            &app, graph_id, h,
-        ))
+        crate::app_runtime::async_runtime::block_on(
+            crate::geist_memory_service::ingest_memory_record(&app, graph_id, h),
+        )
         .expect("file H");
         let a = memory_record("r-a", "vera prefers zsh", Some(h_subject.clone()));
         let b = memory_record("r-b", "vera prefers nushell", Some(h_subject));

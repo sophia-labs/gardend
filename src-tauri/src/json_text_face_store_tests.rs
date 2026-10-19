@@ -153,7 +153,10 @@ fn stored_text(app: &crate::app_runtime::AppHandle, document_id: &str) -> String
     blocks
         .iter()
         .map(|block| {
-            assert_eq!(block["type"], "paragraph", "{document_id}: stored block {block}");
+            assert_eq!(
+                block["type"], "paragraph",
+                "{document_id}: stored block {block}"
+            );
             block["content"]
                 .as_array()
                 .into_iter()
@@ -181,7 +184,10 @@ async fn export_markdown(app: &crate::app_runtime::AppHandle, document_id: &str)
         .get(axum::http::header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
         .map(str::to_string);
-    assert_eq!(content_type.as_deref(), Some("text/markdown; charset=utf-8"));
+    assert_eq!(
+        content_type.as_deref(),
+        Some("text/markdown; charset=utf-8")
+    );
     let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .unwrap();
@@ -201,7 +207,10 @@ fn json_authored_as_plain_text_reads_back_verbatim_through_the_store() {
                 "the write stores the authored text"
             );
             assert_eq!(read(&app, "phanes-control", "markdown"), CONTROL_BUNDLE);
-            assert_eq!(export_markdown(&app, "phanes-control").await, CONTROL_BUNDLE);
+            assert_eq!(
+                export_markdown(&app, "phanes-control").await,
+                CONTROL_BUNDLE
+            );
 
             // 2. Pretty-printed JSON (the Phanes seed's bytes): the plain
             //    write folds it into one paragraph; the face is that stored
@@ -214,13 +223,20 @@ fn json_authored_as_plain_text_reads_back_verbatim_through_the_store() {
                 create_and_write(&app, document_id, &source, "plain").await;
                 let stored = stored_text(&app, document_id);
                 let markdown = read(&app, document_id, "markdown");
-                assert_eq!(markdown, stored, "{document_id}: the face is the stored text");
+                assert_eq!(
+                    markdown, stored,
+                    "{document_id}: the face is the stored text"
+                );
                 assert_eq!(
                     serde_json::from_str::<Value>(&markdown).unwrap(),
                     value,
                     "{document_id}: JSON-equal to the write"
                 );
-                assert_eq!(export_markdown(&app, document_id).await, stored, "{document_id}");
+                assert_eq!(
+                    export_markdown(&app, document_id).await,
+                    stored,
+                    "{document_id}"
+                );
             }
 
             // 3. Prose keeps its escaping.
@@ -232,8 +248,13 @@ fn json_authored_as_plain_text_reads_back_verbatim_through_the_store() {
             //    2026-10-05 23:00Z): a fenced json code block reads back as
             //    the same fence around the same bytes.
             let fenced = format!("```json\n{}\n```", CONTROL_BUNDLE);
-            create_and_write(&app, "phanes-control-fenced", &format!("{}\n", fenced), "markdown")
-                .await;
+            create_and_write(
+                &app,
+                "phanes-control-fenced",
+                &format!("{}\n", fenced),
+                "markdown",
+            )
+            .await;
             assert_eq!(read(&app, "phanes-control-fenced", "markdown"), fenced);
         });
     });

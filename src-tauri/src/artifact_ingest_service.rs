@@ -212,7 +212,9 @@ async fn record_ingest_failure(app: &AppHandle, graph_id: &str, artifact_id: &st
     )
     .await
     {
-        log::warn!("[ingest_artifact] could not record the failed ingest of {artifact_id}: {record_error}");
+        log::warn!(
+            "[ingest_artifact] could not record the failed ingest of {artifact_id}: {record_error}"
+        );
     }
 }
 

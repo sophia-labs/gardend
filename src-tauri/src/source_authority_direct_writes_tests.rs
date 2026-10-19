@@ -567,7 +567,11 @@ fn salience_renew_route_renews_only_the_clock_and_survives_every_ledger_writer()
         let ask = json!({"documentId": "doc-direct", "blockId": "block-renew"});
 
         let (status, body) = send_json(&state, "POST", &renew, ask.clone()).await;
-        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "an unrated block cannot be renewed: {body}");
+        assert_eq!(
+            status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "an unrated block cannot be renewed: {body}"
+        );
 
         let (status, body) = send_json(
             &state,
@@ -579,14 +583,22 @@ fn salience_renew_route_renews_only_the_clock_and_survives_every_ledger_writer()
         assert_eq!(status, StatusCode::OK, "{body}");
 
         // Age the clock in the real store, so the renewal has something to move.
-        let path = graph_dir_of(&state).join("values").join("block-values.json");
+        let path = graph_dir_of(&state)
+            .join("values")
+            .join("block-values.json");
         let mut store: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
         store["blocks"]["doc-direct:block-renew"]["lastValuatedAt"] = json!(AGED);
         std::fs::write(&path, serde_json::to_vec(&store).unwrap()).unwrap();
 
         let (status, body) = send_json(&state, "POST", &renew, ask.clone()).await;
         assert_eq!(status, StatusCode::OK, "{body}");
-        assert_eq!(body["user_importance"].as_f64().or(body["userImportance"].as_f64()), Some(5.0), "{body}");
+        assert_eq!(
+            body["user_importance"]
+                .as_f64()
+                .or(body["userImportance"].as_f64()),
+            Some(5.0),
+            "{body}"
+        );
 
         let probe = state.clone();
         let check = move || {
@@ -595,12 +607,22 @@ fn salience_renew_route_renews_only_the_clock_and_survives_every_ledger_writer()
                 let values = commons_values(&state);
                 let block = &values["blocks"]["doc-direct:block-renew"];
                 assert_ne!(
-                    block["lastValuatedAt"], json!(AGED),
+                    block["lastValuatedAt"],
+                    json!(AGED),
                     "a renewal made after activation was rewound: {block}"
                 );
-                assert_eq!(block["userImportance"], 5.0, "a renewal changed the rating: {block}");
-                assert_eq!(block["userValence"], 4.0, "a renewal changed the rating: {block}");
-                assert_eq!(block["importanceCount"], 0, "a renewal counted as a valuation: {block}");
+                assert_eq!(
+                    block["userImportance"], 5.0,
+                    "a renewal changed the rating: {block}"
+                );
+                assert_eq!(
+                    block["userValence"], 4.0,
+                    "a renewal changed the rating: {block}"
+                );
+                assert_eq!(
+                    block["importanceCount"], 0,
+                    "a renewal counted as a valuation: {block}"
+                );
             }) as Check
         };
         check().await;
@@ -616,7 +638,11 @@ fn salience_renew_route_renews_only_the_clock_and_survives_every_ledger_writer()
         .await;
         assert_eq!(status, StatusCode::OK, "{body}");
         let (status, body) = send_json(&state, "POST", &renew, ask).await;
-        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "a block rated 0 cannot be renewed: {body}");
+        assert_eq!(
+            status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "a block rated 0 cannot be renewed: {body}"
+        );
     });
 }
 

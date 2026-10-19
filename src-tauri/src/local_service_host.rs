@@ -312,7 +312,10 @@ impl ServiceMcpFile {
         let at = || format!("local service manifest {}: mcp", display_path(manifest));
         let path = self.path.unwrap_or_else(|| "/mcp".to_string());
         if !path.starts_with('/') || path.split('/').any(|segment| segment == "..") {
-            return Err(format!("{}.path {path:?} must be an absolute path such as \"/mcp\"", at()));
+            return Err(format!(
+                "{}.path {path:?} must be an absolute path such as \"/mcp\"",
+                at()
+            ));
         }
         if self.graphs.is_empty() {
             return Err(format!("{}.graphs must name at least one graph", at()));
@@ -357,13 +360,19 @@ pub(crate) struct NodeVersion(pub(crate) u64, pub(crate) u64, pub(crate) u64);
 impl NodeVersion {
     /// `22.19`, `22.19.0`, `v22.19.0` or `>=22.19` (a floor is all a manifest says).
     pub(crate) fn parse(raw: &str) -> Option<Self> {
-        let text = raw.trim().trim_start_matches(">=").trim().trim_start_matches('v');
+        let text = raw
+            .trim()
+            .trim_start_matches(">=")
+            .trim()
+            .trim_start_matches('v');
         let mut parts = text.split('.');
         let major = parts.next()?.trim().parse().ok()?;
-        let minor = parts.next().map_or(Some(0), |part| part.trim().parse().ok())?;
-        let patch = parts
+        let minor = parts
             .next()
-            .map_or(Some(0), |part| part.trim().split(['-', '+']).next()?.parse().ok())?;
+            .map_or(Some(0), |part| part.trim().parse().ok())?;
+        let patch = parts.next().map_or(Some(0), |part| {
+            part.trim().split(['-', '+']).next()?.parse().ok()
+        })?;
         if parts.next().is_some() {
             return None;
         }
@@ -593,7 +602,12 @@ impl LocalServiceHost {
                     .lock()
                     .expect("local service registry lock")
                     .get(&service_id)
-                    .and_then(|runtime| runtime.manifest.as_ref().map(|manifest| manifest.mcp.clone()));
+                    .and_then(|runtime| {
+                        runtime
+                            .manifest
+                            .as_ref()
+                            .map(|manifest| manifest.mcp.clone())
+                    });
                 let mcp = match running {
                     Some(mcp) => mcp,
                     None => self.resolve_manifest(app, &service_id).ok()?.mcp,
@@ -1869,8 +1883,14 @@ fn node_program(command: &Path, path_var: Option<&std::ffi::OsStr>) -> Option<Pa
     if is_node && command.components().count() > 1 {
         return is_executable_file(command).then(|| command.to_path_buf());
     }
-    let names: &[&str] = if cfg!(windows) { &["node.exe", "node"] } else { &["node"] };
-    let dirs: Vec<PathBuf> = path_var.map(|path| std::env::split_paths(path).collect()).unwrap_or_default();
+    let names: &[&str] = if cfg!(windows) {
+        &["node.exe", "node"]
+    } else {
+        &["node"]
+    };
+    let dirs: Vec<PathBuf> = path_var
+        .map(|path| std::env::split_paths(path).collect())
+        .unwrap_or_default();
     dirs.iter()
         .filter(|dir| !dir.as_os_str().is_empty())
         .flat_map(|dir| names.iter().map(move |name| dir.join(name)))
@@ -1904,7 +1924,9 @@ fn node_version(program: &Path, path_var: Option<&std::ffi::OsStr>) -> Result<No
     if let Some(path) = path_var {
         command.env("PATH", path);
     }
-    let mut child = command.spawn().map_err(|error| format!("cannot run it: {error}"))?;
+    let mut child = command
+        .spawn()
+        .map_err(|error| format!("cannot run it: {error}"))?;
     let deadline = Instant::now() + Duration::from_secs(10);
     let status = loop {
         match child.try_wait() {
@@ -1953,13 +1975,19 @@ fn check_node_requirement(
             let reason = format!(
                 "{label} needs Node.js {required} or newer; the node on gardend's PATH is {found}. Put Node.js {required} or newer first on gardend's PATH, then restart gardend."
             );
-            Err((reason.clone(), format!("{reason} ({})", display_path(&program))))
+            Err((
+                reason.clone(),
+                format!("{reason} ({})", display_path(&program)),
+            ))
         }
         Err(why) => {
             let reason = format!(
                 "{label} needs Node.js {required} or newer; the node on gardend's PATH did not say its version."
             );
-            Err((reason.clone(), format!("{reason} ({}: {why})", display_path(&program))))
+            Err((
+                reason.clone(),
+                format!("{reason} ({}: {why})", display_path(&program)),
+            ))
         }
     }
 }
@@ -2103,7 +2131,11 @@ mod tests {
             Some("other".to_string())
         );
         for not_a_delegation in ["sophia-svc-process", "", "sophia-dlg-unknown", "master"] {
-            assert_eq!(host.delegation(not_a_delegation), None, "{not_a_delegation}");
+            assert_eq!(
+                host.delegation(not_a_delegation),
+                None,
+                "{not_a_delegation}"
+            );
         }
 
         host.forget_delegations("vehicle");
@@ -2123,9 +2155,17 @@ mod tests {
             br#"{"serviceId":"vehicle","command":"node","delegateCaller":true}"#,
         )
         .unwrap();
-        assert!(read_service_manifest(&path, "vehicle").unwrap().delegate_caller);
+        assert!(
+            read_service_manifest(&path, "vehicle")
+                .unwrap()
+                .delegate_caller
+        );
         std::fs::write(&path, br#"{"serviceId":"vehicle","command":"node"}"#).unwrap();
-        assert!(!read_service_manifest(&path, "vehicle").unwrap().delegate_caller);
+        assert!(
+            !read_service_manifest(&path, "vehicle")
+                .unwrap()
+                .delegate_caller
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -2250,9 +2290,18 @@ mod tests {
     #[test]
     fn node_versions_parse_as_manifests_and_node_write_them() {
         assert_eq!(NodeVersion::parse("22.19"), Some(NodeVersion(22, 19, 0)));
-        assert_eq!(NodeVersion::parse(">=22.19.0"), Some(NodeVersion(22, 19, 0)));
-        assert_eq!(NodeVersion::parse("v22.23.2\n"), Some(NodeVersion(22, 23, 2)));
-        assert_eq!(NodeVersion::parse("v24.0.0-nightly2026"), Some(NodeVersion(24, 0, 0)));
+        assert_eq!(
+            NodeVersion::parse(">=22.19.0"),
+            Some(NodeVersion(22, 19, 0))
+        );
+        assert_eq!(
+            NodeVersion::parse("v22.23.2\n"),
+            Some(NodeVersion(22, 23, 2))
+        );
+        assert_eq!(
+            NodeVersion::parse("v24.0.0-nightly2026"),
+            Some(NodeVersion(24, 0, 0))
+        );
         assert_eq!(NodeVersion::parse("22"), Some(NodeVersion(22, 0, 0)));
         for bad in ["", "node", "v22.x", "1.2.3.4", "^22"] {
             assert_eq!(NodeVersion::parse(bad), None, "{bad}");
@@ -2268,21 +2317,36 @@ mod tests {
         let manifest = read_service_manifest(&path, "vehicle").unwrap();
         assert_eq!(manifest.requires_node, Some(NodeVersion(22, 19, 0)));
         assert_eq!(manifest.display_name.as_deref(), Some("Chat"));
-        std::fs::write(&path, r#"{"serviceId":"vehicle","command":"node","requires":{"node":"latest"}}"#).unwrap();
+        std::fs::write(
+            &path,
+            r#"{"serviceId":"vehicle","command":"node","requires":{"node":"latest"}}"#,
+        )
+        .unwrap();
         let error = read_service_manifest(&path, "vehicle").unwrap_err();
         assert!(error.contains("requires.node"), "{error}");
         std::fs::write(&path, r#"{"serviceId":"vehicle","command":"node"}"#).unwrap();
-        assert_eq!(read_service_manifest(&path, "vehicle").unwrap().requires_node, None);
+        assert_eq!(
+            read_service_manifest(&path, "vehicle")
+                .unwrap()
+                .requires_node,
+            None
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn a_service_finds_node_on_the_path_it_will_get() {
         let setting = |pairs: &[(&str, &str)]| -> Vec<(String, String)> {
-            pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect()
         };
         assert_eq!(
-            child_path_var(&setting(&[("PATH", "/manifest")]), &setting(&[("PATH", "/settings")])),
+            child_path_var(
+                &setting(&[("PATH", "/manifest")]),
+                &setting(&[("PATH", "/settings")])
+            ),
             Some(std::ffi::OsString::from("/settings")),
             "the profile's settings come after the manifest"
         );
@@ -2301,17 +2365,48 @@ mod tests {
             let node = bin.join("node");
             std::fs::write(&node, "#!/bin/sh\necho v22.19.0\n").unwrap();
             let path = std::env::join_paths([&empty, &bin]).unwrap();
-            assert_eq!(node_program(Path::new("node"), Some(&path)), None, "not executable yet");
+            assert_eq!(
+                node_program(Path::new("node"), Some(&path)),
+                None,
+                "not executable yet"
+            );
             std::fs::set_permissions(&node, std::fs::Permissions::from_mode(0o755)).unwrap();
-            assert_eq!(node_program(Path::new("node"), Some(&path)), Some(node.clone()));
-            assert_eq!(node_program(Path::new("/elsewhere/python3"), Some(&path)), Some(node.clone()), "a non-node command: node on the PATH");
-            assert_eq!(node_program(&node, None), Some(node.clone()), "a node path is taken as it is");
+            assert_eq!(
+                node_program(Path::new("node"), Some(&path)),
+                Some(node.clone())
+            );
+            assert_eq!(
+                node_program(Path::new("/elsewhere/python3"), Some(&path)),
+                Some(node.clone()),
+                "a non-node command: node on the PATH"
+            );
+            assert_eq!(
+                node_program(&node, None),
+                Some(node.clone()),
+                "a node path is taken as it is"
+            );
             assert_eq!(node_program(&empty.join("node"), Some(&path)), None);
             assert_eq!(node_version(&node, Some(&path)), Ok(NodeVersion(22, 19, 0)));
-            assert!(check_node_requirement(NodeVersion(22, 19, 0), Path::new("node"), Some(&path), "Chat").is_ok());
-            let (reason, detail) =
-                check_node_requirement(NodeVersion(24, 0, 0), Path::new("node"), Some(&path), "Chat").unwrap_err();
-            assert!(reason.starts_with("Chat needs Node.js 24.0 or newer; the node on gardend's PATH is 22.19."), "{reason}");
+            assert!(check_node_requirement(
+                NodeVersion(22, 19, 0),
+                Path::new("node"),
+                Some(&path),
+                "Chat"
+            )
+            .is_ok());
+            let (reason, detail) = check_node_requirement(
+                NodeVersion(24, 0, 0),
+                Path::new("node"),
+                Some(&path),
+                "Chat",
+            )
+            .unwrap_err();
+            assert!(
+                reason.starts_with(
+                    "Chat needs Node.js 24.0 or newer; the node on gardend's PATH is 22.19."
+                ),
+                "{reason}"
+            );
             assert!(detail.contains(&node.display().to_string()), "{detail}");
             let _ = std::fs::remove_dir_all(&root);
         }
@@ -2641,26 +2736,30 @@ pub(crate) mod child {
         if header("x-internal-service") != std::env::var("MNEMOSYNE_INTERNAL_SERVICE_SECRET").ok() {
             return (StatusCode::UNAUTHORIZED, "no secret").into_response();
         }
-        let body = axum::body::to_bytes(body, 1 << 20).await.unwrap_or_default();
+        let body = axum::body::to_bytes(body, 1 << 20)
+            .await
+            .unwrap_or_default();
         let rpc: serde_json::Value = serde_json::from_slice(&body).unwrap_or_default();
         let id = rpc["id"].clone();
         let read_only = serde_json::json!({"readOnlyHint": true});
         let answer = match rpc["method"].as_str() {
-            Some("tools/list") => serde_json::json!({"jsonrpc": "2.0", "id": id, "result": {"tools": [
-                {"name": "toy_read", "description": "Read toy facts.", "annotations": read_only,
-                 "inputSchema": {"type": "object", "required": ["graphId", "q"],
-                                 "properties": {"graphId": {"type": "string"}, "q": {"type": "string"}}}},
-                {"name": "toy_write", "description": "Change toy facts.",
-                 "inputSchema": {"type": "object", "properties": {}}},
-                {"name": "toy_slow", "description": "Take forever.", "annotations": read_only,
-                 "inputSchema": {"type": "object", "properties": {}}},
-                {"name": "toy_fail", "description": "Fail loudly.", "annotations": read_only,
-                 "inputSchema": {"type": "object", "properties": {}}},
-                {"name": "read_document", "description": "A shadow.", "annotations": read_only,
-                 "inputSchema": {"type": "object", "properties": {}}},
-                {"name": "stray", "description": "Outside the prefix.", "annotations": read_only,
-                 "inputSchema": {"type": "object", "properties": {}}}
-            ]}}),
+            Some("tools/list") => {
+                serde_json::json!({"jsonrpc": "2.0", "id": id, "result": {"tools": [
+                    {"name": "toy_read", "description": "Read toy facts.", "annotations": read_only,
+                     "inputSchema": {"type": "object", "required": ["graphId", "q"],
+                                     "properties": {"graphId": {"type": "string"}, "q": {"type": "string"}}}},
+                    {"name": "toy_write", "description": "Change toy facts.",
+                     "inputSchema": {"type": "object", "properties": {}}},
+                    {"name": "toy_slow", "description": "Take forever.", "annotations": read_only,
+                     "inputSchema": {"type": "object", "properties": {}}},
+                    {"name": "toy_fail", "description": "Fail loudly.", "annotations": read_only,
+                     "inputSchema": {"type": "object", "properties": {}}},
+                    {"name": "read_document", "description": "A shadow.", "annotations": read_only,
+                     "inputSchema": {"type": "object", "properties": {}}},
+                    {"name": "stray", "description": "Outside the prefix.", "annotations": read_only,
+                     "inputSchema": {"type": "object", "properties": {}}}
+                ]}})
+            }
             Some("tools/call") => match rpc["params"]["name"].as_str() {
                 Some("toy_slow") => {
                     tokio::time::sleep(Duration::from_secs(30)).await;
@@ -2882,7 +2981,10 @@ mod supervision_tests {
             let app = crate::tauri_runtime::build_mock_app_for_tests(false);
 
             let error = host.start("vehicle", &app, &test_manifest()).unwrap_err();
-            assert!(error.contains(&bin.display().to_string()), "the log names the PATH: {error}");
+            assert!(
+                error.contains(&bin.display().to_string()),
+                "the log names the PATH: {error}"
+            );
             let status = host.status("vehicle", &app);
             assert_eq!(status.state, LocalServiceState::Unavailable);
             assert!(status.configured);
@@ -2892,24 +2994,35 @@ mod supervision_tests {
                 reason,
                 "Chat needs Node.js 22.19 or newer, and there is no node on gardend's PATH. Install Node.js 22.19 or newer, then restart gardend."
             );
-            assert_eq!(host.unavailable_reason("vehicle").as_deref(), Some(reason.as_str()));
+            assert_eq!(
+                host.unavailable_reason("vehicle").as_deref(),
+                Some(reason.as_str())
+            );
             assert!(host.target("vehicle").is_err());
             let lines = autostart_local_services(&host, &app, &test_manifest(), false);
             assert!(
-                lines.iter().any(|line| line.starts_with("vehicle: could not start: Chat needs Node.js 22.19")),
+                lines
+                    .iter()
+                    .any(|line| line
+                        .starts_with("vehicle: could not start: Chat needs Node.js 22.19")),
                 "{lines:?}"
             );
             host.ensure_supervisor();
             thread::sleep(Duration::from_millis(800));
             let status = host.status("vehicle", &app);
-            assert_eq!(status.state, LocalServiceState::Unavailable, "no retry loop");
+            assert_eq!(
+                status.state,
+                LocalServiceState::Unavailable,
+                "no retry loop"
+            );
             assert_eq!(status.restarts, 0);
 
             put_node_on(&bin, "20.11.1");
             host.start("vehicle", &app, &test_manifest()).unwrap_err();
             let reason = host.status("vehicle", &app).reason.unwrap();
             assert!(
-                reason.contains("the node on gardend's PATH is 20.11.1") && !reason.contains(&bin.display().to_string()),
+                reason.contains("the node on gardend's PATH is 20.11.1")
+                    && !reason.contains(&bin.display().to_string()),
                 "{reason}"
             );
 

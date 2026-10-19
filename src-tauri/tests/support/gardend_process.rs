@@ -93,9 +93,7 @@ pub fn gardend_binary() -> PathBuf {
                         .as_array()
                         .is_some_and(|kinds| kinds.iter().any(|kind| kind == "example"))
                 })
-                .find_map(|message| {
-                    message["executable"].as_str().map(PathBuf::from)
-                })
+                .find_map(|message| message["executable"].as_str().map(PathBuf::from))
                 .unwrap_or_else(|| {
                     panic!(
                         "cargo build reported success but emitted no \
@@ -111,12 +109,8 @@ pub fn gardend_binary() -> PathBuf {
                             .map(|message| {
                                 format!(
                                     "{}:{}",
-                                    message["reason"]
-                                        .as_str()
-                                        .unwrap_or("?"),
-                                    message["target"]["name"]
-                                        .as_str()
-                                        .unwrap_or("?")
+                                    message["reason"].as_str().unwrap_or("?"),
+                                    message["target"]["name"].as_str().unwrap_or("?")
                                 )
                             })
                             .collect::<Vec<_>>()

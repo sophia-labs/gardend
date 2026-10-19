@@ -258,10 +258,8 @@ mod cell_self_heal_tests {
         let _serial = crate::tauri_runtime::profile_env_serial()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let profile = std::env::temp_dir().join(format!(
-            "garden-aduanera-selfheal-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let profile =
+            std::env::temp_dir().join(format!("garden-aduanera-selfheal-{}", uuid::Uuid::new_v4()));
         std::env::set_var("GARDEN_PROFILE_DIR", &profile);
         std::env::set_var("GARDEN_SELF_HEAL_GRAPHS", "1");
         crate::runtime_config::init_self_heal_graphs_from_env();

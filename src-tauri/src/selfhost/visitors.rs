@@ -4,7 +4,9 @@
 //! (the kill switch within a second), so no restart is needed.
 
 use super::cli::VisitorsAction;
-use crate::visitor_fence::{AccountsFile, ACCOUNTS_FILE, BANS_FILE, KILL_SWITCH_FILE, VISITOR_STATE_DIR};
+use crate::visitor_fence::{
+    AccountsFile, ACCOUNTS_FILE, BANS_FILE, KILL_SWITCH_FILE, VISITOR_STATE_DIR,
+};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -17,9 +19,15 @@ pub(super) fn run(profile_dir: &Path, action: &VisitorsAction) -> Result<String,
             std::fs::create_dir_all(&state_dir)
                 .map_err(|error| format!("create {}: {error}", state_dir.display()))?;
             let stamp = chrono::Utc::now().to_rfc3339();
-            crate::storage::write_bytes(&switch, format!("{stamp} turned off: gardend visitors off\n").as_bytes())
-                .map_err(|error| error.to_string())?;
-            Ok("Visitor writing is off (reading goes on). `gardend visitors on` opens it again.\n".into())
+            crate::storage::write_bytes(
+                &switch,
+                format!("{stamp} turned off: gardend visitors off\n").as_bytes(),
+            )
+            .map_err(|error| error.to_string())?;
+            Ok(
+                "Visitor writing is off (reading goes on). `gardend visitors on` opens it again.\n"
+                    .into(),
+            )
         }
         VisitorsAction::On => {
             match std::fs::remove_file(&switch) {
@@ -31,11 +39,17 @@ pub(super) fn run(profile_dir: &Path, action: &VisitorsAction) -> Result<String,
         }
         VisitorsAction::Ban(who) => {
             let banned = crate::visitor_fence::set_banned(&state_dir, who, true)?;
-            Ok(format!("Banned {who}. {} account(s) banned.\n", banned.len()))
+            Ok(format!(
+                "Banned {who}. {} account(s) banned.\n",
+                banned.len()
+            ))
         }
         VisitorsAction::Unban(who) => {
             let banned = crate::visitor_fence::set_banned(&state_dir, who, false)?;
-            Ok(format!("Unbanned {who}. {} account(s) banned.\n", banned.len()))
+            Ok(format!(
+                "Unbanned {who}. {} account(s) banned.\n",
+                banned.len()
+            ))
         }
         VisitorsAction::Status => {
             let folders = configured_folders(profile_dir);
@@ -71,7 +85,12 @@ pub(super) fn run(profile_dir: &Path, action: &VisitorsAction) -> Result<String,
                 let Ok(value) = crate::storage::read_json::<Value>(&snapshot) else {
                     continue;
                 };
-                for document in value.get("documents").and_then(Value::as_array).into_iter().flatten() {
+                for document in value
+                    .get("documents")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                {
                     if let Some(by) = document
                         .get(crate::visitor_fence::CREATED_BY_FIELD)
                         .and_then(Value::as_str)
@@ -139,24 +158,34 @@ mod tests {
 
     #[test]
     fn off_on_ban_and_status() {
-        let dir = std::env::temp_dir().join(format!("garden-visitors-cli-{}", uuid::Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("garden-visitors-cli-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
             dir.join("public.json"),
             r#"{"graphs":["g"],"visitorFolders":[{"graphId":"g","folderId":"f"}]}"#,
         )
         .unwrap();
-        assert!(run(&dir, &VisitorsAction::Status).unwrap().contains("Visitor writing: on"));
+        assert!(run(&dir, &VisitorsAction::Status)
+            .unwrap()
+            .contains("Visitor writing: on"));
         run(&dir, &VisitorsAction::Off).unwrap();
         assert!(dir.join("public").join(KILL_SWITCH_FILE).exists());
-        assert!(run(&dir, &VisitorsAction::Status).unwrap().contains("Visitor writing: off"));
+        assert!(run(&dir, &VisitorsAction::Status)
+            .unwrap()
+            .contains("Visitor writing: off"));
         run(&dir, &VisitorsAction::On).unwrap();
         assert!(!dir.join("public").join(KILL_SWITCH_FILE).exists());
         run(&dir, &VisitorsAction::Ban("acct-0011223344556677".into())).unwrap();
-        assert_eq!(bans(&dir.join("public")), vec!["acct-0011223344556677".to_string()]);
+        assert_eq!(
+            bans(&dir.join("public")),
+            vec!["acct-0011223344556677".to_string()]
+        );
         run(&dir, &VisitorsAction::Unban("acct-0011223344556677".into())).unwrap();
         assert!(bans(&dir.join("public")).is_empty());
-        assert!(run(&dir, &VisitorsAction::List).unwrap().contains("No visitor"));
+        assert!(run(&dir, &VisitorsAction::List)
+            .unwrap()
+            .contains("No visitor"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

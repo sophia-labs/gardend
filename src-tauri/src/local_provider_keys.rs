@@ -138,7 +138,10 @@ pub(crate) fn resolve_provider_key_with(
     if !is_known_provider(provider) {
         return None;
     }
-    if let Some(key) = std::env::var(provider_key_env_var(provider)).ok().and_then(non_empty) {
+    if let Some(key) = std::env::var(provider_key_env_var(provider))
+        .ok()
+        .and_then(non_empty)
+    {
         return Some((key, ProviderKeySource::Env));
     }
     if let Some(key) = keychain_provider_key(keychain_service, provider) {
@@ -153,17 +156,19 @@ pub(crate) fn resolve_provider_key_with(
 /// `openrouter_image` path behind `edit_artifact_image` and `agent_self_image`),
 /// in the order env → Keychain → deprecated profile file. None if unset/unknown.
 pub(crate) fn provider_key(app: &AppHandle, provider: &str) -> Option<String> {
-    resolve_provider_key_with(provider, KEYCHAIN_SERVICE, || profile_file_key(app, provider))
-        .map(|(key, source)| {
-            if source == ProviderKeySource::ProfileFile {
-                log::warn!(
-                    "provider key for {provider} read from the deprecated profile provider-keys.json; \
+    resolve_provider_key_with(provider, KEYCHAIN_SERVICE, || {
+        profile_file_key(app, provider)
+    })
+    .map(|(key, source)| {
+        if source == ProviderKeySource::ProfileFile {
+            log::warn!(
+                "provider key for {provider} read from the deprecated profile provider-keys.json; \
                      move it to {} or the macOS Keychain ({KEYCHAIN_SERVICE}/{provider})",
-                    provider_key_env_var(provider)
-                );
-            }
-            key
-        })
+                provider_key_env_var(provider)
+            );
+        }
+        key
+    })
 }
 
 /// DEPRECATED source: the profile's `provider-keys.json` entry.
@@ -313,9 +318,15 @@ mod tests {
         let var = provider_key_env_var("anthropic");
         assert_eq!(var, "SOPHIA_ANTHROPIC_API_KEY");
         let previous = std::env::var_os(&var);
-        let service = format!("dev.sophia.garden.test-absent-{}", uuid::Uuid::new_v4().simple());
+        let service = format!(
+            "dev.sophia.garden.test-absent-{}",
+            uuid::Uuid::new_v4().simple()
+        );
         std::env::remove_var(&var);
-        assert_eq!(resolve_provider_key_with("anthropic", &service, || None), None);
+        assert_eq!(
+            resolve_provider_key_with("anthropic", &service, || None),
+            None
+        );
         assert_eq!(
             resolve_provider_key_with("anthropic", &service, || Some("from-file".into())),
             Some(("from-file".into(), ProviderKeySource::ProfileFile))
@@ -335,7 +346,10 @@ mod tests {
             Some(value) => std::env::set_var(&var, value),
             None => std::env::remove_var(&var),
         }
-        assert_eq!(resolve_provider_key_with("not-a-provider", &service, || Some("x".into())), None);
+        assert_eq!(
+            resolve_provider_key_with("not-a-provider", &service, || Some("x".into())),
+            None
+        );
     }
 
     /// The REAL macOS Keychain: write a throwaway generic password under a
@@ -349,9 +363,13 @@ mod tests {
         let previous = std::env::var_os(&var);
         std::env::remove_var(&var);
         let service = format!("dev.sophia.garden.test-{}", uuid::Uuid::new_v4().simple());
-        set_generic_password(&service, "openai", b"from-keychain").expect("write throwaway keychain item");
+        set_generic_password(&service, "openai", b"from-keychain")
+            .expect("write throwaway keychain item");
         let outcome = std::panic::catch_unwind(|| {
-            assert_eq!(keychain_provider_key(&service, "openai").as_deref(), Some("from-keychain"));
+            assert_eq!(
+                keychain_provider_key(&service, "openai").as_deref(),
+                Some("from-keychain")
+            );
             assert_eq!(
                 resolve_provider_key_with("openai", &service, || Some("from-file".into())),
                 Some(("from-keychain".into(), ProviderKeySource::Keychain))
@@ -362,7 +380,11 @@ mod tests {
             assert_eq!(env_wins, Some(("from-env".into(), ProviderKeySource::Env)));
         });
         delete_generic_password(&service, "openai").expect("delete throwaway keychain item");
-        assert_eq!(keychain_provider_key(&service, "openai"), None, "throwaway item is gone");
+        assert_eq!(
+            keychain_provider_key(&service, "openai"),
+            None,
+            "throwaway item is gone"
+        );
         if let Some(value) = previous {
             std::env::set_var(&var, value);
         }
@@ -370,5 +392,4 @@ mod tests {
             std::panic::resume_unwind(panic);
         }
     }
-
 }

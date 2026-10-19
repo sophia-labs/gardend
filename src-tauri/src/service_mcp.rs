@@ -104,18 +104,27 @@ impl LentTool {
         if !schema.get("properties").is_some_and(Value::is_object) {
             schema["properties"] = json!({});
         }
-        let properties = schema["properties"].as_object_mut().expect("properties object");
+        let properties = schema["properties"]
+            .as_object_mut()
+            .expect("properties object");
         for name in GRAPH_ARGUMENTS {
             properties.remove(name);
         }
         if let Some(required) = schema.get_mut("required").and_then(Value::as_array_mut) {
-            required.retain(|name| !name.as_str().is_some_and(|name| GRAPH_ARGUMENTS.contains(&name)));
+            required.retain(|name| {
+                !name
+                    .as_str()
+                    .is_some_and(|name| GRAPH_ARGUMENTS.contains(&name))
+            });
         }
         if bound.is_none() {
             let description = if graphs.len() == 1 {
                 format!("The graph this tool is about: {} (the default).", graphs[0])
             } else {
-                format!("The graph this tool is about: one of {}.", graphs.join(", "))
+                format!(
+                    "The graph this tool is about: one of {}.",
+                    graphs.join(", ")
+                )
             };
             schema["properties"]["graph_id"] = json!({
                 "type": "string",
@@ -134,7 +143,11 @@ impl LentTool {
             }
         }
         tool["inputSchema"] = schema;
-        let mut meta = tool.get("_meta").cloned().filter(Value::is_object).unwrap_or_else(|| json!({}));
+        let mut meta = tool
+            .get("_meta")
+            .cloned()
+            .filter(Value::is_object)
+            .unwrap_or_else(|| json!({}));
         meta["sophia.service"] = json!(self.service_id);
         meta["sophia.serviceGraphs"] = json!(graphs);
         meta["sophia.local.requiredScopes"] = json!(self.required_scopes());
@@ -178,7 +191,9 @@ async fn lent_tools(state: &LoopbackState) -> Vec<LentTool> {
             continue;
         };
         let cached = {
-            let cache = cache().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            let cache = cache()
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             cache
                 .get(&service_id)
                 .filter(|entry| entry.process == process && entry.fetched.elapsed() < TOOL_LIST_TTL)
@@ -193,7 +208,11 @@ async fn lent_tools(state: &LoopbackState) -> Vec<LentTool> {
                         .unwrap_or_else(|poisoned| poisoned.into_inner())
                         .insert(
                             service_id.clone(),
-                            CachedList { process: process.clone(), fetched: Instant::now(), tools: tools.clone() },
+                            CachedList {
+                                process: process.clone(),
+                                fetched: Instant::now(),
+                                tools: tools.clone(),
+                            },
                         );
                     tools
                 }
@@ -216,7 +235,9 @@ async fn lent_tools(state: &LoopbackState) -> Vec<LentTool> {
                 continue;
             }
             if crate::mcp_tool_registry::is_known_mcp_tool_name(name) {
-                log::warn!("service {service_id} lists {name:?}, one of gardend's own tools; not lent");
+                log::warn!(
+                    "service {service_id} lists {name:?}, one of gardend's own tools; not lent"
+                );
                 continue;
             }
             let read_only = tool
@@ -235,7 +256,11 @@ async fn lent_tools(state: &LoopbackState) -> Vec<LentTool> {
     lent
 }
 
-async fn fetch_tool_list(state: &LoopbackState, service_id: &str, mcp: &ServiceMcp) -> Result<Vec<Value>, String> {
+async fn fetch_tool_list(
+    state: &LoopbackState,
+    service_id: &str,
+    mcp: &ServiceMcp,
+) -> Result<Vec<Value>, String> {
     let target = state.services.target(service_id)?;
     let response = client()?
         .post(format!("{}{}", target.base_url, mcp.path))
@@ -263,7 +288,10 @@ async fn fetch_tool_list(state: &LoopbackState, service_id: &str, mcp: &ServiceM
 
 /// The lent tools a caller may call, as `tools/list` shows them: nothing in a
 /// hosted cell or when no service lends any.
-pub(crate) async fn listed_service_tools(state: &LoopbackState, caller: &ServiceCaller<'_>) -> Vec<Value> {
+pub(crate) async fn listed_service_tools(
+    state: &LoopbackState,
+    caller: &ServiceCaller<'_>,
+) -> Vec<Value> {
     lent_tools(state)
         .await
         .into_iter()
@@ -355,7 +383,11 @@ pub(crate) async fn call_service_tool(
         ));
     };
     if !caller.scopes.iter().any(|scope| scope == "mcp.tools.call") {
-        return Some(mcp_error(id, -32003, "MCP token missing required scope mcp.tools.call"));
+        return Some(mcp_error(
+            id,
+            -32003,
+            "MCP token missing required scope mcp.tools.call",
+        ));
     }
     if let Some(missing) = tool
         .required_scopes()
@@ -365,16 +397,26 @@ pub(crate) async fn call_service_tool(
         return Some(mcp_error(
             id,
             -32003,
-            format!("{name} needs scope {missing}: {}", if tool.read_only {
-                "it reads the service's data"
-            } else {
-                "it is not marked read-only, so only an admin may call it"
-            }),
+            format!(
+                "{name} needs scope {missing}: {}",
+                if tool.read_only {
+                    "it reads the service's data"
+                } else {
+                    "it is not marked read-only, so only an admin may call it"
+                }
+            ),
         ));
     }
-    let mut arguments = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+    let mut arguments = params
+        .get("arguments")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
     if !arguments.is_object() {
-        return Some(mcp_error(id, -32602, format!("{name}: arguments must be an object")));
+        return Some(mcp_error(
+            id,
+            -32602,
+            format!("{name}: arguments must be an object"),
+        ));
     }
     let Some(allowed) = caller.graphs_for(state, &tool) else {
         // A public caller and a tool that is not public (or a delegation
@@ -392,10 +434,16 @@ pub(crate) async fn call_service_tool(
             },
         ));
     };
-    let named = GRAPH_ARGUMENTS
-        .iter()
-        .find_map(|key| arguments.get(*key).and_then(Value::as_str).map(str::to_string));
-    let home = caller.public.flatten().filter(|home| allowed.iter().any(|graph| graph == home));
+    let named = GRAPH_ARGUMENTS.iter().find_map(|key| {
+        arguments
+            .get(*key)
+            .and_then(Value::as_str)
+            .map(str::to_string)
+    });
+    let home = caller
+        .public
+        .flatten()
+        .filter(|home| allowed.iter().any(|graph| graph == home));
     let graph_id = match (named, home) {
         (Some(named), _) => named,
         (None, Some(home)) => home.to_string(),
@@ -411,7 +459,11 @@ pub(crate) async fn call_service_tool(
     if !allowed.contains(&graph_id) {
         return Some(mcp_error(
             id,
-            if caller.bound.is_some() || caller.public.is_some() { -32004 } else { -32602 },
+            if caller.bound.is_some() || caller.public.is_some() {
+                -32004
+            } else {
+                -32602
+            },
             match caller.bound {
                 Some(delegation) => format!(
                     "this token is bound to the graph \"{}\"; the call names another graph",
@@ -439,7 +491,20 @@ pub(crate) async fn call_service_tool(
         .map(|delegation| delegation.user_id.clone())
         .or_else(|| caller.user_id.map(str::to_string))
         .unwrap_or_else(|| "anonymous".to_string());
-    Some(forward(state, id, &service_id, &mcp, name, arguments, &graph_id, &role, &user_id).await)
+    Some(
+        forward(
+            state,
+            id,
+            &service_id,
+            &mcp,
+            name,
+            arguments,
+            &graph_id,
+            &role,
+            &user_id,
+        )
+        .await,
+    )
 }
 
 /// The caller's role, as the proxy mints it: an admin is the owner, a member
@@ -565,14 +630,19 @@ async fn forward(
         None => mcp_error(
             id,
             -32000,
-            format!("{name}: service {service_id} answered HTTP {status} with neither result nor error"),
+            format!(
+                "{name}: service {service_id} answered HTTP {status} with neither result nor error"
+            ),
         ),
     }
 }
 
 #[cfg(test)]
 pub(crate) fn clear_tool_list_cache() {
-    cache().lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clear();
+    cache()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clear();
 }
 
 // Named so the cells lane's gating filter (`local_service_host`) runs them.
@@ -589,7 +659,10 @@ mod local_service_host_manifest_tests {
         let outcome = if host.configured("toys", &app) {
             Ok(())
         } else {
-            Err(host.status("toys", &app).last_error.unwrap_or_else(|| "unconfigured".into()))
+            Err(host
+                .status("toys", &app)
+                .last_error
+                .unwrap_or_else(|| "unconfigured".into()))
         };
         let _ = std::fs::remove_dir_all(&dir);
         outcome
@@ -640,7 +713,11 @@ mod local_service_host_lending_tests {
     const SERVICE: &str = "toys";
     const GRAPH: &str = "toy-graph";
 
-    fn state(app: crate::app_runtime::AppHandle, dir: &Path, cell_graph: CellGraphBoundary) -> Arc<LoopbackState> {
+    fn state(
+        app: crate::app_runtime::AppHandle,
+        dir: &Path,
+        cell_graph: CellGraphBoundary,
+    ) -> Arc<LoopbackState> {
         state_with(app, dir, cell_graph, SelfHost::default())
     }
 
@@ -690,11 +767,21 @@ mod local_service_host_lending_tests {
     fn start_toys(state: &Arc<LoopbackState>, root: &Path, extra: Value) {
         state.services.pin_manifest(
             SERVICE,
-            write_service_manifest(&root.join("svc"), SERVICE, &[(MCP_ENV, "1".to_string())], extra),
+            write_service_manifest(
+                &root.join("svc"),
+                SERVICE,
+                &[(MCP_ENV, "1".to_string())],
+                extra,
+            ),
         );
         state.services.set_timing(fast_timing());
-        state.services.set_local_api_url("http://127.0.0.1:9".into());
-        state.services.start(SERVICE, &state.app, &state.manifest).unwrap();
+        state
+            .services
+            .set_local_api_url("http://127.0.0.1:9".into());
+        state
+            .services
+            .start(SERVICE, &state.app, &state.manifest)
+            .unwrap();
         wait_service_healthy(&state.services, SERVICE);
         clear_tool_list_cache();
     }
@@ -703,7 +790,8 @@ mod local_service_host_lending_tests {
         let _serial = crate::tauri_runtime::profile_env_serial()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let root = std::env::temp_dir().join(format!("garden-svc-mcp-{name}-{}", uuid::Uuid::new_v4()));
+        let root =
+            std::env::temp_dir().join(format!("garden-svc-mcp-{name}-{}", uuid::Uuid::new_v4()));
         let profile = root.join("profile");
         std::fs::create_dir_all(&profile).unwrap();
         let previous = std::env::var_os("GARDEN_PROFILE_DIR");
@@ -733,7 +821,9 @@ mod local_service_host_lending_tests {
             .oneshot(request)
             .await
             .unwrap();
-        let bytes = axum::body::to_bytes(response.into_body(), 50_000_000).await.unwrap();
+        let bytes = axum::body::to_bytes(response.into_body(), 50_000_000)
+            .await
+            .unwrap();
         serde_json::from_slice(&bytes).unwrap()
     }
 
@@ -755,7 +845,11 @@ mod local_service_host_lending_tests {
             .unwrap_or_else(|| panic!("{name} not listed"))
     }
 
-    fn token(state: &Arc<LoopbackState>, grant: Option<&str>, scopes: Option<Vec<String>>) -> (String, String) {
+    fn token(
+        state: &Arc<LoopbackState>,
+        grant: Option<&str>,
+        scopes: Option<Vec<String>>,
+    ) -> (String, String) {
         let created = create_client_token(
             &state.app,
             CreateLoopbackClientTokenInput {
@@ -778,7 +872,12 @@ mod local_service_host_lending_tests {
         with_profile("lent", |root| {
             let app = crate::tauri_runtime::build_mock_app_for_tests(true);
             let state = state(app, root, CellGraphBoundary::for_test(None));
-            let baseline = crate::app_runtime::async_runtime::block_on(rpc(&state, MASTER, "tools/list", json!({})));
+            let baseline = crate::app_runtime::async_runtime::block_on(rpc(
+                &state,
+                MASTER,
+                "tools/list",
+                json!({}),
+            ));
             let baseline = names(&baseline);
             start_toys(
                 &state,
@@ -792,23 +891,44 @@ mod local_service_host_lending_tests {
                 for lent in ["toy_read", "toy_write", "toy_slow", "toy_fail"] {
                     assert!(listed_names.iter().any(|name| name == lent), "{lent}");
                 }
-                assert!(!listed_names.iter().any(|name| name == "stray"), "outside the prefix");
+                assert!(
+                    !listed_names.iter().any(|name| name == "stray"),
+                    "outside the prefix"
+                );
                 assert_eq!(
-                    listed_names.iter().filter(|name| *name == "read_document").count(),
+                    listed_names
+                        .iter()
+                        .filter(|name| *name == "read_document")
+                        .count(),
                     1,
                     "a lent tool never shadows gardend's own"
                 );
                 let read = tool(&listed, "toy_read");
-                assert_eq!(read["inputSchema"]["properties"]["graph_id"]["enum"], json!([GRAPH]));
+                assert_eq!(
+                    read["inputSchema"]["properties"]["graph_id"]["enum"],
+                    json!([GRAPH])
+                );
                 assert!(read["inputSchema"]["properties"].get("graphId").is_none());
                 assert_eq!(read["inputSchema"]["required"], json!(["q"]));
                 assert_eq!(read["_meta"]["sophia.service"], SERVICE);
-                assert_eq!(read["_meta"]["sophia.local.requiredScopes"], json!(["graphs.read"]));
-                assert_eq!(tool(&listed, "toy_write")["_meta"]["sophia.local.requiredScopes"], json!(["services.manage"]));
+                assert_eq!(
+                    read["_meta"]["sophia.local.requiredScopes"],
+                    json!(["graphs.read"])
+                );
+                assert_eq!(
+                    tool(&listed, "toy_write")["_meta"]["sophia.local.requiredScopes"],
+                    json!(["services.manage"])
+                );
 
                 // The master key: the owner; the graph filled in and taken off
                 // the arguments; nothing the caller sent passes.
-                let called = rpc(&state, MASTER, "tools/call", json!({"name": "toy_read", "arguments": {"q": "cows"}})).await;
+                let called = rpc(
+                    &state,
+                    MASTER,
+                    "tools/call",
+                    json!({"name": "toy_read", "arguments": {"q": "cows"}}),
+                )
+                .await;
                 let seen = &called["result"]["structuredContent"];
                 assert_eq!(seen["arguments"], json!({"q": "cows"}), "{called}");
                 assert_eq!(seen["graphId"], GRAPH);
@@ -816,48 +936,141 @@ mod local_service_host_lending_tests {
                 assert_eq!(seen["callerRole"], "owner");
                 assert_eq!(seen["graphRole"], "owner");
                 assert_eq!(seen["userId"], "owner");
-                assert_eq!(seen["authorization"], Value::Null, "the caller's credential never reaches the service");
-                let named = rpc(&state, MASTER, "tools/call", json!({"name": "toy_read", "arguments": {"q": "x", "graphId": GRAPH}})).await;
-                assert_eq!(named["result"]["structuredContent"]["arguments"], json!({"q": "x"}));
+                assert_eq!(
+                    seen["authorization"],
+                    Value::Null,
+                    "the caller's credential never reaches the service"
+                );
+                let named = rpc(
+                    &state,
+                    MASTER,
+                    "tools/call",
+                    json!({"name": "toy_read", "arguments": {"q": "x", "graphId": GRAPH}}),
+                )
+                .await;
+                assert_eq!(
+                    named["result"]["structuredContent"]["arguments"],
+                    json!({"q": "x"})
+                );
 
-                let elsewhere = rpc(&state, MASTER, "tools/call", json!({"name": "toy_read", "arguments": {"q": "x", "graph_id": "notes"}})).await;
+                let elsewhere = rpc(
+                    &state,
+                    MASTER,
+                    "tools/call",
+                    json!({"name": "toy_read", "arguments": {"q": "x", "graph_id": "notes"}}),
+                )
+                .await;
                 assert_eq!(elsewhere["error"]["code"], -32602, "{elsewhere}");
-                assert!(elsewhere["error"]["message"].as_str().unwrap().contains(GRAPH));
+                assert!(elsewhere["error"]["message"]
+                    .as_str()
+                    .unwrap()
+                    .contains(GRAPH));
 
-                let failed = rpc(&state, MASTER, "tools/call", json!({"name": "toy_fail", "arguments": {}})).await;
-                assert_eq!(failed["error"]["code"], -32040, "the service's error passes through: {failed}");
+                let failed = rpc(
+                    &state,
+                    MASTER,
+                    "tools/call",
+                    json!({"name": "toy_fail", "arguments": {}}),
+                )
+                .await;
+                assert_eq!(
+                    failed["error"]["code"], -32040,
+                    "the service's error passes through: {failed}"
+                );
                 assert_eq!(failed["error"]["message"], "toy_fail exceeded its budget");
                 assert_eq!(failed["error"]["data"]["phase"], "query");
 
                 let started = std::time::Instant::now();
-                let slow = rpc(&state, MASTER, "tools/call", json!({"name": "toy_slow", "arguments": {}})).await;
-                assert!(started.elapsed() < Duration::from_secs(10), "gardend waited {:?}", started.elapsed());
-                assert_eq!(slow["error"]["data"]["code"], SERVICE_TOOL_TIMEOUT_CODE, "{slow}");
-                assert!(slow["error"]["message"].as_str().unwrap().contains("1500 ms"), "{slow}");
+                let slow = rpc(
+                    &state,
+                    MASTER,
+                    "tools/call",
+                    json!({"name": "toy_slow", "arguments": {}}),
+                )
+                .await;
+                assert!(
+                    started.elapsed() < Duration::from_secs(10),
+                    "gardend waited {:?}",
+                    started.elapsed()
+                );
+                assert_eq!(
+                    slow["error"]["data"]["code"], SERVICE_TOOL_TIMEOUT_CODE,
+                    "{slow}"
+                );
+                assert!(
+                    slow["error"]["message"]
+                        .as_str()
+                        .unwrap()
+                        .contains("1500 ms"),
+                    "{slow}"
+                );
 
-                let unknown = rpc(&state, MASTER, "tools/call", json!({"name": "toy_nothing", "arguments": {}})).await;
+                let unknown = rpc(
+                    &state,
+                    MASTER,
+                    "tools/call",
+                    json!({"name": "toy_nothing", "arguments": {}}),
+                )
+                .await;
                 assert_eq!(unknown["error"]["code"], -32602, "{unknown}");
 
                 // A reader who may call tools: the read tools, as a viewer.
-                let mut viewer_scopes = crate::loopback_token_grants::grant_profile_scopes("read-only");
+                let mut viewer_scopes =
+                    crate::loopback_token_grants::grant_profile_scopes("read-only");
                 viewer_scopes.push("mcp.tools.call".into());
                 let (viewer, viewer_id) = token(&state, None, Some(viewer_scopes));
                 let listed = rpc(&state, &viewer, "tools/list", json!({})).await;
                 let viewer_names = names(&listed);
                 assert!(viewer_names.iter().any(|name| name == "toy_read"));
-                assert!(!viewer_names.iter().any(|name| name == "toy_write"), "a viewer is not offered a write");
-                let called = rpc(&state, &viewer, "tools/call", json!({"name": "toy_read", "arguments": {"q": "cows"}})).await;
-                assert_eq!(called["result"]["structuredContent"]["callerRole"], "viewer", "{called}");
-                assert_eq!(called["result"]["structuredContent"]["userId"], format!("token:{viewer_id}"));
-                let refused = rpc(&state, &viewer, "tools/call", json!({"name": "toy_write", "arguments": {}})).await;
+                assert!(
+                    !viewer_names.iter().any(|name| name == "toy_write"),
+                    "a viewer is not offered a write"
+                );
+                let called = rpc(
+                    &state,
+                    &viewer,
+                    "tools/call",
+                    json!({"name": "toy_read", "arguments": {"q": "cows"}}),
+                )
+                .await;
+                assert_eq!(
+                    called["result"]["structuredContent"]["callerRole"], "viewer",
+                    "{called}"
+                );
+                assert_eq!(
+                    called["result"]["structuredContent"]["userId"],
+                    format!("token:{viewer_id}")
+                );
+                let refused = rpc(
+                    &state,
+                    &viewer,
+                    "tools/call",
+                    json!({"name": "toy_write", "arguments": {}}),
+                )
+                .await;
                 assert_eq!(refused["error"]["code"], -32003, "{refused}");
 
                 // A member: not an admin, and the manifest keeps the rest to admins.
                 let (member, _) = token(&state, Some("member"), None);
-                let refused = rpc(&state, &member, "tools/call", json!({"name": "toy_write", "arguments": {}})).await;
+                let refused = rpc(
+                    &state,
+                    &member,
+                    "tools/call",
+                    json!({"name": "toy_write", "arguments": {}}),
+                )
+                .await;
                 assert_eq!(refused["error"]["code"], -32003, "{refused}");
-                let called = rpc(&state, &member, "tools/call", json!({"name": "toy_read", "arguments": {"q": "y"}})).await;
-                assert_eq!(called["result"]["structuredContent"]["callerRole"], "editor", "{called}");
+                let called = rpc(
+                    &state,
+                    &member,
+                    "tools/call",
+                    json!({"name": "toy_read", "arguments": {"q": "y"}}),
+                )
+                .await;
+                assert_eq!(
+                    called["result"]["structuredContent"]["callerRole"], "editor",
+                    "{called}"
+                );
 
                 // A token bound to the graph sees the tools without the
                 // argument; one bound elsewhere does not see them at all.
@@ -877,9 +1090,21 @@ mod local_service_host_lending_tests {
                     .unwrap();
                 let listed = rpc(&state, &bound, "tools/list", json!({})).await;
                 let read = tool(&listed, "toy_read");
-                assert!(read["inputSchema"]["properties"].get("graph_id").is_none(), "{read}");
-                let called = rpc(&state, &bound, "tools/call", json!({"name": "toy_read", "arguments": {"q": "z"}})).await;
-                assert_eq!(called["result"]["structuredContent"]["userId"], "vera@example.com", "{called}");
+                assert!(
+                    read["inputSchema"]["properties"].get("graph_id").is_none(),
+                    "{read}"
+                );
+                let called = rpc(
+                    &state,
+                    &bound,
+                    "tools/call",
+                    json!({"name": "toy_read", "arguments": {"q": "z"}}),
+                )
+                .await;
+                assert_eq!(
+                    called["result"]["structuredContent"]["userId"], "vera@example.com",
+                    "{called}"
+                );
                 assert_eq!(called["result"]["structuredContent"]["graphId"], GRAPH);
                 let elsewhere = state
                     .services
@@ -895,7 +1120,13 @@ mod local_service_host_lending_tests {
                     .unwrap();
                 let listed = rpc(&state, &elsewhere, "tools/list", json!({})).await;
                 assert!(!names(&listed).iter().any(|name| name.starts_with("toy_")));
-                let refused = rpc(&state, &elsewhere, "tools/call", json!({"name": "toy_read", "arguments": {"q": "z"}})).await;
+                let refused = rpc(
+                    &state,
+                    &elsewhere,
+                    "tools/call",
+                    json!({"name": "toy_read", "arguments": {"q": "z"}}),
+                )
+                .await;
                 assert_eq!(refused["error"]["code"], -32004, "{refused}");
             });
             state.services.shutdown();
@@ -909,14 +1140,31 @@ mod local_service_host_lending_tests {
         with_profile("inert", |root| {
             let app = crate::tauri_runtime::build_mock_app_for_tests(true);
             let state = state(app, root, CellGraphBoundary::for_test(None));
-            let baseline = crate::app_runtime::async_runtime::block_on(rpc(&state, MASTER, "tools/list", json!({})));
+            let baseline = crate::app_runtime::async_runtime::block_on(rpc(
+                &state,
+                MASTER,
+                "tools/list",
+                json!({}),
+            ));
             start_toys(&state, root, json!({}));
             crate::app_runtime::async_runtime::block_on(async {
                 let listed = rpc(&state, MASTER, "tools/list", json!({})).await;
                 assert_eq!(names(&listed), names(&baseline));
-                let called = rpc(&state, MASTER, "tools/call", json!({"name": "toy_read", "arguments": {"q": "x"}})).await;
+                let called = rpc(
+                    &state,
+                    MASTER,
+                    "tools/call",
+                    json!({"name": "toy_read", "arguments": {"q": "x"}}),
+                )
+                .await;
                 assert!(called.get("result").is_none(), "{called}");
-                assert!(called["error"]["message"].as_str().unwrap().contains("toy_read"), "{called}");
+                assert!(
+                    called["error"]["message"]
+                        .as_str()
+                        .unwrap()
+                        .contains("toy_read"),
+                    "{called}"
+                );
             });
             state.services.shutdown();
 
@@ -937,10 +1185,17 @@ mod local_service_host_lending_tests {
                     .iter()
                     .map(|scope| scope.to_string())
                     .collect::<Vec<_>>();
-                let caller = ServiceCaller { scopes: &scopes, user_id: None, bound: None, public: None };
+                let caller = ServiceCaller {
+                    scopes: &scopes,
+                    user_id: None,
+                    bound: None,
+                    public: None,
+                };
                 assert!(listed_service_tools(&cell, &caller).await.is_empty());
                 let params = json!({"name": "toy_read", "arguments": {}});
-                assert!(call_service_tool(&cell, None, &params, &caller).await.is_none());
+                assert!(call_service_tool(&cell, None, &params, &caller)
+                    .await
+                    .is_none());
             });
         });
     }
@@ -955,15 +1210,16 @@ mod local_service_host_lending_tests {
             let profile = root.join("profile");
             for (services, lends) in [(json!([SERVICE]), true), (json!([]), false)] {
                 let app = crate::tauri_runtime::build_mock_app_for_tests(true);
-                let self_host = SelfHost::from_settings(crate::loopback_self_host::SelfHostSettings::default())
-                    .unwrap()
-                    .with_public(
-                        Some(crate::public_mode::PublicMode::for_test(
-                            json!({ "graphs": [GRAPH], "services": services }),
-                            &profile,
-                        )),
-                        Some("https://cow-tools.example.com"),
-                    );
+                let self_host =
+                    SelfHost::from_settings(crate::loopback_self_host::SelfHostSettings::default())
+                        .unwrap()
+                        .with_public(
+                            Some(crate::public_mode::PublicMode::for_test(
+                                json!({ "graphs": [GRAPH], "services": services }),
+                                &profile,
+                            )),
+                            Some("https://cow-tools.example.com"),
+                        );
                 let state = state_with(app, root, CellGraphBoundary::for_test(None), self_host);
                 start_toys(
                     &state,
@@ -1004,21 +1260,46 @@ mod local_service_host_lending_tests {
                         .filter(|tool| tool["name"].as_str().unwrap().starts_with("toy_"))
                         .collect();
                     if !lends {
-                        assert!(lent.is_empty(), "a service public mode does not list lends nothing: {lent:?}");
+                        assert!(
+                            lent.is_empty(),
+                            "a service public mode does not list lends nothing: {lent:?}"
+                        );
                         return;
                     }
-                    let names: Vec<&str> = lent.iter().map(|tool| tool["name"].as_str().unwrap()).collect();
-                    assert!(names.contains(&"toy_read") && !names.contains(&"toy_write"), "{names:?}");
+                    let names: Vec<&str> = lent
+                        .iter()
+                        .map(|tool| tool["name"].as_str().unwrap())
+                        .collect();
+                    assert!(
+                        names.contains(&"toy_read") && !names.contains(&"toy_write"),
+                        "{names:?}"
+                    );
                     let read = lent.iter().find(|tool| tool["name"] == "toy_read").unwrap();
-                    assert_eq!(read["inputSchema"]["properties"]["graph_id"]["enum"], json!([GRAPH]), "public graphs only");
-                    let called = visit("tools/call", json!({"name": "toy_read", "arguments": {"q": "vacas"}})).await;
+                    assert_eq!(
+                        read["inputSchema"]["properties"]["graph_id"]["enum"],
+                        json!([GRAPH]),
+                        "public graphs only"
+                    );
+                    let called = visit(
+                        "tools/call",
+                        json!({"name": "toy_read", "arguments": {"q": "vacas"}}),
+                    )
+                    .await;
                     let seen = &called["result"]["structuredContent"];
                     assert_eq!(seen["graphId"], GRAPH, "{called}");
                     assert_eq!(seen["callerRole"], "viewer");
-                    assert!(seen["userId"].as_str().unwrap().starts_with("anon:"), "{seen}");
-                    let private = visit("tools/call", json!({"name": "toy_read", "arguments": {"q": "x", "graph_id": "notes"}})).await;
+                    assert!(
+                        seen["userId"].as_str().unwrap().starts_with("anon:"),
+                        "{seen}"
+                    );
+                    let private = visit(
+                        "tools/call",
+                        json!({"name": "toy_read", "arguments": {"q": "x", "graph_id": "notes"}}),
+                    )
+                    .await;
                     assert_eq!(private["error"]["code"], -32004, "{private}");
-                    let write = visit("tools/call", json!({"name": "toy_write", "arguments": {}})).await;
+                    let write =
+                        visit("tools/call", json!({"name": "toy_write", "arguments": {}})).await;
                     assert!(write.get("error").is_some(), "{write}");
                 });
                 state.services.shutdown();
@@ -1027,7 +1308,11 @@ mod local_service_host_lending_tests {
     }
 
     fn state_for_cell(app: crate::app_runtime::AppHandle, dir: &Path) -> Arc<LoopbackState> {
-        let plain = state(app, &dir.join("cell"), CellGraphBoundary::for_test(Some(GRAPH)));
+        let plain = state(
+            app,
+            &dir.join("cell"),
+            CellGraphBoundary::for_test(Some(GRAPH)),
+        );
         plain
     }
 }

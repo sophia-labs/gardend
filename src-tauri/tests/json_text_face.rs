@@ -96,7 +96,10 @@ fn tool_manifest() -> Value {
 /// The Phanes seed's JSON document bytes: 2-space indented, trailing newline
 /// (`json.dumps(value, indent=2, sort_keys=True) + "\n"`).
 fn pretty(value: &Value) -> String {
-    format!("{}\n", serde_json::to_string_pretty(value).expect("serialize"))
+    format!(
+        "{}\n",
+        serde_json::to_string_pretty(value).expect("serialize")
+    )
 }
 
 const SEED: &str = "op-json-text-face";
@@ -184,13 +187,23 @@ fn control_bundle_canonical_json_reads_back_byte_equal() {
 /// and it is JSON-equal to what was written.
 #[test]
 fn pretty_printed_prompt_binding_and_tool_manifest_read_back_as_stored() {
-    for (name, value) in [("prompt binding", prompt_binding()), ("tool manifest", tool_manifest())] {
+    for (name, value) in [
+        ("prompt binding", prompt_binding()),
+        ("tool manifest", tool_manifest()),
+    ] {
         let source = pretty(&value);
         let stored = store(&source, Some("plain"));
         let stored_text = single_paragraph_text(&stored);
         let read = face(&stored);
-        assert_eq!(read, stored_text, "{name}: the markdown face is not the stored text");
-        assert_eq!(parse_json(&read), value, "{name}: not JSON-equal to the write");
+        assert_eq!(
+            read, stored_text,
+            "{name}: the markdown face is not the stored text"
+        );
+        assert_eq!(
+            parse_json(&read),
+            value,
+            "{name}: not JSON-equal to the write"
+        );
     }
 }
 
@@ -217,7 +230,10 @@ fn json_split_across_paragraphs_or_hard_breaks_reads_back_verbatim() {
         r#"  "text": "Saved **{label}**. Use `/phanes privacy`.""#,
         "}",
     ];
-    let per_line = doc(lines.iter().map(|line| paragraph(vec![text(line)])).collect());
+    let per_line = doc(lines
+        .iter()
+        .map(|line| paragraph(vec![text(line)]))
+        .collect());
     let read = face(&per_line);
     assert_eq!(read, lines.join("\n\n"));
     parse_json(&read);
@@ -280,7 +296,11 @@ fn plain_prose_keeps_its_escaping() {
         (r#"[1, 2, "*"],"#, r#"[1, 2, "\*"],"#),
     ];
     for (authored, expected) in cases {
-        assert_eq!(face(&store(authored, Some("plain"))), expected, "{authored}");
+        assert_eq!(
+            face(&store(authored, Some("plain"))),
+            expected,
+            "{authored}"
+        );
     }
 
     // Two JSON values in two paragraphs are not ONE JSON value.
@@ -316,7 +336,11 @@ fn marked_text_that_looks_like_json_keeps_the_markdown_face() {
     ])]);
     let read = face(&marked);
     assert_eq!(read, r#"{"path":"\_drafts/`x`", "note":"**y**"}"#);
-    assert_eq!(face(&store(&read, Some("markdown"))), read, "the face re-imports to itself");
+    assert_eq!(
+        face(&store(&read, Some("markdown"))),
+        read,
+        "the face re-imports to itself"
+    );
 }
 
 /// Characterization (passes before and after the fix): JSON written WITHOUT
@@ -369,7 +393,10 @@ fn fenced_json_code_block_reads_back_verbatim() {
     // pretty-printed JSON in a fence keeps its indentation.
     let value = prompt_binding();
     let source = pretty(&value);
-    let stored = store(&format!("```json\n{}\n```\n", source.trim()), Some("markdown"));
+    let stored = store(
+        &format!("```json\n{}\n```\n", source.trim()),
+        Some("markdown"),
+    );
     let read = face(&stored);
     assert_eq!(read, format!("```json\n{}\n```", source.trim()));
     let inner = read

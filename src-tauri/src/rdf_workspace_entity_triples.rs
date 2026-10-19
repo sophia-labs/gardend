@@ -222,8 +222,16 @@ pub(super) fn push_artifact_snapshot_triples(
             ("fileType", format!("{MDOC_NS}fileType"), None),
             ("errorMessage", format!("{MDOC_NS}errorMessage"), None),
             ("storageKey", format!("{MDOC_NS}storageKey"), None),
-            ("contentHashSha256", format!("{MDOC_NS}contentHashSha256"), None),
-            ("contentOperationId", format!("{MDOC_NS}contentOperationId"), None),
+            (
+                "contentHashSha256",
+                format!("{MDOC_NS}contentHashSha256"),
+                None,
+            ),
+            (
+                "contentOperationId",
+                format!("{MDOC_NS}contentOperationId"),
+                None,
+            ),
             (
                 "originalFilename",
                 format!("{MDOC_NS}originalFilename"),

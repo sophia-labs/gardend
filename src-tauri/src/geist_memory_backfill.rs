@@ -439,7 +439,10 @@ mod tests {
     }
 
     fn run_backfill(app: &AppHandle, args: serde_json::Value) -> Result<serde_json::Value, String> {
-        crate::app_runtime::async_runtime::block_on(mcp_local_backfill_memory_projection(app.clone(), &args))
+        crate::app_runtime::async_runtime::block_on(mcp_local_backfill_memory_projection(
+            app.clone(),
+            &args,
+        ))
     }
 
     const MEM_NS: &str = "http://mnemosyne.dev/memory#";

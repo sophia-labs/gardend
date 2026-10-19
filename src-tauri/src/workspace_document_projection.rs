@@ -169,33 +169,48 @@ mod tests {
     #[test]
     fn workspace_inventory_index_preserves_first_wins_aliases_and_unknown_rows() {
         let mut first = DocumentInventoryRecord::from(test_document_record(
-            "doc-a", "First", vec![test_block("a1"), test_block("a2")],
+            "doc-a",
+            "First",
+            vec![test_block("a1"), test_block("a2")],
         ));
         first.rdf_triple_count = 7;
         let later = DocumentInventoryRecord::from(test_document_record("doc-a", "Later", vec![]));
         let untouched = serde_json::json!({"id": "missing", "blockCount": 88, "extra": {"x": 1}});
-        let blocked_alias = serde_json::json!({"documentId": null, "id": "doc-a", "blockCount": 99});
+        let blocked_alias =
+            serde_json::json!({"documentId": null, "id": "doc-a", "blockCount": 99});
         let mut rows = vec![
             serde_json::json!({"id": "doc-a", "title": "Workspace title", "parentId": "p", "order": 4,
                 "readOnly": true, "extra": {"custom": [1, 2]}}),
             serde_json::json!({"document_id": "doc-a"}),
-            untouched.clone(), blocked_alias.clone(), serde_json::json!(42),
+            untouched.clone(),
+            blocked_alias.clone(),
+            serde_json::json!(42),
         ];
         merge_workspace_document_counts(&mut rows, &[first, later]);
-        assert_eq!(rows[0], serde_json::json!({
-            "id": "doc-a", "document_id": "doc-a", "documentId": "doc-a",
-            "title": "Workspace title", "parentId": "p", "order": 4, "readOnly": true,
-            "extra": {"custom": [1, 2]}, "blockCount": 2, "block_count": 2, "rdfTripleCount": 7,
-        }));
+        assert_eq!(
+            rows[0],
+            serde_json::json!({
+                "id": "doc-a", "document_id": "doc-a", "documentId": "doc-a",
+                "title": "Workspace title", "parentId": "p", "order": 4, "readOnly": true,
+                "extra": {"custom": [1, 2]}, "blockCount": 2, "block_count": 2, "rdfTripleCount": 7,
+            })
+        );
         assert_eq!(rows[1]["blockCount"], 2);
         assert_eq!(rows[2], untouched);
-        assert_eq!(rows[3], blocked_alias, "do not heal invalid preferred aliases");
+        assert_eq!(
+            rows[3], blocked_alias,
+            "do not heal invalid preferred aliases"
+        );
         assert_eq!(rows[4], 42);
     }
 
     #[test]
     fn workspace_inventory_rows_preserve_snapshot_authority_and_fallback_rules() {
-        let records = vec![DocumentInventoryRecord::from(test_document_record("doc-a", "Manifest title", vec![]))];
+        let records = vec![DocumentInventoryRecord::from(test_document_record(
+            "doc-a",
+            "Manifest title",
+            vec![],
+        ))];
         let snapshot = serde_json::json!({
             "documents": [{"id": "missing", "title": "Only snapshot row", "custom": "keep"}],
             "other": {"unchanged": true},
@@ -203,10 +218,19 @@ mod tests {
         let before = snapshot.clone();
         let rows = workspace_document_rows(Some(&snapshot), &records);
         assert_eq!(rows, snapshot["documents"].as_array().unwrap().clone());
-        assert_eq!(snapshot, before, "count overlays may not mutate the authoritative snapshot");
-        for empty in [serde_json::json!({}), serde_json::json!({"documents": []}),
-            serde_json::json!({"documents": null})] {
-            assert_eq!(workspace_document_rows(Some(&empty), &records), workspace_document_rows(None, &records));
+        assert_eq!(
+            snapshot, before,
+            "count overlays may not mutate the authoritative snapshot"
+        );
+        for empty in [
+            serde_json::json!({}),
+            serde_json::json!({"documents": []}),
+            serde_json::json!({"documents": null}),
+        ] {
+            assert_eq!(
+                workspace_document_rows(Some(&empty), &records),
+                workspace_document_rows(None, &records)
+            );
         }
         let fallback = workspace_document_rows(None, &records);
         assert_eq!(fallback[0]["title"], "Manifest title");
@@ -215,16 +239,29 @@ mod tests {
 
     #[test]
     fn workspace_inventory_index_matches_legacy_linear_join_for_many_rows() {
-        let records = (0..2048).map(|index| DocumentInventoryRecord {
-            document_id: format!("doc-{index}"), title: format!("Title {index}"),
-            updated_at: "1".into(), block_count: index, rdf_triple_count: index * 2,
-        }).collect::<Vec<_>>();
-        let mut rows = (0..2048).rev().map(|index| serde_json::json!({
-            "id": format!("doc-{index}"), "title": "Workspace", "custom": index,
-        })).collect::<Vec<_>>();
+        let records = (0..2048)
+            .map(|index| DocumentInventoryRecord {
+                document_id: format!("doc-{index}"),
+                title: format!("Title {index}"),
+                updated_at: "1".into(),
+                block_count: index,
+                rdf_triple_count: index * 2,
+            })
+            .collect::<Vec<_>>();
+        let mut rows = (0..2048)
+            .rev()
+            .map(|index| {
+                serde_json::json!({
+                    "id": format!("doc-{index}"), "title": "Workspace", "custom": index,
+                })
+            })
+            .collect::<Vec<_>>();
         merge_workspace_document_counts(&mut rows, &records);
         for row in rows {
-            let record = records.iter().find(|record| Some(record.document_id.as_str()) == row["id"].as_str()).unwrap();
+            let record = records
+                .iter()
+                .find(|record| Some(record.document_id.as_str()) == row["id"].as_str())
+                .unwrap();
             assert_eq!(row["blockCount"], record.block_count);
             assert_eq!(row["rdfTripleCount"], record.rdf_triple_count);
             assert_eq!(row["title"], "Workspace");

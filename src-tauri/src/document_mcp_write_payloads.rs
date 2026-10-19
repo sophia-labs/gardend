@@ -411,16 +411,24 @@ mod tests {
 
     #[test]
     fn preview_head_is_bounded_and_collapses_whitespace_incrementally() {
-        assert_eq!(preview_head("  This   line carries\nan inline marker.".chars()), "This line");
+        assert_eq!(
+            preview_head("  This   line carries\nan inline marker.".chars()),
+            "This line"
+        );
         assert_eq!(preview_head("Marker probe".chars()), "Marker pro");
         assert_eq!(preview_head("   ".chars()), "");
         assert_eq!(preview_head("héllo wörld and more".chars()), "héllo wörl");
         // A long single run of text: the iterator is not exhausted. A
         // side-effecting iterator proves how far it was read.
         let mut consumed = 0usize;
-        let long = std::iter::repeat('x').take(1_000_000).inspect(|_| consumed += 1);
+        let long = std::iter::repeat('x')
+            .take(1_000_000)
+            .inspect(|_| consumed += 1);
         assert_eq!(preview_head(long), "xxxxxxxxxx");
-        assert!(consumed <= BLOCK_PREVIEW_CHARS + 1, "read {consumed} chars for a 10-char head");
+        assert!(
+            consumed <= BLOCK_PREVIEW_CHARS + 1,
+            "read {consumed} chars for a 10-char head"
+        );
     }
 
     #[test]
@@ -430,7 +438,10 @@ mod tests {
             .collect::<Vec<_>>();
         let previews = block_previews(&many);
         assert_eq!(previews["omitted"], BLOCK_PREVIEW_MAX_BLOCKS + 1);
-        assert!(previews["reason"].as_str().unwrap().contains("use blockIds"));
+        assert!(previews["reason"]
+            .as_str()
+            .unwrap()
+            .contains("use blockIds"));
     }
 
     #[test]

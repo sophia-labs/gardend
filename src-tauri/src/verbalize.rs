@@ -40,7 +40,8 @@ pub(crate) fn verbalize(iri: &str, store: &Store, cfg: &VerbalizeCfg) -> Option<
 /// Any other entity (an open dataset's class, concept or dataset, a Wikidata item…) is told by the generic entity
 /// verbalizer that `find` indexes with: labels, types, descriptions and a few relations (SEMMA+'s "hard branch").
 fn verbalize_entity(iri: &str, store: &Store) -> Option<String> {
-    let ctx = crate::entity_verbalize::Ctx::new(store, crate::entity_verbalize::VerbalizeCfg::default());
+    let ctx =
+        crate::entity_verbalize::Ctx::new(store, crate::entity_verbalize::VerbalizeCfg::default());
     let mut stats = crate::entity_verbalize::VerbalizeStats::default();
     ctx.verbalize(iri, &mut stats).map(|record| record.text)
 }
@@ -197,12 +198,26 @@ ex:florida a ex:Department ;
 "#,
         );
 
-        let text = verbalize("http://example.org/florida", &store, &VerbalizeCfg::default())
-            .expect("an entity with a label verbalizes");
+        let text = verbalize(
+            "http://example.org/florida",
+            &store,
+            &VerbalizeCfg::default(),
+        )
+        .expect("an entity with a label verbalizes");
         assert!(text.contains("Florida"), "{text}");
         assert!(text.contains("Department"), "{text}");
-        assert!(!text.contains("http://"), "no opaque ids in the text: {text}");
-        assert_eq!(verbalize("http://example.org/nothing-here", &store, &VerbalizeCfg::default()), None);
+        assert!(
+            !text.contains("http://"),
+            "no opaque ids in the text: {text}"
+        );
+        assert_eq!(
+            verbalize(
+                "http://example.org/nothing-here",
+                &store,
+                &VerbalizeCfg::default()
+            ),
+            None
+        );
     }
 
     #[test]

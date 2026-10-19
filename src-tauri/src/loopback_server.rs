@@ -169,7 +169,9 @@ fn load_public_mode(
 ) -> Result<Option<crate::public_mode::PublicMode>, String> {
     let profile_dir = crate::profile_paths::profile_dir(app)?;
     if hosted_cell {
-        if profile_dir.join(crate::public_mode::PUBLIC_CONFIG_FILE).exists()
+        if profile_dir
+            .join(crate::public_mode::PUBLIC_CONFIG_FILE)
+            .exists()
             || std::env::var_os(crate::public_mode::PUBLIC_GRAPHS_ENV).is_some()
             || std::env::var_os(crate::public_mode::PUBLIC_CONFIG_ENV).is_some()
         {
@@ -207,13 +209,25 @@ fn log_self_host(self_host: &SelfHost) {
         log::info!(
             "public mode ({}): anyone may read {}; services open to visitors: {}{}{}",
             public.config_source(),
-            public.graphs().iter().cloned().collect::<Vec<_>>().join(", "),
+            public
+                .graphs()
+                .iter()
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", "),
             public.describe()["services"],
             public
                 .site_dir()
-                .map(|dir| format!("; the site from {} at /, the app at /app/", display_path(dir)))
+                .map(|dir| format!(
+                    "; the site from {} at /, the app at /app/",
+                    display_path(dir)
+                ))
                 .unwrap_or_default(),
-            if public.accounts().is_some() { "; Sophia accounts sign in with ID tokens" } else { "" },
+            if public.accounts().is_some() {
+                "; Sophia accounts sign in with ID tokens"
+            } else {
+                ""
+            },
         );
     }
     if let Some(dir) = self_host.ui_dir() {

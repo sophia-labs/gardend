@@ -247,17 +247,25 @@ impl VisitorFolders {
             let defaults = Quotas::default();
             let q = entry.quotas;
             let quotas = Quotas {
-                documents_per_account: q.documents_per_account.unwrap_or(defaults.documents_per_account),
+                documents_per_account: q
+                    .documents_per_account
+                    .unwrap_or(defaults.documents_per_account),
                 total_documents: q.total_documents.unwrap_or(defaults.total_documents),
-                new_documents_per_hour: q.new_documents_per_hour.unwrap_or(defaults.new_documents_per_hour),
+                new_documents_per_hour: q
+                    .new_documents_per_hour
+                    .unwrap_or(defaults.new_documents_per_hour),
                 writes_per_minute: q.writes_per_minute.unwrap_or(defaults.writes_per_minute),
                 document_bytes: q.document_bytes.unwrap_or(defaults.document_bytes),
-                room_bytes_per_minute: q.room_bytes_per_minute.unwrap_or(defaults.room_bytes_per_minute),
+                room_bytes_per_minute: q
+                    .room_bytes_per_minute
+                    .unwrap_or(defaults.room_bytes_per_minute),
                 links_per_document: q.links_per_document.unwrap_or(defaults.links_per_document),
                 wires_per_account: q.wires_per_account.unwrap_or(defaults.wires_per_account),
             };
             if !(quotas.writes_per_minute.is_finite() && quotas.writes_per_minute > 0.0) {
-                return Err("public mode: visitorFolders quotas.writesPerMinute must be above 0".into());
+                return Err(
+                    "public mode: visitorFolders quotas.writesPerMinute must be above 0".into(),
+                );
             }
             if folders
                 .insert(graph_id.clone(), VisitorFolder { folder_id, quotas })
@@ -346,7 +354,11 @@ impl VisitorFolders {
         let value = match std::fs::read_to_string(&path) {
             Ok(text) if text.trim().len() >= 32 => text.trim().to_string(),
             _ => {
-                let fresh = format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple());
+                let fresh = format!(
+                    "{}{}",
+                    uuid::Uuid::new_v4().simple(),
+                    uuid::Uuid::new_v4().simple()
+                );
                 let _ = std::fs::create_dir_all(&self.state_dir);
                 if let Err(error) = crate::storage::write_bytes(&path, fresh.as_bytes()) {
                     log::warn!("visitor fence: keep the account salt: {error}");
@@ -362,7 +374,11 @@ impl VisitorFolders {
     /// its Cognito subject (stable for this profile; never the subject).
     pub(crate) fn account_id(&self, sub: &str) -> String {
         let digest = Sha256::digest(format!("{}\0{sub}", self.salt()).as_bytes());
-        let hex: String = digest.iter().take(8).map(|byte| format!("{byte:02x}")).collect();
+        let hex: String = digest
+            .iter()
+            .take(8)
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
         format!("acct-{hex}")
     }
 
@@ -378,8 +394,13 @@ impl VisitorFolders {
         let (value, changed) = use_accounts(file);
         if changed {
             let _ = std::fs::create_dir_all(&self.state_dir);
-            if let Err(error) = crate::storage::write_json(&self.state_dir.join(ACCOUNTS_FILE), file) {
-                log::warn!("visitor fence: keep the visitors' names: {}", error.message());
+            if let Err(error) =
+                crate::storage::write_json(&self.state_dir.join(ACCOUNTS_FILE), file)
+            {
+                log::warn!(
+                    "visitor fence: keep the visitors' names: {}",
+                    error.message()
+                );
             }
         }
         value
@@ -415,7 +436,12 @@ impl VisitorFolders {
     /// Bind the name and colour the account's own presence publishes
     /// (Shrubbery's presence control). A name that fails [`valid_name`] or a
     /// colour that is not `#rrggbb` keeps the one recorded.
-    pub(crate) fn bind_presence(&self, account: &str, name: Option<&str>, color: Option<&str>) -> VisitorPresence {
+    pub(crate) fn bind_presence(
+        &self,
+        account: &str,
+        name: Option<&str>,
+        color: Option<&str>,
+    ) -> VisitorPresence {
         let current = self.presence_of(account);
         let name = name
             .map(str::trim)
@@ -450,13 +476,19 @@ impl VisitorFolders {
             return current;
         }
         self.with_accounts(|file| {
-            let entry = file.accounts.entry(account.to_string()).or_insert_with(|| AccountEntry {
-                name: name.clone(),
-                color: color.clone(),
-                first_seen: now_iso(),
-                earlier_names: Vec::new(),
-            });
-            if entry.name != name && !entry.earlier_names.contains(&entry.name) && entry.earlier_names.len() < 50 {
+            let entry = file
+                .accounts
+                .entry(account.to_string())
+                .or_insert_with(|| AccountEntry {
+                    name: name.clone(),
+                    color: color.clone(),
+                    first_seen: now_iso(),
+                    earlier_names: Vec::new(),
+                });
+            if entry.name != name
+                && !entry.earlier_names.contains(&entry.name)
+                && entry.earlier_names.len() < 50
+            {
                 entry.earlier_names.push(entry.name.clone());
             }
             entry.name = name.clone();
@@ -467,14 +499,31 @@ impl VisitorFolders {
 
     /// Take one write for `account` from its bucket, or say when to retry.
     pub(crate) fn take_write(&self, account: &str, quotas: &Quotas) -> Result<(), u64> {
-        take(&self.writes, account, 1.0, quotas.writes_per_minute / 60.0, quotas.writes_per_minute.max(5.0))
+        take(
+            &self.writes,
+            account,
+            1.0,
+            quotas.writes_per_minute / 60.0,
+            quotas.writes_per_minute.max(5.0),
+        )
     }
 
     /// Take `bytes` of room traffic for `account` (a minute's worth at most).
-    pub(crate) fn take_room_bytes(&self, account: &str, bytes: usize, quotas: &Quotas) -> Result<(), u64> {
+    pub(crate) fn take_room_bytes(
+        &self,
+        account: &str,
+        bytes: usize,
+        quotas: &Quotas,
+    ) -> Result<(), u64> {
         take(&self.room_frames, account, 1.0, 20.0, 200.0)?;
         let per_minute = quotas.room_bytes_per_minute as f64;
-        take(&self.room_bytes, account, bytes as f64, per_minute / 60.0, per_minute)
+        take(
+            &self.room_bytes,
+            account,
+            bytes as f64,
+            per_minute / 60.0,
+            per_minute,
+        )
     }
 
     /// Count a new visitor document against the hourly cap; crossing it
@@ -511,7 +560,6 @@ impl VisitorFolders {
         log::warn!("visitor fence: visitor writes turned off: {why}");
         self.reread_switch();
     }
-
 }
 
 fn take(
@@ -533,7 +581,9 @@ fn take(
         *tokens -= cost;
         Ok(())
     } else {
-        Err(((cost - *tokens) / per_second.max(f64::MIN_POSITIVE)).ceil().max(1.0) as u64)
+        Err(((cost - *tokens) / per_second.max(f64::MIN_POSITIVE))
+            .ceil()
+            .max(1.0) as u64)
     }
 }
 
@@ -544,7 +594,12 @@ fn read_bans(state_dir: &Path) -> BTreeSet<String> {
         banned: Vec<String>,
     }
     crate::storage::read_json::<Bans>(&state_dir.join(BANS_FILE))
-        .map(|bans| bans.banned.into_iter().map(|id| id.trim().to_string()).collect())
+        .map(|bans| {
+            bans.banned
+                .into_iter()
+                .map(|id| id.trim().to_string())
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -564,7 +619,8 @@ pub(crate) fn set_banned(state_dir: &Path, who: &str, banned: bool) -> Result<Ve
         bans.banned.push(who);
     }
     bans.banned.sort();
-    std::fs::create_dir_all(state_dir).map_err(|error| format!("create {}: {error}", state_dir.display()))?;
+    std::fs::create_dir_all(state_dir)
+        .map_err(|error| format!("create {}: {error}", state_dir.display()))?;
     crate::storage::write_json(&path, &bans).map_err(|error| error.message())?;
     Ok(bans.banned)
 }
@@ -600,7 +656,11 @@ pub(crate) struct VisitorPresence {
 /// it (the 96-character rule is gardend's own, `ids::normalize_title`).
 pub(crate) fn title_refusal(title: &str) -> Option<&'static str> {
     let lower = title.to_lowercase();
-    if lower.contains("http:") || lower.contains("https:") || lower.contains("www.") || lower.contains("://") {
+    if lower.contains("http:")
+        || lower.contains("https:")
+        || lower.contains("www.")
+        || lower.contains("://")
+    {
         return Some("a visitor's title carries no web address");
     }
     if title.chars().any(char::is_control) {
@@ -627,7 +687,8 @@ fn default_presence(account: &str) -> VisitorPresence {
         .collect();
     VisitorPresence {
         name: format!("Visitor {suffix}"),
-        color: PRESENCE_COLORS[(presence_hash(account) as usize) % PRESENCE_COLORS.len()].to_string(),
+        color: PRESENCE_COLORS[(presence_hash(account) as usize) % PRESENCE_COLORS.len()]
+            .to_string(),
     }
 }
 
@@ -643,7 +704,9 @@ pub(crate) fn valid_name(name: &str) -> bool {
     if !(1..=40).contains(&count) || name.contains("  ") {
         return false;
     }
-    let latin_letter = |ch: char| ch.is_ascii_alphanumeric() || (('\u{c0}'..='\u{17f}').contains(&ch) && ch.is_alphabetic());
+    let latin_letter = |ch: char| {
+        ch.is_ascii_alphanumeric() || (('\u{c0}'..='\u{17f}').contains(&ch) && ch.is_alphabetic())
+    };
     if !name
         .chars()
         .all(|ch| latin_letter(ch) || matches!(ch, ' ' | '.' | '\'' | '-' | '_' | '(' | ')' | '&'))
@@ -661,15 +724,36 @@ pub(crate) fn valid_name(name: &str) -> bool {
     // An id is not a name (a shell that knows no name publishes the user id).
     if ["acct", "anon", "cognito", "token", "service", "user"]
         .iter()
-        .any(|prefix| lower.starts_with(prefix) && lower[prefix.len()..].starts_with(|ch: char| ch == '-' || ch == '_'))
+        .any(|prefix| {
+            lower.starts_with(prefix)
+                && lower[prefix.len()..].starts_with(|ch: char| ch == '-' || ch == '_')
+        })
     {
         return false;
     }
-    let exact = ["you", "localruntime", "localorganism", "house", "system", "anonymous", "support"];
+    let exact = [
+        "you",
+        "localruntime",
+        "localorganism",
+        "house",
+        "system",
+        "anonymous",
+        "support",
+    ];
     // Anywhere in a name (round 2 of the exam: "Sophia (Owner)").
-    let anywhere = ["owner", "admin", "moderator", "visitor", "sophia", "staff", "official"];
+    let anywhere = [
+        "owner",
+        "admin",
+        "moderator",
+        "visitor",
+        "sophia",
+        "staff",
+        "official",
+    ];
     !exact.iter().any(|word| skeleton == name_skeleton(word))
-        && !anywhere.iter().any(|word| skeleton.contains(&name_skeleton(word)))
+        && !anywhere
+            .iter()
+            .any(|word| skeleton.contains(&name_skeleton(word)))
 }
 
 /// What a name looks like, for comparing names: lower case, letters and
@@ -685,7 +769,8 @@ pub(crate) fn name_skeleton(name: &str) -> String {
             'è' | 'é' | 'ê' | 'ë' | 'ē' | 'ĕ' | 'ė' | 'ę' | 'ě' | '3' => "e",
             'ĝ' | 'ğ' | 'ġ' | 'ģ' | '9' => "g",
             'ĥ' | 'ħ' => "h",
-            'ì' | 'í' | 'î' | 'ï' | 'ĩ' | 'ī' | 'ĭ' | 'į' | 'ı' | 'i' | 'ĺ' | 'ļ' | 'ľ' | 'ŀ' | 'ł' | 'l' | '1' => "l",
+            'ì' | 'í' | 'î' | 'ï' | 'ĩ' | 'ī' | 'ĭ' | 'į' | 'ı' | 'i' | 'ĺ' | 'ļ' | 'ľ' | 'ŀ'
+            | 'ł' | 'l' | '1' => "l",
             'ĵ' => "j",
             'ķ' | 'ĸ' => "k",
             'ñ' | 'ń' | 'ņ' | 'ň' | 'ŉ' | 'ŋ' => "n",
@@ -739,7 +824,9 @@ impl VisitorAccount {
     pub(crate) fn of(principal: &crate::loopback_http::LoopbackPrincipal) -> Option<Self> {
         match principal {
             crate::loopback_http::LoopbackPrincipal::Account {
-                sub, email_verified, ..
+                sub,
+                email_verified,
+                ..
             } => Some(Self {
                 sub: sub.clone(),
                 email_verified: *email_verified,
@@ -782,9 +869,15 @@ pub(crate) enum NoFence {
 impl NoFence {
     pub(crate) fn message(&self, graph_id: &str) -> String {
         match self {
-            Self::NotOpen => format!("visitors cannot write in {graph_id}: this Sophia is open to read"),
-            Self::NotAnAccount => "sign in with a Sophia account to write in the visitors' folder".into(),
-            Self::EmailUnverified => "verify your account's email to write in the visitors' folder".into(),
+            Self::NotOpen => {
+                format!("visitors cannot write in {graph_id}: this Sophia is open to read")
+            }
+            Self::NotAnAccount => {
+                "sign in with a Sophia account to write in the visitors' folder".into()
+            }
+            Self::EmailUnverified => {
+                "verify your account's email to write in the visitors' folder".into()
+            }
             Self::Off => "visitor writing is paused right now; reading goes on".into(),
             Self::Banned => "this account may no longer write here".into(),
         }
@@ -809,7 +902,10 @@ pub(crate) fn fence_for(
     let folders = public
         .and_then(crate::public_mode::PublicMode::visitor_folders)
         .ok_or(NoFence::NotOpen)?;
-    let folder = folders.folders.get(graph_id.trim()).ok_or(NoFence::NotOpen)?;
+    let folder = folders
+        .folders
+        .get(graph_id.trim())
+        .ok_or(NoFence::NotOpen)?;
     let account = account.ok_or(NoFence::NotAnAccount)?;
     if !account.email_verified {
         return Err(NoFence::EmailUnverified);
@@ -971,7 +1067,11 @@ pub(crate) fn document_place<T: ReadTxn>(txn: &T, document_id: &str) -> Option<D
 }
 
 /// True when `parent_id` is the fence's folder or a folder below it.
-pub(crate) fn in_subtree<T: ReadTxn>(txn: &T, root_folder_id: &str, parent_id: Option<&str>) -> bool {
+pub(crate) fn in_subtree<T: ReadTxn>(
+    txn: &T,
+    root_folder_id: &str,
+    parent_id: Option<&str>,
+) -> bool {
     let Some(folders) = txn.get_map("folders") else {
         return false;
     };
@@ -1266,7 +1366,9 @@ pub(crate) async fn admit_operation(
         return Err("a visitor writes only in the graph of the visitors' folder".into());
     }
     let graph_dir = crate::graph_paths::existing_graph_dir(app, &operation.graph_id)?;
-    let room = crate::crdt_engine::workspace_ops::workspace_room(app, &operation.graph_id, &graph_dir).await?;
+    let room =
+        crate::crdt_engine::workspace_ops::workspace_room(app, &operation.graph_id, &graph_dir)
+            .await?;
     let payload = operation.payload.as_object().cloned().unwrap_or_default();
     let kind = operation.kind.clone();
     let document_id = operation.document_id.clone();
@@ -1274,7 +1376,13 @@ pub(crate) async fn admit_operation(
     room.with_doc(move |doc| {
         use yrs::Transact;
         let txn = doc.transact();
-        check_operation(&txn, &checked_fence, &kind, document_id.as_deref(), &payload)
+        check_operation(
+            &txn,
+            &checked_fence,
+            &kind,
+            document_id.as_deref(),
+            &payload,
+        )
     })
     .await?;
     Ok(Some(fence))
@@ -1312,12 +1420,38 @@ pub(crate) async fn under_room_policy<F: std::future::Future>(
 /// (`metadata`; `_operationLog`, the block operations' replay ledger).
 const ALLOWED_ROOTS: &[&str] = &["content", "comments", "metadata", "_operationLog"];
 const ALLOWED_NODES: &[&str] = &[
-    "doc", "paragraph", "heading", "blockquote", "listItem", "codeBlock", "horizontalRule",
-    "hardBreak", "text", "table", "tableRow", "tableHeader", "tableCell", "footnote", "mathInline",
-    "mathBlock", "tagChip", "wikilink", "bulletList", "orderedList", "taskList", "taskItem",
+    "doc",
+    "paragraph",
+    "heading",
+    "blockquote",
+    "listItem",
+    "codeBlock",
+    "horizontalRule",
+    "hardBreak",
+    "text",
+    "table",
+    "tableRow",
+    "tableHeader",
+    "tableCell",
+    "footnote",
+    "mathInline",
+    "mathBlock",
+    "tagChip",
+    "wikilink",
+    "bulletList",
+    "orderedList",
+    "taskList",
+    "taskItem",
 ];
 const ALLOWED_MARKS: &[&str] = &[
-    "bold", "italic", "strike", "underline", "code", "highlight", "commentMark", "link",
+    "bold",
+    "italic",
+    "strike",
+    "underline",
+    "code",
+    "highlight",
+    "commentMark",
+    "link",
 ];
 const MAX_TEXT_CHARS: usize = 100_000;
 const MAX_COMMENTS: usize = 200;
@@ -1329,7 +1463,12 @@ fn link_allowed(href: &str) -> bool {
 }
 
 /// Walk TipTap JSON: node types, marks, link schemes, link and text counts.
-fn check_tiptap(node: &Value, graph_id: &str, links: &mut usize, chars: &mut usize) -> Result<(), String> {
+fn check_tiptap(
+    node: &Value,
+    graph_id: &str,
+    links: &mut usize,
+    chars: &mut usize,
+) -> Result<(), String> {
     let kind = node.get("type").and_then(Value::as_str).unwrap_or("");
     if !ALLOWED_NODES.contains(&kind) {
         return Err(match kind {
@@ -1353,10 +1492,17 @@ fn check_tiptap(node: &Value, graph_id: &str, links: &mut usize, chars: &mut usi
     if let Some(text) = node.get("text").and_then(Value::as_str) {
         *chars += text.chars().count();
         if *chars > MAX_TEXT_CHARS {
-            return Err(format!("a visitor's document holds at most {MAX_TEXT_CHARS} characters"));
+            return Err(format!(
+                "a visitor's document holds at most {MAX_TEXT_CHARS} characters"
+            ));
         }
     }
-    for mark in node.get("marks").and_then(Value::as_array).into_iter().flatten() {
+    for mark in node
+        .get("marks")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
         let name = mark.get("type").and_then(Value::as_str).unwrap_or("");
         if !ALLOWED_MARKS.contains(&name) {
             return Err(format!("a visitor's document cannot use the {name:?} mark"));
@@ -1373,7 +1519,12 @@ fn check_tiptap(node: &Value, graph_id: &str, links: &mut usize, chars: &mut usi
             }
         }
     }
-    for child in node.get("content").and_then(Value::as_array).into_iter().flatten() {
+    for child in node
+        .get("content")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
         check_tiptap(child, graph_id, links, chars)?;
     }
     Ok(())
@@ -1455,7 +1606,9 @@ pub(crate) fn check_document_policy<T: ReadTxn>(
     if let Some(parts) = before {
         for root in SERVER_ROOTS {
             if parts.get(*root).cloned().unwrap_or(Value::Null) != root_json(txn, root) {
-                return Err(format!("a document's {root} is the server's: a visitor's frame leaves it as it is"));
+                return Err(format!(
+                    "a document's {root} is the server's: a visitor's frame leaves it as it is"
+                ));
             }
         }
         let before = parts
@@ -1473,7 +1626,9 @@ pub(crate) fn check_document_policy<T: ReadTxn>(
             }
             let text = comment.get("text").and_then(Value::as_str).unwrap_or("");
             if text.chars().count() > MAX_COMMENT_CHARS {
-                return Err(format!("a comment is at most {MAX_COMMENT_CHARS} characters"));
+                return Err(format!(
+                    "a comment is at most {MAX_COMMENT_CHARS} characters"
+                ));
             }
             // A comment written straight into the room is signed by its writer:
             // the account's id and its bound name (Shrubbery's visitor mode
@@ -1484,10 +1639,13 @@ pub(crate) fn check_document_policy<T: ReadTxn>(
             let author = comment.get("author").and_then(Value::as_str);
             let earlier_name = before
                 .get(id)
-                .filter(|earlier| earlier.get("authorId").and_then(Value::as_str) == Some(fence.account.as_str()))
+                .filter(|earlier| {
+                    earlier.get("authorId").and_then(Value::as_str) == Some(fence.account.as_str())
+                })
                 .and_then(|earlier| earlier.get("author").and_then(Value::as_str));
             let own_id = author_id == Some(fence.account.as_str());
-            let own_name = author.is_some() && (author == Some(fence.name.as_str()) || author == earlier_name);
+            let own_name =
+                author.is_some() && (author == Some(fence.name.as_str()) || author == earlier_name);
             if !(own_id && own_name) {
                 return Err(format!(
                     "a visitor's comments are signed as themselves (authorId {:?}, author {:?})",
@@ -1503,7 +1661,11 @@ pub(crate) fn check_document_policy<T: ReadTxn>(
 
 /// Check a fenced tool call's arguments and shape them (a new document lands
 /// in the visitors' folder). The executor checks ownership and place again.
-pub(crate) fn admit_tool(name: &str, arguments: &mut Value, fence: &WriteFence) -> Result<(), String> {
+pub(crate) fn admit_tool(
+    name: &str,
+    arguments: &mut Value,
+    fence: &WriteFence,
+) -> Result<(), String> {
     if !FENCED_TOOLS.contains(&name) {
         return Err(format!("{name} is not open to visitors"));
     }
@@ -1528,8 +1690,14 @@ pub(crate) fn admit_tool(name: &str, arguments: &mut Value, fence: &WriteFence) 
             for key in ["documentId", "document_id", "content"] {
                 if object.get(key).is_some_and(|value| !value.is_null()) {
                     return Err(match key {
-                        "content" => "create_document makes an empty document; write it with write_document".into(),
-                        _ => "a visitor's new document gets its id from the server: omit documentId".into(),
+                        "content" => {
+                            "create_document makes an empty document; write it with write_document"
+                                .into()
+                        }
+                        _ => {
+                            "a visitor's new document gets its id from the server: omit documentId"
+                                .into()
+                        }
                     });
                 }
             }
@@ -1550,7 +1718,9 @@ pub(crate) fn admit_tool(name: &str, arguments: &mut Value, fence: &WriteFence) 
                 .unwrap_or("")
                 .to_ascii_lowercase();
             if kind != "document" {
-                return Err("a visitor renames only their own documents (entity_type document)".into());
+                return Err(
+                    "a visitor renames only their own documents (entity_type document)".into(),
+                );
             }
         }
         "delete" => {
@@ -1579,7 +1749,10 @@ pub(crate) fn admit_tool(name: &str, arguments: &mut Value, fence: &WriteFence) 
             }
         }
         "create_wires" => {
-            let count = object.get("wires").and_then(Value::as_array).map_or(1, Vec::len);
+            let count = object
+                .get("wires")
+                .and_then(Value::as_array)
+                .map_or(1, Vec::len);
             if count > 10 {
                 return Err("make at most 10 wires at a time".into());
             }
@@ -1653,7 +1826,9 @@ pub(crate) fn stamp_awareness(
 
 /// The visitor folders of the running gardend (`None`: not public, or no
 /// folder open, or no managed state: then nothing is admitted).
-pub(crate) fn running_folders(app: &AppHandle) -> Option<std::sync::Arc<crate::loopback_state::LoopbackState>> {
+pub(crate) fn running_folders(
+    app: &AppHandle,
+) -> Option<std::sync::Arc<crate::loopback_state::LoopbackState>> {
     let state = app
         .try_state::<std::sync::Arc<crate::loopback_state::LoopbackState>>()?
         .inner()
@@ -1673,8 +1848,13 @@ pub(crate) async fn admit_room_update(
     update: &[u8],
 ) -> Result<bool, String> {
     let state = running_folders(app).ok_or("visitor writing is not open here")?;
-    let public = state.self_host.public().ok_or("visitor writing is not open here")?;
-    let folders = public.visitor_folders().ok_or("visitor writing is not open here")?;
+    let public = state
+        .self_host
+        .public()
+        .ok_or("visitor writing is not open here")?;
+    let folders = public
+        .visitor_folders()
+        .ok_or("visitor writing is not open here")?;
     if folders.writes_off() {
         return Err(NoFence::Off.message(graph_id));
     }
@@ -1688,7 +1868,8 @@ pub(crate) async fn admit_room_update(
         .take_room_bytes(&fence.account, update.len().max(1), &fence.quotas)
         .map_err(|retry| format!("slow down: try again in {retry} s"))?;
     let graph_dir = crate::graph_paths::existing_graph_dir(app, graph_id)?;
-    let workspace = crate::crdt_engine::workspace_ops::workspace_room(app, graph_id, &graph_dir).await?;
+    let workspace =
+        crate::crdt_engine::workspace_ops::workspace_room(app, graph_id, &graph_dir).await?;
     let checked = fence.clone();
     let id = document_id.to_string();
     workspace
@@ -1720,7 +1901,10 @@ pub(crate) async fn admit_room_update(
 // owner empties it from the Trash.
 
 /// The documents of `graph_id` that are in the Trash.
-pub(crate) async fn trashed_documents(app: &AppHandle, graph_id: &str) -> Result<BTreeSet<String>, String> {
+pub(crate) async fn trashed_documents(
+    app: &AppHandle,
+    graph_id: &str,
+) -> Result<BTreeSet<String>, String> {
     let graph_dir = crate::graph_paths::existing_graph_dir(app, graph_id)?;
     let room = crate::crdt_engine::workspace_ops::workspace_room(app, graph_id, &graph_dir).await?;
     Ok(room
@@ -1752,16 +1936,28 @@ pub(crate) fn named_document_ids(arguments: Option<&Value>) -> Vec<String> {
         match value {
             Value::Object(map) => {
                 for (key, value) in map {
-                    let normalized: String = key.chars().filter(|ch| *ch != '_').collect::<String>().to_ascii_lowercase();
+                    let normalized: String = key
+                        .chars()
+                        .filter(|ch| *ch != '_')
+                        .collect::<String>()
+                        .to_ascii_lowercase();
                     let names_documents = matches!(
                         normalized.as_str(),
-                        "documentid" | "documentids" | "docid" | "sourcedocumentid" | "targetdocumentid" | "artifactid"
+                        "documentid"
+                            | "documentids"
+                            | "docid"
+                            | "sourcedocumentid"
+                            | "targetdocumentid"
+                            | "artifactid"
                     );
                     match value {
                         Value::String(id) if names_documents => out.push(id.trim().to_string()),
-                        Value::Array(items) if names_documents => {
-                            out.extend(items.iter().filter_map(Value::as_str).map(|id| id.trim().to_string()))
-                        }
+                        Value::Array(items) if names_documents => out.extend(
+                            items
+                                .iter()
+                                .filter_map(Value::as_str)
+                                .map(|id| id.trim().to_string()),
+                        ),
                         _ => visit(value, depth + 1, out),
                     }
                 }
@@ -1779,14 +1975,20 @@ pub(crate) fn named_document_ids(arguments: Option<&Value>) -> Vec<String> {
 }
 
 /// A public request for a route that names a document in the Trash: 404.
-pub(crate) async fn trashed_route_refusal(app: &AppHandle, matched_path: &str, path: &str) -> Option<String> {
+pub(crate) async fn trashed_route_refusal(
+    app: &AppHandle,
+    matched_path: &str,
+    path: &str,
+) -> Option<String> {
     let graph = crate::cell_graph_boundary::path_parameter(matched_path, path, "{graph_id}")?;
     let document = crate::cell_graph_boundary::path_parameter(matched_path, path, "{document_id}")
         .or_else(|| crate::cell_graph_boundary::path_parameter(matched_path, path, "{doc_id}"))?;
     let graph = crate::loopback_self_host_routes::decode_segment(graph);
     let document = crate::loopback_self_host_routes::decode_segment(document);
     match trashed_documents(app, &graph).await {
-        Ok(trashed) if trashed.contains(document.trim()) => Some(format!("no document {document} in {graph}")),
+        Ok(trashed) if trashed.contains(document.trim()) => {
+            Some(format!("no document {document} in {graph}"))
+        }
         Ok(_) => None,
         // The route itself answers for a graph that is not there.
         Err(_) => None,
@@ -1795,7 +1997,10 @@ pub(crate) async fn trashed_route_refusal(app: &AppHandle, matched_path: &str, p
 
 /// The named graphs a public SPARQL query of `graph_id` must not see: those of
 /// its trashed documents.
-pub(crate) async fn hidden_graphs_for_public(app: &AppHandle, graph_id: &str) -> Result<Vec<String>, String> {
+pub(crate) async fn hidden_graphs_for_public(
+    app: &AppHandle,
+    graph_id: &str,
+) -> Result<Vec<String>, String> {
     Ok(trashed_documents(app, graph_id)
         .await?
         .iter()
@@ -1807,7 +2012,10 @@ pub(crate) async fn hidden_graphs_for_public(app: &AppHandle, graph_id: &str) ->
 
 /// The two REST routes a fence may admit: the scopes each needs (lent for the
 /// one request) and the document it names.
-fn fenced_rest_route(method: &axum::http::Method, matched_path: &str) -> Option<&'static [&'static str]> {
+fn fenced_rest_route(
+    method: &axum::http::Method,
+    matched_path: &str,
+) -> Option<&'static [&'static str]> {
     match (method.as_str(), matched_path) {
         ("DELETE", "/navigation/{graph_id}/documents/{document_id}") => {
             Some(&["workspace.delete.crdt", "artifacts.delete"])
@@ -1840,15 +2048,26 @@ pub(crate) async fn rest_admission(
     let document = crate::cell_graph_boundary::path_parameter(
         matched_path,
         path,
-        if matched_path.contains("{document_id}") { "{document_id}" } else { "{artifact_id}" },
+        if matched_path.contains("{document_id}") {
+            "{document_id}"
+        } else {
+            "{artifact_id}"
+        },
     )
     .map(crate::loopback_self_host_routes::decode_segment)
     .unwrap_or_default();
     if !public.is_public_graph(&graph) {
-        return refuse(StatusCode::NOT_FOUND, "graph_not_found", "graph not found".into());
+        return refuse(
+            StatusCode::NOT_FOUND,
+            "graph_not_found",
+            "graph not found".into(),
+        );
     }
     if matched_path.ends_with("/restore")
-        && !query.unwrap_or_default().split('&').any(|pair| pair == "kind=document")
+        && !query
+            .unwrap_or_default()
+            .split('&')
+            .any(|pair| pair == "kind=document")
     {
         return refuse(
             StatusCode::FORBIDDEN,
@@ -1857,7 +2076,11 @@ pub(crate) async fn rest_admission(
         );
     }
     let Some(token) = account_token else {
-        return refuse(StatusCode::FORBIDDEN, "public_read_only", NoFence::NotAnAccount.message(&graph));
+        return refuse(
+            StatusCode::FORBIDDEN,
+            "public_read_only",
+            NoFence::NotAnAccount.message(&graph),
+        );
     };
     let accounts = public.accounts()?;
     let identity = match accounts.verify(token) {
@@ -1880,12 +2103,18 @@ pub(crate) async fn rest_admission(
     };
     let folders = public.visitor_folders()?;
     if let Err(retry) = folders.take_write(&fence.account, &fence.quotas) {
-        return refuse(StatusCode::TOO_MANY_REQUESTS, "rate_limited", format!("slow down: try again in {retry} s"));
+        return refuse(
+            StatusCode::TOO_MANY_REQUESTS,
+            "rate_limited",
+            format!("slow down: try again in {retry} s"),
+        );
     }
     let checked = fence.clone();
     let owned = async {
         let graph_dir = crate::graph_paths::existing_graph_dir(&state.app, &graph)?;
-        let room = crate::crdt_engine::workspace_ops::workspace_room(&state.app, &graph, &graph_dir).await?;
+        let room =
+            crate::crdt_engine::workspace_ops::workspace_room(&state.app, &graph, &graph_dir)
+                .await?;
         let id = document.clone();
         room.with_doc(move |doc| {
             use yrs::Transact;
@@ -1905,7 +2134,10 @@ pub(crate) async fn rest_admission(
 }
 
 /// Run a REST handler under an admitted fence context.
-pub(crate) async fn within_context<F: std::future::Future>(context: FenceContext, future: F) -> F::Output {
+pub(crate) async fn within_context<F: std::future::Future>(
+    context: FenceContext,
+    future: F,
+) -> F::Output {
     CURRENT_FENCE.scope(context, future).await
 }
 
@@ -1988,7 +2220,14 @@ mod loopback_self_host_visitor_fence_unit {
             assert!(!valid_name(claim), "{claim:?} must not be a visitor's name");
         }
         // Round 2 of the exam: the house's words anywhere in a name.
-        for claim in ["Sophia (Owner)", "The Owner", "site admin", "Moderator Jo", "Sophia Fan", "Not a visitor"] {
+        for claim in [
+            "Sophia (Owner)",
+            "The Owner",
+            "site admin",
+            "Moderator Jo",
+            "Sophia Fan",
+            "Not a visitor",
+        ] {
             assert!(!valid_name(claim), "{claim:?} must not be a visitor's name");
         }
         for fine in ["María José", "O'Brien", "Ana-Lía", "Moo Fan 2"] {
@@ -1998,28 +2237,55 @@ mod loopback_self_host_visitor_fence_unit {
 
     #[test]
     fn a_name_another_account_holds_stays_theirs() {
-        let dir = std::env::temp_dir().join(format!("garden-visitor-names-{}", uuid::Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("garden-visitor-names-{}", uuid::Uuid::new_v4()));
         let graphs: BTreeSet<String> = ["g".to_string()].into();
         let file: Vec<VisitorFolderFile> =
             serde_json::from_value(json!([{ "graphId": "g", "folderId": "f" }])).unwrap();
-        let folders = VisitorFolders::from_file(file, &graphs, &dir).unwrap().unwrap();
+        let folders = VisitorFolders::from_file(file, &graphs, &dir)
+            .unwrap()
+            .unwrap();
         let alice = folders.account_id("sub-alice");
         let bob = folders.account_id("sub-bob");
-        assert_eq!(folders.bind_presence(&alice, Some("Moo Fan"), None).name, "Moo Fan");
+        assert_eq!(
+            folders.bind_presence(&alice, Some("Moo Fan"), None).name,
+            "Moo Fan"
+        );
         let alice_default = folders.presence_of(&bob).name.clone();
         let before = folders.presence_of(&bob);
         for claim in ["Moo Fan", "moo fan", "MOO-FAN", "M00 Fan"] {
-            assert_eq!(folders.bind_presence(&bob, Some(claim), None), before, "{claim:?} is Alice's");
+            assert_eq!(
+                folders.bind_presence(&bob, Some(claim), None),
+                before,
+                "{claim:?} is Alice's"
+            );
         }
-        assert_eq!(folders.bind_presence(&bob, Some("Cow Poet"), None).name, "Cow Poet");
+        assert_eq!(
+            folders.bind_presence(&bob, Some("Cow Poet"), None).name,
+            "Cow Poet"
+        );
         assert!(alice_default.starts_with("Visitor "));
         // Alice keeps hers, and may set it again.
-        assert_eq!(folders.bind_presence(&alice, Some("Moo Fan"), None).name, "Moo Fan");
+        assert_eq!(
+            folders.bind_presence(&alice, Some("Moo Fan"), None).name,
+            "Moo Fan"
+        );
         // Round 2 of the exam: a name an account gave up stays its own (its documents and comments carry it).
-        assert_eq!(folders.bind_presence(&alice, Some("Cud Chewer"), None).name, "Cud Chewer");
+        assert_eq!(
+            folders.bind_presence(&alice, Some("Cud Chewer"), None).name,
+            "Cud Chewer"
+        );
         let before = folders.presence_of(&bob);
-        assert_eq!(folders.bind_presence(&bob, Some("Moo Fan"), None), before, "Alice's earlier name stays hers");
-        assert_eq!(folders.bind_presence(&alice, Some("Moo Fan"), None).name, "Moo Fan", "and she may take it back");
+        assert_eq!(
+            folders.bind_presence(&bob, Some("Moo Fan"), None),
+            before,
+            "Alice's earlier name stays hers"
+        );
+        assert_eq!(
+            folders.bind_presence(&alice, Some("Moo Fan"), None).name,
+            "Moo Fan",
+            "and she may take it back"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -2027,10 +2293,16 @@ mod loopback_self_host_visitor_fence_unit {
     fn only_gardends_predicates() {
         assert!(builtin_predicate(None));
         assert!(builtin_predicate(Some("supports")));
-        assert!(builtin_predicate(Some("http://mnemosyne.ai/vocab#supports")));
+        assert!(builtin_predicate(Some(
+            "http://mnemosyne.ai/vocab#supports"
+        )));
         assert!(!builtin_predicate(Some("owl:sameAs")));
-        assert!(!builtin_predicate(Some("http://www.w3.org/2002/07/owl#sameAs")));
-        assert!(!builtin_predicate(Some("http://evil.example/vocab#supports")));
+        assert!(!builtin_predicate(Some(
+            "http://www.w3.org/2002/07/owl#sameAs"
+        )));
+        assert!(!builtin_predicate(Some(
+            "http://evil.example/vocab#supports"
+        )));
     }
 
     #[test]
@@ -2047,37 +2319,62 @@ mod loopback_self_host_visitor_fence_unit {
             json!({"type":"doc","content":[{"type":"opaqueBlock"}]}),
         ] {
             let (mut links, mut chars) = (0, 0);
-            assert!(check_tiptap(&bad, "g", &mut links, &mut chars).is_err(), "{bad}");
+            assert!(
+                check_tiptap(&bad, "g", &mut links, &mut chars).is_err(),
+                "{bad}"
+            );
         }
     }
 
     #[test]
     fn awareness_is_stamped_with_the_account() {
-        let dir = std::env::temp_dir().join(format!("garden-visitor-presence-{}", uuid::Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("garden-visitor-presence-{}", uuid::Uuid::new_v4()));
         let graphs: BTreeSet<String> = ["g".to_string()].into();
         let file: Vec<VisitorFolderFile> =
             serde_json::from_value(json!([{ "graphId": "g", "folderId": "f" }])).unwrap();
-        let folders = VisitorFolders::from_file(file, &graphs, &dir).unwrap().unwrap();
+        let folders = VisitorFolders::from_file(file, &graphs, &dir)
+            .unwrap()
+            .unwrap();
         let account = folders.account_id("sub-1");
         let forged = json!({
             "user": { "userId": "owner", "name": "Owner", "color": "#123456", "type": "agent" },
             "presence": { "humanId": "owner", "clientId": "c" }
         })
         .to_string();
-        let stamped: Value =
-            serde_json::from_str(&stamp_awareness(Some(&folders), Some(&account), &forged).unwrap()).unwrap();
+        let stamped: Value = serde_json::from_str(
+            &stamp_awareness(Some(&folders), Some(&account), &forged).unwrap(),
+        )
+        .unwrap();
         assert_eq!(stamped["user"]["userId"], json!(account));
-        assert_ne!(stamped["user"]["name"], json!("Owner"), "a reserved name is not bound");
-        assert_eq!(stamped["user"]["color"], json!("#123456"), "a valid colour is the account's choice");
+        assert_ne!(
+            stamped["user"]["name"],
+            json!("Owner"),
+            "a reserved name is not bound"
+        );
+        assert_eq!(
+            stamped["user"]["color"],
+            json!("#123456"),
+            "a valid colour is the account's choice"
+        );
         assert_eq!(stamped["user"]["type"], json!("human"));
         assert_eq!(stamped["user"]["visitor"], json!(true));
         assert_eq!(stamped["presence"]["humanId"], json!(account));
         let renamed = json!({ "user": { "name": "Moo Fan", "color": "#2563eb" } }).to_string();
-        let stamped: Value =
-            serde_json::from_str(&stamp_awareness(Some(&folders), Some(&account), &renamed).unwrap()).unwrap();
+        let stamped: Value = serde_json::from_str(
+            &stamp_awareness(Some(&folders), Some(&account), &renamed).unwrap(),
+        )
+        .unwrap();
         assert_eq!(stamped["user"]["name"], json!("Moo Fan"));
-        assert_eq!(folders.presence_of(&account).name, "Moo Fan", "the name is bound to the account");
-        assert!(stamp_awareness(None, None, &renamed).is_none(), "an anonymous visitor publishes no presence");
+        assert_eq!(
+            folders.presence_of(&account).name,
+            "Moo Fan",
+            "the name is bound to the account"
+        );
+        assert!(
+            stamp_awareness(None, None, &renamed).is_none(),
+            "an anonymous visitor publishes no presence"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

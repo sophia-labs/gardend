@@ -533,11 +533,9 @@ fn serve(selfhost: Option<garden_lib::selfhost::ServePlan>) {
                 // mean editing `capture_event.rs`, outside this fix's scope.
                 if let Some((profile, durable)) = &observatory_durable_dirs {
                     let flush_started = Instant::now();
-                    let flush_result = garden_lib::headless::async_runtime::block_on(run_flush_blocking(
-                        profile,
-                        durable,
-                        FlushTrigger::ObservatoryApply,
-                    ));
+                    let flush_result = garden_lib::headless::async_runtime::block_on(
+                        run_flush_blocking(profile, durable, FlushTrigger::ObservatoryApply),
+                    );
                     testify_flush_result(
                         &testimony,
                         FlushMode::Periodic,
@@ -591,9 +589,9 @@ fn serve(selfhost: Option<garden_lib::selfhost::ServePlan>) {
         boot_started,
         "after core setup, before API readiness",
     );
-    if let Err(error) =
-        garden_lib::headless::async_runtime::block_on(garden_lib::headless::wait_until_ready(app.handle()))
-    {
+    if let Err(error) = garden_lib::headless::async_runtime::block_on(
+        garden_lib::headless::wait_until_ready(app.handle()),
+    ) {
         enforce_lease_boot_guard(&testimony, boot_started, "while waiting for API readiness");
         log::error!("gardend API setup failed: {error}");
         testify_startup_failure(
@@ -657,197 +655,200 @@ fn serve(selfhost: Option<garden_lib::selfhost::ServePlan>) {
     // No GUI event loop in headless mode — park the main thread while the
     // tokio runtime (loopback server, scheduler, queue) does the work.
     let lifecycle_testimony = testimony.clone();
-    let shutdown_result: Result<(), String> = garden_lib::headless::async_runtime::block_on(async move {
-        let idle_ttl = configured_idle_ttl();
-        let quiesce_timeout = configured_quiesce_timeout();
-        match idle_ttl {
-            Some(ttl) => log::info!("cell-local idle shutdown enabled: {}s", ttl.as_secs()),
-            None => log::info!("cell-local idle shutdown disabled"),
-        }
+    let shutdown_result: Result<(), String> = garden_lib::headless::async_runtime::block_on(
+        async move {
+            let idle_ttl = configured_idle_ttl();
+            let quiesce_timeout = configured_quiesce_timeout();
+            match idle_ttl {
+                Some(ttl) => log::info!("cell-local idle shutdown enabled: {}s", ttl.as_secs()),
+                None => log::info!("cell-local idle shutdown disabled"),
+            }
 
-        // Durable plane is active only when both dirs are configured.
-        let durable = match (profile_dir, durable_dir) {
-            (Some(profile), Some(durable)) => Some((profile, durable)),
-            _ => None,
-        };
+            // Durable plane is active only when both dirs are configured.
+            let durable = match (profile_dir, durable_dir) {
+                (Some(profile), Some(durable)) => Some((profile, durable)),
+                _ => None,
+            };
 
-        let Some((profile_dir, durable_dir)) = durable else {
-            let reason = wait_for_shutdown(&lifecycle, idle_ttl).await;
-            stop_local_services(services_handle.clone()).await;
-            let reason =
-                drain_admitted_work(&lifecycle, &lifecycle_testimony, reason, quiesce_timeout)
-                    .await;
-            lifecycle_testimony
-                .emit_terminal_succeeded(reason.testimony(), SuccessfulFinalFlush::NotConfigured);
-            log::info!("gardend shutting down ({})", reason.label());
-            return Ok(());
-        };
+            let Some((profile_dir, durable_dir)) = durable else {
+                let reason = wait_for_shutdown(&lifecycle, idle_ttl).await;
+                stop_local_services(services_handle.clone()).await;
+                let reason =
+                    drain_admitted_work(&lifecycle, &lifecycle_testimony, reason, quiesce_timeout)
+                        .await;
+                lifecycle_testimony.emit_terminal_succeeded(
+                    reason.testimony(),
+                    SuccessfulFinalFlush::NotConfigured,
+                );
+                log::info!("gardend shutting down ({})", reason.label());
+                return Ok(());
+            };
 
-        // Register the dirs so a finished import can flush on its own thread
-        // (cell_durability::ImportGuard) without threading paths through the
-        // executor.
-        garden_lib::headless::durability::set_durable_dirs(
-            profile_dir.clone(),
-            durable_dir.clone(),
-        );
+            // Register the dirs so a finished import can flush on its own thread
+            // (cell_durability::ImportGuard) without threading paths through the
+            // executor.
+            garden_lib::headless::durability::set_durable_dirs(
+                profile_dir.clone(),
+                durable_dir.clone(),
+            );
 
-        // Dirty-driven, not a fixed tick: a flush is attempted shortly after
-        // real activity (debounced, coalescing bursts), targeting a max-RPO
-        // ceiling so worst-case crash loss stays close to what the old fixed
-        // interval already bounded. An idle cell (the global write epoch
-        // never advances — see `current_write_epoch`) never reaches
-        // `SchedulerAction::FlushNow`, so it pays no periodic
-        // RDF-store-enumeration or tree-walk cost at all while quiescent.
-        // `GARDEN_FLUSH_INTERVAL_SECONDS` keeps its name/default (30) for
-        // deploy/back-compat continuity, but its meaning is now "max RPO
-        // target", not "unconditional tick".
-        //
-        // NOT A HARD REAL-TIME GUARANTEE (corrected 2026-07-18, re-refute
-        // #3, finding 2(a) — an earlier version of this comment overstated
-        // it as one): `flush_serial` (serializing every flush in the
-        // process) has no timeout, and the forced write-gate wait
-        // (`FORCED_FLUSH_GATE_WAIT`, 20s) only bounds ACQUIRING the gate,
-        // not how long a prior, still-running flush or the checkpoint/copy
-        // work itself takes. Under sustained contention or an unusually
-        // slow durable-mount round trip, a pending write can wait longer
-        // than `max_rpo_secs` before actually landing durably. This is a
-        // pre-existing characteristic of the flush design (the old fixed
-        // ticker had the identical `flush_serial`/gate-wait exposure) that
-        // this scheduler does not worsen and cannot, by itself, turn into a
-        // hard bound without a larger redesign (bounded/preemptible I/O).
-        // Treat `max_rpo_secs` as the target latency under normal operating
-        // conditions, not a provable ceiling.
-        let debounce_secs = std::env::var("GARDEN_FLUSH_DEBOUNCE_SECONDS")
-            .ok()
-            .and_then(|value| value.trim().parse::<u64>().ok())
-            .filter(|secs| *secs > 0)
-            .unwrap_or(5);
-        let max_rpo_secs = std::env::var("GARDEN_FLUSH_INTERVAL_SECONDS")
-            .ok()
-            .and_then(|value| value.trim().parse::<u64>().ok())
-            .filter(|secs| *secs > 0)
-            .unwrap_or(30);
-        log::info!(
+            // Dirty-driven, not a fixed tick: a flush is attempted shortly after
+            // real activity (debounced, coalescing bursts), targeting a max-RPO
+            // ceiling so worst-case crash loss stays close to what the old fixed
+            // interval already bounded. An idle cell (the global write epoch
+            // never advances — see `current_write_epoch`) never reaches
+            // `SchedulerAction::FlushNow`, so it pays no periodic
+            // RDF-store-enumeration or tree-walk cost at all while quiescent.
+            // `GARDEN_FLUSH_INTERVAL_SECONDS` keeps its name/default (30) for
+            // deploy/back-compat continuity, but its meaning is now "max RPO
+            // target", not "unconditional tick".
+            //
+            // NOT A HARD REAL-TIME GUARANTEE (corrected 2026-07-18, re-refute
+            // #3, finding 2(a) — an earlier version of this comment overstated
+            // it as one): `flush_serial` (serializing every flush in the
+            // process) has no timeout, and the forced write-gate wait
+            // (`FORCED_FLUSH_GATE_WAIT`, 20s) only bounds ACQUIRING the gate,
+            // not how long a prior, still-running flush or the checkpoint/copy
+            // work itself takes. Under sustained contention or an unusually
+            // slow durable-mount round trip, a pending write can wait longer
+            // than `max_rpo_secs` before actually landing durably. This is a
+            // pre-existing characteristic of the flush design (the old fixed
+            // ticker had the identical `flush_serial`/gate-wait exposure) that
+            // this scheduler does not worsen and cannot, by itself, turn into a
+            // hard bound without a larger redesign (bounded/preemptible I/O).
+            // Treat `max_rpo_secs` as the target latency under normal operating
+            // conditions, not a provable ceiling.
+            let debounce_secs = std::env::var("GARDEN_FLUSH_DEBOUNCE_SECONDS")
+                .ok()
+                .and_then(|value| value.trim().parse::<u64>().ok())
+                .filter(|secs| *secs > 0)
+                .unwrap_or(5);
+            let max_rpo_secs = std::env::var("GARDEN_FLUSH_INTERVAL_SECONDS")
+                .ok()
+                .and_then(|value| value.trim().parse::<u64>().ok())
+                .filter(|secs| *secs > 0)
+                .unwrap_or(30);
+            log::info!(
             "durable flush enabled: dirty-driven (debounce {debounce_secs}s, max RPO {max_rpo_secs}s)"
         );
 
-        let (periodic_stop, mut periodic_stopped) = tokio::sync::oneshot::channel::<()>();
-        let periodic = {
-            let profile_dir = profile_dir.clone();
-            let durable_dir = durable_dir.clone();
-            let lifecycle = std::sync::Arc::clone(&lifecycle);
-            let testimony = lifecycle_testimony.clone();
-            garden_lib::headless::async_runtime::spawn(async move {
-                // Cheap atomic-load cadence to check whether anything is
-                // pending; unrelated to the debounce/max-RPO *values* above,
-                // which are logical deadlines the scheduler measures against
-                // wall-clock `Instant`s, not tick counts. Small relative to
-                // the smallest realistic debounce so quantization error stays
-                // negligible.
-                const POLL_INTERVAL: Duration = Duration::from_millis(500);
+            let (periodic_stop, mut periodic_stopped) = tokio::sync::oneshot::channel::<()>();
+            let periodic = {
+                let profile_dir = profile_dir.clone();
+                let durable_dir = durable_dir.clone();
+                let lifecycle = std::sync::Arc::clone(&lifecycle);
+                let testimony = lifecycle_testimony.clone();
+                garden_lib::headless::async_runtime::spawn(async move {
+                    // Cheap atomic-load cadence to check whether anything is
+                    // pending; unrelated to the debounce/max-RPO *values* above,
+                    // which are logical deadlines the scheduler measures against
+                    // wall-clock `Instant`s, not tick counts. Small relative to
+                    // the smallest realistic debounce so quantization error stays
+                    // negligible.
+                    const POLL_INTERVAL: Duration = Duration::from_millis(500);
 
-                // `boot_write_epoch`, NOT a fresh `current_write_epoch()` read
-                // here: this baseline was captured before the server started
-                // accepting requests (see its declaration site) precisely so
-                // this constructor cannot swallow a write that landed in the
-                // startup/recovery window as already-clean.
-                let mut scheduler = DirtyFlushScheduler::new(
-                    Duration::from_secs(debounce_secs),
-                    Duration::from_secs(max_rpo_secs),
-                    boot_write_epoch,
-                );
-                let mut ticker = tokio::time::interval(POLL_INTERVAL);
-                ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-                // First tick fires immediately; skip it so we don't act before
-                // the tree we just hydrated has settled.
-                ticker.tick().await;
-                loop {
-                    tokio::select! {
-                        _ = &mut periodic_stopped => return,
-                        _ = ticker.tick() => {}
-                    }
-                    // `FlushAtRpoCeiling` MUST force the attempt: an ordinary
-                    // (non-forced) flush unconditionally defers while an
-                    // import is active, which would otherwise let the max-RPO
-                    // bound this scheduler exists to guarantee be silently
-                    // broken by a concurrent acknowledged write sitting
-                    // unpublished for an entire ~90s import. See
-                    // `SchedulerAction::FlushAtRpoCeiling`'s doc comment for
-                    // why forcing here is safe.
-                    let force = match scheduler.poll(Instant::now(), current_write_epoch()) {
-                        SchedulerAction::Wait => continue,
-                        SchedulerAction::FlushNow => false,
-                        SchedulerAction::FlushAtRpoCeiling => true,
-                    };
-                    // Housekeeping blocks an in-progress drain, but does not
-                    // refresh the idle clock and thereby keep the cell alive.
-                    let _maintenance = match lifecycle.begin_maintenance("durable-flush") {
-                        Ok(lease) => lease,
-                        Err(_) => return,
-                    };
-                    // Capture the epoch immediately before the attempt itself
-                    // (not the one `poll` saw, which may be stale by now) —
-                    // mirrors `flush`'s own "acknowledge only the epoch
-                    // captured before the checkpoint" discipline.
-                    let epoch_before = current_write_epoch();
-                    let started = Instant::now();
-                    let result =
-                        run_scheduled_flush_blocking(&profile_dir, &durable_dir, force).await;
-                    testify_flush_result(
-                        &testimony,
-                        FlushMode::Periodic,
-                        started.elapsed(),
-                        &result,
+                    // `boot_write_epoch`, NOT a fresh `current_write_epoch()` read
+                    // here: this baseline was captured before the server started
+                    // accepting requests (see its declaration site) precisely so
+                    // this constructor cannot swallow a write that landed in the
+                    // startup/recovery window as already-clean.
+                    let mut scheduler = DirtyFlushScheduler::new(
+                        Duration::from_secs(debounce_secs),
+                        Duration::from_secs(max_rpo_secs),
+                        boot_write_epoch,
                     );
-                    match result {
-                        Ok((_outcome, attempt)) => {
-                            scheduler.record_flush_attempt(epoch_before, attempt);
+                    let mut ticker = tokio::time::interval(POLL_INTERVAL);
+                    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                    // First tick fires immediately; skip it so we don't act before
+                    // the tree we just hydrated has settled.
+                    ticker.tick().await;
+                    loop {
+                        tokio::select! {
+                            _ = &mut periodic_stopped => return,
+                            _ = ticker.tick() => {}
                         }
-                        Err(error) => {
-                            log::error!("periodic durable flush failed: {error}");
-                            // Deliberately do not advance the scheduler's
-                            // watermark: an error means nothing was
-                            // confirmed, so `epoch_before` stays pending and
-                            // the very next poll tick retries (its deadlines
-                            // have already passed, since this attempt was
-                            // itself triggered by one).
+                        // `FlushAtRpoCeiling` MUST force the attempt: an ordinary
+                        // (non-forced) flush unconditionally defers while an
+                        // import is active, which would otherwise let the max-RPO
+                        // bound this scheduler exists to guarantee be silently
+                        // broken by a concurrent acknowledged write sitting
+                        // unpublished for an entire ~90s import. See
+                        // `SchedulerAction::FlushAtRpoCeiling`'s doc comment for
+                        // why forcing here is safe.
+                        let force = match scheduler.poll(Instant::now(), current_write_epoch()) {
+                            SchedulerAction::Wait => continue,
+                            SchedulerAction::FlushNow => false,
+                            SchedulerAction::FlushAtRpoCeiling => true,
+                        };
+                        // Housekeeping blocks an in-progress drain, but does not
+                        // refresh the idle clock and thereby keep the cell alive.
+                        let _maintenance = match lifecycle.begin_maintenance("durable-flush") {
+                            Ok(lease) => lease,
+                            Err(_) => return,
+                        };
+                        // Capture the epoch immediately before the attempt itself
+                        // (not the one `poll` saw, which may be stale by now) —
+                        // mirrors `flush`'s own "acknowledge only the epoch
+                        // captured before the checkpoint" discipline.
+                        let epoch_before = current_write_epoch();
+                        let started = Instant::now();
+                        let result =
+                            run_scheduled_flush_blocking(&profile_dir, &durable_dir, force).await;
+                        testify_flush_result(
+                            &testimony,
+                            FlushMode::Periodic,
+                            started.elapsed(),
+                            &result,
+                        );
+                        match result {
+                            Ok((_outcome, attempt)) => {
+                                scheduler.record_flush_attempt(epoch_before, attempt);
+                            }
+                            Err(error) => {
+                                log::error!("periodic durable flush failed: {error}");
+                                // Deliberately do not advance the scheduler's
+                                // watermark: an error means nothing was
+                                // confirmed, so `epoch_before` stays pending and
+                                // the very next poll tick retries (its deadlines
+                                // have already passed, since this attempt was
+                                // itself triggered by one).
+                            }
                         }
                     }
-                }
-            })
-        };
+                })
+            };
 
-        // Hot-cell freshness (A4 review SUSPECT — see `observatory::boot`'s
-        // module doc, "Hot-cell freshness"): the projector publishes hourly,
-        // but this boot-hook otherwise only runs once, at boot. If the cell
-        // stays warm across a publish (kept alive by other traffic), a
-        // boot-only hook would never see the fresh generation until the next
-        // cold start.
-        //
-        // WRONG (review r2): this used to gate the SPAWN of the re-check
-        // ticker itself on `observatory_gate_open_at_boot` — but that flag
-        // additionally requires a `CURRENT` marker to ALREADY exist at boot
-        // (`projector_gate_open`'s EFS-discoverable activation check). An
-        // observatory cell that boots BEFORE the projector's very first
-        // publish (or any cell warm before the projector is first turned on
-        // for this environment) never got a ticker spawned at all — it would
-        // then sit warm forever, never noticing even the projector's FIRST
-        // publication, until its next cold start. Gate the spawn on the
-        // graph_id alone instead (the cheap, zero-I/O half of the SAME
-        // check `projector_gate_open` does) — every OTHER cell (e.g.
-        // `angels`) still spawns nothing here, but an observatory cell
-        // always gets the ticker, and each tick's own
-        // `run_boot_hook_for_cell` call re-evaluates the FULL gate
-        // (including the `CURRENT` marker) fresh every time, correctly
-        // returning `GateClosed` (a cheap no-op, see the `BootHookOutcome`
-        // match arm below) for every tick before the projector's first
-        // publication ever lands, and picking it up on whichever tick comes
-        // after.
-        let (observatory_refresh_stop, mut observatory_refresh_stopped) =
-            tokio::sync::oneshot::channel::<()>();
-        let observatory_cell_is_target_graph =
-            garden_lib::observatory::boot::is_observatory_cell(&observatory_cell_graph_id);
-        let observatory_refresh = observatory_cell_is_target_graph.then(|| {
+            // Hot-cell freshness (A4 review SUSPECT — see `observatory::boot`'s
+            // module doc, "Hot-cell freshness"): the projector publishes hourly,
+            // but this boot-hook otherwise only runs once, at boot. If the cell
+            // stays warm across a publish (kept alive by other traffic), a
+            // boot-only hook would never see the fresh generation until the next
+            // cold start.
+            //
+            // WRONG (review r2): this used to gate the SPAWN of the re-check
+            // ticker itself on `observatory_gate_open_at_boot` — but that flag
+            // additionally requires a `CURRENT` marker to ALREADY exist at boot
+            // (`projector_gate_open`'s EFS-discoverable activation check). An
+            // observatory cell that boots BEFORE the projector's very first
+            // publish (or any cell warm before the projector is first turned on
+            // for this environment) never got a ticker spawned at all — it would
+            // then sit warm forever, never noticing even the projector's FIRST
+            // publication, until its next cold start. Gate the spawn on the
+            // graph_id alone instead (the cheap, zero-I/O half of the SAME
+            // check `projector_gate_open` does) — every OTHER cell (e.g.
+            // `angels`) still spawns nothing here, but an observatory cell
+            // always gets the ticker, and each tick's own
+            // `run_boot_hook_for_cell` call re-evaluates the FULL gate
+            // (including the `CURRENT` marker) fresh every time, correctly
+            // returning `GateClosed` (a cheap no-op, see the `BootHookOutcome`
+            // match arm below) for every tick before the projector's first
+            // publication ever lands, and picking it up on whichever tick comes
+            // after.
+            let (observatory_refresh_stop, mut observatory_refresh_stopped) =
+                tokio::sync::oneshot::channel::<()>();
+            let observatory_cell_is_target_graph =
+                garden_lib::observatory::boot::is_observatory_cell(&observatory_cell_graph_id);
+            let observatory_refresh = observatory_cell_is_target_graph.then(|| {
             let profile_dir = profile_dir.clone();
             let durable_dir = durable_dir.clone();
             let lifecycle = std::sync::Arc::clone(&lifecycle);
@@ -945,220 +946,223 @@ fn serve(selfhost: Option<garden_lib::selfhost::ServePlan>) {
             })
         });
 
-        let reason = wait_for_shutdown(&lifecycle, idle_ttl).await;
-        stop_local_services(services_handle.clone()).await;
+            let reason = wait_for_shutdown(&lifecycle, idle_ttl).await;
+            stop_local_services(services_handle.clone()).await;
 
-        // U8 write lease (spec §3.5): positive terminal evidence (409
-        // lease_lost/lease_forfeit, or the GARDEN_LEASE_FENCED_MAX_MS cap
-        // with no successor evidence at all) means the final flush below
-        // would itself be the zombie write this whole protocol exists to
-        // forbid. Skip draining, the periodic-task teardown, and the flush
-        // entirely, and fall into the SAME exit(4) plumbing every other
-        // shutdown failure already uses (the `Err` arm at the bottom of this
-        // block) — no new exit code. `begin_draining` still runs here
-        // (unlike the merely-FENCED-but-recoverable state handled further
-        // below, which must keep serving reads per spec) because this path
-        // is, unconditionally, about to exit: it only stops brand-new HTTP
-        // admission in the last moments before the process dies.
-        if let ShutdownReason::LeaseTerminal(terminal_reason) = &reason {
-            lifecycle.begin_draining();
-            log::error!(
-                "gardend exiting on positive write-lease-terminal evidence \
+            // U8 write lease (spec §3.5): positive terminal evidence (409
+            // lease_lost/lease_forfeit, or the GARDEN_LEASE_FENCED_MAX_MS cap
+            // with no successor evidence at all) means the final flush below
+            // would itself be the zombie write this whole protocol exists to
+            // forbid. Skip draining, the periodic-task teardown, and the flush
+            // entirely, and fall into the SAME exit(4) plumbing every other
+            // shutdown failure already uses (the `Err` arm at the bottom of this
+            // block) — no new exit code. `begin_draining` still runs here
+            // (unlike the merely-FENCED-but-recoverable state handled further
+            // below, which must keep serving reads per spec) because this path
+            // is, unconditionally, about to exit: it only stops brand-new HTTP
+            // admission in the last moments before the process dies.
+            if let ShutdownReason::LeaseTerminal(terminal_reason) = &reason {
+                lifecycle.begin_draining();
+                log::error!(
+                    "gardend exiting on positive write-lease-terminal evidence \
                  ({terminal_reason:?}) — skipping the final durable flush entirely"
-            );
-            lifecycle_testimony.emit_terminal_failed(
-                StopReason::LeaseTerminal,
-                FailedFinalFlush::SkippedFenced,
-                lease_terminal_error_code(terminal_reason),
-            );
-            return Err(format!("write lease terminated: {terminal_reason:?}"));
-        }
-
-        let reason =
-            drain_admitted_work(&lifecycle, &lifecycle_testimony, reason, quiesce_timeout).await;
-        log::info!(
-            "gardend {} shutdown; running final durable flush",
-            reason.label()
-        );
-
-        // Stop at the next cancellation boundary. If a periodic flush is
-        // already running, let it finish and testify before the final flush;
-        // aborting its async caller would orphan the blocking operation.
-        let _ = periodic_stop.send(());
-        if let Err(error) = periodic.await {
-            log::error!("periodic durable flush task failed: {error}");
-        }
-        // Same shutdown discipline for the observatory hot-cell re-check
-        // ticker — a no-op when it was never spawned (non-observatory cell,
-        // or the projector gate was closed at boot).
-        let _ = observatory_refresh_stop.send(());
-        if let Some(observatory_refresh) = observatory_refresh {
-            if let Err(error) = observatory_refresh.await {
-                log::error!("observatory periodic re-check task failed: {error}");
+                );
+                lifecycle_testimony.emit_terminal_failed(
+                    StopReason::LeaseTerminal,
+                    FailedFinalFlush::SkippedFenced,
+                    lease_terminal_error_code(terminal_reason),
+                );
+                return Err(format!("write lease terminated: {terminal_reason:?}"));
             }
-        }
-        // Single-flight shutdown drain (review r2 WRONG "...track and join
-        // the worker before retry OR SHUTDOWN"): if a catch_up apply is
-        // still in flight (a previous tick's own budget elapsed but the
-        // task itself kept running), wait for it here — bounded by the SAME
-        // apply budget every apply respects — so the imminent final flush
-        // below has a chance to capture it instead of losing it to an
-        // orphaned background task. A cheap no-op for every cell where
-        // nothing is in flight (the overwhelming common case), so this is
-        // unconditional — no graph_id gate needed.
-        garden_lib::observatory::boot::drain_in_flight_apply().await;
-        let lease_handle = garden_lib::headless::lease::handle();
-        // The shutdown selector and this continuation are concurrent with
-        // the renew/publish workers. Recheck terminal evidence after every
-        // drain/join and before even considering a final flush: a signal or
-        // idle branch may have won the select just before the terminal
-        // notification. Terminal evidence always means exit(4), no release.
-        if let Some(terminal_reason) = lease_handle.and_then(|lease| lease.terminal_reason()) {
-            log::error!(
-                "positive write-lease-terminal evidence arose during shutdown \
+
+            let reason =
+                drain_admitted_work(&lifecycle, &lifecycle_testimony, reason, quiesce_timeout)
+                    .await;
+            log::info!(
+                "gardend {} shutdown; running final durable flush",
+                reason.label()
+            );
+
+            // Stop at the next cancellation boundary. If a periodic flush is
+            // already running, let it finish and testify before the final flush;
+            // aborting its async caller would orphan the blocking operation.
+            let _ = periodic_stop.send(());
+            if let Err(error) = periodic.await {
+                log::error!("periodic durable flush task failed: {error}");
+            }
+            // Same shutdown discipline for the observatory hot-cell re-check
+            // ticker — a no-op when it was never spawned (non-observatory cell,
+            // or the projector gate was closed at boot).
+            let _ = observatory_refresh_stop.send(());
+            if let Some(observatory_refresh) = observatory_refresh {
+                if let Err(error) = observatory_refresh.await {
+                    log::error!("observatory periodic re-check task failed: {error}");
+                }
+            }
+            // Single-flight shutdown drain (review r2 WRONG "...track and join
+            // the worker before retry OR SHUTDOWN"): if a catch_up apply is
+            // still in flight (a previous tick's own budget elapsed but the
+            // task itself kept running), wait for it here — bounded by the SAME
+            // apply budget every apply respects — so the imminent final flush
+            // below has a chance to capture it instead of losing it to an
+            // orphaned background task. A cheap no-op for every cell where
+            // nothing is in flight (the overwhelming common case), so this is
+            // unconditional — no graph_id gate needed.
+            garden_lib::observatory::boot::drain_in_flight_apply().await;
+            let lease_handle = garden_lib::headless::lease::handle();
+            // The shutdown selector and this continuation are concurrent with
+            // the renew/publish workers. Recheck terminal evidence after every
+            // drain/join and before even considering a final flush: a signal or
+            // idle branch may have won the select just before the terminal
+            // notification. Terminal evidence always means exit(4), no release.
+            if let Some(terminal_reason) = lease_handle.and_then(|lease| lease.terminal_reason()) {
+                log::error!(
+                    "positive write-lease-terminal evidence arose during shutdown \
                  ({terminal_reason:?}) — skipping the final durable flush and release"
-            );
-            lifecycle_testimony.emit_terminal_failed(
-                StopReason::LeaseTerminal,
-                FailedFinalFlush::SkippedFenced,
-                lease_terminal_error_code(&terminal_reason),
-            );
-            return Err(format!(
-                "write lease terminated during shutdown: {terminal_reason:?}"
-            ));
-        }
-
-        // A live-but-FENCED lease (margin exhausted on what so far looks
-        // like a transient blip — no successor evidence yet, so this is the
-        // *recoverable* state, not the `LeaseTerminal` branch handled above)
-        // must not run the final flush: under a fenced writer that flush IS
-        // the zombie write (spec §3.5). This is the only place
-        // `examples/gardend.rs` consults `WriteLease::is_fenced` directly —
-        // `cell_durability`'s Gate A (U8-9) independently refuses the publish
-        // and `run_flush_blocking` preserves `FlushAttemptOutcome::Fenced`
-        // for testimony. This early guard avoids doing expensive work that
-        // is already known to be unsafe.
-        //
-        // Mode-gated exactly like Gates A/B/C themselves: `is_fenced` is
-        // true renewal state regardless of mode (see `wait_for_lease_
-        // terminal`'s doc comment), so `Observe` must short-circuit to
-        // "safe" here too, or observe mode would start silently skipping
-        // final flushes on lease trouble — a real behavior change observe
-        // mode must never make.
-        let flush_is_safe = lease_handle
-            .map(|lease| {
-                lease.mode() == garden_lib::headless::lease::LeaseMode::Observe
-                    || (lease.terminal_reason().is_none() && !lease.is_fenced())
-            })
-            .unwrap_or(true);
-
-        // Final flush is FORCED when safe to run at all: capture state even
-        // if an import is mid-run (the import is replayable; losing the
-        // just-captured state is worse).
-        let mut final_flush_completed = flush_is_safe;
-        let final_result = if flush_is_safe {
-            let final_started = Instant::now();
-            let result =
-                run_flush_blocking(&profile_dir, &durable_dir, FlushTrigger::FinalShutdown).await;
-            if matches!(
-                result,
-                Ok((
-                    _,
-                    garden_lib::headless::durability::FlushAttemptOutcome::Fenced
-                ))
-            ) {
-                final_flush_completed = false;
+                );
+                lifecycle_testimony.emit_terminal_failed(
+                    StopReason::LeaseTerminal,
+                    FailedFinalFlush::SkippedFenced,
+                    lease_terminal_error_code(&terminal_reason),
+                );
+                return Err(format!(
+                    "write lease terminated during shutdown: {terminal_reason:?}"
+                ));
             }
-            testify_flush_result(
-                &lifecycle_testimony,
-                FlushMode::Final,
-                final_started.elapsed(),
-                &result,
-            );
-            // Gate B/C can change lease state while the blocking flush is in
-            // flight. The pre-flush `flush_is_safe` sample is therefore not
-            // a shutdown verdict: re-read the latch before testifying or
-            // releasing. A Gate-C 409 is terminal and must take the same
-            // exit(4), no-release path as terminal evidence selected before
-            // shutdown began.
-            if let Some(lease) = lease_handle {
-                if let Some(terminal_reason) = lease.terminal_reason() {
-                    log::error!(
+
+            // A live-but-FENCED lease (margin exhausted on what so far looks
+            // like a transient blip — no successor evidence yet, so this is the
+            // *recoverable* state, not the `LeaseTerminal` branch handled above)
+            // must not run the final flush: under a fenced writer that flush IS
+            // the zombie write (spec §3.5). This is the only place
+            // `examples/gardend.rs` consults `WriteLease::is_fenced` directly —
+            // `cell_durability`'s Gate A (U8-9) independently refuses the publish
+            // and `run_flush_blocking` preserves `FlushAttemptOutcome::Fenced`
+            // for testimony. This early guard avoids doing expensive work that
+            // is already known to be unsafe.
+            //
+            // Mode-gated exactly like Gates A/B/C themselves: `is_fenced` is
+            // true renewal state regardless of mode (see `wait_for_lease_
+            // terminal`'s doc comment), so `Observe` must short-circuit to
+            // "safe" here too, or observe mode would start silently skipping
+            // final flushes on lease trouble — a real behavior change observe
+            // mode must never make.
+            let flush_is_safe = lease_handle
+                .map(|lease| {
+                    lease.mode() == garden_lib::headless::lease::LeaseMode::Observe
+                        || (lease.terminal_reason().is_none() && !lease.is_fenced())
+                })
+                .unwrap_or(true);
+
+            // Final flush is FORCED when safe to run at all: capture state even
+            // if an import is mid-run (the import is replayable; losing the
+            // just-captured state is worse).
+            let mut final_flush_completed = flush_is_safe;
+            let final_result = if flush_is_safe {
+                let final_started = Instant::now();
+                let result =
+                    run_flush_blocking(&profile_dir, &durable_dir, FlushTrigger::FinalShutdown)
+                        .await;
+                if matches!(
+                    result,
+                    Ok((
+                        _,
+                        garden_lib::headless::durability::FlushAttemptOutcome::Fenced
+                    ))
+                ) {
+                    final_flush_completed = false;
+                }
+                testify_flush_result(
+                    &lifecycle_testimony,
+                    FlushMode::Final,
+                    final_started.elapsed(),
+                    &result,
+                );
+                // Gate B/C can change lease state while the blocking flush is in
+                // flight. The pre-flush `flush_is_safe` sample is therefore not
+                // a shutdown verdict: re-read the latch before testifying or
+                // releasing. A Gate-C 409 is terminal and must take the same
+                // exit(4), no-release path as terminal evidence selected before
+                // shutdown began.
+                if let Some(lease) = lease_handle {
+                    if let Some(terminal_reason) = lease.terminal_reason() {
+                        log::error!(
                         "positive write-lease-terminal evidence arose during the final durable \
                          flush ({terminal_reason:?}) — refusing release and exit success"
                     );
-                    lifecycle_testimony.emit_terminal_failed(
-                        StopReason::LeaseTerminal,
-                        FailedFinalFlush::SkippedFenced,
-                        lease_terminal_error_code(&terminal_reason),
-                    );
-                    return Err(format!(
-                        "write lease terminated during final flush: {terminal_reason:?}"
-                    ));
-                }
-                if lease.mode() == garden_lib::headless::lease::LeaseMode::Enforce
-                    && lease.is_fenced()
-                {
-                    final_flush_completed = false;
-                    log::warn!(
-                        "write lease became FENCED during the final durable flush — \
-                         testifying the final flush as skipped/fenced, never completed"
-                    );
-                }
-            }
-            result
-        } else {
-            log::warn!(
-                "skipping the final durable flush: the write lease is FENCED \
-                 (would be a zombie write)"
-            );
-            Ok((
-                garden_lib::headless::durability::FlushOutcome::default(),
-                garden_lib::headless::durability::FlushAttemptOutcome::Fenced,
-            ))
-        };
-        match final_result {
-            Ok(_) => {
-                // Clean-exit release (spec §1.2/§3.5): safe to attempt
-                // regardless of `flush_is_safe` — the gateway's CAS handles
-                // a stale holder's release gracefully either way (a 409
-                // just means a successor already took over;
-                // `WriteLease::release` already treats that as expected and
-                // does not retry).
-                if let Some(lease) = lease_handle {
-                    if let Err(error) = lease.release(reason.label()).await {
+                        lifecycle_testimony.emit_terminal_failed(
+                            StopReason::LeaseTerminal,
+                            FailedFinalFlush::SkippedFenced,
+                            lease_terminal_error_code(&terminal_reason),
+                        );
+                        return Err(format!(
+                            "write lease terminated during final flush: {terminal_reason:?}"
+                        ));
+                    }
+                    if lease.mode() == garden_lib::headless::lease::LeaseMode::Enforce
+                        && lease.is_fenced()
+                    {
+                        final_flush_completed = false;
                         log::warn!(
-                            "write lease release failed (non-fatal, the row \
-                             lapses on its own TTL): {error}"
+                            "write lease became FENCED during the final durable flush — \
+                         testifying the final flush as skipped/fenced, never completed"
                         );
                     }
                 }
-                let final_flush = if final_flush_completed {
-                    SuccessfulFinalFlush::Completed
-                } else {
-                    SuccessfulFinalFlush::SkippedFenced
-                };
-                lifecycle_testimony.emit_terminal_succeeded(reason.testimony(), final_flush);
-                log::info!(
-                    "gardend shutting down ({})",
-                    if final_flush_completed {
-                        "final flush complete"
-                    } else {
-                        "final flush skipped: lease fenced"
+                result
+            } else {
+                log::warn!(
+                    "skipping the final durable flush: the write lease is FENCED \
+                 (would be a zombie write)"
+                );
+                Ok((
+                    garden_lib::headless::durability::FlushOutcome::default(),
+                    garden_lib::headless::durability::FlushAttemptOutcome::Fenced,
+                ))
+            };
+            match final_result {
+                Ok(_) => {
+                    // Clean-exit release (spec §1.2/§3.5): safe to attempt
+                    // regardless of `flush_is_safe` — the gateway's CAS handles
+                    // a stale holder's release gracefully either way (a 409
+                    // just means a successor already took over;
+                    // `WriteLease::release` already treats that as expected and
+                    // does not retry).
+                    if let Some(lease) = lease_handle {
+                        if let Err(error) = lease.release(reason.label()).await {
+                            log::warn!(
+                                "write lease release failed (non-fatal, the row \
+                             lapses on its own TTL): {error}"
+                            );
+                        }
                     }
-                );
-                Ok(())
+                    let final_flush = if final_flush_completed {
+                        SuccessfulFinalFlush::Completed
+                    } else {
+                        SuccessfulFinalFlush::SkippedFenced
+                    };
+                    lifecycle_testimony.emit_terminal_succeeded(reason.testimony(), final_flush);
+                    log::info!(
+                        "gardend shutting down ({})",
+                        if final_flush_completed {
+                            "final flush complete"
+                        } else {
+                            "final flush skipped: lease fenced"
+                        }
+                    );
+                    Ok(())
+                }
+                Err(error) => {
+                    lifecycle_testimony.emit_terminal_failed(
+                        StopReason::RuntimeFailure,
+                        FailedFinalFlush::Failed,
+                        ErrorCode::FinalFlushFailed,
+                    );
+                    Err(format!("final durable flush failed: {error}"))
+                }
             }
-            Err(error) => {
-                lifecycle_testimony.emit_terminal_failed(
-                    StopReason::RuntimeFailure,
-                    FailedFinalFlush::Failed,
-                    ErrorCode::FinalFlushFailed,
-                );
-                Err(format!("final durable flush failed: {error}"))
-            }
-        }
-    });
+        },
+    );
 
     if !testimony.shutdown(Duration::from_millis(250)) {
         log::warn!("CaptureEvent stdout remained stalled past the 250ms shutdown budget");

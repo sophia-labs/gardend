@@ -1076,7 +1076,8 @@ mod headless_tests {
 
     fn ingest(app: &crate::app_runtime::AppHandle, graph_id: &str, r: MemoryRecordIn) {
         let outcome =
-            crate::app_runtime::async_runtime::block_on(ingest_memory_record(app, graph_id, r)).expect("ingest");
+            crate::app_runtime::async_runtime::block_on(ingest_memory_record(app, graph_id, r))
+                .expect("ingest");
         assert_eq!(outcome["ok"], json!(true), "{outcome}");
     }
 
@@ -1470,17 +1471,19 @@ mod headless_tests {
             new_graph(&app, graph_id);
 
             for i in 1..=5 {
-                crate::app_runtime::async_runtime::block_on(crate::emporium::objects::create_objects(
-                    &app,
-                    graph_id,
-                    "emporium-bookmark",
-                    json!([{
-                        "kind": "Bookmark",
-                        "localId": format!("pg-{i}"),
-                        "url": format!("https://example.test/pg-{i}"),
-                        "title": format!("Page {i}"),
-                    }]),
-                ))
+                crate::app_runtime::async_runtime::block_on(
+                    crate::emporium::objects::create_objects(
+                        &app,
+                        graph_id,
+                        "emporium-bookmark",
+                        json!([{
+                            "kind": "Bookmark",
+                            "localId": format!("pg-{i}"),
+                            "url": format!("https://example.test/pg-{i}"),
+                            "title": format!("Page {i}"),
+                        }]),
+                    ),
+                )
                 .expect("seed bookmark");
             }
 

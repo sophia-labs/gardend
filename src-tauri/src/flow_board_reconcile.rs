@@ -169,7 +169,11 @@ fn survey_board_span(store: &Store, graph_id: &str) -> Result<Vec<Triple>, Strin
         let sol = sol.map_err(|e| format!("flow board survey row: {e}"))?;
         let s = iri_string(sol.get("s").ok_or("flow survey row missing ?s")?)?;
         let p = iri_string(sol.get("p").ok_or("flow survey row missing ?p")?)?;
-        let o = parse_term(&sol.get("o").ok_or("flow survey row missing ?o")?.to_string());
+        let o = parse_term(
+            &sol.get("o")
+                .ok_or("flow survey row missing ?o")?
+                .to_string(),
+        );
         out.push((s, p, o));
     }
     Ok(out)
@@ -217,9 +221,8 @@ mod tests {
 
     fn distinct_subject_count(store: &Store, graph_id: &str) -> usize {
         let lane = flow_projection_graph_iri(graph_id);
-        let query = format!(
-            "SELECT (COUNT(DISTINCT ?s) AS ?n) WHERE {{ GRAPH <{lane}> {{ ?s ?p ?o }} }}"
-        );
+        let query =
+            format!("SELECT (COUNT(DISTINCT ?s) AS ?n) WHERE {{ GRAPH <{lane}> {{ ?s ?p ?o }} }}");
         let QueryResults::Solutions(mut solutions) = SparqlEvaluator::new()
             .parse_query(&query)
             .expect("parse count query")
@@ -289,7 +292,10 @@ mod tests {
         let third = reconcile_flow_board_doc(&store, graph_id, &doc).expect("third reconcile");
         assert!(third.adds.is_empty(), "a pure deletion adds nothing");
         assert!(!third.removes.is_empty());
-        assert_eq!(distinct_subject_count(&store, graph_id), GOLDEN_ROW_COUNT - 1);
+        assert_eq!(
+            distinct_subject_count(&store, graph_id),
+            GOLDEN_ROW_COUNT - 1
+        );
 
         let gs = graph_subject(graph_id);
         let subject = format!("{gs}:projection:flow:task:task-2");
@@ -338,9 +344,7 @@ mod tests {
 
             let lane = flow_projection_graph_iri(graph_id);
             for update in [
-                format!(
-                    "INSERT DATA {{ GRAPH <{lane}> {{ <urn:x:s> <urn:x:p> \"forged\" }} }}"
-                ),
+                format!("INSERT DATA {{ GRAPH <{lane}> {{ <urn:x:s> <urn:x:p> \"forged\" }} }}"),
                 format!("WITH <{lane}> DELETE {{ ?s ?p ?o }} WHERE {{ ?s ?p ?o }}"),
             ] {
                 let error = crate::rdf_service::run_sparql_update(

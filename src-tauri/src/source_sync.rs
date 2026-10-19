@@ -498,7 +498,10 @@ fn capture_value_store_files(graph_dir: &Path) -> AppResult<BTreeMap<String, Str
     capture_value_store_files_inner(graph_dir, false)
 }
 
-fn capture_value_store_files_inner(graph_dir: &Path, pull_limited: bool) -> AppResult<BTreeMap<String, String>> {
+fn capture_value_store_files_inner(
+    graph_dir: &Path,
+    pull_limited: bool,
+) -> AppResult<BTreeMap<String, String>> {
     let values_dir = graph_dir.join("values");
     let mut files = BTreeMap::new();
     let mut bytes_read = 0;
@@ -537,8 +540,11 @@ fn capture_value_store_files_inner(graph_dir: &Path, pull_limited: bool) -> AppR
                 .map_err(|error| AppError::storage(format!("value-store relative path: {error}")))?
                 .to_string_lossy()
                 .replace('\\', "/");
-            let bytes = if pull_limited { crate::source_pull_budget::read_bytes(&path, &mut bytes_read)? }
-                else { crate::storage::read_bytes(&path)? };
+            let bytes = if pull_limited {
+                crate::source_pull_budget::read_bytes(&path, &mut bytes_read)?
+            } else {
+                crate::storage::read_bytes(&path)?
+            };
             let data = String::from_utf8(bytes).map_err(|error| {
                 AppError::storage(format!("read value store encoding: {error}"))
             })?;
@@ -559,11 +565,18 @@ fn checkpoint_files(
     checkpoint_files_inner(graph_dir, checkpoint, false)
 }
 
-fn checkpoint_files_inner(graph_dir: &Path, checkpoint: &SourceCheckpoint, pull_limited: bool) -> AppResult<(String, BTreeMap<String, String>)> {
+fn checkpoint_files_inner(
+    graph_dir: &Path,
+    checkpoint: &SourceCheckpoint,
+    pull_limited: bool,
+) -> AppResult<(String, BTreeMap<String, String>)> {
     let rdf_path = rdf_checkpoint_path(graph_dir, &checkpoint.rdf_digest);
     let mut bytes_read = 0;
-    let rdf_bytes = if pull_limited { crate::source_pull_budget::read_bytes(&rdf_path, &mut bytes_read)? }
-        else { crate::storage::read_bytes(&rdf_path)? };
+    let rdf_bytes = if pull_limited {
+        crate::source_pull_budget::read_bytes(&rdf_path, &mut bytes_read)?
+    } else {
+        crate::storage::read_bytes(&rdf_path)?
+    };
     let rdf = String::from_utf8(rdf_bytes).map_err(|error| {
         AppError::serialization(format!("checkpoint RDF is not UTF-8: {error}"))
     })?;
@@ -574,8 +587,11 @@ fn checkpoint_files_inner(graph_dir: &Path, checkpoint: &SourceCheckpoint, pull_
         .with_code(app_error_codes::LEDGER_INTEGRITY));
     }
     let values_path = values_checkpoint_path(graph_dir, &checkpoint.value_stores_digest);
-    let values = if pull_limited { crate::source_pull_budget::read_bytes(&values_path, &mut bytes_read)? }
-        else { crate::storage::read_bytes(&values_path)? };
+    let values = if pull_limited {
+        crate::source_pull_budget::read_bytes(&values_path, &mut bytes_read)?
+    } else {
+        crate::storage::read_bytes(&values_path)?
+    };
     if sha256_bytes(&values) != checkpoint.value_stores_digest {
         return Err(AppError::conflict(
             "source checkpoint value-store digest does not match its ledger identity",
@@ -596,9 +612,18 @@ fn capture_checkpoint(
     capture_checkpoint_inner(graph_dir, store, ledger_revision, false)
 }
 
-fn capture_checkpoint_inner(graph_dir: &Path, store: &oxigraph::store::Store, ledger_revision: u64, pull_limited: bool) -> AppResult<SourceCheckpoint> {
-    let dump = if pull_limited { source_rdf_dump(store)? }
-        else { crate::rdf_query_service::dump_rdf_from_store(store, "nquads", None, None).map_err(AppError::rdf)? };
+fn capture_checkpoint_inner(
+    graph_dir: &Path,
+    store: &oxigraph::store::Store,
+    ledger_revision: u64,
+    pull_limited: bool,
+) -> AppResult<SourceCheckpoint> {
+    let dump = if pull_limited {
+        source_rdf_dump(store)?
+    } else {
+        crate::rdf_query_service::dump_rdf_from_store(store, "nquads", None, None)
+            .map_err(AppError::rdf)?
+    };
     let rdf = canonicalize_nquads(&dump.data);
     let rdf_digest = sha256_bytes(rdf.as_bytes());
     let value_stores = capture_value_store_files_inner(graph_dir, pull_limited)?;
@@ -606,7 +631,10 @@ fn capture_checkpoint_inner(graph_dir: &Path, store: &oxigraph::store::Store, le
         AppError::serialization(format!("serialize checkpoint value stores: {error}"))
     })?;
     let value_stores_digest = sha256_bytes(&value_bytes);
-    if pull_limited && rdf.len().saturating_add(value_bytes.len()) > crate::source_pull_budget::MAX_SOURCE_PULL_BYTES as usize {
+    if pull_limited
+        && rdf.len().saturating_add(value_bytes.len())
+            > crate::source_pull_budget::MAX_SOURCE_PULL_BYTES as usize
+    {
         return Err(crate::source_pull_budget::capacity_error());
     }
     crate::storage::write_bytes(&rdf_checkpoint_path(graph_dir, &rdf_digest), rdf.as_bytes())?;
@@ -658,7 +686,8 @@ fn remove_superseded_checkpoint(
         return;
     };
     if old.rdf_digest != current.rdf_digest {
-        let _ = crate::storage::remove_file_if_exists(&rdf_checkpoint_path(graph_dir, &old.rdf_digest));
+        let _ =
+            crate::storage::remove_file_if_exists(&rdf_checkpoint_path(graph_dir, &old.rdf_digest));
     }
     if old.value_stores_digest != current.value_stores_digest {
         let _ = crate::storage::remove_file_if_exists(&values_checkpoint_path(
@@ -689,7 +718,8 @@ fn ensure_checkpoint(
 }
 
 fn rdf_dataset_identity(store: &oxigraph::store::Store) -> AppResult<Value> {
-    let dump = crate::rdf_query_service::dump_rdf_from_store(store, "nquads", None, None).map_err(AppError::rdf)?;
+    let dump = crate::rdf_query_service::dump_rdf_from_store(store, "nquads", None, None)
+        .map_err(AppError::rdf)?;
     let canonical = canonicalize_nquads(&dump.data);
     Ok(json!({
         "digest": sha256_bytes(canonical.as_bytes()),
@@ -697,12 +727,23 @@ fn rdf_dataset_identity(store: &oxigraph::store::Store) -> AppResult<Value> {
     }))
 }
 
-fn source_rdf_dump(store: &oxigraph::store::Store) -> AppResult<crate::rdf_query_service::RdfDumpResult> {
-    crate::rdf_query_service::dump_rdf_from_store_limited(store, "nquads", None, None,
-        Some(crate::source_pull_budget::MAX_SOURCE_PULL_BYTES as usize))
-        .map_err(|error| if error.contains("source_bundle_too_large") {
+fn source_rdf_dump(
+    store: &oxigraph::store::Store,
+) -> AppResult<crate::rdf_query_service::RdfDumpResult> {
+    crate::rdf_query_service::dump_rdf_from_store_limited(
+        store,
+        "nquads",
+        None,
+        None,
+        Some(crate::source_pull_budget::MAX_SOURCE_PULL_BYTES as usize),
+    )
+    .map_err(|error| {
+        if error.contains("source_bundle_too_large") {
             crate::source_pull_budget::capacity_error()
-        } else { AppError::rdf(error) })
+        } else {
+            AppError::rdf(error)
+        }
+    })
 }
 
 fn restore_checkpoint(
@@ -734,13 +775,17 @@ fn restore_checkpoint(
             .with_code(app_error_codes::LEDGER_INTEGRITY));
         }
         serde_json::from_str::<Value>(data).map_err(|error| {
-            AppError::serialization(format!("parse source checkpoint value store {relative}: {error}"))
+            AppError::serialization(format!(
+                "parse source checkpoint value store {relative}: {error}"
+            ))
         })?;
     }
     crate::rdf_seed_service::with_invalidated_seed_cache(graph_dir, || {
-        let mut transaction = store.start_transaction()
+        let mut transaction = store
+            .start_transaction()
             .map_err(|error| format!("start source checkpoint replay: {error}"))?;
-        transaction.clear()
+        transaction
+            .clear()
             .map_err(|error| format!("clear source checkpoint target: {error}"))?;
         for quad in &quads {
             transaction.insert(quad);
@@ -751,12 +796,15 @@ fn restore_checkpoint(
         // all canonical/source RDF remain unchanged.
         let marker_graph = NamedNode::new(crate::rdf_authority::seed_marker_graph_iri(graph_id))
             .map_err(|error| format!("source checkpoint seed graph: {error}"))?;
-        transaction.clear_graph(marker_graph.as_ref())
+        transaction
+            .clear_graph(marker_graph.as_ref())
             .map_err(|error| format!("invalidate restored source seed marker: {error}"))?;
-        transaction.commit()
+        transaction
+            .commit()
             .map_err(|error| format!("commit source checkpoint replay: {error}"))?;
         Ok(())
-    }).map_err(AppError::rdf)?;
+    })
+    .map_err(AppError::rdf)?;
     crate::cell_durability::mark_rdf_store_written(store);
 
     // RDF replacement is transactional. These value files are not in that
@@ -1702,9 +1750,11 @@ fn validate_source_operation(
                 ));
             }
             let folds = fold_current_objects(ledger)?;
-            let current = folds.iter().find(|fold| fold.conflict.as_ref().is_some_and(|conflict| {
-                conflict.object_key == *object_key && conflict.conflict_id == *conflict_id
-            }));
+            let current = folds.iter().find(|fold| {
+                fold.conflict.as_ref().is_some_and(|conflict| {
+                    conflict.object_key == *object_key && conflict.conflict_id == *conflict_id
+                })
+            });
             if current.is_none() {
                 return Err(AppError::conflict(format!(
                     "sync conflict '{conflict_id}' is not current for object '{object_key}'"
@@ -1720,8 +1770,14 @@ fn validate_source_operation(
                             "folder view resolution graphIncarnation does not match the graph's live incarnation",
                         ));
                     }
-                    validate_generic_source(graph_id, &current.face.vocab, &current.face.class,
-                        &current.face.object_id, record, SourceKind::CurrentState)?;
+                    validate_generic_source(
+                        graph_id,
+                        &current.face.vocab,
+                        &current.face.class,
+                        &current.face.object_id,
+                        record,
+                        SourceKind::CurrentState,
+                    )?;
                 }
             }
             Ok(())
@@ -2024,8 +2080,10 @@ fn active_graph_identity(
     let incarnation = match record.incarnation_id {
         Some(incarnation) => incarnation,
         None if expected_incarnation.is_some() => {
-            return Err(AppError::conflict(format!("stale graph incarnation for {graph_id}: actual missing"))
-                .with_code(app_error_codes::STALE_GRAPH_INCARNATION));
+            return Err(AppError::conflict(format!(
+                "stale graph incarnation for {graph_id}: actual missing"
+            ))
+            .with_code(app_error_codes::STALE_GRAPH_INCARNATION));
         }
         None => ensure_graph_incarnation(app, graph_id)?,
     };
@@ -2725,7 +2783,8 @@ async fn rebuild_source_projections(
     // What direct writers left live, before the checkpoint rewinds it: the
     // authored overlay is checked against it at the end (`authored`).
     let live_authored = authored::capture_live(&store, &graph_dir, graph_id)?;
-    let seed_replay = crate::rdf_seed_service::begin_seed_replay(&graph_dir).map_err(AppError::rdf)?;
+    let seed_replay =
+        crate::rdf_seed_service::begin_seed_replay(&graph_dir).map_err(AppError::rdf)?;
     let checkpoint_revision = ledger
         .checkpoint
         .as_ref()
@@ -2803,12 +2862,12 @@ async fn rebuild_source_projections(
             .iter()
             .map(|triple| triple.subject.clone()),
     );
-    owned_subjects.extend(ledger.operations.values().filter_map(|record| {
-        match &record.operation {
+    owned_subjects.extend(ledger.operations.values().filter_map(
+        |record| match &record.operation {
             SourceOperation::Retraction { subject, .. } => Some(subject.clone()),
             _ => None,
-        }
-    }));
+        },
+    ));
     let memory = materialize_memory_sources(&store, graph_id, ledger)?;
     let valuation = crate::salience_mcp_valuation::rebuild_value_store_from_source_events(
         app,
@@ -2877,10 +2936,10 @@ async fn validate_live_operation_identity(
             let document_dir = crate::document_paths::document_dir(&graph_dir, document_id)
                 .map_err(AppError::validation)?;
             if document_dir.join("document.json").is_file() {
-                return Err(AppError::conflict(format!(
-                    "document {document_id} already exists"
-                ))
-                .with_code(app_error_codes::DOCUMENT_EXISTS));
+                return Err(
+                    AppError::conflict(format!("document {document_id} already exists"))
+                        .with_code(app_error_codes::DOCUMENT_EXISTS),
+                );
             }
             if crate::document_tombstone_store::document_is_tombstoned(&graph_dir, document_id)
                 .map_err(AppError::storage)?
@@ -3101,7 +3160,10 @@ async fn apply_lifecycle_operation(
             // the id back: a plain write to a tombstoned id is refused.
             let mut payload = empty_document();
             if let Some(object) = payload.as_object_mut() {
-                object.insert("operationId".to_string(), json!(format!("{operation_id}:create")));
+                object.insert(
+                    "operationId".to_string(),
+                    json!(format!("{operation_id}:create")),
+                );
                 object.insert("graphIncarnation".to_string(), json!(graph_incarnation));
             }
             crate::crdt_queue::enqueue_crdt_operation_trusted_recreation(
@@ -3759,8 +3821,11 @@ pub(crate) async fn mcp_source_emporium_write(
 
     let expected = crate::graph_incarnation_admission::expected_incarnation(arguments)?;
     let preparation_lease = crate::graph_incarnation_admission::acquire_expected_lifetime(
-        &app, &graph_id, expected.as_deref(),
-    ).await?;
+        &app,
+        &graph_id,
+        expected.as_deref(),
+    )
+    .await?;
 
     let mut preview = crate::emporium::write::emporium_write(
         &app,
@@ -4467,8 +4532,8 @@ fn push_file_views_operations(
     let mut duplicates = BTreeSet::new();
     let mut accepted = 0usize;
     for operation in operations {
-        let Some(key) = file_views_object_key(operation)
-            .filter(|_| is_file_views_operation(operation))
+        let Some(key) =
+            file_views_object_key(operation).filter(|_| is_file_views_operation(operation))
         else {
             return Err(AppError::validation(format!(
                 "{FILE_VIEWS_VOCAB} preferences are current-state objects: only currentState and \
@@ -4893,7 +4958,9 @@ async fn complete_live_workspace_projection(app: &AppHandle, graph_id: &str, gra
     )
     .await
     {
-        log::warn!("source_pull {graph_id}: workspace projection not brought up to the room: {error}");
+        log::warn!(
+            "source_pull {graph_id}: workspace projection not brought up to the room: {error}"
+        );
     }
 }
 
@@ -4926,7 +4993,12 @@ pub(crate) async fn mcp_local_source_pull(app: AppHandle, arguments: &Value) -> 
     let checkpoint_store = open_graph_store(&graph_dir).map_err(AppError::rdf)?;
     let empty_floor_to_retake = ledger.operations.is_empty() && ledger.checkpoint.is_some();
     if ledger.checkpoint.is_none() {
-        ledger.checkpoint = Some(capture_checkpoint_inner(&graph_dir, &checkpoint_store, ledger.revision, true)?);
+        ledger.checkpoint = Some(capture_checkpoint_inner(
+            &graph_dir,
+            &checkpoint_store,
+            ledger.revision,
+            true,
+        )?);
     }
     drop(checkpoint_store);
     let imported_memory_events = import_external_memory_events(&app, &input.graph_id, &mut ledger)?;
@@ -5036,14 +5108,12 @@ pub(crate) async fn mcp_local_source_pull(app: AppHandle, arguments: &Value) -> 
         )
         .map_err(AppError::storage)?
         .unwrap_or_default();
-        let bytes = BASE64_STANDARD
-            .decode(&update_base64)
-            .map_err(|error| {
-                AppError::storage(format!(
-                    "decode document {} source: {error}",
-                    document.document_id
-                ))
-            })?;
+        let bytes = BASE64_STANDARD.decode(&update_base64).map_err(|error| {
+            AppError::storage(format!(
+                "decode document {} source: {error}",
+                document.document_id
+            ))
+        })?;
         let digest = sha256_bytes(&bytes);
         members.push(manifest_member(
             "ydoc",
@@ -5225,7 +5295,8 @@ pub(crate) async fn mcp_local_source_pull(app: AppHandle, arguments: &Value) -> 
         .checkpoint
         .clone()
         .ok_or_else(|| AppError::internal("source checkpoint was not established"))?;
-    let (baseline_nquads, baseline_value_stores) = checkpoint_files_inner(&graph_dir, &checkpoint, true)?;
+    let (baseline_nquads, baseline_value_stores) =
+        checkpoint_files_inner(&graph_dir, &checkpoint, true)?;
     members.push(manifest_member(
         "current-state",
         "legacy-rdf-baseline".to_string(),
@@ -5281,9 +5352,10 @@ pub(crate) async fn mcp_local_source_pull(app: AppHandle, arguments: &Value) -> 
     // client's manifest check is fail-closed on unknown/missing members in
     // both directions, so joining the closure is a flag day. A sibling
     // digest gives the same tamper-evidence without that break.
-    let conflicts_digest = value_digest(&serde_json::to_value(&conflicts).map_err(|error| {
-        AppError::serialization(format!("serialize sync conflicts: {error}"))
-    })?)?;
+    let conflicts_digest =
+        value_digest(&serde_json::to_value(&conflicts).map_err(|error| {
+            AppError::serialization(format!("serialize sync conflicts: {error}"))
+        })?)?;
     drop(lease);
     Ok(json!({
         "schemaVersion": SOURCE_SYNC_SCHEMA_VERSION,
@@ -5484,26 +5556,52 @@ mod tests {
 
     #[test]
     fn checkpoint_value_failure_cannot_publish_restored_current_seed_marker() {
-        let root = std::env::temp_dir().join(format!("garden-checkpoint-marker-failure-{}", Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!(
+            "garden-checkpoint-marker-failure-{}",
+            Uuid::new_v4()
+        ));
         let graph_id = "checkpoint-marker-failure";
         let store = oxigraph::store::Store::new().unwrap();
         let marker_graph = crate::rdf_authority::seed_marker_graph_iri(graph_id);
         let rdf = format!("<{}> <{}seedKey> \"current-but-not-completed-replay\" <{marker_graph}> .\n<urn:kept> <urn:predicate> \"canonical\" <urn:authority> .\n", graph_subject(graph_id), crate::runtime_config::MNEMO_NS);
         let rdf_digest = sha256_bytes(rdf.as_bytes());
-        let values = serde_json::to_vec(&BTreeMap::from([("item/block-values.json", "{}")])).unwrap();
+        let values =
+            serde_json::to_vec(&BTreeMap::from([("item/block-values.json", "{}")])).unwrap();
         let value_stores_digest = sha256_bytes(&values);
-        crate::storage::write_bytes(&rdf_checkpoint_path(&root, &rdf_digest), rdf.as_bytes()).unwrap();
-        crate::storage::write_bytes(&values_checkpoint_path(&root, &value_stores_digest), &values).unwrap();
+        crate::storage::write_bytes(&rdf_checkpoint_path(&root, &rdf_digest), rdf.as_bytes())
+            .unwrap();
+        crate::storage::write_bytes(
+            &values_checkpoint_path(&root, &value_stores_digest),
+            &values,
+        )
+        .unwrap();
         // A file at the value-directory path makes the post-commit directory
         // removal fail. This is a real fixture I/O failure, not a relaxed oracle.
         crate::storage::write_bytes(&root.join("values"), b"not a directory").unwrap();
-        let checkpoint = SourceCheckpoint { ledger_revision: 0, rdf_digest, rdf_quad_count: 2, value_stores_digest, captured_at_ms: 0 };
+        let checkpoint = SourceCheckpoint {
+            ledger_revision: 0,
+            rdf_digest,
+            rdf_quad_count: 2,
+            value_stores_digest,
+            captured_at_ms: 0,
+        };
         assert!(restore_checkpoint(graph_id, &root, &store, &checkpoint).is_err());
-        let actual = crate::rdf_query_service::dump_rdf_from_store(&store, "nquads", None, None).unwrap().data;
-        assert!(!actual.contains("seedKey"), "failed replay must not restore a completed marker");
+        let actual = crate::rdf_query_service::dump_rdf_from_store(&store, "nquads", None, None)
+            .unwrap()
+            .data;
+        assert!(
+            !actual.contains("seedKey"),
+            "failed replay must not restore a completed marker"
+        );
         assert!(actual.contains("<urn:kept> <urn:predicate> \"canonical\" <urn:authority> ."));
-        assert_eq!(fs::read(rdf_checkpoint_path(&root, &checkpoint.rdf_digest)).unwrap(), rdf.as_bytes());
-        println!("SEED_CHECKPOINT_FAILURE_RETAINED_PROFILE={}", root.display());
+        assert_eq!(
+            fs::read(rdf_checkpoint_path(&root, &checkpoint.rdf_digest)).unwrap(),
+            rdf.as_bytes()
+        );
+        println!(
+            "SEED_CHECKPOINT_FAILURE_RETAINED_PROFILE={}",
+            root.display()
+        );
     }
 
     #[test]
@@ -5512,66 +5610,114 @@ mod tests {
         let store = oxigraph::store::Store::new().unwrap();
         let graph_id = "replay-checkpoint";
         let initial = "<urn:before> <urn:predicate> \"keep existing RDF\" <urn:before-graph> .\n";
-        store.load_from_slice(RdfFormat::NQuads, initial.as_bytes()).unwrap();
+        store
+            .load_from_slice(RdfFormat::NQuads, initial.as_bytes())
+            .unwrap();
         let old_values = root.join("values/old/block-values.json");
         crate::storage::write_bytes(&old_values, b"{\"keep\":true}").unwrap();
         let baseline = rdf_dataset_identity(&store).unwrap();
-        let reserved = format!("<urn:owned> <urn:predicate> \"engine projection\" <{}:projection:graph> .\n", graph_subject(graph_id));
+        let reserved = format!(
+            "<urn:owned> <urn:predicate> \"engine projection\" <{}:projection:graph> .\n",
+            graph_subject(graph_id)
+        );
         let seal = |rdf: &str, values: BTreeMap<String, String>| {
             let rdf_digest = sha256_bytes(rdf.as_bytes());
             let data = serde_json::to_vec(&values).unwrap();
             let value_stores_digest = sha256_bytes(&data);
-            crate::storage::write_bytes(&rdf_checkpoint_path(&root, &rdf_digest), rdf.as_bytes()).unwrap();
-            crate::storage::write_bytes(&values_checkpoint_path(&root, &value_stores_digest), &data).unwrap();
-            SourceCheckpoint { ledger_revision: 0, rdf_digest, rdf_quad_count: 1, value_stores_digest, captured_at_ms: 0 }
+            crate::storage::write_bytes(&rdf_checkpoint_path(&root, &rdf_digest), rdf.as_bytes())
+                .unwrap();
+            crate::storage::write_bytes(
+                &values_checkpoint_path(&root, &value_stores_digest),
+                &data,
+            )
+            .unwrap();
+            SourceCheckpoint {
+                ledger_revision: 0,
+                rdf_digest,
+                rdf_quad_count: 1,
+                value_stores_digest,
+                captured_at_ms: 0,
+            }
         };
         for checkpoint in [
             seal("not RDF", BTreeMap::new()),
-            seal(&reserved, BTreeMap::from([("../escape/block-values.json".into(), "{}".into())])),
-            seal(&reserved, BTreeMap::from([("safe/block-values.json".into(), "not JSON".into())])),
+            seal(
+                &reserved,
+                BTreeMap::from([("../escape/block-values.json".into(), "{}".into())]),
+            ),
+            seal(
+                &reserved,
+                BTreeMap::from([("safe/block-values.json".into(), "not JSON".into())]),
+            ),
         ] {
             assert!(restore_checkpoint(graph_id, &root, &store, &checkpoint).is_err());
             assert_eq!(rdf_dataset_identity(&store).unwrap(), baseline);
             assert_eq!(std::fs::read(&old_values).unwrap(), b"{\"keep\":true}");
         }
         let checkpoint = seal(&reserved, BTreeMap::new());
-        crate::storage::write_bytes(&rdf_checkpoint_path(&root, &checkpoint.rdf_digest), b"tampered").unwrap();
+        crate::storage::write_bytes(
+            &rdf_checkpoint_path(&root, &checkpoint.rdf_digest),
+            b"tampered",
+        )
+        .unwrap();
         assert!(restore_checkpoint(graph_id, &root, &store, &checkpoint).is_err());
         assert_eq!(rdf_dataset_identity(&store).unwrap(), baseline);
         assert_eq!(std::fs::read(&old_values).unwrap(), b"{\"keep\":true}");
-        let error = crate::rdf_query_service::load_rdf_dataset_into_store(&store, graph_id, &reserved, "nquads", None).unwrap_err();
+        let error = crate::rdf_query_service::load_rdf_dataset_into_store(
+            &store, graph_id, &reserved, "nquads", None,
+        )
+        .unwrap_err();
         assert!(error.contains("reserved projection graph"));
         assert_eq!(rdf_dataset_identity(&store).unwrap(), baseline);
-        let checkpoint = seal(&reserved, BTreeMap::from([("new/block-values.json".into(), "{\"restored\":true}".into())]));
+        let checkpoint = seal(
+            &reserved,
+            BTreeMap::from([("new/block-values.json".into(), "{\"restored\":true}".into())]),
+        );
         restore_checkpoint(graph_id, &root, &store, &checkpoint).unwrap();
-        let actual = crate::rdf_query_service::dump_rdf_from_store(&store, "nquads", None, None).unwrap();
-        assert_eq!(canonicalize_nquads(&actual.data), canonicalize_nquads(&reserved));
+        let actual =
+            crate::rdf_query_service::dump_rdf_from_store(&store, "nquads", None, None).unwrap();
+        assert_eq!(
+            canonicalize_nquads(&actual.data),
+            canonicalize_nquads(&reserved)
+        );
         assert!(!old_values.exists());
-        assert_eq!(std::fs::read(root.join("values/new/block-values.json")).unwrap(), b"{\"restored\":true}");
+        assert_eq!(
+            std::fs::read(root.join("values/new/block-values.json")).unwrap(),
+            b"{\"restored\":true}"
+        );
         println!("REPLAY_CHECKPOINT_DISPOSABLE_FIXTURE={}", root.display());
     }
 
     #[test]
     fn pdf_source_independent_source_ledger_writes_are_refused() {
         let graph_id = "pdf-source-refusal";
-        let ledger = SourceLedger::empty(graph_id,"incarnation-fixture");
+        let ledger = SourceLedger::empty(graph_id, "incarnation-fixture");
         let retraction = SourceOperation::Retraction {
-            operation_id:"pdf-retract-op".into(),retraction_event_id:"pdf-retract-event".into(),
-            subject:format!("{}:document-owned",crate::pdf_source::sink(graph_id)),
-            rationale:"forbidden independent write".into(),retraction_kind:"retract".into(),
-            observer:None,at_ms:1,
+            operation_id: "pdf-retract-op".into(),
+            retraction_event_id: "pdf-retract-event".into(),
+            subject: format!("{}:document-owned", crate::pdf_source::sink(graph_id)),
+            rationale: "forbidden independent write".into(),
+            retraction_kind: "retract".into(),
+            observer: None,
+            at_ms: 1,
         };
-        let error = validate_source_operation(graph_id,&ledger,&retraction,"digest").unwrap_err();
+        let error =
+            validate_source_operation(graph_id, &ledger, &retraction, "digest").unwrap_err();
         let message = error.message();
-        assert!(message.contains("derived"),"{message}");
+        assert!(message.contains("derived"), "{message}");
         let current = SourceOperation::CurrentState {
-            operation_id:"pdf-current-op".into(),vocab:crate::pdf_source::PACK.into(),
-            class:"PdfOriginal".into(),object_id:"forged".into(),base_version:"0".into(),
-            record:json!({"kind":"PdfOriginal","localId":"forged"}),
-            causal_order:None,client_id:None,evidence_weight:None,
+            operation_id: "pdf-current-op".into(),
+            vocab: crate::pdf_source::PACK.into(),
+            class: "PdfOriginal".into(),
+            object_id: "forged".into(),
+            base_version: "0".into(),
+            record: json!({"kind":"PdfOriginal","localId":"forged"}),
+            causal_order: None,
+            client_id: None,
+            evidence_weight: None,
         };
-        assert!(validate_source_operation(graph_id,&ledger,&current,"digest").is_err());
-        assert_eq!(ledger.revision,0);
+        assert!(validate_source_operation(graph_id, &ledger, &current, "digest").is_err());
+        assert_eq!(ledger.revision, 0);
         assert!(ledger.operations.is_empty());
     }
 
@@ -5647,17 +5793,27 @@ mod tests {
         ledger
     }
 
-    fn folder_placement(operation_id: &str, base_version: &str, file_id: &str, x: f64) -> SourceOperation {
+    fn folder_placement(
+        operation_id: &str,
+        base_version: &str,
+        file_id: &str,
+        x: f64,
+    ) -> SourceOperation {
         let key = format!("owner/g/inc/root/files-default/shared/artifact/{file_id}");
         let object_id = format!("fp-{}", sha256_bytes(key.as_bytes()));
         SourceOperation::CurrentState {
-            operation_id: operation_id.to_string(), vocab: "garden-file-views".to_string(),
-            class: "FilePlacement".to_string(), object_id: object_id.clone(), base_version: base_version.to_string(),
+            operation_id: operation_id.to_string(),
+            vocab: "garden-file-views".to_string(),
+            class: "FilePlacement".to_string(),
+            object_id: object_id.clone(),
+            base_version: base_version.to_string(),
             record: json!({"kind":"FilePlacement","localId":object_id,"schemaVersion":1,
                 "ownerId":"owner","graphId":"g","graphIncarnation":"inc","folderKey":"root",
                 "viewId":"files-default","audienceKind":"shared","fileKind":"artifact","fileId":file_id,
                 "coordinateSpace":"folder-canvas","x":x,"y":20.0}),
-            causal_order: None, client_id: None, evidence_weight: None,
+            causal_order: None,
+            client_id: None,
+            evidence_weight: None,
         }
     }
 
@@ -5665,14 +5821,35 @@ mod tests {
     fn folder_view_actual_source_admission_checks_scope_identity_types_and_lifetime() {
         let ledger = SourceLedger::empty("g", "inc");
         let healthy = folder_placement("placement-a", ROOT_VERSION, "one", 10.0);
-        assert!(validate_source_operation("g", &ledger, &healthy, &operation_digest(&healthy).unwrap()).is_ok());
-        for (field, bad) in [("graphIncarnation", json!("retired")), ("graphId", json!("foreign")),
+        assert!(validate_source_operation(
+            "g",
+            &ledger,
+            &healthy,
+            &operation_digest(&healthy).unwrap()
+        )
+        .is_ok());
+        for (field, bad) in [
+            ("graphIncarnation", json!("retired")),
+            ("graphId", json!("foreign")),
             ("kind", json!("FolderView")),
-            ("coordinateSpace", json!("pdf-user-space")), ("x", json!("10")), ("localId", json!("fp-forged"))] {
+            ("coordinateSpace", json!("pdf-user-space")),
+            ("x", json!("10")),
+            ("localId", json!("fp-forged")),
+        ] {
             let mut changed = healthy.clone();
-            if let SourceOperation::CurrentState { record, .. } = &mut changed { record[field] = bad; }
-            assert!(validate_source_operation("g", &ledger, &changed, &operation_digest(&changed).unwrap()).is_err(),
-                "actual admission accepted bad {field}");
+            if let SourceOperation::CurrentState { record, .. } = &mut changed {
+                record[field] = bad;
+            }
+            assert!(
+                validate_source_operation(
+                    "g",
+                    &ledger,
+                    &changed,
+                    &operation_digest(&changed).unwrap()
+                )
+                .is_err(),
+                "actual admission accepted bad {field}"
+            );
         }
         assert_eq!(ledger.revision, 0);
         assert!(ledger.operations.is_empty());
@@ -5682,9 +5859,21 @@ mod tests {
     fn folder_view_source_retry_and_changed_payload_use_native_digest_gate() {
         let initial = folder_placement("placement-a", ROOT_VERSION, "one", 10.0);
         let ledger = ledger_with(vec![initial.clone()]);
-        assert!(validate_source_operation("g", &ledger, &initial, &operation_digest(&initial).unwrap()).is_ok());
+        assert!(validate_source_operation(
+            "g",
+            &ledger,
+            &initial,
+            &operation_digest(&initial).unwrap()
+        )
+        .is_ok());
         let changed = folder_placement("placement-a", ROOT_VERSION, "one", 99.0);
-        assert!(validate_source_operation("g", &ledger, &changed, &operation_digest(&changed).unwrap()).is_err());
+        assert!(validate_source_operation(
+            "g",
+            &ledger,
+            &changed,
+            &operation_digest(&changed).unwrap()
+        )
+        .is_err());
         assert_eq!(ledger.operations.len(), 1);
     }
 
@@ -5694,10 +5883,17 @@ mod tests {
         let b = folder_placement("placement-b", ROOT_VERSION, "one", 99.0);
         let ab = fold_current_objects(&ledger_with(vec![a.clone(), b.clone()])).unwrap();
         let ba = fold_current_objects(&ledger_with(vec![b, a.clone()])).unwrap();
-        assert_eq!(serde_json::to_value(&ab).unwrap(), serde_json::to_value(&ba).unwrap());
+        assert_eq!(
+            serde_json::to_value(&ab).unwrap(),
+            serde_json::to_value(&ba).unwrap()
+        );
         assert_eq!(ab.len(), 1);
         assert!(ab[0].face.conflict_id.is_some());
-        let disjoint = fold_current_objects(&ledger_with(vec![a, folder_placement("placement-other", ROOT_VERSION, "two", 50.0)])).unwrap();
+        let disjoint = fold_current_objects(&ledger_with(vec![
+            a,
+            folder_placement("placement-other", ROOT_VERSION, "two", 50.0),
+        ]))
+        .unwrap();
         assert_eq!(disjoint.len(), 2);
         assert!(disjoint.iter().all(|fold| fold.face.conflict_id.is_none()));
     }
@@ -5707,20 +5903,30 @@ mod tests {
         let folds = fold_current_objects(&ledger_with(vec![
             folder_placement("placement-a", ROOT_VERSION, "one", 10.0),
             folder_placement("placement-orphan", "unobserved-base", "one", 99.0),
-        ])).unwrap();
+        ]))
+        .unwrap();
         assert!(folds[0].face.conflict_id.is_some());
-        assert!(folds[0].conflict.as_ref().unwrap().reason.contains("unavailable base"));
+        assert!(folds[0]
+            .conflict
+            .as_ref()
+            .unwrap()
+            .reason
+            .contains("unavailable base"));
     }
 
     #[test]
     fn folder_view_ledger_file_roundtrip_preserves_candidates_and_faces() {
         let dir = std::env::temp_dir().join(format!("files-ledger-{}", Uuid::new_v4()));
-        let before = ledger_with(vec![folder_placement("placement-a", ROOT_VERSION, "one", 10.0),
-            folder_placement("placement-b", ROOT_VERSION, "one", 99.0)]);
+        let before = ledger_with(vec![
+            folder_placement("placement-a", ROOT_VERSION, "one", 10.0),
+            folder_placement("placement-b", ROOT_VERSION, "one", 99.0),
+        ]);
         write_ledger(&dir, &before).unwrap();
         let restored = read_ledger(&dir, "g", "inc").unwrap();
-        assert_eq!(serde_json::to_value(fold_current_objects(&before).unwrap()).unwrap(),
-            serde_json::to_value(fold_current_objects(&restored).unwrap()).unwrap());
+        assert_eq!(
+            serde_json::to_value(fold_current_objects(&before).unwrap()).unwrap(),
+            serde_json::to_value(fold_current_objects(&restored).unwrap()).unwrap()
+        );
         assert_eq!(before.operations.len(), restored.operations.len());
         assert!(read_ledger(&dir, "g", "retired").is_err());
         std::fs::remove_dir_all(&dir).unwrap();
@@ -5730,21 +5936,43 @@ mod tests {
     fn folder_view_real_materializer_repeats_idempotently_and_preserves_foreign_spans() {
         let store = oxigraph::store::Store::new().unwrap();
         let foreign = "<urn:filesystem> <http://mnemosyne.dev/doc#parent> <urn:folder> <urn:filesystem> .\n<urn:evidence> <http://mnemosyne.dev/doc#title> \"keep\" <urn:evidence> .\n";
-        store.load_from_slice(RdfFormat::NQuads, foreign.as_bytes()).unwrap();
+        store
+            .load_from_slice(RdfFormat::NQuads, foreign.as_bytes())
+            .unwrap();
         let operation = folder_placement("placement-a", ROOT_VERSION, "one", 10.0);
-        let SourceOperation::CurrentState { vocab, class, object_id, record, .. } = operation else { unreachable!() };
-        let (first_ops, desired) = materialize_record(&store, "g", &vocab, &class, &object_id, &record).unwrap();
+        let SourceOperation::CurrentState {
+            vocab,
+            class,
+            object_id,
+            record,
+            ..
+        } = operation
+        else {
+            unreachable!()
+        };
+        let (first_ops, desired) =
+            materialize_record(&store, "g", &vocab, &class, &object_id, &record).unwrap();
         assert!(first_ops > 0);
         assert!(!desired.is_empty());
         let first = rdf_dataset_identity(&store).unwrap();
-        let (repeat_ops, repeated_desired) = materialize_record(&store, "g", &vocab, &class, &object_id, &record).unwrap();
+        let (repeat_ops, repeated_desired) =
+            materialize_record(&store, "g", &vocab, &class, &object_id, &record).unwrap();
         assert_eq!(repeat_ops, 0);
         assert_eq!(desired, repeated_desired);
         assert_eq!(first, rdf_dataset_identity(&store).unwrap());
-        let actual = crate::rdf_query_service::dump_rdf_from_store(&store, "nquads", None, None).unwrap().data;
-        for line in foreign.lines() { assert!(actual.contains(line), "foreign filesystem/evidence span erased"); }
+        let actual = crate::rdf_query_service::dump_rdf_from_store(&store, "nquads", None, None)
+            .unwrap()
+            .data;
+        for line in foreign.lines() {
+            assert!(
+                actual.contains(line),
+                "foreign filesystem/evidence span erased"
+            );
+        }
         let rebuilt = oxigraph::store::Store::new().unwrap();
-        rebuilt.load_from_slice(RdfFormat::NQuads, foreign.as_bytes()).unwrap();
+        rebuilt
+            .load_from_slice(RdfFormat::NQuads, foreign.as_bytes())
+            .unwrap();
         materialize_record(&rebuilt, "g", &vocab, &class, &object_id, &record).unwrap();
         assert_eq!(first, rdf_dataset_identity(&rebuilt).unwrap());
     }
@@ -5758,17 +5986,26 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         let store = oxigraph::store::Store::new().unwrap();
         store
-            .load_from_slice(RdfFormat::NQuads, b"<urn:a> <urn:p> \"floor\" <urn:g> .\n".as_slice())
+            .load_from_slice(
+                RdfFormat::NQuads,
+                b"<urn:a> <urn:p> \"floor\" <urn:g> .\n".as_slice(),
+            )
             .unwrap();
         let mut ledger = SourceLedger::empty("g", "inc");
         ledger.checkpoint = Some(capture_checkpoint(&root, &store, 0).unwrap());
         let first = ledger.checkpoint.clone().unwrap();
         store
-            .load_from_slice(RdfFormat::NQuads, b"<urn:b> <urn:p> \"direct\" <urn:g> .\n".as_slice())
+            .load_from_slice(
+                RdfFormat::NQuads,
+                b"<urn:b> <urn:p> \"direct\" <urn:g> .\n".as_slice(),
+            )
             .unwrap();
         let superseded = refloor_empty_ledger(&root, &store, &mut ledger, false).unwrap();
         let current = ledger.checkpoint.clone().unwrap();
-        assert_eq!(superseded.as_ref().map(|old| old.rdf_digest.clone()), Some(first.rdf_digest.clone()));
+        assert_eq!(
+            superseded.as_ref().map(|old| old.rdf_digest.clone()),
+            Some(first.rdf_digest.clone())
+        );
         assert_ne!(current.rdf_digest, first.rdf_digest);
         assert_eq!(current.rdf_quad_count, 2);
         assert_eq!(current.value_stores_digest, first.value_stores_digest);
@@ -5783,28 +6020,42 @@ mod tests {
     // ── the folder-view preferences record (H1, option c) ──
 
     fn folder_view(operation_id: &str, base_version: &str, presentation: &str) -> SourceOperation {
-        let object_id = format!("fv-{}", sha256_bytes(b"owner/g/inc/root/files-default/shared"));
+        let object_id = format!(
+            "fv-{}",
+            sha256_bytes(b"owner/g/inc/root/files-default/shared")
+        );
         SourceOperation::CurrentState {
-            operation_id: operation_id.to_string(), vocab: FILE_VIEWS_VOCAB.to_string(),
-            class: "FolderView".to_string(), object_id: object_id.clone(), base_version: base_version.to_string(),
+            operation_id: operation_id.to_string(),
+            vocab: FILE_VIEWS_VOCAB.to_string(),
+            class: "FolderView".to_string(),
+            object_id: object_id.clone(),
+            base_version: base_version.to_string(),
             record: json!({"kind":"FolderView","localId":object_id,"schemaVersion":1,
                 "ownerId":"owner","graphId":"g","graphIncarnation":"inc","folderKey":"root",
                 "viewId":"files-default","audienceKind":"shared","presentation":presentation,"sort":"name",
                 "direction":"asc","iconSize":"medium","snapToGrid":true}),
-            causal_order: None, client_id: None, evidence_weight: None,
+            causal_order: None,
+            client_id: None,
+            evidence_weight: None,
         }
     }
 
     fn graph_metadata(operation_id: &str) -> SourceOperation {
         SourceOperation::GraphMetadata {
-            operation_id: operation_id.to_string(), title: Some("Title".to_string()), description: None,
+            operation_id: operation_id.to_string(),
+            title: Some("Title".to_string()),
+            description: None,
         }
     }
 
     fn head_of(ledger: &SourceLedger, operation: &SourceOperation) -> CurrentObjectFace {
         let key = file_views_object_key(operation).unwrap();
-        fold_current_objects(ledger).unwrap().into_iter()
-            .find(|fold| fold.face.object_key == key).unwrap().face
+        fold_current_objects(ledger)
+            .unwrap()
+            .into_iter()
+            .find(|fold| fold.face.object_key == key)
+            .unwrap()
+            .face
     }
 
     fn temp_graph_dir(label: &str) -> PathBuf {
@@ -5819,65 +6070,142 @@ mod tests {
         let b1 = folder_placement("b-1", ROOT_VERSION, "two", 2.0);
         let v1 = folder_view("v-1", ROOT_VERSION, "canvas");
         let a_head = head_of(&ledger_with(vec![a1.clone()]), &a1).source_version;
-        let b2 = folder_placement("b-2", &head_of(&ledger_with(vec![b1.clone()]), &b1).source_version, "two", 5.0);
+        let b2 = folder_placement(
+            "b-2",
+            &head_of(&ledger_with(vec![b1.clone()]), &b1).source_version,
+            "two",
+            5.0,
+        );
         let a2 = folder_placement("a-2", &a_head, "one", 3.0);
         let a3 = folder_placement("a-3", &a_head, "one", 4.0);
-        let contested = ledger_with(vec![a1.clone(), b1.clone(), v1.clone(), b2.clone(), a2.clone(), a3.clone()]);
-        let conflict_id = head_of(&contested, &a1).conflict_id.expect("a-2 and a-3 contest one base");
+        let contested = ledger_with(vec![
+            a1.clone(),
+            b1.clone(),
+            v1.clone(),
+            b2.clone(),
+            a2.clone(),
+            a3.clone(),
+        ]);
+        let conflict_id = head_of(&contested, &a1)
+            .conflict_id
+            .expect("a-2 and a-3 contest one base");
         let resolve = SourceOperation::ResolveCurrent {
-            operation_id: "a-resolve".to_string(), object_key: file_views_object_key(&a1).unwrap(),
-            conflict_id, chosen_operation_id: Some("a-3".to_string()), record: None,
+            operation_id: "a-resolve".to_string(),
+            object_key: file_views_object_key(&a1).unwrap(),
+            conflict_id,
+            chosen_operation_id: Some("a-3".to_string()),
+            record: None,
         };
         let operations = vec![a1, b1, v1, b2, a2, a3, resolve];
         let whole = ledger_with(operations.clone());
         for operation in &operations {
             let key = file_views_object_key(operation).unwrap();
             let scoped = object_scoped_ledger(&whole, &key);
-            assert_eq!(stable_outcome(operation, &whole).unwrap(), stable_outcome(operation, &scoped).unwrap(),
-                "outcome of {} differs when scoped to its object", operation.operation_id());
-            let whole_fold = fold_current_objects(&whole).unwrap().into_iter()
-                .filter(|fold| fold.face.object_key == key).collect::<Vec<_>>();
-            assert_eq!(serde_json::to_value(whole_fold).unwrap(),
-                serde_json::to_value(fold_current_objects(&scoped).unwrap()).unwrap());
+            assert_eq!(
+                stable_outcome(operation, &whole).unwrap(),
+                stable_outcome(operation, &scoped).unwrap(),
+                "outcome of {} differs when scoped to its object",
+                operation.operation_id()
+            );
+            let whole_fold = fold_current_objects(&whole)
+                .unwrap()
+                .into_iter()
+                .filter(|fold| fold.face.object_key == key)
+                .collect::<Vec<_>>();
+            assert_eq!(
+                serde_json::to_value(whole_fold).unwrap(),
+                serde_json::to_value(fold_current_objects(&scoped).unwrap()).unwrap()
+            );
         }
-        assert!(head_of(&whole, &operations[0]).conflict_id.is_none(), "the resolution closed the contest");
+        assert!(
+            head_of(&whole, &operations[0]).conflict_id.is_none(),
+            "the resolution closed the contest"
+        );
     }
 
     #[test]
     fn folder_view_record_push_is_atomic_bounded_and_never_writes_the_ledger() {
         let dir = temp_graph_dir("push");
         let record_path = file_views_record_path(&dir);
-        let first = push_file_views_operations(&dir, "g", "inc",
-            &[folder_placement("p-1", ROOT_VERSION, "one", 1.0)], MAX_FILE_VIEWS_RECORD_BYTES).unwrap();
+        let first = push_file_views_operations(
+            &dir,
+            "g",
+            "inc",
+            &[folder_placement("p-1", ROOT_VERSION, "one", 1.0)],
+            MAX_FILE_VIEWS_RECORD_BYTES,
+        )
+        .unwrap();
         assert_eq!(first["ok"], true, "{first}");
-        assert_eq!(first["receipts"][0]["outcome"]["outcome"], "applied", "{first}");
+        assert_eq!(
+            first["receipts"][0]["outcome"]["outcome"], "applied",
+            "{first}"
+        );
         assert_eq!(first["receipts"][0]["status"], "applied", "{first}");
         assert!(record_path.is_file());
-        assert!(!ledger_path(&dir).exists(), "a preference write created the source ledger");
-        assert!(!checkpoint_dir(&dir).exists(), "a preference write took a checkpoint");
+        assert!(
+            !ledger_path(&dir).exists(),
+            "a preference write created the source ledger"
+        );
+        assert!(
+            !checkpoint_dir(&dir).exists(),
+            "a preference write took a checkpoint"
+        );
         let stored = std::fs::read(&record_path).unwrap();
 
         // One invalid operation refuses the whole batch.
         let mut bad = folder_placement("p-bad", ROOT_VERSION, "two", 2.0);
-        if let SourceOperation::CurrentState { record, .. } = &mut bad { record["x"] = json!("not a number"); }
-        assert!(push_file_views_operations(&dir, "g", "inc",
-            &[folder_placement("p-2", ROOT_VERSION, "three", 3.0), bad], MAX_FILE_VIEWS_RECORD_BYTES).is_err());
+        if let SourceOperation::CurrentState { record, .. } = &mut bad {
+            record["x"] = json!("not a number");
+        }
+        assert!(push_file_views_operations(
+            &dir,
+            "g",
+            "inc",
+            &[folder_placement("p-2", ROOT_VERSION, "three", 3.0), bad],
+            MAX_FILE_VIEWS_RECORD_BYTES
+        )
+        .is_err());
         assert_eq!(std::fs::read(&record_path).unwrap(), stored);
 
         // A pure replay answers from the record and writes nothing.
-        let replay = push_file_views_operations(&dir, "g", "inc",
-            &[folder_placement("p-1", ROOT_VERSION, "one", 1.0)], MAX_FILE_VIEWS_RECORD_BYTES).unwrap();
+        let replay = push_file_views_operations(
+            &dir,
+            "g",
+            "inc",
+            &[folder_placement("p-1", ROOT_VERSION, "one", 1.0)],
+            MAX_FILE_VIEWS_RECORD_BYTES,
+        )
+        .unwrap();
         assert_eq!(replay["receipts"][0]["duplicate"], true, "{replay}");
-        assert_eq!(replay["receipts"][0]["outcome"], first["receipts"][0]["outcome"]);
+        assert_eq!(
+            replay["receipts"][0]["outcome"],
+            first["receipts"][0]["outcome"]
+        );
         assert_eq!(std::fs::read(&record_path).unwrap(), stored);
-        let reused = push_file_views_operations(&dir, "g", "inc",
-            &[folder_placement("p-1", ROOT_VERSION, "one", 99.0)], MAX_FILE_VIEWS_RECORD_BYTES).unwrap_err();
+        let reused = push_file_views_operations(
+            &dir,
+            "g",
+            "inc",
+            &[folder_placement("p-1", ROOT_VERSION, "one", 99.0)],
+            MAX_FILE_VIEWS_RECORD_BYTES,
+        )
+        .unwrap_err();
         assert_eq!(reused.code(), Some(app_error_codes::OPERATION_ID_REUSED));
 
         // Past the bound: refused, nothing stored, and the read says unavailable.
-        let full = push_file_views_operations(&dir, "g", "inc",
-            &[folder_placement("p-3", ROOT_VERSION, "four", 4.0)], stored.len() + 16).unwrap_err();
-        assert_eq!(full.code(), Some(app_error_codes::SOURCE_BUNDLE_TOO_LARGE), "{full}");
+        let full = push_file_views_operations(
+            &dir,
+            "g",
+            "inc",
+            &[folder_placement("p-3", ROOT_VERSION, "four", 4.0)],
+            stored.len() + 16,
+        )
+        .unwrap_err();
+        assert_eq!(
+            full.code(),
+            Some(app_error_codes::SOURCE_BUNDLE_TOO_LARGE),
+            "{full}"
+        );
         assert_eq!(std::fs::read(&record_path).unwrap(), stored);
         let loaded = load_file_views(&dir, "g", "inc").unwrap();
         assert_eq!(loaded.origin, FileViewsOrigin::Record);
@@ -5885,24 +6213,51 @@ mod tests {
         let at_bound = file_views_body("g", "inc", &loaded, None, None, stored.len()).unwrap();
         assert_eq!(at_bound["available"], false);
         assert_eq!(at_bound["code"], app_error_codes::SOURCE_BUNDLE_TOO_LARGE);
-        let body = file_views_body("g", "inc", &loaded, None, None, MAX_FILE_VIEWS_RECORD_BYTES).unwrap();
+        let body =
+            file_views_body("g", "inc", &loaded, None, None, MAX_FILE_VIEWS_RECORD_BYTES).unwrap();
         assert_eq!(body["available"], true);
         assert_eq!(body["revision"], 1);
         assert_eq!(body["currentState"].as_array().unwrap().len(), 1);
         assert!(body.get("code").is_none());
 
         // Another incarnation's record is never read as this one's.
-        assert_eq!(load_file_views(&dir, "g", "retired").err().and_then(|error| error.code()),
-            Some(app_error_codes::STALE_GRAPH_INCARNATION));
+        assert_eq!(
+            load_file_views(&dir, "g", "retired")
+                .err()
+                .and_then(|error| error.code()),
+            Some(app_error_codes::STALE_GRAPH_INCARNATION)
+        );
         // Only current-state operations; a mix with ledger operations is refused.
-        let event = SourceOperation::EventLog { operation_id: "e-1".to_string(), event_id: "e-1".to_string(),
-            vocab: FILE_VIEWS_VOCAB.to_string(), class: "FilePlacement".to_string(), record: json!({}) };
-        assert!(push_file_views_operations(&dir, "g", "inc", &[event], MAX_FILE_VIEWS_RECORD_BYTES).is_err());
-        assert!(file_views_batch(&[folder_placement("m-1", ROOT_VERSION, "one", 1.0), graph_metadata("m-2")]).is_err());
+        let event = SourceOperation::EventLog {
+            operation_id: "e-1".to_string(),
+            event_id: "e-1".to_string(),
+            vocab: FILE_VIEWS_VOCAB.to_string(),
+            class: "FilePlacement".to_string(),
+            record: json!({}),
+        };
+        assert!(push_file_views_operations(
+            &dir,
+            "g",
+            "inc",
+            &[event],
+            MAX_FILE_VIEWS_RECORD_BYTES
+        )
+        .is_err());
+        assert!(file_views_batch(&[
+            folder_placement("m-1", ROOT_VERSION, "one", 1.0),
+            graph_metadata("m-2")
+        ])
+        .is_err());
         assert!(!file_views_batch(&[graph_metadata("m-3")]).unwrap());
-        assert!(file_views_batch(&[SourceOperation::ResolveCurrent { operation_id: "r-1".to_string(),
-            object_key: file_views_object_key(&folder_placement("m-4", ROOT_VERSION, "one", 1.0)).unwrap(),
-            conflict_id: "conflict-x".to_string(), chosen_operation_id: Some("m-4".to_string()), record: None }]).unwrap());
+        assert!(file_views_batch(&[SourceOperation::ResolveCurrent {
+            operation_id: "r-1".to_string(),
+            object_key: file_views_object_key(&folder_placement("m-4", ROOT_VERSION, "one", 1.0))
+                .unwrap(),
+            conflict_id: "conflict-x".to_string(),
+            chosen_operation_id: Some("m-4".to_string()),
+            record: None
+        }])
+        .unwrap());
         assert!(!ledger_path(&dir).exists());
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -5911,8 +6266,11 @@ mod tests {
     fn folder_view_record_seeds_from_preferences_left_in_the_ledger_without_writing_it() {
         let dir = temp_graph_dir("legacy");
         let placement = folder_placement("legacy-a", ROOT_VERSION, "one", 1.0);
-        let mut legacy = ledger_with(vec![placement.clone(), graph_metadata("legacy-meta"),
-            folder_view("legacy-v", ROOT_VERSION, "list")]);
+        let mut legacy = ledger_with(vec![
+            placement.clone(),
+            graph_metadata("legacy-meta"),
+            folder_view("legacy-v", ROOT_VERSION, "list"),
+        ]);
         legacy.revision = 7;
         write_ledger(&dir, &legacy).unwrap();
         let ledger_bytes = std::fs::read(ledger_path(&dir)).unwrap();
@@ -5920,26 +6278,67 @@ mod tests {
         let loaded = load_file_views(&dir, "g", "inc").unwrap();
         assert_eq!(loaded.origin, FileViewsOrigin::SourceLedger);
         assert_eq!(loaded.ledger.revision, 7);
-        assert_eq!(loaded.ledger.operations.keys().cloned().collect::<Vec<_>>(), vec!["legacy-a", "legacy-v"]);
-        assert!(loaded.ledger.operations.values().all(|operation| operation.status == ReceiptStatus::Applied));
-        assert_eq!(serde_json::to_value(fold_current_objects(&legacy).unwrap()).unwrap(),
-            serde_json::to_value(fold_current_objects(&loaded.ledger).unwrap()).unwrap());
-        let body = file_views_body("g", "inc", &loaded, Some("root"), None, MAX_FILE_VIEWS_RECORD_BYTES).unwrap();
+        assert_eq!(
+            loaded.ledger.operations.keys().cloned().collect::<Vec<_>>(),
+            vec!["legacy-a", "legacy-v"]
+        );
+        assert!(loaded
+            .ledger
+            .operations
+            .values()
+            .all(|operation| operation.status == ReceiptStatus::Applied));
+        assert_eq!(
+            serde_json::to_value(fold_current_objects(&legacy).unwrap()).unwrap(),
+            serde_json::to_value(fold_current_objects(&loaded.ledger).unwrap()).unwrap()
+        );
+        let body = file_views_body(
+            "g",
+            "inc",
+            &loaded,
+            Some("root"),
+            None,
+            MAX_FILE_VIEWS_RECORD_BYTES,
+        )
+        .unwrap();
         assert_eq!(body["store"], "source-ledger");
         assert_eq!(body["currentState"].as_array().unwrap().len(), 2);
-        assert!(!file_views_record_path(&dir).exists(), "reading wrote the record");
+        assert!(
+            !file_views_record_path(&dir).exists(),
+            "reading wrote the record"
+        );
 
         let head = head_of(&legacy, &placement).source_version;
-        let pushed = push_file_views_operations(&dir, "g", "inc",
-            &[folder_placement("after-a", &head, "one", 9.0)], MAX_FILE_VIEWS_RECORD_BYTES).unwrap();
-        assert_eq!(pushed["receipts"][0]["outcome"]["outcome"], "applied", "{pushed}");
+        let pushed = push_file_views_operations(
+            &dir,
+            "g",
+            "inc",
+            &[folder_placement("after-a", &head, "one", 9.0)],
+            MAX_FILE_VIEWS_RECORD_BYTES,
+        )
+        .unwrap();
+        assert_eq!(
+            pushed["receipts"][0]["outcome"]["outcome"], "applied",
+            "{pushed}"
+        );
         assert_eq!(pushed["revision"], 8);
-        assert_eq!(std::fs::read(ledger_path(&dir)).unwrap(), ledger_bytes, "the source ledger was written");
+        assert_eq!(
+            std::fs::read(ledger_path(&dir)).unwrap(),
+            ledger_bytes,
+            "the source ledger was written"
+        );
 
         let reloaded = load_file_views(&dir, "g", "inc").unwrap();
         assert_eq!(reloaded.origin, FileViewsOrigin::Record);
         assert_eq!(reloaded.seeded_from_ledger_revision, Some(7));
-        assert_eq!(reloaded.ledger.operations.keys().cloned().collect::<Vec<_>>(), vec!["after-a", "legacy-a", "legacy-v"]);
+        assert_eq!(
+            reloaded
+                .ledger
+                .operations
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>(),
+            vec!["after-a", "legacy-a", "legacy-v"]
+        );
         assert_eq!(head_of(&reloaded.ledger, &placement).record["x"], 9.0);
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -6174,7 +6573,10 @@ mod tests {
         let fold = fold_current_objects(&ledger).unwrap();
         assert_eq!(fold[0].face.operation_id, "resolve-1");
         assert_eq!(fold[0].face.client_id, None);
-        assert!(fold[0].face.conflict_id.is_none(), "resolved objects are no longer contested");
+        assert!(
+            fold[0].face.conflict_id.is_none(),
+            "resolved objects are no longer contested"
+        );
     }
 
     #[test]
@@ -6182,12 +6584,40 @@ mod tests {
         // The D2 guard: a future arrival-derived field would fail exactly
         // this assertion the way `accepted_revision` would.
         let ab = ledger_with(vec![
-            bookmark_attributed("client-a", ROOT_VERSION, "A", Some("device-a"), Some(10), None),
-            bookmark_attributed("client-b", ROOT_VERSION, "B", Some("device-b"), Some(20), None),
+            bookmark_attributed(
+                "client-a",
+                ROOT_VERSION,
+                "A",
+                Some("device-a"),
+                Some(10),
+                None,
+            ),
+            bookmark_attributed(
+                "client-b",
+                ROOT_VERSION,
+                "B",
+                Some("device-b"),
+                Some(20),
+                None,
+            ),
         ]);
         let ba = ledger_with(vec![
-            bookmark_attributed("client-b", ROOT_VERSION, "B", Some("device-b"), Some(20), None),
-            bookmark_attributed("client-a", ROOT_VERSION, "A", Some("device-a"), Some(10), None),
+            bookmark_attributed(
+                "client-b",
+                ROOT_VERSION,
+                "B",
+                Some("device-b"),
+                Some(20),
+                None,
+            ),
+            bookmark_attributed(
+                "client-a",
+                ROOT_VERSION,
+                "A",
+                Some("device-a"),
+                Some(10),
+                None,
+            ),
         ]);
         let ab_fold = fold_current_objects(&ab).unwrap();
         let ba_fold = fold_current_objects(&ba).unwrap();
@@ -6220,7 +6650,11 @@ mod tests {
             .filter(|(_, p, o)| p == RDF_TYPE && o.as_nt() == candidate_type_nt)
             .map(|(s, _, _)| s)
             .collect();
-        assert_eq!(candidate_nodes.len(), 2, "one SyncConflictCandidate node per candidate");
+        assert_eq!(
+            candidate_nodes.len(),
+            2,
+            "one SyncConflictCandidate node per candidate"
+        );
 
         for subject in &candidate_nodes {
             let has = |pred: &str| {
@@ -6282,18 +6716,14 @@ mod tests {
                 .any(|(_, p, _)| p == &format!("{SYNC_NS}candidateClientId")),
             "absence must be confessed by absence, not an empty literal"
         );
-        assert!(
-            !projection
-                .candidates
-                .iter()
-                .any(|(_, p, _)| p == &format!("{SYNC_NS}candidateCausalOrder"))
-        );
-        assert!(
-            !projection
-                .candidates
-                .iter()
-                .any(|(_, p, _)| p == &format!("{SYNC_NS}candidateEvidenceWeight"))
-        );
+        assert!(!projection
+            .candidates
+            .iter()
+            .any(|(_, p, _)| p == &format!("{SYNC_NS}candidateCausalOrder")));
+        assert!(!projection
+            .candidates
+            .iter()
+            .any(|(_, p, _)| p == &format!("{SYNC_NS}candidateEvidenceWeight")));
     }
 
     #[test]
@@ -6329,16 +6759,23 @@ mod tests {
             graph_id_conjunct: None,
             subjects: None,
         };
-        assert!(!crate::emporium::reconcile::survey_class(&store, &conflict_scope)
-            .unwrap()
-            .is_empty());
-        assert!(!crate::emporium::reconcile::survey_class(&store, &candidate_scope)
-            .unwrap()
-            .is_empty());
+        assert!(
+            !crate::emporium::reconcile::survey_class(&store, &conflict_scope)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            !crate::emporium::reconcile::survey_class(&store, &candidate_scope)
+                .unwrap()
+                .is_empty()
+        );
 
         // The post-resolution state: no live conflicts.
         let second_pass = materialize_conflicts(&store, "g", &[]).unwrap();
-        assert!(second_pass > 0, "reclaiming a resolved conflict is itself an op");
+        assert!(
+            second_pass > 0,
+            "reclaiming a resolved conflict is itself an op"
+        );
         assert!(
             crate::emporium::reconcile::survey_class(&store, &conflict_scope)
                 .unwrap()
@@ -6454,7 +6891,10 @@ mod tests {
         let first = materialize_conflicts(&store, "g", &conflicts).unwrap();
         assert!(first > 0);
         let second = materialize_conflicts(&store, "g", &conflicts).unwrap();
-        assert_eq!(second, 0, "a converged class emits zero ops on the next pass");
+        assert_eq!(
+            second, 0,
+            "a converged class emits zero ops on the next pass"
+        );
     }
 
     #[test]
@@ -6491,7 +6931,10 @@ mod tests {
             .filter_map(|f| f.conflict)
             .collect();
         let empty_digest = value_digest(&serde_json::to_value(&no_conflicts).unwrap()).unwrap();
-        assert_ne!(ab_digest, empty_digest, "the digest is sensitive to the contested set");
+        assert_ne!(
+            ab_digest, empty_digest,
+            "the digest is sensitive to the contested set"
+        );
     }
 
     // ── Slice 0 / WS4 Ask B — typed error codes ──
@@ -6499,10 +6942,18 @@ mod tests {
     #[test]
     fn app_error_codes_are_unique_and_snake_case() {
         let all = crate::app_error_codes::ALL;
-        assert_eq!(all.len(), 16, "the closed taxonomy includes pull capacity and unavailable source bodies");
+        assert_eq!(
+            all.len(),
+            16,
+            "the closed taxonomy includes pull capacity and unavailable source bodies"
+        );
         assert!(all.contains(&crate::app_error_codes::SOURCE_BODY_UNAVAILABLE));
         let unique: BTreeSet<&str> = all.iter().copied().collect();
-        assert_eq!(unique.len(), all.len(), "app_error_codes::ALL must have no duplicates");
+        assert_eq!(
+            unique.len(),
+            all.len(),
+            "app_error_codes::ALL must have no duplicates"
+        );
         for code in all {
             let snake_case = code
                 .chars()
@@ -6631,27 +7082,51 @@ mod tests {
         let digest = operation_digest(&too_high).unwrap();
         let error = validate_source_operation("g", &ledger, &too_high, &digest).unwrap_err();
         assert_eq!(error.kind(), crate::app_error::AppErrorKind::Validation);
-        assert_eq!(error.code(), None, "an out-of-range causalOrder is a client bug, not a coded fact");
+        assert_eq!(
+            error.code(),
+            None,
+            "an out-of-range causalOrder is a client bug, not a coded fact"
+        );
 
-        let too_low = bookmark_attributed("op-2", ROOT_VERSION, "A", None, Some(-(BOUND + 1)), None);
+        let too_low =
+            bookmark_attributed("op-2", ROOT_VERSION, "A", None, Some(-(BOUND + 1)), None);
         let digest = operation_digest(&too_low).unwrap();
         assert!(validate_source_operation("g", &ledger, &too_low, &digest).is_err());
 
-        let at_high_boundary = bookmark_attributed("op-3", ROOT_VERSION, "A", None, Some(BOUND), None);
+        let at_high_boundary =
+            bookmark_attributed("op-3", ROOT_VERSION, "A", None, Some(BOUND), None);
         let digest = operation_digest(&at_high_boundary).unwrap();
         assert!(validate_source_operation("g", &ledger, &at_high_boundary, &digest).is_ok());
 
-        let at_low_boundary = bookmark_attributed("op-4", ROOT_VERSION, "A", None, Some(-BOUND), None);
+        let at_low_boundary =
+            bookmark_attributed("op-4", ROOT_VERSION, "A", None, Some(-BOUND), None);
         let digest = operation_digest(&at_low_boundary).unwrap();
         assert!(validate_source_operation("g", &ledger, &at_low_boundary, &digest).is_ok());
     }
 
     #[test]
     fn candidate_evidence_weight_survives_round_trip_at_full_precision() {
-        let a = bookmark_attributed("client-a", ROOT_VERSION, "A", Some("device-a"), None, Some(0.0000004));
-        let b = bookmark_attributed("client-b", ROOT_VERSION, "B", Some("device-b"), None, Some(0.0000003));
+        let a = bookmark_attributed(
+            "client-a",
+            ROOT_VERSION,
+            "A",
+            Some("device-a"),
+            None,
+            Some(0.0000004),
+        );
+        let b = bookmark_attributed(
+            "client-b",
+            ROOT_VERSION,
+            "B",
+            Some("device-b"),
+            None,
+            Some(0.0000003),
+        );
         let ledger = ledger_with(vec![a, b]);
-        let conflict = fold_current_objects(&ledger).unwrap()[0].conflict.clone().unwrap();
+        let conflict = fold_current_objects(&ledger).unwrap()[0]
+            .conflict
+            .clone()
+            .unwrap();
         let projection = conflict_triples("g", std::slice::from_ref(&conflict)).unwrap();
 
         let mut client_by_subject: std::collections::BTreeMap<&String, String> = Default::default();
@@ -6688,7 +7163,10 @@ mod tests {
         for (nt, expected) in [(&weight_a, 0.0000004_f64), (&weight_b, 0.0000003_f64)] {
             match crate::emporium::survey::parse_term(nt) {
                 Term::Lit(literal) => {
-                    let value: f64 = literal.value().parse().expect("literal value parses as f64");
+                    let value: f64 = literal
+                        .value()
+                        .parse()
+                        .expect("literal value parses as f64");
                     assert_eq!(
                         value.to_bits(),
                         expected.to_bits(),
@@ -6729,11 +7207,17 @@ mod tests {
             .expect("mint a fresh incarnation");
         let requested = Uuid::new_v4().to_string();
         assert_ne!(actual, requested);
-        let mismatch =
-            ensure_document_incarnation_id_with_requested(&graph_dir, document_id, Some(&requested))
-                .expect_err("a different requested incarnation must be a genuine mismatch");
+        let mismatch = ensure_document_incarnation_id_with_requested(
+            &graph_dir,
+            document_id,
+            Some(&requested),
+        )
+        .expect_err("a different requested incarnation must be a genuine mismatch");
         let coded = document_incarnation_fault_to_app_error(mismatch, document_id);
-        assert_eq!(coded.code(), Some(app_error_codes::STALE_DOCUMENT_INCARNATION));
+        assert_eq!(
+            coded.code(),
+            Some(app_error_codes::STALE_DOCUMENT_INCARNATION)
+        );
         assert_eq!(coded.kind(), crate::app_error::AppErrorKind::Conflict);
 
         std::fs::remove_dir_all(&root).ok();
@@ -6751,8 +7235,9 @@ mod tests {
             "vocab 'v': unknown vocabulary".to_string(),
         ));
         assert_eq!(misconfigured.code(), None);
-        let absent =
-            source_object_error(ObjectError::Absent("no object <urn:x> in <urn:sink>".to_string()));
+        let absent = source_object_error(ObjectError::Absent(
+            "no object <urn:x> in <urn:sink>".to_string(),
+        ));
         assert_eq!(absent.code(), Some(app_error_codes::OBJECT_NOT_FOUND));
     }
 }

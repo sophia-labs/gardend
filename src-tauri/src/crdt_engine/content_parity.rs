@@ -184,7 +184,10 @@ mod tests {
     fn an_unknown_kind_is_refused_not_ignored() {
         let error = Concessions::parse(Some(&json!(["unresolved-source-document-identities"])))
             .expect_err("a typo must not read as strict or as everything");
-        assert!(error.contains("unknown contentParity concession kind"), "{error}");
+        assert!(
+            error.contains("unknown contentParity concession kind"),
+            "{error}"
+        );
     }
 
     #[test]
@@ -226,7 +229,10 @@ mod tests {
             Value::Null,
         );
         assert_eq!(row["contentParity"]["ruling"], RULING);
-        assert_eq!(row["contentParity"]["concession"], UNRESOLVED_SOURCE_DOCUMENT_IDENTITY);
+        assert_eq!(
+            row["contentParity"]["concession"],
+            UNRESOLVED_SOURCE_DOCUMENT_IDENTITY
+        );
         assert_eq!(row["disposition"], "retained-queryable-source-evidence");
         assert_eq!(row["referenceOnly"], true);
         assert_eq!(row["currentEntityExistenceAsserted"], false);

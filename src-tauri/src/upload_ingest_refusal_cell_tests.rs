@@ -35,7 +35,10 @@ fn lease() -> String {
     let signed = format!("{header}.{payload}");
     let mut mac = Hmac::<Sha256>::new_from_slice(SECRET).unwrap();
     mac.update(signed.as_bytes());
-    format!("{signed}.{}", URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes()))
+    format!(
+        "{signed}.{}",
+        URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes())
+    )
 }
 
 fn state_for(profile: &std::path::Path) -> Arc<LoopbackState> {
@@ -116,12 +119,24 @@ async fn call(
     .unwrap_or_else(|_| panic!("{method} {path} did not answer within {ANSWER_WITHIN:?}"))
     .unwrap();
     let status = response.status();
-    let bytes = axum::body::to_bytes(response.into_body(), 16 * 1024 * 1024).await.unwrap();
-    (status, serde_json::from_slice(&bytes).unwrap_or(Value::Null))
+    let bytes = axum::body::to_bytes(response.into_body(), 16 * 1024 * 1024)
+        .await
+        .unwrap();
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+    )
 }
 
 async fn post_json(state: &Arc<LoopbackState>, path: &str, body: Value) -> (StatusCode, Value) {
-    call(state, "POST", path, Some("application/json"), serde_json::to_vec(&body).unwrap()).await
+    call(
+        state,
+        "POST",
+        path,
+        Some("application/json"),
+        serde_json::to_vec(&body).unwrap(),
+    )
+    .await
 }
 
 async fn mcp(state: &Arc<LoopbackState>, tool: &str, arguments: Value) -> Value {
@@ -165,9 +180,19 @@ async fn upload_pdf(state: &Arc<LoopbackState>) -> String {
 async fn finished_job(state: &Arc<LoopbackState>, job_id: &str) -> Value {
     let poll = async {
         loop {
-            let (status, job) = call(state, "GET", &format!("/graphs/jobs/{job_id}"), None, Vec::new()).await;
+            let (status, job) = call(
+                state,
+                "GET",
+                &format!("/graphs/jobs/{job_id}"),
+                None,
+                Vec::new(),
+            )
+            .await;
             assert_eq!(status, StatusCode::OK, "{job}");
-            if matches!(job["status"].as_str(), Some("succeeded" | "failed" | "cancelled")) {
+            if matches!(
+                job["status"].as_str(),
+                Some("succeeded" | "failed" | "cancelled")
+            ) {
                 return job;
             }
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
@@ -186,12 +211,23 @@ async fn import(state: &Arc<LoopbackState>, artifact_id: &str) -> Value {
     )
     .await;
     assert_eq!(status, StatusCode::ACCEPTED, "{submitted}");
-    let job_id = submitted["jobId"].as_str().or_else(|| submitted["job_id"].as_str()).unwrap().to_string();
+    let job_id = submitted["jobId"]
+        .as_str()
+        .or_else(|| submitted["job_id"].as_str())
+        .unwrap()
+        .to_string();
     finished_job(state, &job_id).await
 }
 
 async fn artifact_row(state: &Arc<LoopbackState>, artifact_id: &str) -> Value {
-    let (status, navigation) = call(state, "GET", &format!("/navigation/{GRAPH}"), None, Vec::new()).await;
+    let (status, navigation) = call(
+        state,
+        "GET",
+        &format!("/navigation/{GRAPH}"),
+        None,
+        Vec::new(),
+    )
+    .await;
     assert_eq!(status, StatusCode::OK, "{navigation}");
     navigation["artifacts"]
         .as_array()
@@ -240,34 +276,54 @@ fn an_import_the_parser_pool_refuses_fails_at_once_and_the_file_says_why() {
                 let job = import(&state, &artifact_id).await;
                 assert_eq!(job["status"], "failed", "{job}");
                 assert!(
-                    job["error"].as_str().is_some_and(|error| error.contains("all parse approaches failed")),
+                    job["error"]
+                        .as_str()
+                        .is_some_and(|error| error.contains("all parse approaches failed")),
                     "{job}"
                 );
                 assert_eq!(pool.requests(), 1, "asked once, not retried");
                 let row = artifact_row(&state, &artifact_id).await;
                 assert_eq!(row["status"], "error", "{row}");
                 assert!(
-                    row["errorMessage"].as_str().is_some_and(|message| message.contains("all parse approaches failed")),
+                    row["errorMessage"]
+                        .as_str()
+                        .is_some_and(|message| message.contains("all parse approaches failed")),
                     "{row}"
                 );
 
                 // The same through MCP: ingest_artifact's job, and the row in
                 // get_workspace.
                 pool.answer(pool_answers::NOT_FOUND);
-                let submitted = mcp(&state, "ingest_artifact", json!({"graphId": GRAPH, "artifact_id": artifact_id})).await;
+                let submitted = mcp(
+                    &state,
+                    "ingest_artifact",
+                    json!({"graphId": GRAPH, "artifact_id": artifact_id}),
+                )
+                .await;
                 let job_id = submitted["jobId"].as_str().unwrap().to_string();
                 let job = finished_job(&state, &job_id).await;
                 assert_eq!(job["status"], "failed", "{job}");
-                assert!(job["error"].as_str().is_some_and(|error| error.contains("HTTP 404")), "{job}");
+                assert!(
+                    job["error"]
+                        .as_str()
+                        .is_some_and(|error| error.contains("HTTP 404")),
+                    "{job}"
+                );
                 let workspace = mcp(&state, "get_workspace", json!({"graphId": GRAPH})).await;
                 let listed = workspace["artifacts"]
                     .as_array()
-                    .and_then(|artifacts| artifacts.iter().find(|artifact| artifact["id"] == artifact_id))
+                    .and_then(|artifacts| {
+                        artifacts
+                            .iter()
+                            .find(|artifact| artifact["id"] == artifact_id)
+                    })
                     .cloned()
                     .unwrap_or_else(|| panic!("{artifact_id} not in get_workspace: {workspace}"));
                 assert_eq!(listed["status"], "error", "{listed}");
                 assert!(
-                    listed["errorMessage"].as_str().is_some_and(|message| message.contains("HTTP 404")),
+                    listed["errorMessage"]
+                        .as_str()
+                        .is_some_and(|message| message.contains("HTTP 404")),
                     "{listed}"
                 );
 

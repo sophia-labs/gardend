@@ -30,14 +30,24 @@ pub enum Command {
     Index(IndexArgs),
     Url(ServeArgs),
     TokenCreate(TokenCreateArgs),
-    TokenList { profile_dir: Option<String>, json: bool },
-    TokenRevoke { id: String, profile_dir: Option<String> },
+    TokenList {
+        profile_dir: Option<String>,
+        json: bool,
+    },
+    TokenRevoke {
+        id: String,
+        profile_dir: Option<String>,
+    },
     ServiceInstall(ServiceArgs),
     ServiceUninstall,
     ServiceStatus,
     /// `gardend chat key set`: the model key from standard input.
-    ChatKeySet { profile_dir: Option<String> },
-    ChatKeyClear { profile_dir: Option<String> },
+    ChatKeySet {
+        profile_dir: Option<String>,
+    },
+    ChatKeyClear {
+        profile_dir: Option<String>,
+    },
     /// `gardend service env set NAME`: the value from standard input.
     ServiceEnvSet {
         name: String,
@@ -317,7 +327,12 @@ impl Parsed {
     }
 }
 
-fn split(args: &[String], valued: &[&str], switches: &[&str], usage: &str) -> Result<Parsed, String> {
+fn split(
+    args: &[String],
+    valued: &[&str],
+    switches: &[&str],
+    usage: &str,
+) -> Result<Parsed, String> {
     let mut parsed = Parsed::default();
     let mut iter = args.iter();
     while let Some(arg) = iter.next() {
@@ -372,7 +387,9 @@ fn port(parsed: &Parsed, usage: &str) -> Result<Option<u16>, String> {
 /// `--profile` or `--profile-dir`, not both.
 fn profile_dir_flag(parsed: &Parsed, usage: &str) -> Result<Option<String>, String> {
     match (parsed.value("--profile"), parsed.value("--profile-dir")) {
-        (Some(_), Some(_)) => Err(format!("give --profile or --profile-dir, not both\n\n{usage}")),
+        (Some(_), Some(_)) => Err(format!(
+            "give --profile or --profile-dir, not both\n\n{usage}"
+        )),
         (one, other) => Ok(one.or(other)),
     }
 }
@@ -420,8 +437,7 @@ pub fn parse(args: &[String]) -> Result<Option<Command>, String> {
 }
 
 fn parse_token(rest: &[String]) -> Result<Option<Command>, String> {
-    let help: Result<Option<Command>, String> =
-        Ok(Some(Command::Help(Some("token".to_string()))));
+    let help: Result<Option<Command>, String> = Ok(Some(Command::Help(Some("token".to_string()))));
     let Some(action) = rest.first().map(String::as_str) else {
         return Err(format!("which token action?\n\n{TOKEN_HELP}"));
     };
@@ -431,7 +447,13 @@ fn parse_token(rest: &[String]) -> Result<Option<Command>, String> {
         "create" => {
             let parsed = split(
                 rest,
-                &["--label", "--profile", "--grant", "--expires-days", "--profile-dir"],
+                &[
+                    "--label",
+                    "--profile",
+                    "--grant",
+                    "--expires-days",
+                    "--profile-dir",
+                ],
                 &["--json"],
                 TOKEN_HELP,
             )?;
@@ -463,9 +485,9 @@ fn parse_token(rest: &[String]) -> Result<Option<Command>, String> {
             let expires_days = parsed
                 .value("--expires-days")
                 .map(|value| {
-                    value
-                        .parse::<u32>()
-                        .map_err(|error| format!("--expires-days {value:?}: {error}\n\n{TOKEN_HELP}"))
+                    value.parse::<u32>().map_err(|error| {
+                        format!("--expires-days {value:?}: {error}\n\n{TOKEN_HELP}")
+                    })
                 })
                 .transpose()?;
             Ok(Some(Command::TokenCreate(TokenCreateArgs {
@@ -574,7 +596,9 @@ fn parse_service(rest: &[String]) -> Result<Option<Command>, String> {
                         profile_dir,
                     }))
                 }
-                other => Err(format!("unknown service env action {other:?}\n\n{SERVICE_HELP}")),
+                other => Err(format!(
+                    "unknown service env action {other:?}\n\n{SERVICE_HELP}"
+                )),
             }
         }
         "enable" | "disable" => {
@@ -605,7 +629,9 @@ fn parse_service(rest: &[String]) -> Result<Option<Command>, String> {
                 Command::ServiceUninstall
             }))
         }
-        other => Err(format!("unknown service action {other:?}\n\n{SERVICE_HELP}")),
+        other => Err(format!(
+            "unknown service action {other:?}\n\n{SERVICE_HELP}"
+        )),
     }
 }
 
@@ -635,14 +661,20 @@ fn parse_chat(rest: &[String]) -> Result<Option<Command>, String> {
 }
 
 fn parse_visitors(rest: &[String]) -> Result<Option<Command>, String> {
-    let help: Result<Option<Command>, String> = Ok(Some(Command::Help(Some("visitors".to_string()))));
+    let help: Result<Option<Command>, String> =
+        Ok(Some(Command::Help(Some("visitors".to_string()))));
     let Some(action) = rest.first().map(String::as_str) else {
         return Err(format!("which visitors action?\n\n{VISITORS_HELP}"));
     };
     if matches!(action, "-h" | "--help" | "help") {
         return help;
     }
-    let parsed = split(&rest[1..], &["--profile", "--profile-dir"], &[], VISITORS_HELP)?;
+    let parsed = split(
+        &rest[1..],
+        &["--profile", "--profile-dir"],
+        &[],
+        VISITORS_HELP,
+    )?;
     if parsed.help {
         return help;
     }
@@ -650,7 +682,9 @@ fn parse_visitors(rest: &[String]) -> Result<Option<Command>, String> {
     let account = || -> Result<String, String> {
         match parsed.positionals.as_slice() {
             [one] => Ok(one.clone()),
-            _ => Err(format!("name one account (acct-… or cognito:<sub>)\n\n{VISITORS_HELP}")),
+            _ => Err(format!(
+                "name one account (acct-… or cognito:<sub>)\n\n{VISITORS_HELP}"
+            )),
         }
     };
     let action = match action {
@@ -665,9 +699,16 @@ fn parse_visitors(rest: &[String]) -> Result<Option<Command>, String> {
         }
         "ban" => VisitorsAction::Ban(account()?),
         "unban" => VisitorsAction::Unban(account()?),
-        other => return Err(format!("unknown visitors action {other:?}\n\n{VISITORS_HELP}")),
+        other => {
+            return Err(format!(
+                "unknown visitors action {other:?}\n\n{VISITORS_HELP}"
+            ))
+        }
     };
-    Ok(Some(Command::Visitors { action, profile_dir }))
+    Ok(Some(Command::Visitors {
+        action,
+        profile_dir,
+    }))
 }
 
 fn parse_load(rest: &[String]) -> Result<Option<Command>, String> {
@@ -692,7 +733,9 @@ fn parse_load(rest: &[String]) -> Result<Option<Command>, String> {
         .value("--graph")
         .ok_or_else(|| format!("gardend load needs --graph <id>\n\n{LOAD_HELP}"))?;
     let [input] = parsed.positionals.as_slice() else {
-        return Err(format!("gardend load takes one file (or - for standard input)\n\n{LOAD_HELP}"));
+        return Err(format!(
+            "gardend load takes one file (or - for standard input)\n\n{LOAD_HELP}"
+        ));
     };
     let number = |name: &str| -> Result<Option<usize>, String> {
         parsed
@@ -719,7 +762,14 @@ fn parse_load(rest: &[String]) -> Result<Option<Command>, String> {
 fn parse_index(rest: &[String]) -> Result<Option<Command>, String> {
     let parsed = split(
         rest,
-        &["--graph", "--profile", "--profile-dir", "--langs", "--model", "--threads"],
+        &[
+            "--graph",
+            "--profile",
+            "--profile-dir",
+            "--langs",
+            "--model",
+            "--threads",
+        ],
         &["--off", "--documents"],
         INDEX_HELP,
     )?;
@@ -734,14 +784,22 @@ fn parse_index(rest: &[String]) -> Result<Option<Command>, String> {
     }
     let threads = parsed
         .value("--threads")
-        .map(|value| value.parse::<usize>().map_err(|error| format!("--threads {value:?}: {error}")))
+        .map(|value| {
+            value
+                .parse::<usize>()
+                .map_err(|error| format!("--threads {value:?}: {error}"))
+        })
         .transpose()?;
     Ok(Some(Command::Index(IndexArgs {
         profile: profile_dir_flag(&parsed, INDEX_HELP)?,
         graph,
         off: parsed.switches.contains("--off"),
         langs: parsed.value("--langs").map(|value| {
-            value.split(',').map(|lang| lang.trim().to_string()).filter(|lang| !lang.is_empty()).collect()
+            value
+                .split(',')
+                .map(|lang| lang.trim().to_string())
+                .filter(|lang| !lang.is_empty())
+                .collect()
         }),
         model: parsed.value("--model"),
         documents: parsed.switches.contains("--documents"),
@@ -841,7 +899,10 @@ pub fn run(command: Command) -> i32 {
         } => resolve_profile_dir(profile_dir.as_deref(), os, env)
             .and_then(|dir| chat::set_enabled(&dir, &service, enabled))
             .map(|text| (text, 0)),
-        Command::Visitors { action, profile_dir } => resolve_profile_dir(profile_dir.as_deref(), os, env)
+        Command::Visitors {
+            action,
+            profile_dir,
+        } => resolve_profile_dir(profile_dir.as_deref(), os, env)
             .and_then(|dir| super::visitors::run(&dir, &action))
             .map(|text| (text, 0)),
         Command::ChatKeyClear { profile_dir } => {
@@ -915,13 +976,44 @@ mod tests {
             profile: Some("/data/sophia".to_string()),
             port: Some(7700),
         }));
-        assert_eq!(parse(&argv(&["serve", "--profile", "/data/sophia", "--port", "7700"])).unwrap(), expected);
-        assert_eq!(parse(&argv(&["serve", "--profile=/data/sophia", "--port=7700"])).unwrap(), expected);
-        assert_eq!(parse(&argv(&["serve", "--profile-dir", "/data/sophia", "--port", "7700"])).unwrap(), expected);
-        assert!(parse(&argv(&["serve", "--port", "99999"])).unwrap_err().contains("--port"));
-        assert!(parse(&argv(&["serve", "--port"])).unwrap_err().contains("needs a value"));
-        assert!(parse(&argv(&["serve", "--bogus"])).unwrap_err().contains("unknown option --bogus"));
-        assert!(parse(&argv(&["serve", "extra"])).unwrap_err().contains("unexpected argument"));
+        assert_eq!(
+            parse(&argv(&[
+                "serve",
+                "--profile",
+                "/data/sophia",
+                "--port",
+                "7700"
+            ]))
+            .unwrap(),
+            expected
+        );
+        assert_eq!(
+            parse(&argv(&["serve", "--profile=/data/sophia", "--port=7700"])).unwrap(),
+            expected
+        );
+        assert_eq!(
+            parse(&argv(&[
+                "serve",
+                "--profile-dir",
+                "/data/sophia",
+                "--port",
+                "7700"
+            ]))
+            .unwrap(),
+            expected
+        );
+        assert!(parse(&argv(&["serve", "--port", "99999"]))
+            .unwrap_err()
+            .contains("--port"));
+        assert!(parse(&argv(&["serve", "--port"]))
+            .unwrap_err()
+            .contains("needs a value"));
+        assert!(parse(&argv(&["serve", "--bogus"]))
+            .unwrap_err()
+            .contains("unknown option --bogus"));
+        assert!(parse(&argv(&["serve", "extra"]))
+            .unwrap_err()
+            .contains("unexpected argument"));
         assert!(parse(&argv(&["serve", "--profile", "a", "--profile-dir", "b"])).is_err());
         assert_eq!(
             parse(&argv(&["serve", "--help"])).unwrap(),
@@ -933,8 +1025,17 @@ mod tests {
     fn token_create_reads_label_grant_expiry_and_profile_dir() {
         assert_eq!(
             parse(&argv(&[
-                "token", "create", "--label", "lucy-phone", "--profile", "authoring",
-                "--expires-days", "365", "--profile-dir", "/data/sophia", "--json",
+                "token",
+                "create",
+                "--label",
+                "lucy-phone",
+                "--profile",
+                "authoring",
+                "--expires-days",
+                "365",
+                "--profile-dir",
+                "/data/sophia",
+                "--json",
             ]))
             .unwrap(),
             Some(Command::TokenCreate(TokenCreateArgs {
@@ -952,32 +1053,73 @@ mod tests {
         };
         assert_eq!(defaults.grant, "read-only");
         assert_eq!(defaults.expires_days, None);
-        let Some(Command::TokenCreate(by_alias)) =
-            parse(&argv(&["token", "create", "--label", "a", "--grant", "rdf-admin"])).unwrap()
-        else {
+        let Some(Command::TokenCreate(by_alias)) = parse(&argv(&[
+            "token",
+            "create",
+            "--label",
+            "a",
+            "--grant",
+            "rdf-admin",
+        ]))
+        .unwrap() else {
             panic!("token create --grant");
         };
         assert_eq!(by_alias.grant, "rdf-admin");
-        let Some(Command::TokenCreate(member)) =
-            parse(&argv(&["token", "create", "--label", "claude", "--grant", "member"])).unwrap()
-        else {
+        let Some(Command::TokenCreate(member)) = parse(&argv(&[
+            "token", "create", "--label", "claude", "--grant", "member",
+        ]))
+        .unwrap() else {
             panic!("token create --grant member");
         };
         assert_eq!(member.grant, "member");
-        let Some(Command::TokenCreate(member)) =
-            parse(&argv(&["token", "create", "--label", "claude", "--profile=member"])).unwrap()
-        else {
+        let Some(Command::TokenCreate(member)) = parse(&argv(&[
+            "token",
+            "create",
+            "--label",
+            "claude",
+            "--profile=member",
+        ]))
+        .unwrap() else {
             panic!("token create --profile member");
         };
-        assert_eq!(member.grant, "member", "--profile stays an alias of --grant");
-        assert!(parse(&argv(&["token", "create", "--label", "a", "--grant", "member", "--profile", "member"]))
+        assert_eq!(
+            member.grant, "member",
+            "--profile stays an alias of --grant"
+        );
+        assert!(parse(&argv(&[
+            "token",
+            "create",
+            "--label",
+            "a",
+            "--grant",
+            "member",
+            "--profile",
+            "member"
+        ]))
+        .unwrap_err()
+        .contains("not both"));
+        assert!(parse(&argv(&["token", "create"]))
             .unwrap_err()
-            .contains("not both"));
-        assert!(parse(&argv(&["token", "create"])).unwrap_err().contains("--label"));
-        assert!(parse(&argv(&["token", "create", "--label", "a", "--profile", "root"]))
-            .unwrap_err()
-            .contains("unknown grant"));
-        assert!(parse(&argv(&["token", "create", "--label", "a", "--expires-days", "soon"])).is_err());
+            .contains("--label"));
+        assert!(parse(&argv(&[
+            "token",
+            "create",
+            "--label",
+            "a",
+            "--profile",
+            "root"
+        ]))
+        .unwrap_err()
+        .contains("unknown grant"));
+        assert!(parse(&argv(&[
+            "token",
+            "create",
+            "--label",
+            "a",
+            "--expires-days",
+            "soon"
+        ]))
+        .is_err());
         assert!(parse(&argv(&["token", "create", "--label", "a", "--json=yes"])).is_err());
     }
 
@@ -985,10 +1127,20 @@ mod tests {
     fn token_list_and_revoke() {
         assert_eq!(
             parse(&argv(&["token", "list", "--json"])).unwrap(),
-            Some(Command::TokenList { profile_dir: None, json: true })
+            Some(Command::TokenList {
+                profile_dir: None,
+                json: true
+            })
         );
         assert_eq!(
-            parse(&argv(&["token", "revoke", "3f2a9c1e", "--profile-dir", "/p"])).unwrap(),
+            parse(&argv(&[
+                "token",
+                "revoke",
+                "3f2a9c1e",
+                "--profile-dir",
+                "/p"
+            ]))
+            .unwrap(),
             Some(Command::TokenRevoke {
                 id: "3f2a9c1e".to_string(),
                 profile_dir: Some("/p".to_string())
@@ -1003,15 +1155,30 @@ mod tests {
     #[test]
     fn service_verbs() {
         assert_eq!(
-            parse(&argv(&["service", "install", "--profile", "/p", "--port", "7701", "--print"])).unwrap(),
+            parse(&argv(&[
+                "service",
+                "install",
+                "--profile",
+                "/p",
+                "--port",
+                "7701",
+                "--print"
+            ]))
+            .unwrap(),
             Some(Command::ServiceInstall(ServiceArgs {
                 profile: Some("/p".to_string()),
                 port: Some(7701),
                 print: true,
             }))
         );
-        assert_eq!(parse(&argv(&["service", "status"])).unwrap(), Some(Command::ServiceStatus));
-        assert_eq!(parse(&argv(&["service", "uninstall"])).unwrap(), Some(Command::ServiceUninstall));
+        assert_eq!(
+            parse(&argv(&["service", "status"])).unwrap(),
+            Some(Command::ServiceStatus)
+        );
+        assert_eq!(
+            parse(&argv(&["service", "uninstall"])).unwrap(),
+            Some(Command::ServiceUninstall)
+        );
         assert!(parse(&argv(&["service", "restart"])).is_err());
         assert!(parse(&argv(&["service"])).is_err());
     }
@@ -1075,7 +1242,15 @@ mod tests {
     #[test]
     fn service_env_verbs() {
         assert_eq!(
-            parse(&argv(&["service", "env", "set", "ANTHROPIC_API_KEY", "--service", "vehicle"])).unwrap(),
+            parse(&argv(&[
+                "service",
+                "env",
+                "set",
+                "ANTHROPIC_API_KEY",
+                "--service",
+                "vehicle"
+            ]))
+            .unwrap(),
             Some(Command::ServiceEnvSet {
                 name: "ANTHROPIC_API_KEY".to_string(),
                 service: Some("vehicle".to_string()),
@@ -1083,7 +1258,15 @@ mod tests {
             })
         );
         assert_eq!(
-            parse(&argv(&["service", "env", "unset", "OPENROUTER_API_KEY", "--profile", "/p"])).unwrap(),
+            parse(&argv(&[
+                "service",
+                "env",
+                "unset",
+                "OPENROUTER_API_KEY",
+                "--profile",
+                "/p"
+            ]))
+            .unwrap(),
             Some(Command::ServiceEnvUnset {
                 name: "OPENROUTER_API_KEY".to_string(),
                 service: None,
@@ -1092,7 +1275,10 @@ mod tests {
         );
         assert_eq!(
             parse(&argv(&["service", "env", "list"])).unwrap(),
-            Some(Command::ServiceEnvList { service: None, profile_dir: None })
+            Some(Command::ServiceEnvList {
+                service: None,
+                profile_dir: None
+            })
         );
         assert!(parse(&argv(&["service", "env"])).is_err());
         assert!(parse(&argv(&["service", "env", "set"])).is_err());
@@ -1106,7 +1292,10 @@ mod tests {
 
     #[test]
     fn help_names_every_verb_and_the_default_port() {
-        assert_eq!(parse(&argv(&["--help"])).unwrap(), Some(Command::Help(None)));
+        assert_eq!(
+            parse(&argv(&["--help"])).unwrap(),
+            Some(Command::Help(None))
+        );
         assert_eq!(
             parse(&argv(&["help", "token"])).unwrap(),
             Some(Command::Help(Some("token".to_string())))
@@ -1116,10 +1305,15 @@ mod tests {
             assert!(help.contains(&format!("gardend {verb}")), "{verb}");
         }
         assert!(help.contains(&super::super::DEFAULT_PORT.to_string()));
-        assert!(help_text(Some("serve")).contains("Open Sophia: http://127.0.0.1:<port>/#key=<key>"));
+        assert!(
+            help_text(Some("serve")).contains("Open Sophia: http://127.0.0.1:<port>/#key=<key>")
+        );
         for grant in GRANT_PROFILES {
             assert!(help_text(Some("token")).contains(grant), "{grant}");
         }
-        assert!(help.contains("--grant member"), "the overview tells agents which grant to use");
+        assert!(
+            help.contains("--grant member"),
+            "the overview tells agents which grant to use"
+        );
     }
 }

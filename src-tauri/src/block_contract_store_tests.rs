@@ -169,7 +169,11 @@ async fn create(app: &crate::app_runtime::AppHandle, document_id: &str) {
     .unwrap();
 }
 
-async fn write_tiptap(app: &crate::app_runtime::AppHandle, document_id: &str, content: Vec<Value>) -> Value {
+async fn write_tiptap(
+    app: &crate::app_runtime::AppHandle,
+    document_id: &str,
+    content: Vec<Value>,
+) -> Value {
     crate::document_mutation_service::mcp_local_write_document(
         app.clone(),
         &json!({"graph_id": GRAPH, "document_id": document_id,
@@ -194,7 +198,11 @@ fn semantic(value: &Value) -> Value {
         Value::Object(map) => {
             let mut keys: Vec<&String> = map.keys().collect();
             keys.sort();
-            Value::Object(keys.into_iter().map(|k| (k.clone(), semantic(&map[k]))).collect())
+            Value::Object(
+                keys.into_iter()
+                    .map(|k| (k.clone(), semantic(&map[k])))
+                    .collect(),
+            )
         }
         Value::Array(items) => Value::Array(items.iter().map(semantic).collect()),
         Value::Number(n) => match n.as_f64() {
@@ -213,7 +221,13 @@ fn assert_specimen_canonical(doc: &Value, result: &Value, path: &str) {
 
 fn assert_specimen_canonical_in(doc: &Value, result: &Value, path: &str, carrier: &str) {
     let all = nodes(doc);
-    for forbidden in ["bulletList", "orderedList", "taskList", "taskItem", "callout"] {
+    for forbidden in [
+        "bulletList",
+        "orderedList",
+        "taskList",
+        "taskItem",
+        "callout",
+    ] {
         assert!(
             all.iter().all(|n| n["type"] != forbidden),
             "{path}: stored document still holds a {forbidden}: {doc}"
@@ -237,18 +251,36 @@ fn assert_specimen_canonical_in(doc: &Value, result: &Value, path: &str, carrier
     ] {
         let li = list_item(label);
         assert_eq!(li["attrs"]["listType"], list_type, "{path}: {label}: {li}");
-        assert_eq!(li["attrs"]["indent"].as_f64(), Some(indent as f64), "{path}: {label}: {li}");
+        assert_eq!(
+            li["attrs"]["indent"].as_f64(),
+            Some(indent as f64),
+            "{path}: {label}: {li}"
+        );
         assert!(
-            li["attrs"]["data-block-id"].as_str().is_some_and(|id| !id.is_empty()),
+            li["attrs"]["data-block-id"]
+                .as_str()
+                .is_some_and(|id| !id.is_empty()),
             "{path}: flattened {label} has a block id: {li}"
         );
     }
     assert_eq!(list_item("TASK-A")["attrs"]["checked"], true, "{path}");
     assert_eq!(list_item("TASK-B")["attrs"]["checked"], false, "{path}");
     // The container's id stays addressable: it moves to the first item.
-    assert_eq!(list_item("BULLET-A")["attrs"]["data-block-id"], "bl", "{path}");
-    assert_eq!(list_item("ORDERED-A")["attrs"]["data-block-id"], "ol", "{path}");
-    assert_eq!(list_item("TASK-A")["attrs"]["data-block-id"], "tl", "{path}");
+    assert_eq!(
+        list_item("BULLET-A")["attrs"]["data-block-id"],
+        "bl",
+        "{path}"
+    );
+    assert_eq!(
+        list_item("ORDERED-A")["attrs"]["data-block-id"],
+        "ol",
+        "{path}"
+    );
+    assert_eq!(
+        list_item("TASK-A")["attrs"]["data-block-id"],
+        "tl",
+        "{path}"
+    );
 
     // Block atoms never sit inside a paragraph or a listItem.
     for parent in &all {
@@ -259,9 +291,17 @@ fn assert_specimen_canonical_in(doc: &Value, result: &Value, path: &str, carrier
         }
     }
     let top_images = top.iter().filter(|n| n["type"] == "image").count();
-    assert_eq!(top_images, 2, "{path}: both images hoisted to the top level: {doc}");
+    assert_eq!(
+        top_images, 2,
+        "{path}: both images hoisted to the top level: {doc}"
+    );
     let flat = serde_json::to_string(doc).unwrap();
-    for needle in ["IMG-BEFORE", "IMG-AFTER", "LI-TEXT", "Anchor paragraph stays."] {
+    for needle in [
+        "IMG-BEFORE",
+        "IMG-AFTER",
+        "LI-TEXT",
+        "Anchor paragraph stays.",
+    ] {
         assert!(flat.contains(needle), "{path}: {needle} lost: {doc}");
     }
     // The hoisted image follows the text before it and precedes the text after.
@@ -269,8 +309,14 @@ fn assert_specimen_canonical_in(doc: &Value, result: &Value, path: &str, carrier
     let before = pos(&|n: &Value| node_text(n).contains("IMG-BEFORE"));
     let image = pos(&|n: &Value| n["type"] == "image" && n["attrs"]["alt"] == "ALT-A");
     let after = pos(&|n: &Value| node_text(n).contains("IMG-AFTER"));
-    assert!(before < image && image < after, "{path}: hoist keeps order: {doc}");
-    assert_eq!(top[before]["attrs"]["data-block-id"], "pimg", "{path}: first part keeps the id");
+    assert!(
+        before < image && image < after,
+        "{path}: hoist keeps order: {doc}"
+    );
+    assert_eq!(
+        top[before]["attrs"]["data-block-id"], "pimg",
+        "{path}: first part keeps the id"
+    );
 
     // Unknown block → opaqueBlock, byte-exact original, same block id.
     let opaque = top
@@ -283,8 +329,18 @@ fn assert_specimen_canonical_in(doc: &Value, result: &Value, path: &str, carrier
         serde_json::to_string(&callout()).unwrap(),
         "{path}: originalJson is the verbatim node"
     );
-    assert!(opaque["attrs"]["text"].as_str().unwrap().contains("CALLOUT-TEXT"), "{path}");
-    assert_eq!(opaque["attrs"]["contractVersion"].as_f64(), Some(1.0), "{path}");
+    assert!(
+        opaque["attrs"]["text"]
+            .as_str()
+            .unwrap()
+            .contains("CALLOUT-TEXT"),
+        "{path}"
+    );
+    assert_eq!(
+        opaque["attrs"]["contractVersion"].as_f64(),
+        Some(1.0),
+        "{path}"
+    );
     assert_eq!(opaque["attrs"]["data-block-id"], "co", "{path}");
     assert!(opaque.get("content").is_none(), "{path}: opaque is a leaf");
 
@@ -296,21 +352,37 @@ fn assert_specimen_canonical_in(doc: &Value, result: &Value, path: &str, carrier
     // attribute map, so the store holds the set and every read returns the
     // contract's canonical order (`canonical_mark_cmp`): the contract's marks
     // in contract order, then unknown marks by name. Not a coin flip per read.
-    assert_eq!(sup["marks"], json!([{"type": "bold"}, {"type": "superscript"}]), "{path}");
+    assert_eq!(
+        sup["marks"],
+        json!([{"type": "bold"}, {"type": "superscript"}]),
+        "{path}"
+    );
 
     // Every rewrite is reported, with its node path.
     let warnings = warnings(result);
     let joined = warnings.join("\n");
     for needle in [
-        "bulletList", "orderedList", "taskList", "callout", "opaqueBlock", "image", "kbd",
-        "superscript", &format!("{carrier}[1]"), &format!("{carrier}[6]"),
+        "bulletList",
+        "orderedList",
+        "taskList",
+        "callout",
+        "opaqueBlock",
+        "image",
+        "kbd",
+        "superscript",
+        &format!("{carrier}[1]"),
+        &format!("{carrier}[6]"),
     ] {
-        assert!(joined.contains(needle), "{path}: warnings name {needle:?}:\n{joined}");
+        assert!(
+            joined.contains(needle),
+            "{path}: warnings name {needle:?}:\n{joined}"
+        );
     }
 }
 
 fn is_rewrite(warning: &str) -> bool {
-    warning.starts_with("block-contract known-equivalent") || warning.starts_with("block-contract unknown")
+    warning.starts_with("block-contract known-equivalent")
+        || warning.starts_with("block-contract unknown")
 }
 
 #[test]
@@ -332,8 +404,14 @@ fn write_document_tiptap_json_is_normalised_with_receipts() {
                 doc["content"].as_array().unwrap().clone(),
             )
             .await;
-            let rewrites: Vec<String> = warnings(&again).into_iter().filter(|w| is_rewrite(w)).collect();
-            assert!(rewrites.is_empty(), "canonical content was rewritten: {rewrites:?}");
+            let rewrites: Vec<String> = warnings(&again)
+                .into_iter()
+                .filter(|w| is_rewrite(w))
+                .collect();
+            assert!(
+                rewrites.is_empty(),
+                "canonical content was rewritten: {rewrites:?}"
+            );
             assert_eq!(
                 semantic(&stored(&app, "doc-write")),
                 semantic(&doc),
@@ -342,9 +420,19 @@ fn write_document_tiptap_json_is_normalised_with_receipts() {
 
             // The markdown face never drops the opaque object.
             let md = markdown(&app, "doc-write");
-            assert!(md.contains("```json"), "opaque renders as a fenced JSON block:\n{md}");
+            assert!(
+                md.contains("```json"),
+                "opaque renders as a fenced JSON block:\n{md}"
+            );
             assert!(md.contains("CALLOUT-TEXT"), "{md}");
-            for label in ["BULLET-A", "BULLET-A1", "ORDERED-B", "TASK-A", "KBD-TEXT", "SUP-TEXT"] {
+            for label in [
+                "BULLET-A",
+                "BULLET-A1",
+                "ORDERED-B",
+                "TASK-A",
+                "KBD-TEXT",
+                "SUP-TEXT",
+            ] {
                 assert!(md.contains(label), "markdown lost {label}:\n{md}");
             }
         });
@@ -457,7 +545,10 @@ fn canonical_content_is_stored_verbatim_without_receipts() {
                     {"type": "mathInline", "attrs": {"src": "y"}}]}),
             ];
             let result = write_tiptap(&app, "doc-canonical", canonical.clone()).await;
-            assert!(warnings(&result).is_empty(), "canonical content drew receipts: {result}");
+            assert!(
+                warnings(&result).is_empty(),
+                "canonical content drew receipts: {result}"
+            );
             assert_eq!(
                 semantic(&stored(&app, "doc-canonical")["content"]),
                 semantic(&Value::Array(canonical)),
@@ -480,7 +571,10 @@ fn opaque_block_projects_as_rdf_with_its_original_type() {
             .await
             .unwrap();
             let flat = rows.to_string();
-            assert!(flat.contains("callout") && flat.contains("block-co"), "OpaqueBlock not projected: {flat}");
+            assert!(
+                flat.contains("callout") && flat.contains("block-co"),
+                "OpaqueBlock not projected: {flat}"
+            );
         });
     });
 }
@@ -545,13 +639,19 @@ fn list_loss_battery_through_every_tiptap_json_path() {
                     let result = match outcome {
                         Ok(result) => result,
                         Err(error) => {
-                            report.push(format!("{id:<24} {path:<22} refused: {}", error.chars().take(90).collect::<String>()));
+                            report.push(format!(
+                                "{id:<24} {path:<22} refused: {}",
+                                error.chars().take(90).collect::<String>()
+                            ));
                             continue;
                         }
                     };
                     let doc = stored(&app, &doc_id);
                     let flat = serde_json::to_string(&doc).unwrap();
-                    let lost: Vec<&String> = texts.iter().filter(|t| !flat.contains(t.as_str())).collect();
+                    let lost: Vec<&String> = texts
+                        .iter()
+                        .filter(|t| !flat.contains(t.as_str()))
+                        .collect();
                     let bad: Vec<String> = nodes(&doc)
                         .iter()
                         .filter_map(|n| n["type"].as_str())
@@ -577,7 +677,11 @@ fn list_loss_battery_through_every_tiptap_json_path() {
                 }
             }
             println!("BLOCK_CONTRACT_BATTERY\n{}", report.join("\n"));
-            assert!(failures.is_empty(), "battery failures:\n{}", failures.join("\n"));
+            assert!(
+                failures.is_empty(),
+                "battery failures:\n{}",
+                failures.join("\n")
+            );
         });
     });
 }

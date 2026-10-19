@@ -32,7 +32,10 @@ fn emitted_contract_file_is_current_and_content_addressed() {
     parsed.as_object_mut().unwrap().remove("sha256");
     let compact = serde_json::to_string(&block_contract::canonical_json(&parsed)).unwrap();
     use sha2::Digest;
-    assert_eq!(format!("{:x}", sha2::Sha256::digest(compact.as_bytes())), declared);
+    assert_eq!(
+        format!("{:x}", sha2::Sha256::digest(compact.as_bytes())),
+        declared
+    );
     assert_eq!(parsed["contractVersion"], CONTRACT_VERSION);
     assert_eq!(block_contract::contract_status()["sha256"], declared);
 }
@@ -62,14 +65,32 @@ fn contract_matches_the_editor_kernel_document_schema() {
     );
     for spec in NODES.iter().filter(|n| !AWAITING_EDITOR.contains(&n.name)) {
         let node = editor_nodes[spec.name];
-        assert_eq!(node["content"].as_str(), spec.content, "{}: content expression", spec.name);
+        assert_eq!(
+            node["content"].as_str(),
+            spec.content,
+            "{}: content expression",
+            spec.name
+        );
         assert_eq!(node["group"].as_str(), spec.group, "{}: group", spec.name);
         assert_eq!(node["marks"].as_str(), spec.marks, "{}: marks", spec.name);
-        assert_eq!(node["inline"].as_bool(), Some(spec.inline), "{}: inline", spec.name);
-        assert_eq!(node["atom"].as_bool(), Some(spec.atom), "{}: atom", spec.name);
+        assert_eq!(
+            node["inline"].as_bool(),
+            Some(spec.inline),
+            "{}: inline",
+            spec.name
+        );
+        assert_eq!(
+            node["atom"].as_bool(),
+            Some(spec.atom),
+            "{}: atom",
+            spec.name
+        );
         assert_eq!(
             attr_set(&node["attrs"]),
-            spec.attr_names().into_iter().map(str::to_string).collect::<BTreeSet<_>>(),
+            spec.attr_names()
+                .into_iter()
+                .map(str::to_string)
+                .collect::<BTreeSet<_>>(),
             "{}: attrs",
             spec.name
         );
@@ -81,24 +102,41 @@ fn contract_matches_the_editor_kernel_document_schema() {
         .map(|m| (m["name"].as_str().unwrap().to_string(), m))
         .collect();
     assert_eq!(
-        MARKS.iter().map(|m| m.name.to_string()).collect::<BTreeSet<_>>(),
+        MARKS
+            .iter()
+            .map(|m| m.name.to_string())
+            .collect::<BTreeSet<_>>(),
         editor_marks.keys().cloned().collect::<BTreeSet<_>>(),
         "contract mark set != editor-kernel document schema"
     );
     for spec in MARKS {
         let mark = editor_marks[spec.name];
-        assert_eq!(mark["excludes"].as_str(), spec.excludes, "{}: excludes", spec.name);
+        assert_eq!(
+            mark["excludes"].as_str(),
+            spec.excludes,
+            "{}: excludes",
+            spec.name
+        );
         assert_eq!(
             attr_set(&mark["attrs"]),
-            spec.attr_names().into_iter().map(str::to_string).collect::<BTreeSet<_>>(),
+            spec.attr_names()
+                .into_iter()
+                .map(str::to_string)
+                .collect::<BTreeSet<_>>(),
             "{}: attrs",
             spec.name
         );
     }
     // Exactly the nodes the editor still lacks, and they are render-only.
     for name in AWAITING_EDITOR {
-        assert!(!editor_nodes.contains_key(*name), "{name} shipped in the editor: drop it from AWAITING_EDITOR");
-        assert_eq!(block_contract::node_spec(name).unwrap().state, block_contract::State::RenderOnly);
+        assert!(
+            !editor_nodes.contains_key(*name),
+            "{name} shipped in the editor: drop it from AWAITING_EDITOR"
+        );
+        assert_eq!(
+            block_contract::node_spec(name).unwrap().state,
+            block_contract::State::RenderOnly
+        );
     }
 }
 
@@ -142,7 +180,10 @@ fn battery_normalises_to_known_nodes_without_losing_text_and_is_idempotent() {
         let mut seen = BTreeSet::new();
         types(&doc, &mut seen);
         for t in &seen {
-            assert!(block_contract::is_known_node(t), "{id}: {t} survived normalisation: {doc}");
+            assert!(
+                block_contract::is_known_node(t),
+                "{id}: {t} survived normalisation: {doc}"
+            );
         }
         let flat = serde_json::to_string(&doc).unwrap();
         let mut original = Vec::new();
@@ -157,15 +198,28 @@ fn battery_normalises_to_known_nodes_without_losing_text_and_is_idempotent() {
             doc["content"].as_array().unwrap(),
             "battery-second-pass",
         );
-        assert_eq!(serde_json::to_string(&again).unwrap(), serde_json::to_string(&doc["content"]).unwrap(), "{id}: not idempotent");
+        assert_eq!(
+            serde_json::to_string(&again).unwrap(),
+            serde_json::to_string(&doc["content"]).unwrap(),
+            "{id}: not idempotent"
+        );
         assert!(
-            again_receipts.iter().all(|w| !block_contract::is_rewrite_warning(w)),
+            again_receipts
+                .iter()
+                .all(|w| !block_contract::is_rewrite_warning(w)),
             "{id}: second pass rewrote: {again_receipts:?}"
         );
         // Deterministic: the same seed gives the same bytes and receipts.
         let (replay, replay_receipts) = block_contract::normalise_doc_content(&content, "battery");
-        assert_eq!(replay, doc["content"].as_array().unwrap().clone(), "{id}: not deterministic");
-        assert_eq!(replay_receipts, receipts, "{id}: receipts not deterministic");
+        assert_eq!(
+            replay,
+            doc["content"].as_array().unwrap().clone(),
+            "{id}: not deterministic"
+        );
+        assert_eq!(
+            replay_receipts, receipts,
+            "{id}: receipts not deterministic"
+        );
     }
 }
 
@@ -206,12 +260,18 @@ fn unknown_block_is_wrapped_byte_exact_and_keeps_its_id() {
     let attrs = &out[0]["attrs"];
     assert_eq!(out[0]["type"], "opaqueBlock");
     assert_eq!(attrs["originalType"], "callout");
-    assert_eq!(attrs["originalJson"], serde_json::to_string(&callout).unwrap());
+    assert_eq!(
+        attrs["originalJson"],
+        serde_json::to_string(&callout).unwrap()
+    );
     assert_eq!(attrs["text"], "Mind the gap\ntwice");
     assert_eq!(attrs["contractVersion"], CONTRACT_VERSION);
     assert_eq!(attrs["data-block-id"], "c1");
     assert_eq!(receipts.len(), 1);
-    assert!(receipts[0].starts_with("block-contract unknown content[0]: callout"), "{receipts:?}");
+    assert!(
+        receipts[0].starts_with("block-contract unknown content[0]: callout"),
+        "{receipts:?}"
+    );
     // Once wrapped, the opaque object is canonical: no double wrapping.
     let (again, again_receipts) = block_contract::normalise_doc_content(&out, "op-2");
     assert_eq!(again, out);
@@ -233,7 +293,10 @@ fn nested_lists_flatten_with_indent_ids_and_receipts() {
         .map(|n| {
             (
                 n["attrs"]["listType"].as_str().unwrap().to_string(),
-                n["content"][0]["content"][0]["text"].as_str().unwrap().to_string(),
+                n["content"][0]["content"][0]["text"]
+                    .as_str()
+                    .unwrap()
+                    .to_string(),
                 n["attrs"]["indent"].as_i64().unwrap(),
                 n["attrs"]["checked"].clone(),
             )
@@ -247,13 +310,34 @@ fn nested_lists_flatten_with_indent_ids_and_receipts() {
             ("ordered".into(), "two".into(), 0, Value::Null),
         ]
     );
-    assert_eq!(out[0]["attrs"]["data-block-id"], "ol", "container id moves to its first item");
+    assert_eq!(
+        out[0]["attrs"]["data-block-id"], "ol",
+        "container id moves to its first item"
+    );
     assert_eq!(out[2]["attrs"]["data-block-id"], "two");
     let minted = out[1]["attrs"]["data-block-id"].as_str().unwrap();
-    assert!(minted.starts_with("block-") && minted.len() == 14, "{minted}");
-    assert!(receipts[0].starts_with("block-contract known-equivalent content[0]: orderedList flattened to 3"), "{receipts:?}");
-    assert!(receipts.iter().any(|w| w.contains("content[0].content[0].content[1]: taskList flattened")), "{receipts:?}");
-    assert!(receipts.iter().any(|w| w.contains("content[0].content[1].content[0]") && w.contains("wrapped in a paragraph")), "{receipts:?}");
+    assert!(
+        minted.starts_with("block-") && minted.len() == 14,
+        "{minted}"
+    );
+    assert!(
+        receipts[0]
+            .starts_with("block-contract known-equivalent content[0]: orderedList flattened to 3"),
+        "{receipts:?}"
+    );
+    assert!(
+        receipts
+            .iter()
+            .any(|w| w.contains("content[0].content[0].content[1]: taskList flattened")),
+        "{receipts:?}"
+    );
+    assert!(
+        receipts
+            .iter()
+            .any(|w| w.contains("content[0].content[1].content[0]")
+                && w.contains("wrapped in a paragraph")),
+        "{receipts:?}"
+    );
 }
 
 #[test]
@@ -268,8 +352,14 @@ fn block_atoms_in_inline_content_are_hoisted_in_order() {
     assert_eq!(out[0]["attrs"]["data-block-id"], "p");
     assert_eq!(out[0]["content"][0]["text"], "before ");
     assert_eq!(out[2]["content"][0]["text"], " after");
-    assert_ne!(out[2]["attrs"]["data-block-id"], "p", "the second half gets its own id");
-    assert!(out[1]["attrs"]["data-block-id"].is_string(), "the hoisted block gets an id");
+    assert_ne!(
+        out[2]["attrs"]["data-block-id"], "p",
+        "the second half gets its own id"
+    );
+    assert!(
+        out[1]["attrs"]["data-block-id"].is_string(),
+        "the hoisted block gets an id"
+    );
     assert_eq!(receipts, vec!["block-contract known-equivalent content[0].content[1]: mathBlock hoisted out of paragraph (block content cannot sit inline)".to_string()]);
 }
 
@@ -282,7 +372,10 @@ fn unknown_marks_are_preserved_verbatim_and_reported() {
     assert_eq!(out, vec![para]);
     assert_eq!(
         receipts,
-        vec!["block-contract preserved content[0].content[0]: unknown mark subscript kept verbatim".to_string()]
+        vec![
+            "block-contract preserved content[0].content[0]: unknown mark subscript kept verbatim"
+                .to_string()
+        ]
     );
 }
 
@@ -329,7 +422,9 @@ fn written_and_read_back(paragraph: &Value, seed: &str) -> Value {
     let (nodes, receipts) =
         block_contract::normalise_doc_content(std::slice::from_ref(paragraph), seed);
     assert!(
-        receipts.iter().all(|w| !block_contract::is_rewrite_warning(w)),
+        receipts
+            .iter()
+            .all(|w| !block_contract::is_rewrite_warning(w)),
         "marks are a set the normaliser keeps, not a rewrite: {receipts:?}"
     );
     let doc = super::builder::ydoc_from_tiptap_json(&json!({"type": "doc", "content": nodes}));
@@ -349,7 +444,10 @@ fn run_mark_names(doc: &Value) -> Vec<String> {
 
 #[test]
 fn marks_read_back_in_one_canonical_order_whatever_order_they_were_written_in() {
-    let canonical: Vec<String> = STACKED_MARKS_CANONICAL.iter().map(|m| m.to_string()).collect();
+    let canonical: Vec<String> = STACKED_MARKS_CANONICAL
+        .iter()
+        .map(|m| m.to_string())
+        .collect();
     let orders = permutations(&STACKED_MARKS_CANONICAL);
     assert_eq!(orders.len(), 120);
     for order in orders {
@@ -371,14 +469,23 @@ fn marks_read_back_in_one_canonical_order_whatever_order_they_were_written_in() 
         // A fixed point: the read-back normalises to itself without a receipt,
         // and writing it back stores, and reads back, the same document.
         let content = read["content"].as_array().unwrap().clone();
-        let (renormalised, receipts) = block_contract::normalise_doc_content(&content, "marks-again");
+        let (renormalised, receipts) =
+            block_contract::normalise_doc_content(&content, "marks-again");
         assert!(
-            receipts.iter().all(|w| !block_contract::is_rewrite_warning(w)),
+            receipts
+                .iter()
+                .all(|w| !block_contract::is_rewrite_warning(w)),
             "written as {order:?}: normalising a read-back rewrote it: {receipts:?}"
         );
-        assert_eq!(renormalised, content, "written as {order:?}: normalising a read-back changed it");
+        assert_eq!(
+            renormalised, content,
+            "written as {order:?}: normalising a read-back changed it"
+        );
         let second = written_and_read_back(&read["content"][0], "marks-again");
-        assert_eq!(second, read, "written as {order:?}: writing a read-back back changed the document");
+        assert_eq!(
+            second, read,
+            "written as {order:?}: writing a read-back back changed the document"
+        );
     }
 }
 
@@ -392,7 +499,11 @@ fn the_pair_that_failed_on_the_box_reads_back_bold_then_superscript_every_time()
     let paragraph = stacked_paragraph(&["superscript", "bold"]);
     for read_number in 0..64 {
         let read = written_and_read_back(&paragraph, "pair");
-        assert_eq!(run_mark_names(&read), ["bold", "superscript"], "read #{read_number}");
+        assert_eq!(
+            run_mark_names(&read),
+            ["bold", "superscript"],
+            "read #{read_number}"
+        );
     }
 }
 
@@ -410,7 +521,10 @@ fn canonical_mark_order_is_the_contract_marks_list_then_other_marks_by_name() {
         .iter()
         .map(|mark| mark["name"].as_str().unwrap().to_string())
         .collect();
-    assert_eq!(listed, MARKS.iter().map(|m| m.name.to_string()).collect::<Vec<_>>());
+    assert_eq!(
+        listed,
+        MARKS.iter().map(|m| m.name.to_string()).collect::<Vec<_>>()
+    );
     let mut expected = listed.clone();
     expected.extend(["aaa", "kbd", "wireMark", "zzz"].map(String::from));
     // Every rotation, and the reverse, of the whole sequence sorts back to it.
@@ -426,8 +540,16 @@ fn canonical_mark_order_is_the_contract_marks_list_then_other_marks_by_name() {
     // A total order: antisymmetric, and equal only to itself.
     for a in &expected {
         for b in &expected {
-            assert_eq!(by_canonical_order(a, b), by_canonical_order(b, a).reverse(), "{a} vs {b}");
-            assert_eq!(by_canonical_order(a, b) == std::cmp::Ordering::Equal, a == b, "{a} vs {b}");
+            assert_eq!(
+                by_canonical_order(a, b),
+                by_canonical_order(b, a).reverse(),
+                "{a} vs {b}"
+            );
+            assert_eq!(
+                by_canonical_order(a, b) == std::cmp::Ordering::Equal,
+                a == b,
+                "{a} vs {b}"
+            );
         }
     }
 }
@@ -630,6 +752,11 @@ fn container_ids_are_never_silently_dropped() {
     // An empty container keeps its place and id as one empty item.
     let empty = json!({"type": "orderedList", "attrs": {"data-block-id": "ol"}, "content": []});
     let (out, _) = block_contract::normalise_doc_content(&[empty], "op-empty");
-    assert_eq!(out, vec![json!({"type": "listItem", "attrs": {"listType": "ordered", "indent": 0, "data-block-id": "ol"},
-                                "content": [{"type": "paragraph"}]})]);
+    assert_eq!(
+        out,
+        vec![
+            json!({"type": "listItem", "attrs": {"listType": "ordered", "indent": 0, "data-block-id": "ol"},
+                                "content": [{"type": "paragraph"}]})
+        ]
+    );
 }

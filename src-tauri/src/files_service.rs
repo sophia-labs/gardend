@@ -171,7 +171,10 @@ pub(crate) fn require_artifact_id(artifact_id: &str) -> Result<(), FilesError> {
 
 // ── workspace reads ─────────────────────────────────────────────────────────
 
-pub(crate) fn workspace_snapshot(app: &AppHandle, graph_id: &str) -> Result<Option<Value>, FilesError> {
+pub(crate) fn workspace_snapshot(
+    app: &AppHandle,
+    graph_id: &str,
+) -> Result<Option<Value>, FilesError> {
     let graph_dir = existing_graph_dir(app, graph_id)
         .map_err(|message| FilesError::uncoded(StatusCode::NOT_FOUND, message))?;
     let record = crate::workspace_record_store::read_workspace_record(&graph_dir, graph_id)

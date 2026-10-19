@@ -50,7 +50,11 @@ pub(crate) async fn flush_projection_incarnation(
         payload: serde_json::json!({"includeMaterialization":true,"graphIncarnation":expected_incarnation}),
     }).await?;
     if let Some((operation_id, phase)) = phase {
-        let _ = app.state::<CrdtOperationQueue>().add_phase(operation_id, phase, duration_ms(started.elapsed()));
+        let _ = app.state::<CrdtOperationQueue>().add_phase(
+            operation_id,
+            phase,
+            duration_ms(started.elapsed()),
+        );
     }
     Ok(())
 }

@@ -37,7 +37,10 @@ pub(super) fn create_document_payload(arguments: &serde_json::Value) -> serde_js
     });
     // An existing id is refused unless the caller says otherwise
     // (`workspace_ops::admit_document_create`).
-    if let Some(if_exists) = arguments.get("ifExists").or_else(|| arguments.get("if_exists")) {
+    if let Some(if_exists) = arguments
+        .get("ifExists")
+        .or_else(|| arguments.get("if_exists"))
+    {
         payload["ifExists"] = if_exists.clone();
     }
     payload

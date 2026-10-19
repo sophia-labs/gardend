@@ -321,33 +321,52 @@ fn unpack(bytes: &[u8]) -> Result<Members, String> {
             sum == octal(&header[148..156])?,
             "tar header checksum mismatch",
         )?;
-        let gnu=&header[257..265]==b"ustar  \0";
-        let ustar=&header[257..263]==b"ustar\0" && &header[263..265]==b"00";
-        require((gnu || ustar) && header[157..257].iter().all(|c|*c==0),
-            "only regular USTAR/GNU members are supported")?;
-        let name=tar_name(&header[..100])?;
-        let size=octal(&header[124..136])?;
-        if gnu && header[156]==b'L' {
-            require(long_name.is_none() && name=="././@LongLink" && (102..=241).contains(&size),
-                "invalid or repeated GNU long name")?;
-            let start=offset+512;
-            require(start+512<=tar.len() && tar[start+size-1]==0
-                && tar[start+size..start+512].iter().all(|c|*c==0), "GNU long name bounds/padding")?;
-            let path=std::str::from_utf8(&tar[start..start+size-1]).map_err(|e|e.to_string())?;
+        let gnu = &header[257..265] == b"ustar  \0";
+        let ustar = &header[257..263] == b"ustar\0" && &header[263..265] == b"00";
+        require(
+            (gnu || ustar) && header[157..257].iter().all(|c| *c == 0),
+            "only regular USTAR/GNU members are supported",
+        )?;
+        let name = tar_name(&header[..100])?;
+        let size = octal(&header[124..136])?;
+        if gnu && header[156] == b'L' {
+            require(
+                long_name.is_none() && name == "././@LongLink" && (102..=241).contains(&size),
+                "invalid or repeated GNU long name",
+            )?;
+            let start = offset + 512;
+            require(
+                start + 512 <= tar.len()
+                    && tar[start + size - 1] == 0
+                    && tar[start + size..start + 512].iter().all(|c| *c == 0),
+                "GNU long name bounds/padding",
+            )?;
+            let path =
+                std::str::from_utf8(&tar[start..start + size - 1]).map_err(|e| e.to_string())?;
             safe_path(path)?;
-            long_name=Some(path.to_string());
-            offset=start+512;
+            long_name = Some(path.to_string());
+            offset = start + 512;
             continue;
         }
-        require(matches!(header[156],0|b'0'), "only regular archive members are supported")?;
-        let path=if let Some(path)=long_name.take() {
-            require(gnu && name.as_bytes()==&path.as_bytes()[..100], "GNU long name/header mismatch")?;
+        require(
+            matches!(header[156], 0 | b'0'),
+            "only regular archive members are supported",
+        )?;
+        let path = if let Some(path) = long_name.take() {
+            require(
+                gnu && name.as_bytes() == &path.as_bytes()[..100],
+                "GNU long name/header mismatch",
+            )?;
             path
         } else if gnu {
             name.to_string()
         } else {
-            let prefix=tar_name(&header[345..500])?;
-            if prefix.is_empty() {name.to_string()} else {format!("{prefix}/{name}")}
+            let prefix = tar_name(&header[345..500])?;
+            if prefix.is_empty() {
+                name.to_string()
+            } else {
+                format!("{prefix}/{name}")
+            }
         };
         safe_path(&path)?;
         require(
@@ -430,11 +449,17 @@ struct GraphHistoryContent {
 }
 type HistoryProjectionCache = BTreeMap<(String, String), Arc<GraphHistoryContent>>;
 
-fn history_projection(cache: &mut HistoryProjectionCache, bytes: &[u8], doc_id: &str)
-    -> Result<Arc<GraphHistoryContent>, String> {
+fn history_projection(
+    cache: &mut HistoryProjectionCache,
+    bytes: &[u8],
+    doc_id: &str,
+) -> Result<Arc<GraphHistoryContent>, String> {
     let key = (doc_id.to_string(), archive_sha256(bytes));
     if let Some(content) = cache.get(&key) {
-        require(content.bytes.as_ref() == bytes, "historical projection digest collision")?;
+        require(
+            content.bytes.as_ref() == bytes,
+            "historical projection digest collision",
+        )?;
         return Ok(Arc::clone(content));
     }
     let doc = parsed_doc(bytes, "historical document")?;
@@ -460,9 +485,12 @@ struct GraphHistoryPayload {
 impl GraphHistoryPayload {
     fn native(&self) -> LocalDocumentSnapshotPayload {
         LocalDocumentSnapshotPayload {
-            snapshot_id: self.snapshot_id.clone(), graph_id: self.graph_id.clone(),
-            document_id: self.document_id.clone(), title: self.title.clone(),
-            created_at: self.created_at.clone(), blocks: self.content.blocks.clone(),
+            snapshot_id: self.snapshot_id.clone(),
+            graph_id: self.graph_id.clone(),
+            document_id: self.document_id.clone(),
+            title: self.title.clone(),
+            created_at: self.created_at.clone(),
+            blocks: self.content.blocks.clone(),
             tiptap_xml: self.content.tiptap_xml.clone(),
         }
     }
@@ -602,11 +630,16 @@ fn validate_envelope(
         supported_capabilities.insert(DATASET_CAPABILITY.into());
     }
     let original_index = parse_json(member(members, "originals/index.json")?)?;
-    let has_original_metadata_evidence = original_index.as_array()
-        .ok_or("original index must be an array")?.iter()
+    let has_original_metadata_evidence = original_index
+        .as_array()
+        .ok_or("original index must be an array")?
+        .iter()
         .any(|entry| entry.get("sourceMetadataEvidence").is_some());
     if has_original_metadata_evidence {
-        require(transformation == V23, "original metadata evidence requires v2.3")?;
+        require(
+            transformation == V23,
+            "original metadata evidence requires v2.3",
+        )?;
         supported_capabilities.insert(ORIGINAL_METADATA_CAPABILITY.into());
     }
     let required_set = required
@@ -825,10 +858,7 @@ fn escape_legacy_bare_xml_ampersands(xml: &str) -> String {
             let Some(end) = digits.find(';') else {
                 return false;
             };
-            end > 0
-                && digits[..end]
-                    .chars()
-                    .all(|digit| digit.is_digit(radix))
+            end > 0 && digits[..end].chars().all(|digit| digit.is_digit(radix))
         });
         if named || numeric {
             output.push('&');
@@ -857,9 +887,8 @@ pub(super) fn legacy_nonnegative_integral_lexical(value: &str) -> Option<u64> {
         .unwrap_or((value, None));
     if whole.is_empty()
         || !whole.bytes().all(|byte| byte.is_ascii_digit())
-        || fraction.is_some_and(|digits| {
-            digits.is_empty() || !digits.bytes().all(|byte| byte == b'0')
-        })
+        || fraction
+            .is_some_and(|digits| digits.is_empty() || !digits.bytes().all(|byte| byte == b'0'))
     {
         return None;
     }
@@ -879,39 +908,70 @@ fn authored_rdf_original_matches(
 // Missing/null descriptive size is not missing content. This finite declaration
 // is checked against the actual source field and never accepts an unequal value.
 fn original_size_evidence(
-    evidence: Option<&Value>, basis: &str, field: &str, presence: &str,
+    evidence: Option<&Value>,
+    basis: &str,
+    field: &str,
+    presence: &str,
 ) -> Result<bool, String> {
-    let Some(evidence) = evidence else { return Ok(false); };
-    require(matches!((basis, field, presence),
-        ("captured-workspace-yjs", "sizeBytes", "absent" | "null") |
-        ("authored-rdf-v1", "sourceContentSize", "absent")),
-        "unsupported original metadata absence")?;
-    require(*evidence == json!({
-        "schema":"cloud1-original-metadata-evidence.v1",
-        "rule":"verified-object-size-source-absent-or-null-v1",
-        "basis":basis,"field":field,"presence":presence,"sourceValue":null
-    }), "original metadata evidence differs from source field")?;
+    let Some(evidence) = evidence else {
+        return Ok(false);
+    };
+    require(
+        matches!(
+            (basis, field, presence),
+            ("captured-workspace-yjs", "sizeBytes", "absent" | "null")
+                | ("authored-rdf-v1", "sourceContentSize", "absent")
+        ),
+        "unsupported original metadata absence",
+    )?;
+    require(
+        *evidence
+            == json!({
+                "schema":"cloud1-original-metadata-evidence.v1",
+                "rule":"verified-object-size-source-absent-or-null-v1",
+                "basis":basis,"field":field,"presence":presence,"sourceValue":null
+            }),
+        "original metadata evidence differs from source field",
+    )?;
     Ok(true)
 }
 
 fn original_storage_filename(filename: &str) -> Result<String, String> {
-    require(!filename.is_empty() && filename.len() <= 65536,
-        "original filename byte budget or empty value")?;
+    require(
+        !filename.is_empty() && filename.len() <= 65536,
+        "original filename byte budget or empty value",
+    )?;
     // The source name remains exact provenance, never a native path. Preserve
     // already-safe names; one original per owner makes this mapping injective
     // within the storage slot, and the full digest avoids lossy sanitization.
-    if filename.len() <= 200 && crate::ids::safe_filename(filename) == filename
+    if filename.len() <= 200
+        && crate::ids::safe_filename(filename) == filename
         && !matches!(filename, "." | "..")
         && !filename.eq_ignore_ascii_case("manifest.json")
-    { Ok(filename.into()) }
-    else { Ok(format!("source-{}.bin", archive_sha256(filename.as_bytes()))) }
+    {
+        Ok(filename.into())
+    } else {
+        Ok(format!(
+            "source-{}.bin",
+            archive_sha256(filename.as_bytes())
+        ))
+    }
 }
 
-fn workspace_original_size_evidence(workspace: &yrs::Doc, row: &MapRef, key: &str,
-    evidence: Option<&Value>) -> Result<bool, String> {
-    require(matches!(key, "sizeBytes" | "sf_sizeBytes"), "unsupported original workspace size key")?;
+fn workspace_original_size_evidence(
+    workspace: &yrs::Doc,
+    row: &MapRef,
+    key: &str,
+    evidence: Option<&Value>,
+) -> Result<bool, String> {
+    require(
+        matches!(key, "sizeBytes" | "sf_sizeBytes"),
+        "unsupported original workspace size key",
+    )?;
     let presence = match row.get(&workspace.transact(), key) {
-        None => "absent", Some(Out::Any(Any::Null)) => "null", _ => "present",
+        None => "absent",
+        Some(Out::Any(Any::Null)) => "null",
+        _ => "present",
     };
     original_size_evidence(evidence, "captured-workspace-yjs", "sizeBytes", presence)
 }
@@ -931,16 +991,36 @@ impl OriginalRdfIndex {
         let mut subjects: BTreeMap<String, Vec<Quad>> = BTreeMap::new();
         for quad in RdfParser::from_format(RdfFormat::NQuads).for_slice(rdf.as_bytes()) {
             let quad = quad.map_err(|error| error.to_string())?;
-            if !matches!(&quad.graph_name, GraphName::NamedNode(node) if node.as_str() == graph_name) {
+            if !matches!(&quad.graph_name, GraphName::NamedNode(node) if node.as_str() == graph_name)
+            {
                 continue;
             }
-            let NamedOrBlankNode::NamedNode(subject) = &quad.subject else { continue; };
-            let Some(predicate) = quad.predicate.as_str().strip_prefix("http://mnemosyne.dev/doc#") else { continue; };
-            let document = subject.as_str().starts_with(&document_prefix) && matches!(predicate,
-                "sourceStorageKey" | "sourceOriginalFilename" | "sourceMimeType" | "sourceFileType" | "sourceContentSize");
-            let artifact = subject.as_str().starts_with(&artifact_prefix) && predicate == "storageKey";
+            let NamedOrBlankNode::NamedNode(subject) = &quad.subject else {
+                continue;
+            };
+            let Some(predicate) = quad
+                .predicate
+                .as_str()
+                .strip_prefix("http://mnemosyne.dev/doc#")
+            else {
+                continue;
+            };
+            let document = subject.as_str().starts_with(&document_prefix)
+                && matches!(
+                    predicate,
+                    "sourceStorageKey"
+                        | "sourceOriginalFilename"
+                        | "sourceMimeType"
+                        | "sourceFileType"
+                        | "sourceContentSize"
+                );
+            let artifact =
+                subject.as_str().starts_with(&artifact_prefix) && predicate == "storageKey";
             if document || artifact {
-                subjects.entry(subject.as_str().into()).or_default().push(quad);
+                subjects
+                    .entry(subject.as_str().into())
+                    .or_default()
+                    .push(quad);
             }
         }
         Ok(Self { subjects })
@@ -952,7 +1032,10 @@ impl OriginalRdfIndex {
 
 #[cfg(test)]
 fn authored_rdf_original_matches_with_evidence(
-    rdf: &str, user: &str, graph: &str, expected: &RdfOriginal<'_>,
+    rdf: &str,
+    user: &str,
+    graph: &str,
+    expected: &RdfOriginal<'_>,
     size_evidence: Option<&Value>,
 ) -> Result<bool, String> {
     let index = OriginalRdfIndex::parse(rdf, user, graph)?;
@@ -960,39 +1043,62 @@ fn authored_rdf_original_matches_with_evidence(
 }
 
 fn indexed_rdf_original_matches_with_evidence(
-    index: &OriginalRdfIndex, user: &str, graph: &str, expected: &RdfOriginal<'_>,
+    index: &OriginalRdfIndex,
+    user: &str,
+    graph: &str,
+    expected: &RdfOriginal<'_>,
     size_evidence: Option<&Value>,
 ) -> Result<bool, String> {
     const NS: &str = "http://mnemosyne.dev/doc#";
     const XSD_INTEGER: &str = "http://www.w3.org/2001/XMLSchema#integer";
-    let subject = format!("urn:mnemosyne:user:{user}:graph:{graph}:doc:{}", expected.document_id);
+    let subject = format!(
+        "urn:mnemosyne:user:{user}:graph:{graph}:doc:{}",
+        expected.document_id
+    );
     let mut values: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
     for quad in index.rows(&subject) {
-        let predicate = quad.predicate.as_str().strip_prefix(NS).expect("indexed predicate namespace");
+        let predicate = quad
+            .predicate
+            .as_str()
+            .strip_prefix(NS)
+            .expect("indexed predicate namespace");
         let Term::Literal(literal) = &quad.object else {
             return Ok(false);
         };
-        values.entry(predicate.into()).or_default().push((
-            literal.value().into(),
-            literal.datatype().as_str().into(),
-        ));
+        values
+            .entry(predicate.into())
+            .or_default()
+            .push((literal.value().into(), literal.datatype().as_str().into()));
     }
     let one = |predicate: &str| -> Option<&(String, String)> {
         let rows = values.get(predicate)?;
         (rows.len() == 1).then(|| &rows[0])
     };
     let size = one("sourceContentSize");
-    let absent_size = original_size_evidence(size_evidence, "authored-rdf-v1",
-        "sourceContentSize", if values.contains_key("sourceContentSize") { "present" } else { "absent" })?;
-    let plain = |predicate: &str, expected: &str| one(predicate).is_some_and(|value|value.0==expected && value.1=="http://www.w3.org/2001/XMLSchema#string");
-    Ok(plain("sourceStorageKey",expected.storage_key)
-        && plain("sourceOriginalFilename",expected.filename)
-        && plain("sourceMimeType",expected.mime)
-        && plain("sourceFileType",expected.file_type)
-        && (absent_size || size.is_some_and(|value| {
-            value.1 == XSD_INTEGER
-                && legacy_nonnegative_integral_lexical(&value.0) == Some(expected.byte_length)
-        })))
+    let absent_size = original_size_evidence(
+        size_evidence,
+        "authored-rdf-v1",
+        "sourceContentSize",
+        if values.contains_key("sourceContentSize") {
+            "present"
+        } else {
+            "absent"
+        },
+    )?;
+    let plain = |predicate: &str, expected: &str| {
+        one(predicate).is_some_and(|value| {
+            value.0 == expected && value.1 == "http://www.w3.org/2001/XMLSchema#string"
+        })
+    };
+    Ok(plain("sourceStorageKey", expected.storage_key)
+        && plain("sourceOriginalFilename", expected.filename)
+        && plain("sourceMimeType", expected.mime)
+        && plain("sourceFileType", expected.file_type)
+        && (absent_size
+            || size.is_some_and(|value| {
+                value.1 == XSD_INTEGER
+                    && legacy_nonnegative_integral_lexical(&value.0) == Some(expected.byte_length)
+            })))
 }
 
 fn prepare(bytes: &[u8], operation: &CrdtOperation) -> Result<Prepared, String> {
@@ -1000,9 +1106,15 @@ fn prepare(bytes: &[u8], operation: &CrdtOperation) -> Result<Prepared, String> 
     let manifest = parse_json(member(&members, "manifest.json")?)?;
     validate_envelope(&members, &manifest, operation, bytes)?;
     exact_class(&manifest, "workspace", set(&["crdt/workspace.yjs"]))?;
-    exact_class(&manifest, "rdf", if members.contains_key(DATASET_MEMBER) {
-        set(&["rdf/dataset.nq", DATASET_MEMBER])
-    } else { set(&["rdf/dataset.nq"]) })?;
+    exact_class(
+        &manifest,
+        "rdf",
+        if members.contains_key(DATASET_MEMBER) {
+            set(&["rdf/dataset.nq", DATASET_MEMBER])
+        } else {
+            set(&["rdf/dataset.nq"])
+        },
+    )?;
     let graph = operation.graph_id.as_str();
     let user = string(&manifest["source"], "userId")?;
     let prefix = format!("users/{user}/graphs/{graph}/");
@@ -1010,30 +1122,54 @@ fn prepare(bytes: &[u8], operation: &CrdtOperation) -> Result<Prepared, String> 
     let workspace = parsed_doc(member(&members, "crdt/workspace.yjs")?, "source workspace")?;
     let documents = roots(&workspace, "documents")?;
     let artifacts = roots(&workspace, "artifacts")?;
-    let custody_index = members.get("source-custody/index.json")
-        .map(|bytes| parse_json(bytes)).transpose()?;
+    let custody_index = members
+        .get("source-custody/index.json")
+        .map(|bytes| parse_json(bytes))
+        .transpose()?;
     let mut unavailable_ids = BTreeSet::new();
     let mut unavailable_bodies = Vec::new();
-    if let Some(rows) = custody_index.as_ref().and_then(|c| c.get("unavailableBodies")) {
-        require(manifest["transformation"] == V23, "unavailable bodies require v2.3")?;
+    if let Some(rows) = custody_index
+        .as_ref()
+        .and_then(|c| c.get("unavailableBodies"))
+    {
+        require(
+            manifest["transformation"] == V23,
+            "unavailable bodies require v2.3",
+        )?;
         let custody = custody_index.as_ref().unwrap();
-        for row in rows.as_array().ok_or("unavailable bodies must be an array")? {
+        for row in rows
+            .as_array()
+            .ok_or("unavailable bodies must be an array")?
+        {
             let id = string(row, "documentId")?;
             source_id(id)?;
-            require(row.as_object().map(|o| o.len()) == Some(5)
-                && row["reason"] == "absent-current-saved-object"
-                && row["sourceUserId"] == user && row["sourceGraphId"] == graph
-                && row["inventorySha256"] == custody["inventorySha256"]
-                && documents.contains_key(id) && unavailable_ids.insert(id.to_string()),
-                "unavailable body source/identity mismatch")?;
-            require_lower_sha256(string(row, "inventorySha256")?, "unavailable body inventory")?;
+            require(
+                row.as_object().map(|o| o.len()) == Some(5)
+                    && row["reason"] == "absent-current-saved-object"
+                    && row["sourceUserId"] == user
+                    && row["sourceGraphId"] == graph
+                    && row["inventorySha256"] == custody["inventorySha256"]
+                    && documents.contains_key(id)
+                    && unavailable_ids.insert(id.to_string()),
+                "unavailable body source/identity mismatch",
+            )?;
+            require_lower_sha256(
+                string(row, "inventorySha256")?,
+                "unavailable body inventory",
+            )?;
             let key = format!("{prefix}documents/{id}.yjs");
-            require(!array(custody, "objects")?.iter().any(|o|
-                o["latest"] == true && o["key"] == key),
-                "unavailable body has current source bytes")?;
+            require(
+                !array(custody, "objects")?
+                    .iter()
+                    .any(|o| o["latest"] == true && o["key"] == key),
+                "unavailable body has current source bytes",
+            )?;
             let mut retained = row.clone();
-            retained["metadata"] = serde_json::to_value(yrs::types::ToJson::to_json(&documents[id], &workspace.transact()))
-                .map_err(|e| e.to_string())?;
+            retained["metadata"] = serde_json::to_value(yrs::types::ToJson::to_json(
+                &documents[id],
+                &workspace.transact(),
+            ))
+            .map_err(|e| e.to_string())?;
             unavailable_bodies.push(retained);
         }
     }
@@ -1048,13 +1184,20 @@ fn prepare(bytes: &[u8], operation: &CrdtOperation) -> Result<Prepared, String> 
     exact_class(&manifest, "documents", document_paths)?;
     let mut live = Vec::new();
     for id in documents.keys() {
-        if unavailable_ids.contains(id) { continue; }
+        if unavailable_ids.contains(id) {
+            continue;
+        }
         let body = member(&members, &format!("crdt/documents/{id}.yjs"))?;
         let _ = parsed_doc(body, "live document")?;
         live.push((id.clone(), body.to_vec()));
     }
     let mut expected_boundaries = set(&["workspace"]);
-    expected_boundaries.extend(documents.keys().filter(|id| !unavailable_ids.contains(*id)).map(|id| format!("document:{id}")));
+    expected_boundaries.extend(
+        documents
+            .keys()
+            .filter(|id| !unavailable_ids.contains(*id))
+            .map(|id| format!("document:{id}")),
+    );
     let mut boundaries = BTreeSet::new();
     if manifest["transformation"] == V23 {
         for boundary in array(&manifest["source"]["capture"], "snapshotBoundaries")? {
@@ -1167,17 +1310,23 @@ fn prepare(bytes: &[u8], operation: &CrdtOperation) -> Result<Prepared, String> 
                 };
                 let workspace_absent_size = if entry.get("ownershipBasis").is_none() {
                     workspace_original_size_evidence(&workspace, row, keys[3], size_evidence)?
-                } else { false };
+                } else {
+                    false
+                };
                 let workspace_match = raw_field(&workspace, row, keys[0]) == key
                     && raw_field(&workspace, row, keys[1]) == filename
                     && raw_field(&workspace, row, keys[2]) == mime
-                    && (workspace_absent_size || raw_field(&workspace, row, keys[3]).as_f64() == Some(body.len() as f64));
+                    && (workspace_absent_size
+                        || raw_field(&workspace, row, keys[3]).as_f64() == Some(body.len() as f64));
                 let ownership_basis = entry.get("ownershipBasis").and_then(Value::as_str);
                 let rdf_match = if ownership_basis == Some("authored-rdf-v1") && kind == "document"
                 {
                     require(
                         manifest["transformation"] == V23
-                            && keys.iter().chain(["sf_fileType","sourceFile"].iter()).all(|field|row.get(&workspace.transact(),*field).is_none()),
+                            && keys
+                                .iter()
+                                .chain(["sf_fileType", "sourceFile"].iter())
+                                .all(|field| row.get(&workspace.transact(), *field).is_none()),
                         "RDF original ownership conflicts with workspace metadata",
                     )?;
                     indexed_rdf_original_matches_with_evidence(
@@ -1206,18 +1355,26 @@ fn prepare(bytes: &[u8], operation: &CrdtOperation) -> Result<Prepared, String> 
                     "workspace/RDF original metadata join mismatch",
                 )?;
                 if workspace_match && kind == "artifact" && manifest["transformation"] == V23 {
-                    let source_graph=format!("urn:mnemosyne:user:{user}:graph:{graph}");
-                    let source_subject=format!("{source_graph}:artifact:{id}");
-                    let subject=format!("urn:mnemosyne:local:graph:{graph}:artifact:{id}");
-                    let native_key=key.replace(&format!("users/{user}/"),"users/default/");
+                    let source_graph = format!("urn:mnemosyne:user:{user}:graph:{graph}");
+                    let source_subject = format!("{source_graph}:artifact:{id}");
+                    let subject = format!("urn:mnemosyne:local:graph:{graph}:artifact:{id}");
+                    let native_key = key.replace(&format!("users/{user}/"), "users/default/");
                     for quad in original_rdf.rows(&source_subject) {
                         if !matches!(&quad.subject,NamedOrBlankNode::NamedNode(s) if s.as_str()==source_subject)
                             || !matches!(&quad.graph_name,GraphName::NamedNode(g) if g.as_str()==source_graph)
-                            || quad.predicate.as_str()!="http://mnemosyne.dev/doc#storageKey" { continue; }
-                        require(quad.object == Term::Literal(oxigraph::model::Literal::new_simple_literal(key)),
-                            "artifact RDF storage key differs from captured owned original")?;
-                        if native_key==key {continue;}
-                        let statement=format!("<{subject}> {} {}",quad.predicate,quad.object);
+                            || quad.predicate.as_str() != "http://mnemosyne.dev/doc#storageKey"
+                        {
+                            continue;
+                        }
+                        require(
+                            quad.object
+                                == Term::Literal(oxigraph::model::Literal::new_simple_literal(key)),
+                            "artifact RDF storage key differs from captured owned original",
+                        )?;
+                        if native_key == key {
+                            continue;
+                        }
+                        let statement = format!("<{subject}> {} {}", quad.predicate, quad.object);
                         require(original_assertions.insert(statement,json!({"subject":subject,"predicate":quad.predicate.as_str(),
                             "rule":"owned-artifact-storage-key-rewrite-v1","authority":"validated-original-index-and-captured-workspace",
                             "source":{"lexical":key,"datatype":"http://www.w3.org/2001/XMLSchema#string"},
@@ -1230,17 +1387,35 @@ fn prepare(bytes: &[u8], operation: &CrdtOperation) -> Result<Prepared, String> 
                     }
                 }
                 if rdf_match {
-                    let source_subject=format!("urn:mnemosyne:user:{user}:graph:{graph}:doc:{id}");
-                    let source_graph=format!("urn:mnemosyne:user:{user}:graph:{graph}");
+                    let source_subject =
+                        format!("urn:mnemosyne:user:{user}:graph:{graph}:doc:{id}");
+                    let source_graph = format!("urn:mnemosyne:user:{user}:graph:{graph}");
                     for quad in original_rdf.rows(&source_subject) {
                         if !matches!(&quad.subject,NamedOrBlankNode::NamedNode(s) if s.as_str()==source_subject)
-                            || !matches!(&quad.graph_name,GraphName::NamedNode(g) if g.as_str()==source_graph) { continue; }
-                        let Some(name)=quad.predicate.as_str().strip_prefix("http://mnemosyne.dev/doc#") else { continue; };
-                        let field=match name {"sourceStorageKey"=>"sf_storageKey","sourceOriginalFilename"=>"sf_originalFilename",
-                            "sourceMimeType"=>"sf_mimeType","sourceFileType"=>"sf_fileType","sourceContentSize"=>"sf_sizeBytes",_=>continue};
-                        let Term::Literal(value)=&quad.object else { return Err("original metadata must remain literal".into()); };
-                        let subject=crate::rdf::document_subject(id);
-                        let statement=format!("<{}> {} {}",subject,quad.predicate,quad.object);
+                            || !matches!(&quad.graph_name,GraphName::NamedNode(g) if g.as_str()==source_graph)
+                        {
+                            continue;
+                        }
+                        let Some(name) = quad
+                            .predicate
+                            .as_str()
+                            .strip_prefix("http://mnemosyne.dev/doc#")
+                        else {
+                            continue;
+                        };
+                        let field = match name {
+                            "sourceStorageKey" => "sf_storageKey",
+                            "sourceOriginalFilename" => "sf_originalFilename",
+                            "sourceMimeType" => "sf_mimeType",
+                            "sourceFileType" => "sf_fileType",
+                            "sourceContentSize" => "sf_sizeBytes",
+                            _ => continue,
+                        };
+                        let Term::Literal(value) = &quad.object else {
+                            return Err("original metadata must remain literal".into());
+                        };
+                        let subject = crate::rdf::document_subject(id);
+                        let statement = format!("<{}> {} {}", subject, quad.predicate, quad.object);
                         require(original_assertions.insert(statement,json!({"subject":subject,"predicate":quad.predicate.as_str(),
                             "source":{"lexical":value.value(),"datatype":value.datatype().as_str()},"native":null,
                             "authoritativeProjectionField":{"root":"documents","entityId":id,"key":field,"presence":"absent"},
@@ -1289,8 +1464,10 @@ fn prepare(bytes: &[u8], operation: &CrdtOperation) -> Result<Prepared, String> 
             }
         }
     }
-    let (mut history, mut legacy_history) = prepare_history_partition(&members, &manifest, graph, user, true)?;
-    let (unavailable_history, history_availability) = prepare_history_availability(&members, &manifest, graph, user)?;
+    let (mut history, mut legacy_history) =
+        prepare_history_partition(&members, &manifest, graph, user, true)?;
+    let (unavailable_history, history_availability) =
+        prepare_history_availability(&members, &manifest, graph, user)?;
     let graph_history = prepare_graph_history(&members, &manifest, &old_manifest, graph)?;
     let deletion_index = parse_json(member(&members, "deletions/index.json")?)?;
     let mut deletion_paths = set(&["deletions/index.json"]);
@@ -1328,11 +1505,24 @@ fn prepare(bytes: &[u8], operation: &CrdtOperation) -> Result<Prepared, String> 
     exact_class(&manifest, "deletions", deletion_paths)?;
     // Histories may legitimately outlive live documents. Keep those histories
     // and apply the source deletion barrier; never resurrect from a history row.
-    (history,legacy_history)=history_owner_partition(&members,&manifest,history,legacy_history,
-        &documents.keys().cloned().collect(),&deleted_ids)?;
-    let history_disposition = history_disposition(&members,&manifest,&history,&legacy_history,&unavailable_history)?;
+    (history, legacy_history) = history_owner_partition(
+        &members,
+        &manifest,
+        history,
+        legacy_history,
+        &documents.keys().cloned().collect(),
+        &deleted_ids,
+    )?;
+    let history_disposition = history_disposition(
+        &members,
+        &manifest,
+        &history,
+        &legacy_history,
+        &unavailable_history,
+    )?;
     let metadata = prepare_custody(&members, &manifest, graph, user)?;
-    let dataset_partitions = prepare_dataset_partitions(&members, &manifest, graph, user, &archive_sha256(bytes))?;
+    let dataset_partitions =
+        prepare_dataset_partitions(&members, &manifest, graph, user, &archive_sha256(bytes))?;
     let mut parsed = ParsedGraphArchive {
         manifest: old_manifest,
         rdf_n_quads: String::new(),
@@ -1343,30 +1533,68 @@ fn prepare(bytes: &[u8], operation: &CrdtOperation) -> Result<Prepared, String> 
     // The admission standard is a property of THIS import, declared in its own plan and
     // covered by the envelope hash, not an ambient mode. Absent means strict.
     let concessions = crate::crdt_engine::content_parity::Concessions::parse(
-        operation.payload.get("contentParity"))?;
-    let (rdf, graph_mapping, regenerated, rdf_count, named_count, timestamp_normalization, derived_disposition) =
-        prepare_rdf_with_content_parity_and_partitions(source_rdf, &manifest, &mut parsed, graph, &original_assertions,
-            &unavailable_ids, Some(&archive_sha256(bytes)), &concessions, Some(&dataset_partitions))?;
-    let normalized=timestamp_normalization["entries"].as_array().map_or(0,Vec::len);
+        operation.payload.get("contentParity"),
+    )?;
+    let (
+        rdf,
+        graph_mapping,
+        regenerated,
+        rdf_count,
+        named_count,
+        timestamp_normalization,
+        derived_disposition,
+    ) = prepare_rdf_with_content_parity_and_partitions(
+        source_rdf,
+        &manifest,
+        &mut parsed,
+        graph,
+        &original_assertions,
+        &unavailable_ids,
+        Some(&archive_sha256(bytes)),
+        &concessions,
+        Some(&dataset_partitions),
+    )?;
+    let normalized = timestamp_normalization["entries"]
+        .as_array()
+        .map_or(0, Vec::len);
     // Conceded material is retained in its own evidence graph and reported on its own
     // schema, so the source-only wire disposition keeps describing exactly the wire
     // anatomy and its quad-for-quad coverage contract stays literally true. The
     // ARITHMETIC below still counts both, because both are retained rather than
     // authored and the exhaustiveness check must account for every source quad.
     let mut derived_disposition = derived_disposition;
-    let all_entries = derived_disposition["entries"].as_array().cloned().unwrap_or_default();
+    let all_entries = derived_disposition["entries"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
     let (parity_entries, native_entries): (Vec<Value>, Vec<Value>) = all_entries
-        .iter().cloned().partition(|row| row.get("contentParity").is_some());
+        .iter()
+        .cloned()
+        .partition(|row| row.get("contentParity").is_some());
     derived_disposition["entries"] = json!(native_entries);
     let content_parity_disposition = json!({"schema":"cloud1-content-parity-disposition.v1",
         "ruling":crate::crdt_engine::content_parity::RULING,
         "concessions":concessions.declared(),"entries":parity_entries});
-    let retained=all_entries.len();
-    let evidence=all_entries.iter().filter(|row|row["evidenceGraph"].is_string()).count();
-    let parity_retained=content_parity_disposition["entries"].as_array().map_or(0,Vec::len);
-    let authored=count_archive_nquads(&rdf)?.checked_sub(evidence).ok_or("source evidence exceeds stored RDF")?;
-    require(normalized<=regenerated && authored.checked_add(regenerated).and_then(|n|n.checked_add(retained))==Some(rdf_count),"RDF preservation accounting is not exhaustive")?;
-    let rdf_accounting=json!({"schema":"cloud1-rdf-preservation-accounting.v1","sourceQuadCount":rdf_count,
+    let retained = all_entries.len();
+    let evidence = all_entries
+        .iter()
+        .filter(|row| row["evidenceGraph"].is_string())
+        .count();
+    let parity_retained = content_parity_disposition["entries"]
+        .as_array()
+        .map_or(0, Vec::len);
+    let authored = count_archive_nquads(&rdf)?
+        .checked_sub(evidence)
+        .ok_or("source evidence exceeds stored RDF")?;
+    require(
+        normalized <= regenerated
+            && authored
+                .checked_add(regenerated)
+                .and_then(|n| n.checked_add(retained))
+                == Some(rdf_count),
+        "RDF preservation accounting is not exhaustive",
+    )?;
+    let rdf_accounting = json!({"schema":"cloud1-rdf-preservation-accounting.v1","sourceQuadCount":rdf_count,
         "exactMappedSourceCount":rdf_count-normalized-retained,"normalizedSourceCount":normalized,
         "legacyEvidenceOnlySourceCount":retained,"nativeAuthoredQuadCount":authored,
         "nativeEvidenceQuadCount":evidence-parity_retained,"contentParityQuadCount":parity_retained,
@@ -1418,28 +1646,100 @@ fn prepare_rdf(
     parsed: &mut ParsedGraphArchive,
     graph: &str,
 ) -> Result<(String, Value, usize, usize, usize, Value, Value), String> {
-    prepare_rdf_with_originals(rdf,manifest,parsed,graph,&HashMap::new())
+    prepare_rdf_with_originals(rdf, manifest, parsed, graph, &HashMap::new())
 }
 
-fn prepare_rdf_with_originals(rdf: &str, manifest: &Value, parsed: &mut ParsedGraphArchive, graph: &str, original_assertions: &HashMap<String,Value>) -> Result<(String, Value, usize, usize, usize, Value, Value), String> {
-    prepare_rdf_with_availability(rdf, manifest, parsed, graph, original_assertions, &BTreeSet::new())
+fn prepare_rdf_with_originals(
+    rdf: &str,
+    manifest: &Value,
+    parsed: &mut ParsedGraphArchive,
+    graph: &str,
+    original_assertions: &HashMap<String, Value>,
+) -> Result<(String, Value, usize, usize, usize, Value, Value), String> {
+    prepare_rdf_with_availability(
+        rdf,
+        manifest,
+        parsed,
+        graph,
+        original_assertions,
+        &BTreeSet::new(),
+    )
 }
 
-fn prepare_rdf_with_availability(rdf: &str, manifest: &Value, parsed: &mut ParsedGraphArchive, graph: &str, original_assertions: &HashMap<String,Value>, unavailable_ids: &BTreeSet<String>) -> Result<(String, Value, usize, usize, usize, Value, Value), String> {
-    prepare_rdf_with_evidence_context(rdf,manifest,parsed,graph,original_assertions,unavailable_ids,None)
+fn prepare_rdf_with_availability(
+    rdf: &str,
+    manifest: &Value,
+    parsed: &mut ParsedGraphArchive,
+    graph: &str,
+    original_assertions: &HashMap<String, Value>,
+    unavailable_ids: &BTreeSet<String>,
+) -> Result<(String, Value, usize, usize, usize, Value, Value), String> {
+    prepare_rdf_with_evidence_context(
+        rdf,
+        manifest,
+        parsed,
+        graph,
+        original_assertions,
+        unavailable_ids,
+        None,
+    )
 }
 
-fn prepare_rdf_with_evidence_context(rdf: &str, manifest: &Value, parsed: &mut ParsedGraphArchive, graph: &str, original_assertions: &HashMap<String,Value>, unavailable_ids: &BTreeSet<String>, evidence_archive_sha256: Option<&str>) -> Result<(String, Value, usize, usize, usize, Value, Value), String> {
-    prepare_rdf_with_content_parity(rdf, manifest, parsed, graph, original_assertions, unavailable_ids,
-        evidence_archive_sha256, &crate::crdt_engine::content_parity::Concessions::none())
+fn prepare_rdf_with_evidence_context(
+    rdf: &str,
+    manifest: &Value,
+    parsed: &mut ParsedGraphArchive,
+    graph: &str,
+    original_assertions: &HashMap<String, Value>,
+    unavailable_ids: &BTreeSet<String>,
+    evidence_archive_sha256: Option<&str>,
+) -> Result<(String, Value, usize, usize, usize, Value, Value), String> {
+    prepare_rdf_with_content_parity(
+        rdf,
+        manifest,
+        parsed,
+        graph,
+        original_assertions,
+        unavailable_ids,
+        evidence_archive_sha256,
+        &crate::crdt_engine::content_parity::Concessions::none(),
+    )
 }
 
-fn prepare_rdf_with_content_parity(rdf: &str, manifest: &Value, parsed: &mut ParsedGraphArchive, graph: &str, original_assertions: &HashMap<String,Value>, unavailable_ids: &BTreeSet<String>, evidence_archive_sha256: Option<&str>, concessions: &crate::crdt_engine::content_parity::Concessions) -> Result<(String, Value, usize, usize, usize, Value, Value), String> {
-    prepare_rdf_with_content_parity_and_partitions(rdf, manifest, parsed, graph, original_assertions,
-        unavailable_ids, evidence_archive_sha256, concessions, None)
+fn prepare_rdf_with_content_parity(
+    rdf: &str,
+    manifest: &Value,
+    parsed: &mut ParsedGraphArchive,
+    graph: &str,
+    original_assertions: &HashMap<String, Value>,
+    unavailable_ids: &BTreeSet<String>,
+    evidence_archive_sha256: Option<&str>,
+    concessions: &crate::crdt_engine::content_parity::Concessions,
+) -> Result<(String, Value, usize, usize, usize, Value, Value), String> {
+    prepare_rdf_with_content_parity_and_partitions(
+        rdf,
+        manifest,
+        parsed,
+        graph,
+        original_assertions,
+        unavailable_ids,
+        evidence_archive_sha256,
+        concessions,
+        None,
+    )
 }
 
-fn prepare_rdf_with_content_parity_and_partitions(rdf: &str, manifest: &Value, parsed: &mut ParsedGraphArchive, graph: &str, original_assertions: &HashMap<String,Value>, unavailable_ids: &BTreeSet<String>, evidence_archive_sha256: Option<&str>, concessions: &crate::crdt_engine::content_parity::Concessions, dataset_partitions: Option<&Value>) -> Result<(String, Value, usize, usize, usize, Value, Value), String> {
+fn prepare_rdf_with_content_parity_and_partitions(
+    rdf: &str,
+    manifest: &Value,
+    parsed: &mut ParsedGraphArchive,
+    graph: &str,
+    original_assertions: &HashMap<String, Value>,
+    unavailable_ids: &BTreeSet<String>,
+    evidence_archive_sha256: Option<&str>,
+    concessions: &crate::crdt_engine::content_parity::Concessions,
+    dataset_partitions: Option<&Value>,
+) -> Result<(String, Value, usize, usize, usize, Value, Value), String> {
     let source = format!(
         "urn:mnemosyne:user:{}:graph:{graph}",
         parsed.manifest.source_user_id
@@ -1457,9 +1757,16 @@ fn prepare_rdf_with_content_parity_and_partitions(rdf: &str, manifest: &Value, p
             )?;
             crate::rdf_authority::user_rdf_graph_iri(graph)
         } else if let Some(partitions) = retained {
-            require(disposition == "retained-source-testimony", "retained RDF disposition mismatch")?;
-            array(partitions, "partitions")?.iter().find(|row| row["identity"] == json!({"kind":"named","iri":name}))
-                .and_then(|row| row["destinationGraph"].as_str()).ok_or("retained named partition missing")?.to_string()
+            require(
+                disposition == "retained-source-testimony",
+                "retained RDF disposition mismatch",
+            )?;
+            array(partitions, "partitions")?
+                .iter()
+                .find(|row| row["identity"] == json!({"kind":"named","iri":name}))
+                .and_then(|row| row["destinationGraph"].as_str())
+                .ok_or("retained named partition missing")?
+                .to_string()
         } else {
             require(
                 name.starts_with(&format!("{source}:"))
@@ -1489,8 +1796,12 @@ fn prepare_rdf_with_content_parity_and_partitions(rdf: &str, manifest: &Value, p
     } else {
         require(mapping.contains_key(&source), "main RDF inventory missing")?;
     }
-    let ids: BTreeSet<_> = parsed.documents.iter().map(|(id, _)| id.as_str())
-        .chain(unavailable_ids.iter().map(String::as_str)).collect();
+    let ids: BTreeSet<_> = parsed
+        .documents
+        .iter()
+        .map(|(id, _)| id.as_str())
+        .chain(unavailable_ids.iter().map(String::as_str))
+        .collect();
     let rewrite = |node: NamedNode| -> Result<NamedNode, String> {
         if let Some(tail) = node.as_str().strip_prefix(&format!("{source}:doc:")) {
             let (id, fragment) = tail
@@ -1520,13 +1831,20 @@ fn prepare_rdf_with_content_parity_and_partitions(rdf: &str, manifest: &Value, p
         )?;
         if quad.graph_name == GraphName::DefaultGraph {
             let partitions = retained.ok_or("unclassified default RDF graph")?;
-            let destination = array(partitions, "partitions")?.iter().find(|row| row["identity"] == json!({"kind":"default"}))
-                .and_then(|row| row["destinationGraph"].as_str()).ok_or("retained default partition missing")?;
-            quad.graph_name = NamedNode::new(destination).map_err(|e|e.to_string())?.into();
+            let destination = array(partitions, "partitions")?
+                .iter()
+                .find(|row| row["identity"] == json!({"kind":"default"}))
+                .and_then(|row| row["destinationGraph"].as_str())
+                .ok_or("retained default partition missing")?;
+            quad.graph_name = NamedNode::new(destination)
+                .map_err(|e| e.to_string())?
+                .into();
             side.push_str(&format!("{quad} .\n"));
             continue;
         }
-        let GraphName::NamedNode(name) = &quad.graph_name else { return Err("blank RDF graph unsupported".into()); };
+        let GraphName::NamedNode(name) = &quad.graph_name else {
+            return Err("blank RDF graph unsupported".into());
+        };
         let destination = mapping
             .get(name.as_str())
             .ok_or("unclassified named RDF graph")?;
@@ -1536,13 +1854,13 @@ fn prepare_rdf_with_content_parity_and_partitions(rdf: &str, manifest: &Value, p
             continue;
         }
         if retained.is_none() {
-        if let NamedOrBlankNode::NamedNode(node) = quad.subject {
-            quad.subject = rewrite(node)?.into();
-        }
-        quad.predicate = rewrite(quad.predicate)?;
-        if let Term::NamedNode(node) = quad.object {
-            quad.object = rewrite(node)?.into();
-        }
+            if let NamedOrBlankNode::NamedNode(node) = quad.subject {
+                quad.subject = rewrite(node)?.into();
+            }
+            quad.predicate = rewrite(quad.predicate)?;
+            if let Term::NamedNode(node) = quad.object {
+                quad.object = rewrite(node)?.into();
+            }
         }
         quad.graph_name = NamedNode::new(destination)
             .map_err(|e| e.to_string())?
@@ -1554,7 +1872,15 @@ fn prepare_rdf_with_content_parity_and_partitions(rdf: &str, manifest: &Value, p
         "empty or missing named graph testimony",
     )?;
     parsed.rdf_n_quads = main;
-    let preflight = preflight_cell_archive_with_content_parity(parsed, graph, manifest["transformation"] == V23, original_assertions, unavailable_ids, evidence_archive_sha256, concessions)?;
+    let preflight = preflight_cell_archive_with_content_parity(
+        parsed,
+        graph,
+        manifest["transformation"] == V23,
+        original_assertions,
+        unavailable_ids,
+        evidence_archive_sha256,
+        concessions,
+    )?;
     let output = format!("{}{side}", preflight.user_rdf);
     crate::rdf_query_service::validate_rdf_dataset_graph_targets(
         graph,
@@ -1588,19 +1914,31 @@ fn encode_legacy_history_text(text: &str, code: bool) -> Result<String, String> 
         if !code && tail.starts_with('<') {
             if let Some(end) = tail.find('>') {
                 let token = &tail[..=end];
-                let name = token.trim_start_matches('<').trim_start_matches('/')
-                    .split(|c: char| c.is_whitespace() || c == '>').next().unwrap_or("");
-                if matches!(name,"strong"|"bold"|"em"|"italic"|"s"|"strike"|"code"|"a"|"link") {
+                let name = token
+                    .trim_start_matches('<')
+                    .trim_start_matches('/')
+                    .split(|c: char| c.is_whitespace() || c == '>')
+                    .next()
+                    .unwrap_or("");
+                if matches!(
+                    name,
+                    "strong" | "bold" | "em" | "italic" | "s" | "strike" | "code" | "a" | "link"
+                ) {
                     // XML parsing below checks balanced tags; the mark validator
                     // checks the finite attribute vocabulary. No HTML fallback.
-                    result.push_str(&token.replace('&',"&amp;"));
+                    result.push_str(&token.replace('&', "&amp;"));
                     offset += token.len();
                     continue;
                 }
             }
         }
         let ch = tail.chars().next().ok_or("invalid legacy text offset")?;
-        match ch { '<' => result.push_str("&lt;"), '>' => result.push_str("&gt;"), '&' => result.push_str("&amp;"), _ => result.push(ch) }
+        match ch {
+            '<' => result.push_str("&lt;"),
+            '>' => result.push_str("&gt;"),
+            '&' => result.push_str("&amp;"),
+            _ => result.push(ch),
+        }
         offset += ch.len_utf8();
     }
     Ok(result)
@@ -1615,31 +1953,57 @@ fn legacy_inline_atom_frame(raw: &str, text: &str) -> Result<Option<String>, Str
     let mut raw_text = String::new();
     let mut encoded = String::new();
     let mut atoms = 0;
-    while let Some((start, kind)) = ["wikilink", "tagChip", "footnote"].into_iter()
-        .filter_map(|kind| raw[cursor..].find(&format!("<{kind} ")).map(|n|(cursor+n,kind)))
-        .min_by_key(|(start,_)|*start) {
+    while let Some((start, kind)) = ["wikilink", "tagChip", "footnote"]
+        .into_iter()
+        .filter_map(|kind| {
+            raw[cursor..]
+                .find(&format!("<{kind} "))
+                .map(|n| (cursor + n, kind))
+        })
+        .min_by_key(|(start, _)| *start)
+    {
         let close = format!("</{kind}>");
-        let Some(end) = raw[start..].find(&close).map(|n|start+n+close.len()) else { return Ok(None); };
+        let Some(end) = raw[start..].find(&close).map(|n| start + n + close.len()) else {
+            return Ok(None);
+        };
         let atom = &raw[start..end];
-        let parsed = roxmltree::Document::parse(atom).map_err(|_|"legacy inline atom XML invalid")?;
+        let parsed =
+            roxmltree::Document::parse(atom).map_err(|_| "legacy inline atom XML invalid")?;
         let node = parsed.root_element();
-        require(node.tag_name().name() == kind && node.children().next().is_none()
-            && node.attribute("data-block-id").is_none(),"legacy inline atom is not an exact leaf")?;
+        require(
+            node.tag_name().name() == kind
+                && node.children().next().is_none()
+                && node.attribute("data-block-id").is_none(),
+            "legacy inline atom is not an exact leaf",
+        )?;
         let allowed: &[&str] = match kind {
-            "wikilink" => &["label","blockPreview","targetDocId","targetGraphId","targetBlockId","wireId"],
-            "tagChip" => &["name","date"],
+            "wikilink" => &[
+                "label",
+                "blockPreview",
+                "targetDocId",
+                "targetGraphId",
+                "targetBlockId",
+                "wireId",
+            ],
+            "tagChip" => &["name", "date"],
             _ => &["content"],
         };
-        require(node.attributes().all(|attr|allowed.contains(&attr.name())),"unsupported legacy inline atom attribute")?;
+        require(
+            node.attributes().all(|attr| allowed.contains(&attr.name())),
+            "unsupported legacy inline atom attribute",
+        )?;
         let gap = &raw[cursor..start];
         raw_text.push_str(gap);
-        encoded.push_str(&encode_legacy_history_text(gap,false)?);
+        encoded.push_str(&encode_legacy_history_text(gap, false)?);
         encoded.push_str(atom);
-        cursor=end; atoms+=1;
+        cursor = end;
+        atoms += 1;
     }
     raw_text.push_str(&raw[cursor..]);
-    if atoms == 0 || raw_text != text { return Ok(None); }
-    encoded.push_str(&encode_legacy_history_text(&raw[cursor..],false)?);
+    if atoms == 0 || raw_text != text {
+        return Ok(None);
+    }
+    encoded.push_str(&encode_legacy_history_text(&raw[cursor..], false)?);
     Ok(Some(encoded))
 }
 
@@ -1650,44 +2014,77 @@ fn legacy_history_export_xml(xml: &str, source: &[Value]) -> Result<String, Stri
     let mut openings: BTreeMap<(String, String), Vec<usize>> = BTreeMap::new();
     for kind in ["paragraph", "heading", "codeBlock", "blockquote"] {
         let prefix = format!("<{kind}");
-        for (start,_) in xml.match_indices(&prefix) {
+        for (start, _) in xml.match_indices(&prefix) {
             let tail = &xml[start + prefix.len()..];
-            if !tail.starts_with(|c: char| c.is_whitespace() || c == '>') { continue; }
+            if !tail.starts_with(|c: char| c.is_whitespace() || c == '>') {
+                continue;
+            }
             let mut quote = None;
             let mut open_end = None;
-            for (index,ch) in xml[start..].char_indices() {
-                match (quote,ch) {
-                    (None, '\''|'"') => quote = Some(ch),
-                    (Some(q),c) if q == c => quote = None,
-                    (None,'>') => { open_end = Some(start+index+1); break; },
+            for (index, ch) in xml[start..].char_indices() {
+                match (quote, ch) {
+                    (None, '\'' | '"') => quote = Some(ch),
+                    (Some(q), c) if q == c => quote = None,
+                    (None, '>') => {
+                        open_end = Some(start + index + 1);
+                        break;
+                    }
                     _ => (),
                 }
             }
-            let Some(begin) = open_end else { continue; };
+            let Some(begin) = open_end else {
+                continue;
+            };
             let open = &xml[start..begin];
-            let empty = format!("{}/>", &open[..open.len()-1]);
-            let Ok(tag) = roxmltree::Document::parse(&empty) else { continue; };
-            let Some(id) = tag.root_element().attribute("data-block-id") else { continue; };
-            openings.entry((kind.to_string(), id.to_string())).or_default().push(begin);
+            let empty = format!("{}/>", &open[..open.len() - 1]);
+            let Ok(tag) = roxmltree::Document::parse(&empty) else {
+                continue;
+            };
+            let Some(id) = tag.root_element().attribute("data-block-id") else {
+                continue;
+            };
+            openings
+                .entry((kind.to_string(), id.to_string()))
+                .or_default()
+                .push(begin);
         }
     }
     let mut replacements = Vec::new();
     for row in source {
-        let kind = string(row,"type")?;
-        if kind == "horizontalRule" { continue; }
-        require(matches!(kind,"paragraph"|"heading"|"codeBlock"|"blockquote"), "unsupported legacy text block")?;
-        let id = string(row,"id")?;
-        let text = string(row,"text")?;
+        let kind = string(row, "type")?;
+        if kind == "horizontalRule" {
+            continue;
+        }
+        require(
+            matches!(kind, "paragraph" | "heading" | "codeBlock" | "blockquote"),
+            "unsupported legacy text block",
+        )?;
+        let id = string(row, "id")?;
+        let text = string(row, "text")?;
         let closing = format!("</{kind}>");
         let mut frames = Vec::new();
-        for &begin in openings.get(&(kind.to_string(), id.to_string())).map(Vec::as_slice).unwrap_or(&[]) {
-            let Some(end) = begin.checked_add(text.len()) else { continue; };
-            if xml.get(begin..end) == Some(text) && xml.get(end..).is_some_and(|tail| tail.starts_with(&closing)) {
-                frames.push((begin,end,encode_legacy_history_text(text,kind == "codeBlock")?));
-            } else if matches!(kind,"paragraph"|"heading") {
-                if let Some(end) = xml[begin..].find(&closing).map(|n|begin+n) {
-                    if let Some(encoded) = legacy_inline_atom_frame(&xml[begin..end],text)? {
-                        frames.push((begin,end,encoded));
+        for &begin in openings
+            .get(&(kind.to_string(), id.to_string()))
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+        {
+            let Some(end) = begin.checked_add(text.len()) else {
+                continue;
+            };
+            if xml.get(begin..end) == Some(text)
+                && xml
+                    .get(end..)
+                    .is_some_and(|tail| tail.starts_with(&closing))
+            {
+                frames.push((
+                    begin,
+                    end,
+                    encode_legacy_history_text(text, kind == "codeBlock")?,
+                ));
+            } else if matches!(kind, "paragraph" | "heading") {
+                if let Some(end) = xml[begin..].find(&closing).map(|n| begin + n) {
+                    if let Some(encoded) = legacy_inline_atom_frame(&xml[begin..end], text)? {
+                        frames.push((begin, end, encoded));
                     }
                 }
             }
@@ -1700,22 +2097,40 @@ fn legacy_history_export_xml(xml: &str, source: &[Value]) -> Result<String, Stri
             // checks every retained structural ID and its native interpretation.
             let escaped = escape_legacy_bare_xml_ampersands(xml);
             let wrapped = format!("<doc>{escaped}</doc>");
-            let tree = roxmltree::Document::parse(&wrapped).map_err(|_| "legacy composite history XML invalid")?;
-            require(tree.descendants().filter(|n| n.is_element() && n.attribute("data-block-id") == Some(id)
-                && n.tag_name().name() == kind).count() == 1,"legacy composite history identity ambiguous")?;
+            let tree = roxmltree::Document::parse(&wrapped)
+                .map_err(|_| "legacy composite history XML invalid")?;
+            require(
+                tree.descendants()
+                    .filter(|n| {
+                        n.is_element()
+                            && n.attribute("data-block-id") == Some(id)
+                            && n.tag_name().name() == kind
+                    })
+                    .count()
+                    == 1,
+                "legacy composite history identity ambiguous",
+            )?;
             continue;
         }
-        require(frames.len() == 1,"legacy history text frame absent or ambiguous")?;
+        require(
+            frames.len() == 1,
+            "legacy history text frame absent or ambiguous",
+        )?;
         replacements.push(frames.remove(0));
     }
     replacements.sort_by_key(|r| r.0);
     for pair in replacements.windows(2) {
-        require(pair[0].1 <= pair[1].0,"overlapping legacy history text frames")?;
+        require(
+            pair[0].1 <= pair[1].0,
+            "overlapping legacy history text frames",
+        )?;
     }
     let mut output = String::new();
     let mut cursor = 0;
-    for (begin,end,text) in replacements {
-        output.push_str(&xml[cursor..begin]); output.push_str(&text); cursor = end;
+    for (begin, end, text) in replacements {
+        output.push_str(&xml[cursor..begin]);
+        output.push_str(&text);
+        cursor = end;
     }
     output.push_str(&xml[cursor..]);
     Ok(escape_legacy_bare_xml_ampersands(&output))
@@ -1731,51 +2146,86 @@ fn legacy_history_marked_text_matches(
     let tree = roxmltree::Document::parse(&wrapped).map_err(|e| e.to_string())?;
     let mut mark_count = 0;
     for node in tree.root_element().descendants().skip(1) {
-        if node.is_text() { continue; }
-        require(node.is_element(), "legacy history text contains non-text structure")?;
+        if node.is_text() {
+            continue;
+        }
+        require(
+            node.is_element(),
+            "legacy history text contains non-text structure",
+        )?;
         let name = node.tag_name().name();
-        require(matches!(name, "strong" | "bold" | "em" | "italic" | "s" | "strike" | "code" | "a" | "link"),
-            "legacy history text contains unsupported markup")?;
+        require(
+            matches!(
+                name,
+                "strong" | "bold" | "em" | "italic" | "s" | "strike" | "code" | "a" | "link"
+            ),
+            "legacy history text contains unsupported markup",
+        )?;
         for attribute in node.attributes() {
-            require(matches!(name, "a" | "link") && (attribute.name() == "href"
-                || (native.is_some() && matches!(attribute.name(),"class"|"rel"|"target"))),
-                "legacy history text contains unsupported mark attributes")?;
+            require(
+                matches!(name, "a" | "link")
+                    && (attribute.name() == "href"
+                        || (native.is_some()
+                            && matches!(attribute.name(), "class" | "rel" | "target"))),
+                "legacy history text contains unsupported mark attributes",
+            )?;
         }
         mark_count += 1;
     }
     require(mark_count > 0, "legacy history text has no inline marks")?;
     let parsed = super::super::content_parse::parse_write_content_for_operation(
-        &wrapped, Some("xml"), "legacy-history-text")?;
-    require(parsed.warnings.is_empty(), "legacy history marked text cannot be decoded")?;
+        &wrapped,
+        Some("xml"),
+        "legacy-history-text",
+    )?;
+    require(
+        parsed.warnings.is_empty(),
+        "legacy history marked text cannot be decoded",
+    )?;
     if let Some(native) = native {
         // Flat BlockSnapshot marks only expose href. Compare the full native
         // text/mark runs too, so rel/target/class cannot disappear behind that
         // intentionally narrower projection. Coalesce adjacent equal-mark text
         // after separately validated atoms have been removed for this witness.
-        fn runs(node: &Value, output: &mut Vec<(String,Value)>) {
+        fn runs(node: &Value, output: &mut Vec<(String, Value)>) {
             if node["type"] == "text" {
                 let text = node["text"].as_str().unwrap_or("");
                 let marks = node.get("marks").cloned().unwrap_or(json!([]));
-                if let Some((previous, _)) = output.last_mut().filter(|(_,m)|*m == marks) {
+                if let Some((previous, _)) = output.last_mut().filter(|(_, m)| *m == marks) {
                     previous.push_str(text);
-                } else { output.push((text.to_string(),marks)); }
+                } else {
+                    output.push((text.to_string(), marks));
+                }
             } else if let Some(children) = node["content"].as_array() {
-                for child in children { runs(child,output); }
+                for child in children {
+                    runs(child, output);
+                }
             }
         }
-        let mut source_runs = Vec::new(); let mut native_runs = Vec::new();
-        runs(&parsed.tiptap_json,&mut source_runs); runs(native,&mut native_runs);
-        require(source_runs == native_runs,"legacy full text/mark attributes changed")?;
+        let mut source_runs = Vec::new();
+        let mut native_runs = Vec::new();
+        runs(&parsed.tiptap_json, &mut source_runs);
+        runs(native, &mut native_runs);
+        require(
+            source_runs == native_runs,
+            "legacy full text/mark attributes changed",
+        )?;
     }
-    let projection = super::super::projection::materialize_tiptap_json(&parsed.tiptap_json, "legacy-history");
+    let projection =
+        super::super::projection::materialize_tiptap_json(&parsed.tiptap_json, "legacy-history");
     let blocks: Vec<crate::document_types::BlockSnapshot> =
         serde_json::from_value(projection.blocks_json).map_err(|e| e.to_string())?;
-    require(blocks.len() == 1, "legacy history marked text changed block shape")?;
+    require(
+        blocks.len() == 1,
+        "legacy history marked text changed block shape",
+    )?;
     let marks = |value: &crate::document_types::BlockSnapshot| -> Result<Vec<String>, String> {
         let mut rows = Vec::new();
         for mark in &value.marks {
             let mut row = serde_json::to_value(mark).map_err(|e| e.to_string())?;
-            row.as_object_mut().ok_or("invalid native mark")?.remove("id");
+            row.as_object_mut()
+                .ok_or("invalid native mark")?
+                .remove("id");
             rows.push(serde_json::to_string(&row).map_err(|e| e.to_string())?);
         }
         rows.sort();
@@ -1788,19 +2238,31 @@ fn legacy_history_marked_text_matches(
 // Garden's flat projection instead indexes the listItem itself. Validate the
 // source projection against the retained XML AND the nested native tree; do
 // not demand that these two intentionally different flat views have equal IDs.
-fn validate_legacy_history_blocks(xml: &str, source: &[Value], native: &Value) -> Result<(), String> {
+fn validate_legacy_history_blocks(
+    xml: &str,
+    source: &[Value],
+    native: &Value,
+) -> Result<(), String> {
     let wrapped = format!("<doc>{xml}</doc>");
     let document = roxmltree::Document::parse(&wrapped).map_err(|e| e.to_string())?;
-    fn walk<'a, 'input>(node: roxmltree::Node<'a, 'input>, rows: &mut Vec<roxmltree::Node<'a, 'input>>) -> Result<(), String> {
+    fn walk<'a, 'input>(
+        node: roxmltree::Node<'a, 'input>,
+        rows: &mut Vec<roxmltree::Node<'a, 'input>>,
+    ) -> Result<(), String> {
         for child in node.children() {
             if child.is_text() {
-                require(child.text().unwrap_or("").trim().is_empty(), "unindexed legacy structural text")?;
+                require(
+                    child.text().unwrap_or("").trim().is_empty(),
+                    "unindexed legacy structural text",
+                )?;
                 continue;
             }
             require(child.is_element(), "unsupported legacy history structure")?;
             match child.tag_name().name() {
                 "listItem" | "UNDEFINED" => walk(child, rows)?,
-                "paragraph" | "heading" | "codeBlock" | "blockquote" | "horizontalRule" => rows.push(child),
+                "paragraph" | "heading" | "codeBlock" | "blockquote" | "horizontalRule" => {
+                    rows.push(child)
+                }
                 _ => return Err("unsupported legacy history block structure".into()),
             }
         }
@@ -1811,17 +2273,28 @@ fn validate_legacy_history_blocks(xml: &str, source: &[Value], native: &Value) -
             found.entry(id).or_default().push(node);
         }
         if let Some(children) = node["content"].as_array() {
-            for child in children { index_nodes(child, found); }
+            for child in children {
+                index_nodes(child, found);
+            }
         }
     }
     fn without_atoms(node: &Value, atoms: &mut Vec<Value>) -> Value {
         let mut result = node.clone();
         if let Some(children) = node["content"].as_array() {
-            result["content"] = json!(children.iter().filter_map(|child| {
-                if matches!(child["type"].as_str(),Some("wikilink"|"tagChip"|"footnote")) {
-                    atoms.push(child.clone()); None
-                } else { Some(without_atoms(child,atoms)) }
-            }).collect::<Vec<_>>());
+            result["content"] = json!(children
+                .iter()
+                .filter_map(|child| {
+                    if matches!(
+                        child["type"].as_str(),
+                        Some("wikilink" | "tagChip" | "footnote")
+                    ) {
+                        atoms.push(child.clone());
+                        None
+                    } else {
+                        Some(without_atoms(child, atoms))
+                    }
+                })
+                .collect::<Vec<_>>());
         }
         result
     }
@@ -1830,79 +2303,147 @@ fn validate_legacy_history_blocks(xml: &str, source: &[Value], native: &Value) -
             Value::String(v) => v == text,
             Value::Bool(v) => text == if *v { "true" } else { "false" },
             Value::Number(v) => legacy_decimal_attribute(&v.to_string())
-                .zip(legacy_decimal_attribute(text)).is_some_and(|(a,b)| a == b),
+                .zip(legacy_decimal_attribute(text))
+                .is_some_and(|(a, b)| a == b),
             _ => false,
         }
     };
     let mut rows = Vec::new();
     walk(document.root_element(), &mut rows)?;
-    require(rows.len() == source.len(), "legacy history source block coverage mismatch")?;
+    require(
+        rows.len() == source.len(),
+        "legacy history source block coverage mismatch",
+    )?;
     let mut native_by_id = BTreeMap::new();
     index_nodes(native, &mut native_by_id);
     let mut structural_ids = BTreeSet::new();
     for element in document.descendants().filter(|n| n.is_element()) {
-        let Some(id) = element.attribute("data-block-id") else { continue; };
-        require(structural_ids.insert(id),"duplicate legacy structural identity")?;
+        let Some(id) = element.attribute("data-block-id") else {
+            continue;
+        };
+        require(
+            structural_ids.insert(id),
+            "duplicate legacy structural identity",
+        )?;
         let found = native_by_id.get(id).map(Vec::as_slice).unwrap_or(&[]);
-        require(found.len() == 1 && found[0]["type"] == element.tag_name().name(),"legacy structural identity lost in native tree")?;
+        require(
+            found.len() == 1 && found[0]["type"] == element.tag_name().name(),
+            "legacy structural identity lost in native tree",
+        )?;
         for attribute in element.attributes().filter(|a| a.name() != "data-block-id") {
-            require(same_attribute(&found[0]["attrs"][attribute.name()],attribute.value()),"legacy structural attribute changed in native tree")?;
+            require(
+                same_attribute(&found[0]["attrs"][attribute.name()], attribute.value()),
+                "legacy structural attribute changed in native tree",
+            )?;
         }
     }
     let mut ids = BTreeSet::new();
     for (index, (element, row)) in rows.iter().zip(source).enumerate() {
         let id = string(row, "id")?;
         require(ids.insert(id), "duplicate source history block identity")?;
-        require(element.attribute("data-block-id") == Some(id)
-            && row["type"] == element.tag_name().name()
-            && row["parent_id"].is_null()
-            && row["index"].as_u64() == Some(index as u64)
-            && row["order"].as_u64() == Some(index as u64)
-            && row["collapsed"] == false,
-            "legacy history block identity/order/type mismatch")?;
+        require(
+            element.attribute("data-block-id") == Some(id)
+                && row["type"] == element.tag_name().name()
+                && row["parent_id"].is_null()
+                && row["index"].as_u64() == Some(index as u64)
+                && row["order"].as_u64() == Some(index as u64)
+                && row["collapsed"] == false,
+            "legacy history block identity/order/type mismatch",
+        )?;
         let empty = serde_json::Map::new();
         let properties = match row.get("properties") {
             None => &empty,
             Some(value) => value.as_object().ok_or("invalid legacy block properties")?,
         };
-        require(properties.len() == element.attributes().filter(|a| a.name() != "data-block-id").count(),
-            "legacy history property coverage mismatch")?;
+        require(
+            properties.len()
+                == element
+                    .attributes()
+                    .filter(|a| a.name() != "data-block-id")
+                    .count(),
+            "legacy history property coverage mismatch",
+        )?;
         let found = native_by_id.get(id).map(Vec::as_slice).unwrap_or(&[]);
-        require(found.len() == 1 && found[0]["type"] == row["type"],
-            "legacy history block absent/ambiguous in native tree")?;
+        require(
+            found.len() == 1 && found[0]["type"] == row["type"],
+            "legacy history block absent/ambiguous in native tree",
+        )?;
         for (key, value) in properties {
-            require(element.attribute(key.as_str()).is_some_and(|text| same_attribute(value,text)),
-                &format!("legacy history XML property mismatch: {}",json!({"blockId":id,"property":key,
-                    "source":value,"xml":element.attribute(key.as_str())})))?;
+            require(
+                element
+                    .attribute(key.as_str())
+                    .is_some_and(|text| same_attribute(value, text)),
+                &format!(
+                    "legacy history XML property mismatch: {}",
+                    json!({"blockId":id,"property":key,
+                    "source":value,"xml":element.attribute(key.as_str())})
+                ),
+            )?;
             let actual = &found[0]["attrs"][key];
-            require(actual == value || (actual.is_number() && value.is_number()
-                && legacy_decimal_attribute(&actual.to_string()).zip(legacy_decimal_attribute(&value.to_string())).is_some_and(|(a,b)| a == b)),
-                &format!("legacy history native property mismatch: {}",json!({"blockId":id,"property":key,
-                    "source":value,"xml":element.attribute(key.as_str()),"native":actual})))?;
+            require(
+                actual == value
+                    || (actual.is_number()
+                        && value.is_number()
+                        && legacy_decimal_attribute(&actual.to_string())
+                            .zip(legacy_decimal_attribute(&value.to_string()))
+                            .is_some_and(|(a, b)| a == b)),
+                &format!(
+                    "legacy history native property mismatch: {}",
+                    json!({"blockId":id,"property":key,
+                    "source":value,"xml":element.attribute(key.as_str()),"native":actual})
+                ),
+            )?;
         }
         let mut native_atoms = Vec::new();
-        let text_only = without_atoms(found[0],&mut native_atoms);
-        let source_atoms = element.descendants().filter(|n| n.is_element()
-            && matches!(n.tag_name().name(),"wikilink"|"tagChip"|"footnote")).collect::<Vec<_>>();
-        require(source_atoms.len() == native_atoms.len(),"legacy inline atom population changed")?;
-        for (source_atom,native_atom) in source_atoms.iter().zip(&native_atoms) {
-            require(source_atom.parent() == Some(*element) && source_atom.children().next().is_none()
-                && native_atom["type"] == source_atom.tag_name().name()
-                && native_atom.get("content").is_none() && native_atom.get("marks").is_none(),
-                "legacy inline atom structure changed")?;
-            let attrs = native_atom["attrs"].as_object().ok_or("legacy inline atom attributes missing")?;
-            require(attrs.len() == source_atom.attributes().len()
-                && source_atom.attributes().all(|attr|attrs.get(attr.name()).is_some_and(|value|same_attribute(value,attr.value()))),
-                "legacy inline atom attributes changed")?;
+        let text_only = without_atoms(found[0], &mut native_atoms);
+        let source_atoms = element
+            .descendants()
+            .filter(|n| {
+                n.is_element() && matches!(n.tag_name().name(), "wikilink" | "tagChip" | "footnote")
+            })
+            .collect::<Vec<_>>();
+        require(
+            source_atoms.len() == native_atoms.len(),
+            "legacy inline atom population changed",
+        )?;
+        for (source_atom, native_atom) in source_atoms.iter().zip(&native_atoms) {
+            require(
+                source_atom.parent() == Some(*element)
+                    && source_atom.children().next().is_none()
+                    && native_atom["type"] == source_atom.tag_name().name()
+                    && native_atom.get("content").is_none()
+                    && native_atom.get("marks").is_none(),
+                "legacy inline atom structure changed",
+            )?;
+            let attrs = native_atom["attrs"]
+                .as_object()
+                .ok_or("legacy inline atom attributes missing")?;
+            require(
+                attrs.len() == source_atom.attributes().len()
+                    && source_atom.attributes().all(|attr| {
+                        attrs
+                            .get(attr.name())
+                            .is_some_and(|value| same_attribute(value, attr.value()))
+                    }),
+                "legacy inline atom attributes changed",
+            )?;
         }
         let projection = super::super::projection::materialize_tiptap_json(
-            &json!({"type":"doc", "content":[text_only]}), "legacy-history");
+            &json!({"type":"doc", "content":[text_only]}),
+            "legacy-history",
+        );
         let blocks: Vec<crate::document_types::BlockSnapshot> =
             serde_json::from_value(projection.blocks_json).map_err(|e| e.to_string())?;
-        require(blocks.len() == 1 && blocks[0].id == id, "legacy history isolated block mismatch")?;
+        require(
+            blocks.len() == 1 && blocks[0].id == id,
+            "legacy history isolated block mismatch",
+        )?;
         let text = string(row, "text")?;
-        require((blocks[0].content == text && blocks[0].marks.is_empty()) || legacy_history_marked_text_matches(text, &blocks[0], Some(&text_only))?,
-            "history text/XML mismatch")?;
+        require(
+            (blocks[0].content == text && blocks[0].marks.is_empty())
+                || legacy_history_marked_text_matches(text, &blocks[0], Some(&text_only))?,
+            "history text/XML mismatch",
+        )?;
     }
     Ok(())
 }
@@ -1913,10 +2454,16 @@ pub(super) fn legacy_decimal_attribute(value: &str) -> Option<&str> {
     let digits = value.strip_prefix('-').unwrap_or(value);
     let mut split = digits.split('.');
     let whole = split.next()?;
-    if whole.is_empty() || !whole.bytes().all(|b| b.is_ascii_digit()) { return None; }
+    if whole.is_empty() || !whole.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
     match split.next() {
         None => Some(value),
-        Some(fraction) if !fraction.is_empty() && fraction.bytes().all(|b| b.is_ascii_digit()) && split.next().is_none() => {
+        Some(fraction)
+            if !fraction.is_empty()
+                && fraction.bytes().all(|b| b.is_ascii_digit())
+                && split.next().is_none() =>
+        {
             Some(value.trim_end_matches('0').trim_end_matches('.'))
         }
         _ => None,
@@ -1924,8 +2471,10 @@ pub(super) fn legacy_decimal_attribute(value: &str) -> Option<&str> {
 }
 
 fn original_effective_mime<'a>(entry: &'a Value, manifest: &Value) -> Result<&'a str, String> {
-    if manifest["transformation"] == V23 && entry["ownerKind"] == "image"
-        && entry.get("mimeType") == Some(&Value::Null) {
+    if manifest["transformation"] == V23
+        && entry["ownerKind"] == "image"
+        && entry.get("mimeType") == Some(&Value::Null)
+    {
         // This is native opaque-download metadata, never an inferred source
         // MIME or image format. Source null and exact bytes remain in custody.
         return Ok("application/octet-stream");
@@ -1936,23 +2485,48 @@ fn original_effective_mime<'a>(entry: &'a Value, manifest: &Value) -> Result<&'a
 // The semantic index deliberately contains only available payloads. Account for
 // the wider retained Dynamo inventory separately; missing bytes are never a
 // native snapshot, empty payload, revision, or restore grant.
-fn validate_history_custody_document_id(manifest: &Value, graph: &str, record: &Value) -> Result<(), String> {
+fn validate_history_custody_document_id(
+    manifest: &Value,
+    graph: &str,
+    record: &Value,
+) -> Result<(), String> {
     let original = string(&record["doc_id"], "S")?;
-    if source_id(original).is_ok() { return Ok(()); }
+    if source_id(original).is_ok() {
+        return Ok(());
+    }
     // This identity belongs to retained source evidence, not a native path.
     // Only the same declared mapping already checked against the semantic
     // history index permits its original spelling to remain in raw custody.
     let mapped = manifest["compatibilityTransform"]["identifierMap"][original]
-        .as_str().ok_or("raw history identity has no declared compatible mapping")?;
+        .as_str()
+        .ok_or("raw history identity has no declared compatible mapping")?;
     source_id(mapped)?;
-    require(history_attribute_matches(manifest, graph, "doc_id", Some(&record["doc_id"]),
-        &json!({"S":mapped})), "raw history identity mapping is not admitted")
+    require(
+        history_attribute_matches(
+            manifest,
+            graph,
+            "doc_id",
+            Some(&record["doc_id"]),
+            &json!({"S":mapped}),
+        ),
+        "raw history identity mapping is not admitted",
+    )
 }
 
-fn prepare_history_availability(members: &Members, manifest: &Value, graph: &str, user: &str) -> Result<(Vec<Value>, Value), String> {
-    if manifest["transformation"] != V23 { return Ok((Vec::new(), Value::Null)); }
+fn prepare_history_availability(
+    members: &Members,
+    manifest: &Value,
+    graph: &str,
+    user: &str,
+) -> Result<(Vec<Value>, Value), String> {
+    if manifest["transformation"] != V23 {
+        return Ok((Vec::new(), Value::Null));
+    }
     let custody = parse_json(member(members, "source-custody/index.json")?)?;
-    require(custody["userId"] == user && custody["graphId"] == graph, "history custody scope mismatch")?;
+    require(
+        custody["userId"] == user && custody["graphId"] == graph,
+        "history custody scope mismatch",
+    )?;
     let mut available = BTreeMap::new();
     for raw in array(manifest, "sourceRecords")? {
         let record = parse_json(string(raw, "record_json")?.as_bytes())?;
@@ -1960,38 +2534,62 @@ fn prepare_history_availability(members: &Members, manifest: &Value, graph: &str
     }
     let mut retained = BTreeMap::new();
     for raw in array(&custody, "dynamoRecords")? {
-        require(raw["table"] == "mnemosyne-document-snapshots", "history custody table mismatch")?;
+        require(
+            raw["table"] == "mnemosyne-document-snapshots",
+            "history custody table mismatch",
+        )?;
         let record = &raw["record"];
         let id = string(&record["snapshot_id"], "S")?;
         let doc = string(&record["doc_id"], "S")?;
-        source_id(id)?; validate_history_custody_document_id(manifest, graph, record)?;
-        require(record["owner_user_id"]["S"] == user && record["graph_id"]["S"] == graph
-            && record["doc_key"]["S"] == format!("{graph}#{doc}"), "history custody identity mismatch")?;
-        require(retained.insert(id.to_string(), record.clone()).is_none(), "duplicate history custody record")?;
+        source_id(id)?;
+        validate_history_custody_document_id(manifest, graph, record)?;
+        require(
+            record["owner_user_id"]["S"] == user
+                && record["graph_id"]["S"] == graph
+                && record["doc_key"]["S"] == format!("{graph}#{doc}"),
+            "history custody identity mismatch",
+        )?;
+        require(
+            retained.insert(id.to_string(), record.clone()).is_none(),
+            "duplicate history custody record",
+        )?;
     }
     for (id, record) in &available {
-        require(retained.get(id) == Some(record), "available history custody mismatch")?;
+        require(
+            retained.get(id) == Some(record),
+            "available history custody mismatch",
+        )?;
     }
     let Some(recovery) = custody.get("documentHistoryRecovery") else {
         require(retained == available, "unaccounted unavailable history")?;
-        let index=parse_json(member(members,"history/documents/index.json")?)?;
-        let mut entries=Vec::new();
+        let index = parse_json(member(members, "history/documents/index.json")?)?;
+        let mut entries = Vec::new();
         for row in index.as_array().ok_or("history index invalid")? {
-            let id=string(row,"snapshot_id")?;let path=string(row,"member")?;
-            let record=retained.get(id).ok_or("history recovery record missing")?;
+            let id = string(row, "snapshot_id")?;
+            let path = string(row, "member")?;
+            let record = retained.get(id).ok_or("history recovery record missing")?;
             entries.push(json!({"snapshotId":id,"documentId":row["doc_id"],
                 "recordSha256":archive_sha256(&json_bytes(record)?),"disposition":"semantic-history-present",
                 "sourceMember":path,"sourceMemberSha256":archive_sha256(member(members,path)?)}));
         }
-        require(entries.len()==retained.len(),"history recovery inventory incomplete")?;
-        return Ok((Vec::new(),json!({"schema":"cloud1-document-history-availability.v1",
+        require(
+            entries.len() == retained.len(),
+            "history recovery inventory incomplete",
+        )?;
+        return Ok((
+            Vec::new(),
+            json!({"schema":"cloud1-document-history-availability.v1",
             "sourceUserId":user,"sourceGraphId":graph,"rawSourceRetained":true,
             "indexMember":"source-custody/index.json","indexSha256":archive_sha256(member(members,"source-custody/index.json")?),
             "retainedMetadataCount":retained.len(),"availablePayloadCount":available.len(),
-            "unavailablePayloadCount":0,"entries":entries})));
+            "unavailablePayloadCount":0,"entries":entries}),
+        ));
     };
-    require(recovery["mode"] == "available-payloads-only-v1"
-        && recovery["unavailablePayloads"] == "not-substituted-not-fabricated", "history recovery mode mismatch")?;
+    require(
+        recovery["mode"] == "available-payloads-only-v1"
+            && recovery["unavailablePayloads"] == "not-substituted-not-fabricated",
+        "history recovery mode mismatch",
+    )?;
     let mut seen = BTreeSet::new();
     let mut result = Vec::new();
     let mut partition = Vec::new();
@@ -2001,12 +2599,24 @@ fn prepare_history_availability(members: &Members, manifest: &Value, graph: &str
         let doc = string(row, "documentId")?;
         let record = retained.get(id).ok_or("history recovery record missing")?;
         let key = format!("users/{user}/graphs/{graph}/document-snapshots/{doc}/{id}.json");
-        require(seen.insert(id.to_string()) && record["doc_id"]["S"] == doc
-            && row["key"] == key && row["bucket"] == "mnemosyne-dev-prod-crdt-state"
-            && row["recordSha256"] == archive_sha256(&json_bytes(record)?), "history recovery source mismatch")?;
+        require(
+            seen.insert(id.to_string())
+                && record["doc_id"]["S"] == doc
+                && row["key"] == key
+                && row["bucket"] == "mnemosyne-dev-prod-crdt-state"
+                && row["recordSha256"] == archive_sha256(&json_bytes(record)?),
+            "history recovery source mismatch",
+        )?;
         if available.contains_key(id) {
-            require(row["disposition"] == "semantic-history-present", "available history marked unavailable")?;
-            let indexed = index.as_array().ok_or("history index must be an array")?.iter().find(|entry| entry["snapshot_id"] == id)
+            require(
+                row["disposition"] == "semantic-history-present",
+                "available history marked unavailable",
+            )?;
+            let indexed = index
+                .as_array()
+                .ok_or("history index must be an array")?
+                .iter()
+                .find(|entry| entry["snapshot_id"] == id)
                 .ok_or("available history absent from semantic index")?;
             let path = string(indexed, "member")?;
             let mut evidence = row.clone();
@@ -2014,10 +2624,21 @@ fn prepare_history_availability(members: &Members, manifest: &Value, graph: &str
             evidence["sourceMemberSha256"] = json!(archive_sha256(member(members, path)?));
             partition.push(evidence);
         } else {
-            require(row["disposition"] == "custody-only-payload-unavailable", "unavailable history disposition mismatch")?;
-            require(!array(&custody, "objects")?.iter().any(|object| object["bucket"] == row["bucket"] && object["key"] == key)
-                && !manifest["sourceObjects"].as_object().ok_or("source objects missing")?.values().any(|object| object["key"] == key),
-                "unavailable history has captured payload")?;
+            require(
+                row["disposition"] == "custody-only-payload-unavailable",
+                "unavailable history disposition mismatch",
+            )?;
+            require(
+                !array(&custody, "objects")?
+                    .iter()
+                    .any(|object| object["bucket"] == row["bucket"] && object["key"] == key)
+                    && !manifest["sourceObjects"]
+                        .as_object()
+                        .ok_or("source objects missing")?
+                        .values()
+                        .any(|object| object["key"] == key),
+                "unavailable history has captured payload",
+            )?;
             let mut evidence = row.clone();
             evidence["sourceUserId"] = json!(user);
             evidence["sourceGraphId"] = json!(graph);
@@ -2025,14 +2646,20 @@ fn prepare_history_availability(members: &Members, manifest: &Value, graph: &str
             evidence["semanticRestoreAuthority"] = json!(false);
             evidence["rawSourceRetained"] = json!(true);
             evidence["indexMember"] = json!("source-custody/index.json");
-            evidence["indexSha256"] = json!(archive_sha256(member(members, "source-custody/index.json")?));
+            evidence["indexSha256"] = json!(archive_sha256(member(
+                members,
+                "source-custody/index.json"
+            )?));
             result.push(evidence);
             partition.push(row.clone());
         }
     }
-    require(seen == retained.keys().cloned().collect(), "history recovery inventory incomplete")?;
-    result.sort_by(|a,b| a["snapshotId"].as_str().cmp(&b["snapshotId"].as_str()));
-    partition.sort_by(|a,b| a["snapshotId"].as_str().cmp(&b["snapshotId"].as_str()));
+    require(
+        seen == retained.keys().cloned().collect(),
+        "history recovery inventory incomplete",
+    )?;
+    result.sort_by(|a, b| a["snapshotId"].as_str().cmp(&b["snapshotId"].as_str()));
+    partition.sort_by(|a, b| a["snapshotId"].as_str().cmp(&b["snapshotId"].as_str()));
     let accounting = json!({"schema":"cloud1-document-history-availability.v1",
         "sourceUserId":user,"sourceGraphId":graph,"rawSourceRetained":true,
         "indexMember":"source-custody/index.json","indexSha256":archive_sha256(member(members,"source-custody/index.json")?),
@@ -2041,33 +2668,64 @@ fn prepare_history_availability(members: &Members, manifest: &Value, graph: &str
     Ok((result, accounting))
 }
 
-fn history_owner_partition(members: &Members, manifest: &Value, history: Vec<History>,
-    mut legacy: Vec<Value>, current: &BTreeSet<String>, deleted: &BTreeSet<String>)
-    -> Result<(Vec<History>,Vec<Value>),String> {
-    let index=parse_json(member(members,"history/documents/index.json")?)?;
-    let mut native=Vec::new();
+fn history_owner_partition(
+    members: &Members,
+    manifest: &Value,
+    history: Vec<History>,
+    mut legacy: Vec<Value>,
+    current: &BTreeSet<String>,
+    deleted: &BTreeSet<String>,
+) -> Result<(Vec<History>, Vec<Value>), String> {
+    let index = parse_json(member(members, "history/documents/index.json")?)?;
+    let mut native = Vec::new();
     for item in history {
         if current.contains(&item.meta.document_id) || deleted.contains(&item.meta.document_id) {
             native.push(item);
-        }else{
-            require(manifest["transformation"]==V23,"history owner is neither live nor explicitly deleted")?;
-            let entry=index.as_array().ok_or("history index missing")?.iter()
-                .find(|row|row["snapshot_id"]==item.meta.snapshot_id).ok_or("history index entry missing")?;
-            legacy.push(history_source_entry(members,manifest,entry,"legacy-read-only",
-                "source-document-not-current-or-deleted",None)?);
+        } else {
+            require(
+                manifest["transformation"] == V23,
+                "history owner is neither live nor explicitly deleted",
+            )?;
+            let entry = index
+                .as_array()
+                .ok_or("history index missing")?
+                .iter()
+                .find(|row| row["snapshot_id"] == item.meta.snapshot_id)
+                .ok_or("history index entry missing")?;
+            legacy.push(history_source_entry(
+                members,
+                manifest,
+                entry,
+                "legacy-read-only",
+                "source-document-not-current-or-deleted",
+                None,
+            )?);
         }
     }
-    Ok((native,legacy))
+    Ok((native, legacy))
 }
 
-fn history_source_entry(members: &Members, manifest: &Value, entry: &Value,
-    status: &str, reason: &str, diagnostic: Option<String>) -> Result<Value,String> {
-    let id=string(entry,"snapshot_id")?; let path=string(entry,"member")?;
-    let record=array(manifest,"sourceRecords")?.iter().find(|row| {
-        row["key_json"].as_str().and_then(|s|serde_json::from_str::<Value>(s).ok())
-            .is_some_and(|key|key["snapshot_id"]["S"]==id)
-    }).ok_or("history source record missing")?;
-    Ok(json!({"sourceUserId":manifest["source"]["userId"],"sourceGraphId":entry["graph_id"],
+fn history_source_entry(
+    members: &Members,
+    manifest: &Value,
+    entry: &Value,
+    status: &str,
+    reason: &str,
+    diagnostic: Option<String>,
+) -> Result<Value, String> {
+    let id = string(entry, "snapshot_id")?;
+    let path = string(entry, "member")?;
+    let record = array(manifest, "sourceRecords")?
+        .iter()
+        .find(|row| {
+            row["key_json"]
+                .as_str()
+                .and_then(|s| serde_json::from_str::<Value>(s).ok())
+                .is_some_and(|key| key["snapshot_id"]["S"] == id)
+        })
+        .ok_or("history source record missing")?;
+    Ok(
+        json!({"sourceUserId":manifest["source"]["userId"],"sourceGraphId":entry["graph_id"],
         "documentId":entry["doc_id"],"snapshotId":id,"sourceMetadata":entry,
         "sourceMember":path,"sourceMemberSha256":archive_sha256(member(members,path)?),
         "sourceByteLength":member(members,path)?.len(),"sourceRecordSha256":record["record_sha256"],
@@ -2076,42 +2734,64 @@ fn history_source_entry(members: &Members, manifest: &Value, entry: &Value,
         "status":status,"reasonCode":reason,"diagnostic":diagnostic,
         "nativeSnapshotCreated":status=="native-interpreted","restoreSupported":status=="native-interpreted",
         "readOnly":status!="native-interpreted","nativeRestorable":status=="native-interpreted",
-        "originalYjsRecovered":false,"rawSourceRetained":true}))
+        "originalYjsRecovered":false,"rawSourceRetained":true}),
+    )
 }
 
 fn history_fidelity(native: usize, legacy: usize, unavailable: usize) -> &'static str {
-    match (native,legacy,unavailable) {
-        (0,0,0)=>"no-source-history",
-        (_,0,0)=>"qualified-native-interpretation",
-        (0,0,_)=>"source-history-unavailable",
-        (_,0,_)=>"disclosed-unavailable-history",
-        (_,_,0)=>"disclosed-read-only-legacy-history",
-        _=>"disclosed-legacy-and-unavailable-history",
+    match (native, legacy, unavailable) {
+        (0, 0, 0) => "no-source-history",
+        (_, 0, 0) => "qualified-native-interpretation",
+        (0, 0, _) => "source-history-unavailable",
+        (_, 0, _) => "disclosed-unavailable-history",
+        (_, _, 0) => "disclosed-read-only-legacy-history",
+        _ => "disclosed-legacy-and-unavailable-history",
     }
 }
 
-fn history_disposition(members: &Members, manifest: &Value, native: &[History],
-    legacy: &[Value], unavailable: &[Value]) -> Result<Value,String> {
-    let index=parse_json(member(members,"history/documents/index.json")?)?;
-    let mut entries=legacy.to_vec();
+fn history_disposition(
+    members: &Members,
+    manifest: &Value,
+    native: &[History],
+    legacy: &[Value],
+    unavailable: &[Value],
+) -> Result<Value, String> {
+    let index = parse_json(member(members, "history/documents/index.json")?)?;
+    let mut entries = legacy.to_vec();
     for item in native {
-        let source=index.as_array().ok_or("history index invalid")?.iter()
-            .find(|row|row["snapshot_id"]==item.meta.snapshot_id).ok_or("history index entry missing")?;
-        entries.push(history_source_entry(members,manifest,source,"native-interpreted",
-            "qualified-exported-history-interpretation",None)?);
+        let source = index
+            .as_array()
+            .ok_or("history index invalid")?
+            .iter()
+            .find(|row| row["snapshot_id"] == item.meta.snapshot_id)
+            .ok_or("history index entry missing")?;
+        entries.push(history_source_entry(
+            members,
+            manifest,
+            source,
+            "native-interpreted",
+            "qualified-exported-history-interpretation",
+            None,
+        )?);
     }
     for row in unavailable {
-        let mut entry=row.clone();
-        entry["status"]=json!("source-payload-unavailable");
-        entry["reasonCode"]=json!("source-payload-unavailable");
-        entry["restoreSupported"]=json!(false);
-        entry["readOnly"]=json!(true);
-        entry["nativeRestorable"]=json!(false);
+        let mut entry = row.clone();
+        entry["status"] = json!("source-payload-unavailable");
+        entry["reasonCode"] = json!("source-payload-unavailable");
+        entry["restoreSupported"] = json!(false);
+        entry["readOnly"] = json!(true);
+        entry["nativeRestorable"] = json!(false);
         entries.push(entry);
     }
-    entries.sort_by(|a,b|a["snapshotId"].as_str().cmp(&b["snapshotId"].as_str()));
-    let ids=entries.iter().map(|row|string(row,"snapshotId")).collect::<Result<BTreeSet<_>,_>>()?;
-    require(ids.len()==entries.len(),"history disposition duplicate identity")?;
+    entries.sort_by(|a, b| a["snapshotId"].as_str().cmp(&b["snapshotId"].as_str()));
+    let ids = entries
+        .iter()
+        .map(|row| string(row, "snapshotId"))
+        .collect::<Result<BTreeSet<_>, _>>()?;
+    require(
+        ids.len() == entries.len(),
+        "history disposition duplicate identity",
+    )?;
     Ok(json!({"schema":"cloud1-document-history-disposition.v1",
         "sourceUserId":manifest["source"]["userId"],"sourceGraphId":manifest["source"]["graphId"],
         "nativeInterpretedCount":native.len(),"legacyReadOnlyCount":legacy.len(),
@@ -2120,41 +2800,51 @@ fn history_disposition(members: &Members, manifest: &Value, native: &[History],
         "entries":entries}))
 }
 
-fn interpret_history_body(body: &Value, manifest: &Value, doc: &str, id: &str)
-    -> Result<(String, Vec<crate::document_types::BlockSnapshot>), String> {
-        let source_blocks = array(&body, "blocks")?;
-        let xml = string(&body, "tiptap_xml")?;
-        let legacy_blocks = manifest["transformation"] == V23
-            && source_blocks.iter().any(|row| row.get("index").is_some());
-        let mut native_xml = if legacy_blocks { legacy_history_export_xml(xml,source_blocks)? } else { xml.to_string() };
-        let mut parsed =
-            super::super::content_parse::parse_write_content_for_operation(&native_xml, Some("xml"), id)?;
-        if !parsed.warnings.is_empty() {
-            require(
-                parsed.warnings.len() == 1
-                    && parsed.warnings[0]
-                        .starts_with("Content parse fallback: malformed entity reference"),
-                "history XML cannot be faithfully decoded",
-            )?;
-            native_xml = escape_legacy_bare_xml_ampersands(xml);
-            require(native_xml != xml, "history XML repair made no progress")?;
-            parsed = super::super::content_parse::parse_write_content_for_operation(
-                &native_xml,
-                Some("xml"),
-                id,
-            )?;
-        }
+fn interpret_history_body(
+    body: &Value,
+    manifest: &Value,
+    doc: &str,
+    id: &str,
+) -> Result<(String, Vec<crate::document_types::BlockSnapshot>), String> {
+    let source_blocks = array(&body, "blocks")?;
+    let xml = string(&body, "tiptap_xml")?;
+    let legacy_blocks = manifest["transformation"] == V23
+        && source_blocks.iter().any(|row| row.get("index").is_some());
+    let mut native_xml = if legacy_blocks {
+        legacy_history_export_xml(xml, source_blocks)?
+    } else {
+        xml.to_string()
+    };
+    let mut parsed = super::super::content_parse::parse_write_content_for_operation(
+        &native_xml,
+        Some("xml"),
+        id,
+    )?;
+    if !parsed.warnings.is_empty() {
         require(
-            parsed.warnings.is_empty() && parsed.source_format == "xml",
+            parsed.warnings.len() == 1
+                && parsed.warnings[0]
+                    .starts_with("Content parse fallback: malformed entity reference"),
             "history XML cannot be faithfully decoded",
         )?;
-        let projection =
-            super::super::projection::materialize_tiptap_json(&parsed.tiptap_json, doc);
-        let blocks: Vec<crate::document_types::BlockSnapshot> =
-            serde_json::from_value(projection.blocks_json).map_err(|e| e.to_string())?;
-        if legacy_blocks {
-            validate_legacy_history_blocks(&native_xml, source_blocks, &parsed.tiptap_json)?;
-        } else {
+        native_xml = escape_legacy_bare_xml_ampersands(xml);
+        require(native_xml != xml, "history XML repair made no progress")?;
+        parsed = super::super::content_parse::parse_write_content_for_operation(
+            &native_xml,
+            Some("xml"),
+            id,
+        )?;
+    }
+    require(
+        parsed.warnings.is_empty() && parsed.source_format == "xml",
+        "history XML cannot be faithfully decoded",
+    )?;
+    let projection = super::super::projection::materialize_tiptap_json(&parsed.tiptap_json, doc);
+    let blocks: Vec<crate::document_types::BlockSnapshot> =
+        serde_json::from_value(projection.blocks_json).map_err(|e| e.to_string())?;
+    if legacy_blocks {
+        validate_legacy_history_blocks(&native_xml, source_blocks, &parsed.tiptap_json)?;
+    } else {
         let mut block_ids = BTreeSet::new();
         for source_block in source_blocks {
             let block_id = string(source_block, "id")?;
@@ -2162,15 +2852,33 @@ fn interpret_history_body(body: &Value, manifest: &Value, doc: &str, id: &str)
                 block_ids.insert(block_id),
                 "duplicate source history block identity",
             )?;
-            let block = blocks
-                .iter()
-                .find(|b| b.id == block_id)
-                .ok_or_else(|| format!("history block missing from XML projection (legacy type {})",
-                    source_block.get("type").and_then(Value::as_str).filter(|s| matches!(*s,
-                        "paragraph"|"heading"|"codeBlock"|"blockquote"|"bulletList"|"orderedList"|"taskList"|"horizontalRule")).unwrap_or("other")))?;
+            let block = blocks.iter().find(|b| b.id == block_id).ok_or_else(|| {
+                format!(
+                    "history block missing from XML projection (legacy type {})",
+                    source_block
+                        .get("type")
+                        .and_then(Value::as_str)
+                        .filter(|s| matches!(
+                            *s,
+                            "paragraph"
+                                | "heading"
+                                | "codeBlock"
+                                | "blockquote"
+                                | "bulletList"
+                                | "orderedList"
+                                | "taskList"
+                                | "horizontalRule"
+                        ))
+                        .unwrap_or("other")
+                )
+            })?;
             if let Some(text) = source_block.get("text").and_then(Value::as_str) {
-                require(block.content == text || (manifest["transformation"] == V23
-                    && legacy_history_marked_text_matches(text, block, None)?), "history text/XML mismatch")?;
+                require(
+                    block.content == text
+                        || (manifest["transformation"] == V23
+                            && legacy_history_marked_text_matches(text, block, None)?),
+                    "history text/XML mismatch",
+                )?;
             } else {
                 let native: crate::document_types::BlockSnapshot =
                     serde_json::from_value(source_block.clone())
@@ -2185,7 +2893,7 @@ fn interpret_history_body(body: &Value, manifest: &Value, doc: &str, id: &str)
             blocks.len() == source_blocks.len(),
             "history XML has unindexed blocks",
         )?;
-        }
+    }
     Ok((native_xml, blocks))
 }
 
@@ -2196,43 +2904,82 @@ fn prepare_history(
     user: &str,
 ) -> Result<Vec<History>, String> {
     let (native, legacy) = prepare_history_partition(members, manifest, graph, user, false)?;
-    require(legacy.is_empty(), "strict history unexpectedly retained legacy record")?;
+    require(
+        legacy.is_empty(),
+        "strict history unexpectedly retained legacy record",
+    )?;
     Ok(native)
 }
 
-fn history_attribute_matches(manifest: &Value, graph: &str, key: &str, raw: Option<&Value>, expected: &Value) -> bool {
-    if raw == Some(expected) { return true; }
+fn history_attribute_matches(
+    manifest: &Value,
+    graph: &str,
+    key: &str,
+    raw: Option<&Value>,
+    expected: &Value,
+) -> bool {
+    if raw == Some(expected) {
+        return true;
+    }
     let rule = &manifest["compatibilityTransform"];
-    if rule["rule"] != "vera-20260920-standard-compatibility-v1" || rule["originalCustodyUnchanged"] != true {
+    if rule["rule"] != "vera-20260920-standard-compatibility-v1"
+        || rule["originalCustodyUnchanged"] != true
+    {
         return false;
     }
-    let Some(value) = raw.and_then(|v| v.get("S")).and_then(Value::as_str) else { return false; };
+    let Some(value) = raw.and_then(|v| v.get("S")).and_then(Value::as_str) else {
+        return false;
+    };
     let old = match key {
         "doc_id" => value,
-        "doc_key" => match value.strip_prefix(&format!("{graph}#")) { Some(id) => id, None => return false },
+        "doc_key" => match value.strip_prefix(&format!("{graph}#")) {
+            Some(id) => id,
+            None => return false,
+        },
         _ => return false,
     };
-    let Some(mapped) = rule["identifierMap"][old].as_str() else { return false; };
-    if source_id(mapped).is_err() { return false; }
-    *expected == json!({"S": if key == "doc_key" { format!("{graph}#{mapped}") } else { mapped.to_string() }})
+    let Some(mapped) = rule["identifierMap"][old].as_str() else {
+        return false;
+    };
+    if source_id(mapped).is_err() {
+        return false;
+    }
+    *expected
+        == json!({"S": if key == "doc_key" { format!("{graph}#{mapped}") } else { mapped.to_string() }})
 }
 
-fn check_history_record(manifest: &Value, graph: &str, entry: &Value, record: &Value) -> Result<(), String> {
+fn check_history_record(
+    manifest: &Value,
+    graph: &str,
+    entry: &Value,
+    record: &Value,
+) -> Result<(), String> {
     for (key, value) in entry.as_object().ok_or("history entry must be an object")? {
-        if key == "member" || (key == "label" && value.is_null() && record.get(key).is_none()) { continue; }
+        if key == "member" || (key == "label" && value.is_null() && record.get(key).is_none()) {
+            continue;
+        }
         let attribute = match value {
-            Value::Bool(v) => json!({"BOOL":v}), Value::Null => json!({"NULL":true}),
+            Value::Bool(v) => json!({"BOOL":v}),
+            Value::Null => json!({"NULL":true}),
             Value::Number(v) if v.is_i64() || v.is_u64() => json!({"N":v.to_string()}),
-            Value::String(v) => json!({"S":v}), _ => return Err("unsupported history index field type".into()),
+            Value::String(v) => json!({"S":v}),
+            _ => return Err("unsupported history index field type".into()),
         };
-        require(history_attribute_matches(manifest, graph, key, record.get(key), &attribute),
-            "history metadata differs from retained Dynamo record")?;
+        require(
+            history_attribute_matches(manifest, graph, key, record.get(key), &attribute),
+            "history metadata differs from retained Dynamo record",
+        )?;
     }
     Ok(())
 }
 
-fn prepare_history_partition(members: &Members, manifest: &Value, graph: &str, user: &str,
-    allow_legacy: bool) -> Result<(Vec<History>, Vec<Value>), String> {
+fn prepare_history_partition(
+    members: &Members,
+    manifest: &Value,
+    graph: &str,
+    user: &str,
+    allow_legacy: bool,
+) -> Result<(Vec<History>, Vec<Value>), String> {
     let index = parse_json(member(members, "history/documents/index.json")?)?;
     let index = index.as_array().ok_or("history index must be an array")?;
     let mut records = BTreeMap::new();
@@ -2268,7 +3015,9 @@ fn prepare_history_partition(members: &Members, manifest: &Value, graph: &str, u
     let mut legacy = Vec::new();
     // Reject metadata drift before interpreting potentially large historical bodies.
     for entry in index {
-        let record = records.get(string(entry, "snapshot_id")?).ok_or("history raw record missing")?;
+        let record = records
+            .get(string(entry, "snapshot_id")?)
+            .ok_or("history raw record missing")?;
         check_history_record(manifest, graph, entry, record)?;
     }
     for entry in index {
@@ -2341,8 +3090,14 @@ fn prepare_history_partition(members: &Members, manifest: &Value, graph: &str, u
         let (native_xml, blocks) = match interpret_history_body(&body, manifest, doc, id) {
             Ok(value) => value,
             Err(error) if allow_legacy && manifest["transformation"] == V23 => {
-                legacy.push(history_source_entry(members, manifest, entry, "legacy-read-only",
-                    "native-interpretation-unsupported", Some(error))?);
+                legacy.push(history_source_entry(
+                    members,
+                    manifest,
+                    entry,
+                    "legacy-read-only",
+                    "native-interpretation-unsupported",
+                    Some(error),
+                )?);
                 continue;
             }
             Err(error) => return Err(error),
@@ -2630,62 +3385,116 @@ fn prepare_graph_history(
 
 fn dataset_destination(graph: &str, archive: &str, kind: &str, iri: &str) -> String {
     let identity = format!("{DATASET_CAPABILITY}\0{kind}\0{iri}");
-    format!("{}:user:retained-source:{archive}:{}", crate::rdf::graph_subject(graph), archive_sha256(identity.as_bytes()))
+    format!(
+        "{}:user:retained-source:{archive}:{}",
+        crate::rdf::graph_subject(graph),
+        archive_sha256(identity.as_bytes())
+    )
 }
 
-fn prepare_dataset_partitions(members: &Members, manifest: &Value, graph: &str, user: &str, archive: &str) -> Result<Value, String> {
-    if !members.contains_key(DATASET_MEMBER) { return Ok(Value::Null); }
+fn prepare_dataset_partitions(
+    members: &Members,
+    manifest: &Value,
+    graph: &str,
+    user: &str,
+    archive: &str,
+) -> Result<Value, String> {
+    if !members.contains_key(DATASET_MEMBER) {
+        return Ok(Value::Null);
+    }
     let witness = parse_json(member(members, DATASET_MEMBER)?)?;
     let custody = parse_json(member(members, "source-custody/index.json")?)?;
     let source_bytes = |source: &Value| -> Result<Vec<u8>, String> {
-        let entries: Vec<_> = array(&custody, "objects")?.iter().filter(|entry|
-            ["bucket","key","version_id","sha256","byte_length"].iter().all(|key|entry[*key]==source[*key])).collect();
-        require(entries.len()==1 && entries[0]["latest"]==true, "partition source custody mismatch")?;
+        let entries: Vec<_> = array(&custody, "objects")?
+            .iter()
+            .filter(|entry| {
+                ["bucket", "key", "version_id", "sha256", "byte_length"]
+                    .iter()
+                    .all(|key| entry[*key] == source[*key])
+            })
+            .collect();
+        require(
+            entries.len() == 1 && entries[0]["latest"] == true,
+            "partition source custody mismatch",
+        )?;
         let raw = member(members, string(entries[0], "member")?)?;
-        require(source["sha256"]==archive_sha256(raw) && number(source,"byte_length")?==raw.len() as u64,
-            "partition source bytes mismatch")?;
+        require(
+            source["sha256"] == archive_sha256(raw)
+                && number(source, "byte_length")? == raw.len() as u64,
+            "partition source bytes mismatch",
+        )?;
         let mut decoder = flate2::bufread::GzDecoder::new(raw);
         let mut output = Vec::new();
-        decoder.by_ref().take(MEMBER_LIMIT as u64+1).read_to_end(&mut output).map_err(|e|e.to_string())?;
-        require(output.len()<=MEMBER_LIMIT && decoder.into_inner().is_empty(), "partition gzip bounds/trailing data")?;
+        decoder
+            .by_ref()
+            .take(MEMBER_LIMIT as u64 + 1)
+            .read_to_end(&mut output)
+            .map_err(|e| e.to_string())?;
+        require(
+            output.len() <= MEMBER_LIMIT && decoder.into_inner().is_empty(),
+            "partition gzip bounds/trailing data",
+        )?;
         Ok(output)
     };
     let catalogue_source = &custody["catalogueSource"];
     let dataset_source = &witness["datasetSource"];
     let key = string(catalogue_source, "key")?;
-    let prefix = key.strip_suffix(&format!("/{user}/__meta__.nq.gz")).ok_or("partition catalogue owner layout mismatch")?;
-    require(!prefix.is_empty() && dataset_source["bucket"]==catalogue_source["bucket"]
-        && dataset_source["key"]==format!("{prefix}/{user}/{graph}.nq.gz"), "partition source owner layout mismatch")?;
-    let source_rdf=source_bytes(dataset_source)?;
-    let rdf=member(members,"rdf/dataset.nq")?;
-    let derived=source_rdf.as_slice()!=rdf;
-    if derived {derived_dataset::verify_derived_dataset(&source_rdf,rdf,members,manifest,user,graph)?;}
+    let prefix = key
+        .strip_suffix(&format!("/{user}/__meta__.nq.gz"))
+        .ok_or("partition catalogue owner layout mismatch")?;
+    require(
+        !prefix.is_empty()
+            && dataset_source["bucket"] == catalogue_source["bucket"]
+            && dataset_source["key"] == format!("{prefix}/{user}/{graph}.nq.gz"),
+        "partition source owner layout mismatch",
+    )?;
+    let source_rdf = source_bytes(dataset_source)?;
+    let rdf = member(members, "rdf/dataset.nq")?;
+    let derived = source_rdf.as_slice() != rdf;
+    if derived {
+        derived_dataset::verify_derived_dataset(&source_rdf, rdf, members, manifest, user, graph)?;
+    }
     let catalogue = source_bytes(catalogue_source)?;
     let meta = format!("urn:mnemosyne:user:{user}:meta");
     let main = format!("urn:mnemosyne:user:{user}:graph:{graph}");
     let owner = format!("urn:mnemosyne:user:{user}:graph:");
     let mut subjects = BTreeSet::new();
     for quad in RdfParser::from_format(RdfFormat::NQuads).for_slice(&catalogue) {
-        let quad = quad.map_err(|e|e.to_string())?;
+        let quad = quad.map_err(|e| e.to_string())?;
         if matches!(&quad.graph_name, GraphName::NamedNode(name) if name.as_str()==meta) {
-            if let NamedOrBlankNode::NamedNode(name)=quad.subject { subjects.insert(name.as_str().to_string()); }
+            if let NamedOrBlankNode::NamedNode(name) = quad.subject {
+                subjects.insert(name.as_str().to_string());
+            }
         }
     }
-    let mut counts = BTreeMap::<(String,String),u64>::new();
+    let mut counts = BTreeMap::<(String, String), u64>::new();
     let mut seen = BTreeSet::new();
     for quad in RdfParser::from_format(RdfFormat::NQuads).for_slice(&rdf) {
-        let quad = quad.map_err(|e|e.to_string())?;
-        require(seen.insert(quad.to_string()), "duplicate RDF statement testimony")?;
+        let quad = quad.map_err(|e| e.to_string())?;
+        require(
+            seen.insert(quad.to_string()),
+            "duplicate RDF statement testimony",
+        )?;
         let identity = match &quad.graph_name {
-            GraphName::NamedNode(name)=>("named".to_string(),name.as_str().to_string()),
-            GraphName::DefaultGraph=>("default".to_string(),String::new()),
-            _=>return Err("blank RDF graph unsupported".into()),
+            GraphName::NamedNode(name) => ("named".to_string(), name.as_str().to_string()),
+            GraphName::DefaultGraph => ("default".to_string(), String::new()),
+            _ => return Err("blank RDF graph unsupported".into()),
         };
-        if identity.0!="named" || identity.1!=main {
-            require(matches!(quad.subject,NamedOrBlankNode::NamedNode(_)) && matches!(quad.object,Term::NamedNode(_)|Term::Literal(_)), "side blank nodes or quoted triples unsupported")?;
-            if identity.0=="named" { require(identity.1==meta || (identity.1.starts_with(&owner) && subjects.contains(&identity.1)), "retained sibling owner/catalogue witness missing")?; }
+        if identity.0 != "named" || identity.1 != main {
+            require(
+                matches!(quad.subject, NamedOrBlankNode::NamedNode(_))
+                    && matches!(quad.object, Term::NamedNode(_) | Term::Literal(_)),
+                "side blank nodes or quoted triples unsupported",
+            )?;
+            if identity.0 == "named" {
+                require(
+                    identity.1 == meta
+                        || (identity.1.starts_with(&owner) && subjects.contains(&identity.1)),
+                    "retained sibling owner/catalogue witness missing",
+                )?;
+            }
         }
-        *counts.entry(identity).or_default()+=1;
+        *counts.entry(identity).or_default() += 1;
     }
     let partitions: Vec<Value> = counts.iter().map(|((kind,iri),count)|json!({
         "identity":if kind=="named" {json!({"kind":kind,"iri":iri})} else {json!({"kind":kind})},
@@ -2695,18 +3504,32 @@ fn prepare_dataset_partitions(members: &Members, manifest: &Value, graph: &str, 
         "userId":user,"graphId":graph,"inventorySha256":custody["inventorySha256"],
         "datasetSource":dataset_source,"catalogueSource":catalogue_source,"datasetSha256":archive_sha256(&rdf),
         "destinationAuthority":"not-conferred","partitions":partitions});
-    if derived {expected["originalDatasetSha256"]=json!(archive_sha256(&source_rdf));}
-    require(witness==expected, "retained dataset partition witness mismatch")?;
+    if derived {
+        expected["originalDatasetSha256"] = json!(archive_sha256(&source_rdf));
+    }
+    require(
+        witness == expected,
+        "retained dataset partition witness mismatch",
+    )?;
     let mut result = expected;
-    result["archiveSha256"]=json!(archive);
+    result["archiveSha256"] = json!(archive);
     let mut destinations = BTreeSet::new();
-    for row in result["partitions"].as_array_mut().ok_or("partition array")? {
+    for row in result["partitions"]
+        .as_array_mut()
+        .ok_or("partition array")?
+    {
         let kind = string(&row["identity"], "kind")?;
         let iri = row["identity"]["iri"].as_str().unwrap_or("");
-        let destination = if kind=="named" && iri==main { crate::rdf_authority::user_rdf_graph_iri(graph) }
-            else { dataset_destination(graph,archive,kind,iri) };
-        require(destinations.insert(destination.clone()), "partition mapping collision")?;
-        row["destinationGraph"]=json!(destination);
+        let destination = if kind == "named" && iri == main {
+            crate::rdf_authority::user_rdf_graph_iri(graph)
+        } else {
+            dataset_destination(graph, archive, kind, iri)
+        };
+        require(
+            destinations.insert(destination.clone()),
+            "partition mapping collision",
+        )?;
+        row["destinationGraph"] = json!(destination);
     }
     Ok(result)
 }
@@ -3026,8 +3849,10 @@ fn persist_history(graph_dir: &Path, items: &[History]) -> Result<Vec<Value>, St
             );
             let bytes = json_bytes(&item.payload)?;
             write_new(graph_dir, &relative, &bytes)?;
-            payloads.push(json!({"snapshotId":item.meta.snapshot_id,"documentId":document,
-                "path":relative,"byteLength":bytes.len(),"sha256":archive_sha256(&bytes)}));
+            payloads.push(
+                json!({"snapshotId":item.meta.snapshot_id,"documentId":document,
+                "path":relative,"byteLength":bytes.len(),"sha256":archive_sha256(&bytes)}),
+            );
             snapshots.push(item.meta.clone());
             store.total_count = store
                 .total_count
@@ -3106,27 +3931,50 @@ fn persist_graph_history(
     Ok(())
 }
 
-fn persist_original(graph_dir: &Path, original: &Original, members: &Members) -> Result<Value,String> {
-    let destination=match original.kind.as_str() {
-        "document"=>crate::paths::document_dir(graph_dir,&original.id)?.join("original"),
-        "artifact"=>crate::paths::artifact_original_dir(graph_dir,&original.id)?,
-        "image"=>crate::paths::image_original_dir(graph_dir,&original.id)?,
-        _=>return Err("unreachable original kind".into()),
+fn persist_original(
+    graph_dir: &Path,
+    original: &Original,
+    members: &Members,
+) -> Result<Value, String> {
+    let destination = match original.kind.as_str() {
+        "document" => crate::paths::document_dir(graph_dir, &original.id)?.join("original"),
+        "artifact" => crate::paths::artifact_original_dir(graph_dir, &original.id)?,
+        "image" => crate::paths::image_original_dir(graph_dir, &original.id)?,
+        _ => return Err("unreachable original kind".into()),
     };
-    require(!destination.exists(),"original destination occupied")?;
-    let source=member(members,&original.member)?;
-    crate::original_file_storage::save_original_bytes_to_dir(&destination,&original.filename,&original.mime,source)?;
-    if let Some(source_filename) = original.provenance.get("sourceFilename").and_then(Value::as_str) {
+    require(!destination.exists(), "original destination occupied")?;
+    let source = member(members, &original.member)?;
+    crate::original_file_storage::save_original_bytes_to_dir(
+        &destination,
+        &original.filename,
+        &original.mime,
+        source,
+    )?;
+    if let Some(source_filename) = original
+        .provenance
+        .get("sourceFilename")
+        .and_then(Value::as_str)
+    {
         if source_filename != original.filename {
-            let mut manifest = crate::original_file_manifest_store::read_original_manifest(&destination)?;
+            let mut manifest =
+                crate::original_file_manifest_store::read_original_manifest(&destination)?;
             manifest.source_filename = Some(source_filename.to_string());
-            crate::storage::write_json(&destination.join("manifest.json"), &manifest).map_err(|e| e.to_string())?;
+            crate::storage::write_json(&destination.join("manifest.json"), &manifest)
+                .map_err(|e| e.to_string())?;
         }
     }
-    let (manifest,body)=crate::original_file_storage::read_original_file_from_dir(&destination)?;
-    require(body==source && manifest.filename==original.filename && manifest.mime_type==original.mime,"persisted original readback differs from admitted bytes/metadata")?;
-    let manifest_bytes=fs::read(destination.join("manifest.json")).map_err(|e|e.to_string())?;
-    let relative=destination.strip_prefix(graph_dir).map_err(|e|e.to_string())?.to_string_lossy();
+    let (manifest, body) = crate::original_file_storage::read_original_file_from_dir(&destination)?;
+    require(
+        body == source
+            && manifest.filename == original.filename
+            && manifest.mime_type == original.mime,
+        "persisted original readback differs from admitted bytes/metadata",
+    )?;
+    let manifest_bytes = fs::read(destination.join("manifest.json")).map_err(|e| e.to_string())?;
+    let relative = destination
+        .strip_prefix(graph_dir)
+        .map_err(|e| e.to_string())?
+        .to_string_lossy();
     Ok(json!({"provenance":original.provenance,
         "payload":{"path":format!("{relative}/{}",original.filename),"sha256":archive_sha256(&body),"byteLength":body.len()},
         "manifest":{"path":format!("{relative}/manifest.json"),"sha256":archive_sha256(&manifest_bytes),"byteLength":manifest_bytes.len()}}))
@@ -3187,7 +4035,8 @@ pub(super) fn apply(
         "transformation":prepared.manifest["transformation"],"startedAt":operation.enqueue_timestamp,
         "resumePolicy":"completed-ledger-only; incomplete-claim-refuses"});
     if !prepared.unavailable_bodies.is_empty() {
-        claim["unavailableBodiesSha256"] = json!(archive_sha256(&json_bytes(&prepared.unavailable_bodies)?));
+        claim["unavailableBodiesSha256"] =
+            json!(archive_sha256(&json_bytes(&prepared.unavailable_bodies)?));
     }
     // An existing path (including a symlink or abandoned empty directory) is
     // never adopted. A storage error leaves inspectable owned partial custody.
@@ -3225,9 +4074,13 @@ pub(super) fn apply(
             "graphHistoryContentHash":"SHA256 of retained source graph manifest; source-graph-* payload IDs are adapter references, not source events",
             "rawArchiveSha256":archive_sha256(bytes)});
         write_new(&custody, "disposition.json", &json_bytes(&disposition)?)?;
-        let history_disposition_bytes=json_bytes(&prepared.history_disposition)?;
-        write_new(&custody,"document-history.json",&history_disposition_bytes)?;
-        let history_disposition_file=json!({"path":format!("{ROOT}/document-history.json"),
+        let history_disposition_bytes = json_bytes(&prepared.history_disposition)?;
+        write_new(
+            &custody,
+            "document-history.json",
+            &history_disposition_bytes,
+        )?;
+        let history_disposition_file = json!({"path":format!("{ROOT}/document-history.json"),
             "sha256":archive_sha256(&history_disposition_bytes),"byteLength":history_disposition_bytes.len()});
         write_new(
             &custody,
@@ -3240,7 +4093,11 @@ pub(super) fn apply(
             let mut availability = claim.clone();
             availability["state"] = json!("source-body-unavailable");
             availability["documents"] = json!(prepared.unavailable_bodies);
-            write_new(&custody, "unavailable-bodies.json", &json_bytes(&availability)?)?;
+            write_new(
+                &custody,
+                "unavailable-bodies.json",
+                &json_bytes(&availability)?,
+            )?;
         }
         let input: crate::document_types::SaveWorkspaceInput = serde_json::from_value(json!({"graphId":graph,
             "ydocUpdateBase64":encode_bytes_base64(&prepared.workspace),"snapshot":prepared.snapshot,"traceOperationId":operation.operation_id})).map_err(|e|e.to_string())?;
@@ -3259,7 +4116,11 @@ pub(super) fn apply(
                 .map(str::to_string);
             import_one_document(app, graph, id, body, title, &operation.operation_id)?;
         }
-        let original_payloads=prepared.originals.iter().map(|original|persist_original(&graph_dir,original,&prepared.members)).collect::<Result<Vec<_>,_>>()?;
+        let original_payloads = prepared
+            .originals
+            .iter()
+            .map(|original| persist_original(&graph_dir, original, &prepared.members))
+            .collect::<Result<Vec<_>, _>>()?;
         let history_payloads = persist_history(&graph_dir, &prepared.history)?;
         persist_graph_history(&graph_dir, graph, &prepared.graph_history)?;
         let mut native_deletions = Vec::new();

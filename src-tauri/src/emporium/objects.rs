@@ -451,7 +451,8 @@ pub(crate) async fn delete_object(
 ) -> Result<Value, ObjectError> {
     if vocab == "garden-file-views" {
         return Err(ObjectError::Conflict(
-            "garden-file-views cannot be deleted through projection CRUD; use source authority".to_string(),
+            "garden-file-views cannot be deleted through projection CRUD; use source authority"
+                .to_string(),
         ));
     }
     let store = open_memory_store(app, graph_id).map_err(internal)?;

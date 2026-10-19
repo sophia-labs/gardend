@@ -265,10 +265,7 @@ mod organism {
         for (json_key, _class, kebab, _fields) in &tables {
             for row in board[json_key].as_array().expect("table is an array") {
                 let id = row["id"].as_str().expect("row has an id");
-                subject_of.insert(
-                    id.to_string(),
-                    format!("{gs}:projection:flow:{kebab}:{id}"),
-                );
+                subject_of.insert(id.to_string(), format!("{gs}:projection:flow:{kebab}:{id}"));
             }
         }
 
@@ -526,7 +523,10 @@ mod organism {
             .unwrap_or_else(|| panic!("emporium_vocab catalog: {vocabs}"))
             .iter()
             .any(|entry| entry["name"] == "flow");
-        assert!(flow_listed, "emporium_vocab must list the flow pack: {vocabs}");
+        assert!(
+            flow_listed,
+            "emporium_vocab must list the flow pack: {vocabs}"
+        );
 
         // ── 4. The typed door, differential ──────────────────────────────
         let lane_before = lane_snapshot(&client, &endpoint, GRAPH_ID).await;
@@ -554,7 +554,10 @@ mod organism {
         .await;
         let lane_nt = dump["data"].as_str().expect("rdf_dump data string");
         assert_eq!(
-            lane_nt.lines().filter(|line| !line.trim().is_empty()).count(),
+            lane_nt
+                .lines()
+                .filter(|line| !line.trim().is_empty())
+                .count(),
             GOLDEN_LANE_TRIPLES,
             "the N-Triples dump of the lane carries the same triple count as \
              the SPARQL snapshot"
@@ -577,7 +580,10 @@ mod organism {
             }),
         )
         .await;
-        assert_eq!(preview["ok"], true, "dry_run must accept the golden rows: {preview}");
+        assert_eq!(
+            preview["ok"], true,
+            "dry_run must accept the golden rows: {preview}"
+        );
         assert_eq!(preview["dryRun"], true, "{preview}");
         assert!(
             preview["violations"].is_null(),
@@ -702,7 +708,10 @@ mod organism {
         )
         .await;
         let export_ms = export_started.elapsed().as_millis();
-        let live_json = live["json"].as_str().expect("export json string").to_string();
+        let live_json = live["json"]
+            .as_str()
+            .expect("export json string")
+            .to_string();
         // I1 differential (a)/seed-rite evidence: the cell's live export
         // bytes, verbatim (the seat compares canonicalize(golden) against
         // these minus the sidecar). Print-only.
@@ -727,8 +736,7 @@ mod organism {
         // fit-to-content containment and the derive corrects it at export).
         let mut got = live_value.clone();
         got.as_object_mut().expect("export object").remove("sophia");
-        let mut want: Value =
-            serde_json::from_str(GOLDEN_BOARD_JSON).expect("golden parses");
+        let mut want: Value = serde_json::from_str(GOLDEN_BOARD_JSON).expect("golden parses");
         let sidecar_text = format!(
             ",\"sophia\":{{\"restorePointId\":null,\"graphId\":\"{GRAPH_ID}\",\"documentId\":\"flow-board\"}}"
         );
@@ -778,7 +786,13 @@ mod organism {
         // disposition. "durable flush enabled" is the last boot log line
         // before wait_for_shutdown.
         assert!(
-            process::wait_for_log(&logs, "run1", "stderr", "durable flush enabled", Duration::from_secs(15)),
+            process::wait_for_log(
+                &logs,
+                "run1",
+                "stderr",
+                "durable flush enabled",
+                Duration::from_secs(15)
+            ),
             "gardend never logged \"durable flush enabled\" — cannot safely \
              SIGTERM\n--- stderr ---\n{}",
             process::read_log(&logs, "run1", "stderr"),

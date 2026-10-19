@@ -818,7 +818,8 @@ pub(crate) fn block_preview_from_element<T: ReadTxn>(
     element: &XmlElementRef,
     block_id: &str,
 ) -> String {
-    let head = crate::document_mcp_write_payloads::preview_head(BoundedElementChars::new(txn, element));
+    let head =
+        crate::document_mcp_write_payloads::preview_head(BoundedElementChars::new(txn, element));
     if head.is_empty() {
         block_id.to_string()
     } else {
@@ -1534,7 +1535,8 @@ async fn finish_ledger_guarded(
 async fn block_insert(app: &AppHandle, operation: &CrdtOperation) -> ApplyOperationResult<Value> {
     let document_id = require_document_id(operation, "block.insert")?;
     let payload = obj(&operation.payload);
-    let (blocks, contract_warnings) = blocks_from_insert_payload(&payload, &operation.operation_id)?;
+    let (blocks, contract_warnings) =
+        blocks_from_insert_payload(&payload, &operation.operation_id)?;
     if blocks.is_empty() {
         return Err(ApplyOperationError::terminal(
             "block.insert: no parsable blocks in payload",
@@ -1708,7 +1710,9 @@ async fn block_update(app: &AppHandle, operation: &CrdtOperation) -> ApplyOperat
     persist_document(app, &ctx, operation)
         .await
         .map_err(ApplyOperationError::retryable_after_hot_commit)?;
-    Ok(json!({ "success": true, "updated": updated, "blocks": previews, "missing": missing, "warnings": warnings }))
+    Ok(
+        json!({ "success": true, "updated": updated, "blocks": previews, "missing": missing, "warnings": warnings }),
+    )
 }
 
 /// Port of applyBlockEditText.

@@ -111,11 +111,17 @@ fn flow_shapes_compile_and_carry_derived_plus_raw_shapes() {
             "missing derived NodeShape target for {class}"
         );
     }
-    assert!(shapes.contains("sh:closed true"), "derived shapes are closed");
+    assert!(
+        shapes.contains("sh:closed true"),
+        "derived shapes are closed"
+    );
 
     // raw shapes landed: sh:order (RTRIP-5), the enums, the sh:or typing, and
     // the sh:sparql invariants ported from flow-shapes-v1.ttl.
-    assert!(shapes.contains("fsh:SystemOrderShape"), "sh:order shapes present");
+    assert!(
+        shapes.contains("fsh:SystemOrderShape"),
+        "sh:order shapes present"
+    );
     assert!(
         shapes.contains("sh:in ( \"open\" \"met\" \"waived\" )"),
         "requirement status enum present"
@@ -149,7 +155,13 @@ fn flow_shapes_compile_and_carry_derived_plus_raw_shapes() {
 fn geometry_columns_are_absent_from_every_class() {
     let contract = get_vocabulary("flow").expect("flow pack is registered");
     for (name, spec) in &contract.classes {
-        for banned in ["flow:x", "flow:y", "flow:width", "flow:height", "flow:waypoints"] {
+        for banned in [
+            "flow:x",
+            "flow:y",
+            "flow:width",
+            "flow:height",
+            "flow:waypoints",
+        ] {
             assert!(
                 !spec.predicates.contains_key(banned),
                 "{name} must not materialize geometry predicate {banned} (interfaces.md §C)"
@@ -447,7 +459,13 @@ fn flow_records(graph_id: &str) -> Vec<Json> {
     for (json_key, _class, kebab, _fields) in &tables {
         for row in board[json_key].as_array().expect("table is an array") {
             let id = row["id"].as_str().expect("row has an id").to_string();
-            subject_of.insert(id, format!("{gs}:projection:flow:{kebab}:{}", row["id"].as_str().unwrap()));
+            subject_of.insert(
+                id,
+                format!(
+                    "{gs}:projection:flow:{kebab}:{}",
+                    row["id"].as_str().unwrap()
+                ),
+            );
             let _ = kebab;
         }
     }
@@ -504,10 +522,16 @@ fn generic_records(rows: Vec<Json>) -> Vec<GenericRecordIn> {
 #[test]
 fn flow_records_from_golden_board_cover_all_thirteen_classes_with_no_geometry() {
     let rows = flow_records("flow-fixture-lab");
-    assert_eq!(rows.len(), 17, "3 systems + 2 reqs + 2 tasks + 1 each of the other 10 tables");
+    assert_eq!(
+        rows.len(),
+        17,
+        "3 systems + 2 reqs + 2 tasks + 1 each of the other 10 tables"
+    );
     let mut by_kind: BTreeMap<String, usize> = BTreeMap::new();
     for row in &rows {
-        *by_kind.entry(row["kind"].as_str().unwrap().to_string()).or_default() += 1;
+        *by_kind
+            .entry(row["kind"].as_str().unwrap().to_string())
+            .or_default() += 1;
         for banned in ["x", "y", "width", "height", "waypoints"] {
             assert!(
                 row.get(banned).is_none(),
@@ -515,7 +539,11 @@ fn flow_records_from_golden_board_cover_all_thirteen_classes_with_no_geometry() 
             );
         }
     }
-    assert_eq!(by_kind.len(), 13, "every one of the 13 classes appears at least once");
+    assert_eq!(
+        by_kind.len(),
+        13,
+        "every one of the 13 classes appears at least once"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -581,9 +609,7 @@ mod headless {
         select(
             app,
             graph_id,
-            &format!(
-                "SELECT DISTINCT ?s WHERE {{ GRAPH <{sink}> {{ ?s a <{flow_ns}{class}> }} }}"
-            ),
+            &format!("SELECT DISTINCT ?s WHERE {{ GRAPH <{sink}> {{ ?s a <{flow_ns}{class}> }} }}"),
         )
         .len()
     }
@@ -611,7 +637,8 @@ mod headless {
             let by_kind = {
                 let mut m: BTreeMap<String, usize> = BTreeMap::new();
                 for r in &rows {
-                    *m.entry(r["kind"].as_str().unwrap().to_string()).or_default() += 1;
+                    *m.entry(r["kind"].as_str().unwrap().to_string())
+                        .or_default() += 1;
                 }
                 m
             };
@@ -642,7 +669,10 @@ mod headless {
             assert_eq!(replay["ok"], json!(true), "{replay}");
             for (class, expected) in &by_kind {
                 let got = class_subject_count(&app, graph_id, class);
-                assert_eq!(got, *expected, "{class}: replay must not duplicate subjects");
+                assert_eq!(
+                    got, *expected,
+                    "{class}: replay must not duplicate subjects"
+                );
             }
 
             // Mutant 1 (courtship/mut-bad-status.ttl): illegal flow:status.
@@ -661,7 +691,11 @@ mod headless {
             ))
             .expect("emporium_write returns a typed refusal, not an Err");
             assert_eq!(refused["ok"], json!(false), "{refused}");
-            assert_eq!(refused["results"][0]["outcome"], json!("halted"), "{refused}");
+            assert_eq!(
+                refused["results"][0]["outcome"],
+                json!("halted"),
+                "{refused}"
+            );
 
             // Mutant 2 (courtship/mut-duplicate-trade-link.ttl): a second
             // TradeLink naming the same (trade, system) pair.
@@ -683,7 +717,10 @@ mod headless {
             // The original valid state is untouched by either refused dry-run.
             for (class, expected) in &by_kind {
                 let got = class_subject_count(&app, graph_id, class);
-                assert_eq!(got, *expected, "{class}: a refused dry-run must write nothing");
+                assert_eq!(
+                    got, *expected,
+                    "{class}: a refused dry-run must write nothing"
+                );
             }
         });
         std::env::remove_var("GARDEN_PROFILE_DIR");

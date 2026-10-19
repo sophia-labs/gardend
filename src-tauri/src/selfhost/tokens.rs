@@ -19,8 +19,13 @@ const CLI_ACTOR: &str = "gardend-cli";
 /// The grant profiles a token can carry (`loopback_token_grants`). `member`
 /// is the one to give agents and other people: the grant Cloudflare Access
 /// members get.
-pub(crate) const GRANT_PROFILES: &[&str] =
-    &["read-only", "authoring", "member", "rdf-admin", "session-all"];
+pub(crate) const GRANT_PROFILES: &[&str] = &[
+    "read-only",
+    "authoring",
+    "member",
+    "rdf-admin",
+    "session-all",
+];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TokenCreateArgs {
@@ -62,7 +67,10 @@ pub(crate) fn create(profile_dir: &Path, args: &TokenCreateArgs) -> Result<Strin
          Revoke it with: gardend token revoke {short}\n",
         id = record.token_id,
         label = record.label,
-        grant = record.grant_profile_id.as_deref().unwrap_or("custom scopes"),
+        grant = record
+            .grant_profile_id
+            .as_deref()
+            .unwrap_or("custom scopes"),
         expires = millis_text(&record.expires_at),
         secret = created.token,
         short = short_id(&record.token_id),
@@ -207,7 +215,8 @@ mod tests {
     fn create_list_revoke_against_a_real_profile() {
         let profile = tempdir("tokens");
 
-        let (secret, id) = secret_of(&create(&profile, &args("lucy-phone", "authoring", true)).unwrap());
+        let (secret, id) =
+            secret_of(&create(&profile, &args("lucy-phone", "authoring", true)).unwrap());
         assert!(secret.starts_with("sophia-lb-"));
 
         // The store keeps a hash, never the secret.
@@ -220,7 +229,10 @@ mod tests {
             .unwrap()
             .expect("a fresh token resolves");
         assert!(scopes.iter().any(|scope| scope == "documents.write.crdt"));
-        assert!(!scopes.iter().any(|scope| scope == "rdf.update"), "authoring is not rdf-admin");
+        assert!(
+            !scopes.iter().any(|scope| scope == "rdf.update"),
+            "authoring is not rdf-admin"
+        );
 
         let table = list(&profile, false).unwrap();
         assert!(table.contains("lucy-phone"));
@@ -248,7 +260,10 @@ mod tests {
     fn human_output_prints_the_secret_once() {
         let profile = tempdir("tokens-human");
         let out = create(&profile, &args("agent", "read-only", false)).unwrap();
-        let secret_lines: Vec<_> = out.lines().filter(|line| line.contains("sophia-lb-")).collect();
+        let secret_lines: Vec<_> = out
+            .lines()
+            .filter(|line| line.contains("sophia-lb-"))
+            .collect();
         assert_eq!(secret_lines.len(), 1, "{out}");
         assert!(out.contains("(read-only, expires "));
     }
@@ -261,12 +276,20 @@ mod tests {
             .contains("unknown loopback grant profile"));
         let mut too_long = args("x", "read-only", false);
         too_long.expires_days = Some(366);
-        assert!(create(&profile, &too_long).unwrap_err().contains("1-365 days"));
-        assert!(create(&profile.join("missing"), &args("x", "read-only", false))
+        assert!(create(&profile, &too_long)
             .unwrap_err()
-            .contains("no profile at"));
-        assert!(revoke(&profile, "nope").unwrap_err().contains("no token with id"));
-        assert!(list(&profile, false).unwrap().starts_with("No client tokens"));
+            .contains("1-365 days"));
+        assert!(
+            create(&profile.join("missing"), &args("x", "read-only", false))
+                .unwrap_err()
+                .contains("no profile at")
+        );
+        assert!(revoke(&profile, "nope")
+            .unwrap_err()
+            .contains("no token with id"));
+        assert!(list(&profile, false)
+            .unwrap()
+            .starts_with("No client tokens"));
     }
 
     #[test]
@@ -277,10 +300,22 @@ mod tests {
             .unwrap()
             .expect("a member token resolves");
         let held = |scope: &str| scopes.iter().any(|held| held == scope);
-        for scope in ["mcp.tools.read", "mcp.tools.call", "documents.read", "documents.write.crdt", "rdf.query"] {
+        for scope in [
+            "mcp.tools.read",
+            "mcp.tools.call",
+            "documents.read",
+            "documents.write.crdt",
+            "rdf.query",
+        ] {
             assert!(held(scope), "a member token holds {scope}");
         }
-        for scope in ["documents.delete.crdt", "graphs.write", "rdf.load", "rdf.update", "time-travel.restore"] {
+        for scope in [
+            "documents.delete.crdt",
+            "graphs.write",
+            "rdf.load",
+            "rdf.update",
+            "time-travel.restore",
+        ] {
             assert!(!held(scope), "a member token lacks {scope}");
         }
         let access_member = crate::loopback_token_grants::session_all_token_grant()
@@ -298,9 +333,14 @@ mod tests {
         let profile = tempdir("tokens-grants");
         for grant in GRANT_PROFILES {
             let (secret, _) = secret_of(&create(&profile, &args(grant, grant, true)).unwrap());
-            assert!(resolve_loopback_client_token_in(&profile, &secret).unwrap().is_some());
+            assert!(resolve_loopback_client_token_in(&profile, &secret)
+                .unwrap()
+                .is_some());
         }
-        assert_eq!(list_client_tokens_in(&profile).unwrap().len(), GRANT_PROFILES.len());
+        assert_eq!(
+            list_client_tokens_in(&profile).unwrap().len(),
+            GRANT_PROFILES.len()
+        );
     }
 
     #[test]

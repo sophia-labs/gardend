@@ -79,7 +79,11 @@ pub(crate) fn default_profile_dir(os: &str, env: Env) -> Result<PathBuf, String>
 
 /// `--profile` (or `--profile-dir`), then `GARDEN_PROFILE_DIR`, then the
 /// per-OS default. Always absolute; a leading `~/` is expanded.
-pub(crate) fn resolve_profile_dir(flag: Option<&str>, os: &str, env: Env) -> Result<PathBuf, String> {
+pub(crate) fn resolve_profile_dir(
+    flag: Option<&str>,
+    os: &str,
+    env: Env,
+) -> Result<PathBuf, String> {
     let chosen = match flag.map(str::trim).filter(|value| !value.is_empty()) {
         Some(value) => PathBuf::from(value),
         None => match env(ENV_PROFILE_DIR) {
@@ -228,7 +232,8 @@ pub(crate) struct RunningManifest {
 }
 
 pub(crate) fn read_running_manifest(profile_dir: &Path) -> Option<RunningManifest> {
-    let raw = std::fs::read(profile_dir.join(crate::runtime_config::LOOPBACK_MANIFEST_FILE)).ok()?;
+    let raw =
+        std::fs::read(profile_dir.join(crate::runtime_config::LOOPBACK_MANIFEST_FILE)).ok()?;
     let value: serde_json::Value = serde_json::from_slice(&raw).ok()?;
     Some(RunningManifest {
         pid: value.get("pid")?.as_u64()? as u32,
@@ -307,7 +312,10 @@ mod tests {
 
     #[test]
     fn default_profile_dirs_per_os() {
-        let env = env_of(&[("HOME", "/home/ana"), ("LOCALAPPDATA", r"C:\Users\ana\AppData\Local")]);
+        let env = env_of(&[
+            ("HOME", "/home/ana"),
+            ("LOCALAPPDATA", r"C:\Users\ana\AppData\Local"),
+        ]);
         assert_eq!(
             default_profile_dir("macos", &env).unwrap(),
             PathBuf::from("/home/ana/Library/Application Support/Sophia")
@@ -356,8 +364,14 @@ mod tests {
     #[test]
     fn port_precedence_is_flag_then_env_then_default() {
         assert_eq!(resolve_port(None, &env_of(&[])).unwrap(), DEFAULT_PORT);
-        assert_eq!(resolve_port(None, &env_of(&[(ENV_PORT, "7800")])).unwrap(), 7800);
-        assert_eq!(resolve_port(Some(7900), &env_of(&[(ENV_PORT, "7800")])).unwrap(), 7900);
+        assert_eq!(
+            resolve_port(None, &env_of(&[(ENV_PORT, "7800")])).unwrap(),
+            7800
+        );
+        assert_eq!(
+            resolve_port(Some(7900), &env_of(&[(ENV_PORT, "7800")])).unwrap(),
+            7900
+        );
         assert!(resolve_port(None, &env_of(&[(ENV_PORT, "seventy")])).is_err());
         assert_ne!(DEFAULT_PORT, 7090);
         assert_ne!(DEFAULT_PORT, 7091);
@@ -398,10 +412,17 @@ mod tests {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let file_mode = std::fs::metadata(profile.join(KEY_FILE)).unwrap().permissions().mode();
+            let file_mode = std::fs::metadata(profile.join(KEY_FILE))
+                .unwrap()
+                .permissions()
+                .mode();
             assert_eq!(file_mode & 0o077, 0, "key file must be owner-only");
             let dir_mode = std::fs::metadata(&profile).unwrap().permissions().mode();
-            assert_eq!(dir_mode & 0o077, 0, "a profile dir serve creates is owner-only");
+            assert_eq!(
+                dir_mode & 0o077,
+                0,
+                "a profile dir serve creates is owner-only"
+            );
         }
     }
 
@@ -428,7 +449,10 @@ mod tests {
         )
         .unwrap();
         let manifest = read_running_manifest(&profile).unwrap();
-        assert_eq!((manifest.pid, manifest.port, manifest.token.as_str()), (4194303, 1, "t"));
+        assert_eq!(
+            (manifest.pid, manifest.port, manifest.token.as_str()),
+            (4194303, 1, "t")
+        );
         assert!(serving_now(&profile).is_none());
     }
 }

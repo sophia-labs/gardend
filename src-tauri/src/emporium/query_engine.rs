@@ -809,17 +809,19 @@ mod headless_tests {
             .expect("create graph");
 
             for (id, title) in [("b1", "Alpha"), ("b2", "Beta")] {
-                crate::app_runtime::async_runtime::block_on(crate::emporium::objects::create_objects(
-                    &app,
-                    graph_id,
-                    "emporium-bookmark",
-                    serde_json::json!([{
-                        "kind": "Bookmark",
-                        "localId": id,
-                        "url": format!("https://example.test/{id}"),
-                        "title": title,
-                    }]),
-                ))
+                crate::app_runtime::async_runtime::block_on(
+                    crate::emporium::objects::create_objects(
+                        &app,
+                        graph_id,
+                        "emporium-bookmark",
+                        serde_json::json!([{
+                            "kind": "Bookmark",
+                            "localId": id,
+                            "url": format!("https://example.test/{id}"),
+                            "title": title,
+                        }]),
+                    ),
+                )
                 .expect("seed bookmark");
             }
 
@@ -1200,9 +1202,10 @@ mod headless_tests {
             .expect("create graph");
 
             let commons = record("qe-obs-commons", "commons memory: vera likes tea", None);
-            let commons_outcome =
-                crate::app_runtime::async_runtime::block_on(ingest_memory_record(&app, graph_id, commons))
-                    .expect("file commons memory");
+            let commons_outcome = crate::app_runtime::async_runtime::block_on(
+                ingest_memory_record(&app, graph_id, commons),
+            )
+            .expect("file commons memory");
             assert_eq!(
                 commons_outcome["ok"],
                 serde_json::json!(true),
@@ -1214,9 +1217,10 @@ mod headless_tests {
                 "agent-witness-x",
             );
             let witnessed_subject = memory_record_subject(graph_id, &witnessed);
-            let witnessed_outcome =
-                crate::app_runtime::async_runtime::block_on(ingest_memory_record(&app, graph_id, witnessed))
-                    .expect("file witnessed memory");
+            let witnessed_outcome = crate::app_runtime::async_runtime::block_on(
+                ingest_memory_record(&app, graph_id, witnessed),
+            )
+            .expect("file witnessed memory");
             assert_eq!(
                 witnessed_outcome["ok"],
                 serde_json::json!(true),

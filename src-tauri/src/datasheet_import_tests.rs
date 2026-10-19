@@ -35,7 +35,8 @@ fn input(v: Value) -> ImportInput {
 }
 
 fn with_store<R>(f: impl FnOnce(&Store) -> R) -> R {
-    let dir = std::env::temp_dir().join(format!("garden-datasheet-import-{}", uuid::Uuid::new_v4()));
+    let dir =
+        std::env::temp_dir().join(format!("garden-datasheet-import-{}", uuid::Uuid::new_v4()));
     let store = Store::open(&dir).expect("open a real store");
     let out = f(&store);
     drop(store);
@@ -105,7 +106,12 @@ fn typed(lexical: &str, datatype: String) -> Obj {
     Obj::Typed(lexical.into(), datatype)
 }
 
-fn facts(store: &Store, part: Option<&str>, artifact: Option<&str>, parameter: Option<&str>) -> Value {
+fn facts(
+    store: &Store,
+    part: Option<&str>,
+    artifact: Option<&str>,
+    parameter: Option<&str>,
+) -> Value {
     facts_from_store(
         store,
         GID,
@@ -150,9 +156,16 @@ fn buck_fixture_maps_to_light_records_with_typed_literals() {
         assert_eq!(c["alternativeReaderRows"], 1);
         // 7 custody (6 + the Docling ToolProfile) + edition + family + (5+3+3+2) param nodes + 6 rows.
         assert_eq!(report.mapped.nodes, 28);
-        assert!(report.mapped.triples.len() > 100, "{}", report.mapped.triples.len());
+        assert!(
+            report.mapped.triples.len() > 100,
+            "{}",
+            report.mapped.triples.len()
+        );
         assert!(report.mapped.nodes <= MAX_NODES && report.mapped.triples.len() <= MAX_TRIPLES);
-        assert_eq!(graph_len(store, &report.graph_iri), report.mapped.triples.len());
+        assert_eq!(
+            graph_len(store, &report.graph_iri),
+            report.mapped.triples.len()
+        );
         assert!(report
             .graph_iri
             .ends_with(&format!(":projection:datasheet:ds-{}:m1", sha16(&env))));
@@ -181,11 +194,15 @@ fn buck_fixture_maps_to_light_records_with_typed_literals() {
         let r2 = format!("{vin}-r2");
         assert_eq!(
             objs(store, g, &r2, &de("sourceRole")),
-            vec![Obj::Iri("https://sophia-labs.ai/concept/datasheet-parser#roc".into())]
+            vec![Obj::Iri(
+                "https://sophia-labs.ai/concept/datasheet-parser#roc".into()
+            )]
         );
         assert_eq!(
             objs(store, g, &r2, &de("readerTool")),
-            vec![Obj::Iri("https://sophia-labs.ai/concept/datasheet-parser#docling".into())]
+            vec![Obj::Iri(
+                "https://sophia-labs.ai/concept/datasheet-parser#docling".into()
+            )]
         );
         // The IQ row: typed rectangle, prose conditions, decimal with the exact lexical form.
         let iq = node_of(&env, "spec_rows-2");
@@ -195,12 +212,17 @@ fn buck_fixture_maps_to_light_records_with_typed_literals() {
         );
         assert_eq!(
             objs(store, g, &iq, &de("conditions")),
-            vec![typed("EN = VIN, IOUT = 0 mA, not switching", de("ProseCondition"))]
+            vec![typed(
+                "EN = VIN, IOUT = 0 mA, not switching",
+                de("ProseCondition")
+            )]
         );
         assert_eq!(objs(store, g, &iq, &eng("typical")), vec![dec("60")]);
         assert_eq!(
             objs(store, g, &iq, &eng("unit")),
-            vec![Obj::Iri("https://sophia-labs.ai/concept/engineering-unit#nA".into())]
+            vec![Obj::Iri(
+                "https://sophia-labs.ai/concept/engineering-unit#nA".into()
+            )]
         );
         assert_eq!(
             objs(store, g, &iq, &de("geometryStatus")),
@@ -215,10 +237,22 @@ fn buck_fixture_maps_to_light_records_with_typed_literals() {
         let ed = node_of(&env, "document");
         let int = |n: &str| typed(n, format!("{XSD}integer"));
         let boolean = |b: &str| typed(b, format!("{XSD}boolean"));
-        assert_eq!(objs(store, g, &ed, &de("partNumber")), vec![Obj::Text("XPS62840".into())]);
-        assert_eq!(objs(store, g, &ed, &de("revision")), vec![Obj::Text("B".into())]);
-        assert_eq!(objs(store, g, &ed, &de("maker")), vec![Obj::Text("Example Semiconductor".into())]);
-        assert_eq!(objs(store, g, &ed, &de("productType")), vec![Obj::Text("dc-dc".into())]);
+        assert_eq!(
+            objs(store, g, &ed, &de("partNumber")),
+            vec![Obj::Text("XPS62840".into())]
+        );
+        assert_eq!(
+            objs(store, g, &ed, &de("revision")),
+            vec![Obj::Text("B".into())]
+        );
+        assert_eq!(
+            objs(store, g, &ed, &de("maker")),
+            vec![Obj::Text("Example Semiconductor".into())]
+        );
+        assert_eq!(
+            objs(store, g, &ed, &de("productType")),
+            vec![Obj::Text("dc-dc".into())]
+        );
         assert_eq!(objs(store, g, &ed, &de("rowCount")), vec![int("7")]);
         assert_eq!(objs(store, g, &ed, &de("toCheckCount")), vec![int("2")]);
         assert_eq!(objs(store, g, &ed, &de("scan")), vec![boolean("false")]);
@@ -226,7 +260,9 @@ fn buck_fixture_maps_to_light_records_with_typed_literals() {
         assert_eq!(objs(store, g, &vin, &de("paramOrder")), vec![int("0")]);
         assert_eq!(
             objs(store, g, &vin, &de("confidence")),
-            vec![Obj::Iri("https://sophia-labs.ai/concept/datasheet-parser#high".into())]
+            vec![Obj::Iri(
+                "https://sophia-labs.ai/concept/datasheet-parser#high".into()
+            )]
         );
         // Custody: the declared digest, unchecked because no PDF was given.
         let content = rec(&format!("ds-{}", sha16(&env)));
@@ -236,7 +272,8 @@ fn buck_fixture_maps_to_light_records_with_typed_literals() {
         );
         // The pipeline's own flags travel verbatim as diagnostics.
         let fsw = node_of(&env, "spec_rows-5");
-        assert!(objs(store, g, &fsw, &de("diagnostic")).contains(&Obj::Text("value_not_numeric".into())));
+        assert!(objs(store, g, &fsw, &de("diagnostic"))
+            .contains(&Obj::Text("value_not_numeric".into())));
         assert_eq!(
             objs(store, g, &fsw, &eng("rawMax")),
             vec![Obj::Text("2.2 (see note 2)".into())]
@@ -285,7 +322,10 @@ fn per_slot_conditions_and_guarantees_are_preserved_and_absence_means_not_stated
         let slots = &c["conditions"]["slots"];
         assert_eq!(slots["typical"]["conditions"], "TJ = 25 \u{b0}C");
         assert_eq!(slots["typical"]["guarantee"], "characterized");
-        assert_eq!(slots["upper"]["conditions"], "TJ = \u{2212}40 \u{b0}C to 85 \u{b0}C");
+        assert_eq!(
+            slots["upper"]["conditions"],
+            "TJ = \u{2212}40 \u{b0}C to 85 \u{b0}C"
+        );
         assert_eq!(slots["upper"]["guarantee"], "tested");
         assert!(slots["lower"]["conditions"].is_null() && slots["lower"]["guarantee"].is_null());
     });
@@ -310,22 +350,40 @@ fn charger_registers_bit_fields_checks_and_contested_values() {
         let bit_range = |s: &str| typed(s, eng("BitRange"));
         let pattern = |s: &str| typed(s, eng("BitPattern"));
         // REG00: IINLIM 5:0 reset 0b001000; single bits; decimal resets.
-        assert_eq!(objs(store, g, &field(0, 2), &eng("bitRange")), vec![bit_range("5:0")]);
+        assert_eq!(
+            objs(store, g, &field(0, 2), &eng("bitRange")),
+            vec![bit_range("5:0")]
+        );
         assert_eq!(
             objs(store, g, &field(0, 2), &eng("resetPattern")),
             vec![pattern("6:001000:111111")]
         );
-        assert_eq!(objs(store, g, &field(0, 0), &eng("bitRange")), vec![bit_range("7:7")]);
-        assert_eq!(objs(store, g, &field(0, 0), &eng("resetPattern")), vec![pattern("1:0:1")]);
-        assert_eq!(objs(store, g, &field(0, 1), &eng("resetPattern")), vec![pattern("1:1:1")]);
+        assert_eq!(
+            objs(store, g, &field(0, 0), &eng("bitRange")),
+            vec![bit_range("7:7")]
+        );
+        assert_eq!(
+            objs(store, g, &field(0, 0), &eng("resetPattern")),
+            vec![pattern("1:0:1")]
+        );
+        assert_eq!(
+            objs(store, g, &field(0, 1), &eng("resetPattern")),
+            vec![pattern("1:1:1")]
+        );
         // REG0B: bracketed range; an unknown reset leaves the mask empty;
         // hex reset; a bit spec that cannot be normalized stays lexical.
-        assert_eq!(objs(store, g, &field(1, 0), &eng("bitRange")), vec![bit_range("7:5")]);
+        assert_eq!(
+            objs(store, g, &field(1, 0), &eng("bitRange")),
+            vec![bit_range("7:5")]
+        );
         assert_eq!(
             objs(store, g, &field(1, 0), &eng("resetPattern")),
             vec![pattern("3:000:000")]
         );
-        assert_eq!(objs(store, g, &field(1, 1), &eng("resetPattern")), vec![pattern("2:00:11")]);
+        assert_eq!(
+            objs(store, g, &field(1, 1), &eng("resetPattern")),
+            vec![pattern("2:00:11")]
+        );
         assert!(objs(store, g, &field(1, 2), &eng("bitRange")).is_empty());
         assert_eq!(
             objs(store, g, &field(1, 2), &eng("bitsLexical")),
@@ -334,8 +392,14 @@ fn charger_registers_bit_fields_checks_and_contested_values() {
         assert_eq!(objs(store, g, &field(1, 2), &de("diagnostic")).len(), 1);
         // The register keeps its printed address and a parsed one.
         let reg = node_of(&env, "registers-1");
-        assert_eq!(objs(store, g, &reg, &eng("addressLexical")), vec![Obj::Text("0x0B".into())]);
-        assert_eq!(objs(store, g, &reg, &eng("address")), vec![typed("11", format!("{XSD}integer"))]);
+        assert_eq!(
+            objs(store, g, &reg, &eng("addressLexical")),
+            vec![Obj::Text("0x0B".into())]
+        );
+        assert_eq!(
+            objs(store, g, &reg, &eng("address")),
+            vec![typed("11", format!("{XSD}integer"))]
+        );
 
         // The contested value, its snapshot, and the changed-since-checked flag.
         let f = facts(store, Some("xbq25895"), None, Some("vin"));
@@ -356,7 +420,9 @@ fn charger_registers_bit_fields_checks_and_contested_values() {
         let vin_node = node_of(&env, "params-vin");
         assert_eq!(
             objs(store, g, &vin_node, &de("confidence")),
-            vec![Obj::Iri("https://sophia-labs.ai/concept/datasheet-parser#contested".into())]
+            vec![Obj::Iri(
+                "https://sophia-labs.ai/concept/datasheet-parser#contested".into()
+            )]
         );
         assert_eq!(
             objs(store, g, &format!("{vin_node}-verified"), &de("assesses")),
@@ -371,7 +437,10 @@ fn charger_registers_bit_fields_checks_and_contested_values() {
         assert_eq!(check["snapshot"]["upper"], 13.0);
         assert_eq!(check["extracted"]["upper"], 13.5);
         assert_eq!(check["imported"], true);
-        assert_eq!(vin["checkedByPerson"], false, "a changed value is not a clean check");
+        assert_eq!(
+            vin["checkedByPerson"], false,
+            "a changed value is not a clean check"
+        );
         assert!(vin["diagnostics"]
             .as_array()
             .unwrap()
@@ -412,8 +481,12 @@ fn scanned_ldo_carries_the_card_fix_flags_and_two_part_family() {
         let ed = &f["editions"][0];
         assert_eq!(ed["parts"].as_array().unwrap().len(), 2);
         let fixes = ed["corrections"].as_array().unwrap();
-        assert!(fixes.iter().any(|x| x["field"] == "manufacturer" && x["value"] == "Example Semiconductor"));
-        assert!(fixes.iter().any(|x| x["field"] == "parts" && x["value"] == "XLC1117, XLC1117-3.3"));
+        assert!(fixes
+            .iter()
+            .any(|x| x["field"] == "manufacturer" && x["value"] == "Example Semiconductor"));
+        assert!(fixes
+            .iter()
+            .any(|x| x["field"] == "parts" && x["value"] == "XLC1117, XLC1117-3.3"));
         let diags: Vec<&str> = ed["diagnostics"]
             .as_array()
             .unwrap()
@@ -421,14 +494,20 @@ fn scanned_ldo_carries_the_card_fix_flags_and_two_part_family() {
             .filter_map(Value::as_str)
             .collect();
         assert!(diags.contains(&"no_text_layer") && diags.contains(&"text_from_ocr"));
-        assert!(diags.iter().any(|d| d.starts_with("fix rejected: `topology = ldo`")));
+        assert!(diags
+            .iter()
+            .any(|d| d.starts_with("fix rejected: `topology = ldo`")));
         let vdo = facts(store, Some("XLC1117"), None, Some("dropout"));
         let vdo = claim(&vdo, 0, "specRow", "VDO");
         assert_eq!(vdo["value"]["upper"], 1.3);
         assert_eq!(vdo["value"]["typical"], 1.1);
         assert_eq!(vdo["corroboration"]["level"], "low");
         assert_eq!(vdo["page"], 3);
-        assert!(vdo["diagnostics"].as_array().unwrap().iter().any(|d| d == "ocr"));
+        assert!(vdo["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d == "ocr"));
     });
 }
 
@@ -443,7 +522,11 @@ fn reimport_is_idempotent_and_a_changed_envelope_replaces_the_graph_whole() {
         let second = import_into_store(store, GID, &input(env.clone())).expect("second");
         assert!(second.replaced);
         assert_eq!(second.graph_iri, first.graph_iri);
-        assert_eq!(graph_dump(store, &second.graph_iri), before, "same IRIs, same triples");
+        assert_eq!(
+            graph_dump(store, &second.graph_iri),
+            before,
+            "same IRIs, same triples"
+        );
         assert_eq!(store.len().expect("len"), total, "no stacking");
 
         // The same document with the IQ row gone: the old row node must go.
@@ -455,12 +538,18 @@ fn reimport_is_idempotent_and_a_changed_envelope_replaces_the_graph_whole() {
         let gone = node_of(&env, "spec_rows-2");
         // Index 2 is now the next row (VUVLO), not IQ: nothing of IQ remains.
         assert!(objs(store, &third.graph_iri, &gone, &eng("typical")).len() == 1);
-        assert_eq!(objs(store, &third.graph_iri, &gone, &eng("typical")), vec![dec("1.65")]);
+        assert_eq!(
+            objs(store, &third.graph_iri, &gone, &eng("typical")),
+            vec![dec("1.65")]
+        );
         assert_eq!(
             objs(store, &third.graph_iri, &gone, &eng("symbolLexical")),
             vec![Obj::Text("VUVLO".into())]
         );
-        assert_eq!(graph_len(store, &third.graph_iri), third.mapped.triples.len());
+        assert_eq!(
+            graph_len(store, &third.graph_iri),
+            third.mapped.triples.len()
+        );
         // Exactly one import graph for the document, plus the vocabulary.
         let graphs: BTreeSet<String> = store
             .named_graphs()
@@ -519,8 +608,12 @@ fn a_value_with_neither_page_nor_file_is_refused_unless_a_person_verified_it() {
     with_store(|store| {
         let mut env = fixture(BUCK);
         env["params"][0]["page"] = Value::Null;
-        let reasons = refused(import_into_store(store, GID, &input(env.clone())).expect_err("refused"));
-        assert_eq!(reasons, vec!["params[0] (vin): value without page or source file".to_string()]);
+        let reasons =
+            refused(import_into_store(store, GID, &input(env.clone())).expect_err("refused"));
+        assert_eq!(
+            reasons,
+            vec!["params[0] (vin): value without page or source file".to_string()]
+        );
         // A person is their own source (verify_library.py).
         env["params"][0]["verified"] =
             json!({"by": "user", "on": "2026-10-01", "evidence": null, "value": [1.8, 6.5]});
@@ -542,15 +635,22 @@ fn the_pdf_artifact_is_recorded_and_its_bytes_must_match_the_declared_sha256() {
             bytes: bytes.len() as u64,
         });
         inp.envelope_artifact_id = Some("envelope-artifact-1".into());
-        inp.renditions.insert("text".into(), "text-artifact-1".into());
+        inp.renditions
+            .insert("text".into(), "text-artifact-1".into());
         let report = import_into_store(store, GID, &inp).expect("import");
         let g = &report.graph_iri;
         let content = rec(&format!("ds-{}", &digest[..16]));
         assert_eq!(
             objs(store, g, &content, &de("digest")),
-            vec![typed(&format!("sha256:{digest}:{}", bytes.len()), de("Digest"))]
+            vec![typed(
+                &format!("sha256:{digest}:{}", bytes.len()),
+                de("Digest")
+            )]
         );
-        assert_eq!(objs(store, g, &content, &de("byteCheck")), vec![Obj::Iri(de("matched"))]);
+        assert_eq!(
+            objs(store, g, &content, &de("byteCheck")),
+            vec![Obj::Iri(de("matched"))]
+        );
         let binding = rec(&format!("ds-{}-binding", &digest[..16]));
         assert_eq!(
             objs(store, g, &binding, &de("artifact")),
@@ -565,7 +665,10 @@ fn the_pdf_artifact_is_recorded_and_its_bytes_must_match_the_declared_sha256() {
         let id = c["id"].as_str().unwrap();
         assert_eq!(c["link"], format!("/files/pdf-artifact-1#evidence={id}"));
         assert_eq!(facts(store, None, Some(&digest[..12]), None)["matched"], 1);
-        assert_eq!(facts(store, None, Some("envelope-artifact-1"), None)["matched"], 1);
+        assert_eq!(
+            facts(store, None, Some("envelope-artifact-1"), None)["matched"],
+            1
+        );
 
         // Other bytes under the same declared sha256: refused.
         let mut wrong = input(env);
@@ -575,7 +678,10 @@ fn the_pdf_artifact_is_recorded_and_its_bytes_must_match_the_declared_sha256() {
             bytes: 3,
         });
         let reasons = refused(import_into_store(store, GID, &wrong).expect_err("refused"));
-        assert!(reasons[0].contains("does not match the PDF artifact's bytes"), "{reasons:?}");
+        assert!(
+            reasons[0].contains("does not match the PDF artifact's bytes"),
+            "{reasons:?}"
+        );
     });
 }
 
@@ -602,7 +708,10 @@ fn the_row_cap_overflows_into_a_diagnostic_and_the_envelope_keeps_the_rest() {
         env["spec_rows"] = Value::Array((0..700).map(|i| minimal_row(i, false)).collect());
         let report = import_into_store(store, GID, &input(env)).expect("import");
         assert_eq!(report.mapped.counts["rows"], 600);
-        assert!(report.mapped.diagnostics.contains(&"on demand: 100 rows".to_string()));
+        assert!(report
+            .mapped
+            .diagnostics
+            .contains(&"on demand: 100 rows".to_string()));
         let f = facts(store, Some("XPS62840"), None, Some("S0"));
         assert!(f["editions"][0]["diagnostics"]
             .as_array()
@@ -634,17 +743,36 @@ fn the_per_document_cap_holds_at_1800_nodes_and_20000_triples() {
         let report = import_into_store(store, GID, &input(env)).expect("import still succeeds");
         let m = &report.mapped;
         assert!(m.nodes <= MAX_NODES, "nodes {}", m.nodes);
-        assert!(m.triples.len() <= MAX_TRIPLES, "triples {}", m.triples.len());
-        assert!(m.triples.len() > MAX_TRIPLES - 2_000, "the cap, not the data, ended it: {}", m.triples.len());
+        assert!(
+            m.triples.len() <= MAX_TRIPLES,
+            "triples {}",
+            m.triples.len()
+        );
+        assert!(
+            m.triples.len() > MAX_TRIPLES - 2_000,
+            "the cap, not the data, ended it: {}",
+            m.triples.len()
+        );
         // Fields cap at 1,000: 90 whole registers of 11 fields.
         assert_eq!(m.counts["registers"], 90);
         assert_eq!(m.counts["registerFields"], 990);
-        assert!(m.diagnostics.contains(&"on demand: 10 registers".to_string()), "{:?}", m.diagnostics);
-        assert!(m.diagnostics.contains(&"on demand: 110 register fields".to_string()));
-        assert!(m.counts["rows"] < 600, "the triple budget must have stopped the rows");
+        assert!(
+            m.diagnostics
+                .contains(&"on demand: 10 registers".to_string()),
+            "{:?}",
+            m.diagnostics
+        );
+        assert!(m
+            .diagnostics
+            .contains(&"on demand: 110 register fields".to_string()));
+        assert!(
+            m.counts["rows"] < 600,
+            "the triple budget must have stopped the rows"
+        );
         let dropped = 600 - m.counts["rows"];
         assert!(
-            m.diagnostics.contains(&format!("on demand: {dropped} rows")),
+            m.diagnostics
+                .contains(&format!("on demand: {dropped} rows")),
             "{:?}",
             m.diagnostics
         );
@@ -659,8 +787,14 @@ fn part_strings_resolve_to_the_graphs_existing_family_handle() {
         let existing = "urn:example:family/xps62840";
         let g = nn("urn:example:elsewhere");
         for (p, o) in [
-            (eng("normalizedIdentifier"), Term::from(Literal::new_simple_literal("xps62840"))),
-            (eng("identifier"), Term::from(Literal::new_simple_literal("XPS62840"))),
+            (
+                eng("normalizedIdentifier"),
+                Term::from(Literal::new_simple_literal("xps62840")),
+            ),
+            (
+                eng("identifier"),
+                Term::from(Literal::new_simple_literal("XPS62840")),
+            ),
         ] {
             store
                 .insert(&Quad::new(nn(existing), nn(&p), o, g.clone()))
@@ -676,7 +810,10 @@ fn part_strings_resolve_to_the_graphs_existing_family_handle() {
             vec![Obj::Iri(existing.into())]
         );
         let vin = node_of(&env, "params-vin");
-        assert_eq!(objs(store, &report.graph_iri, &vin, &de("subject")), vec![Obj::Iri(existing.into())]);
+        assert_eq!(
+            objs(store, &report.graph_iri, &vin, &de("subject")),
+            vec![Obj::Iri(existing.into())]
+        );
         // The tool still finds the part by its normalized identifier.
         assert_eq!(facts(store, Some("xps-62840"), None, None)["matched"], 1);
     });
@@ -690,7 +827,10 @@ fn facts_round_trip_buck_key_parameter_page_box_readings_and_corroboration() {
         let f = facts(store, Some("XPS62840"), None, Some("vin"));
         assert_eq!(f["matched"], 1);
         let ed = &f["editions"][0];
-        assert_eq!(ed["title"], "XPS62840 1.8 V to 6.5 V Input, 750 mA Step-Down Converter");
+        assert_eq!(
+            ed["title"],
+            "XPS62840 1.8 V to 6.5 V Input, 750 mA Step-Down Converter"
+        );
         assert_eq!(ed["revision"], "B");
         assert_eq!(ed["maker"], "Example Semiconductor");
         let vin = claim(&f, 0, "keyParameter", "vin");
@@ -712,7 +852,11 @@ fn facts_round_trip_buck_key_parameter_page_box_readings_and_corroboration() {
         assert_eq!(roles, vec!["page1", "prose", "roc"]);
         assert_eq!(vin["readings"].as_array().unwrap().len(), 4);
         assert_eq!(vin["readings"][0]["page"], 1);
-        assert_eq!(vin["checks"].as_array().unwrap().len(), 0, "no native checks yet");
+        assert_eq!(
+            vin["checks"].as_array().unwrap().len(),
+            0,
+            "no native checks yet"
+        );
         assert_eq!(vin["checkedByPerson"], false);
         assert!(vin["link"].is_null(), "no PDF artifact was bound");
         // Both the key parameter and the ROC row named VIN answer "vin".
@@ -724,7 +868,10 @@ fn facts_round_trip_buck_key_parameter_page_box_readings_and_corroboration() {
         assert_eq!(iq["box"], json!([[54.0, 402.3, 558.0, 414.9]]));
         assert_eq!(iq["precision"], "cell");
         assert_eq!(iq["geometryStatus"], "approximate");
-        assert_eq!(iq["conditions"]["row"], "EN = VIN, IOUT = 0 mA, not switching");
+        assert_eq!(
+            iq["conditions"]["row"],
+            "EN = VIN, IOUT = 0 mA, not switching"
+        );
         assert_eq!(iq["value"]["typical"], 60.0);
         assert!(iq["value"]["lower"].is_null());
         // Not found is not zero.
@@ -732,12 +879,20 @@ fn facts_round_trip_buck_key_parameter_page_box_readings_and_corroboration() {
         assert_eq!(nothing["matched"], 0);
         assert!(nothing["note"].as_str().unwrap().contains("not found"));
         let no_param = facts(store, Some("XPS62840"), None, Some("junction temperature"));
-        assert_eq!(no_param["editions"][0]["claims"].as_array().unwrap().len(), 0);
+        assert_eq!(
+            no_param["editions"][0]["claims"].as_array().unwrap().len(),
+            0
+        );
         // A query must name a part or an artifact.
         let err = facts_from_store(
             store,
             GID,
-            &FactsQuery { part: None, artifact: None, parameter: Some("vin".into()), limit: 10 },
+            &FactsQuery {
+                part: None,
+                artifact: None,
+                parameter: Some("vin".into()),
+                limit: 10,
+            },
         )
         .expect_err("needs a part or artifact");
         assert!(err.message_ref().contains("part or an artifact"));
@@ -751,7 +906,12 @@ fn another_graphs_imports_are_not_visible() {
         let other = facts_from_store(
             store,
             "some-other-graph",
-            &FactsQuery { part: Some("XPS62840".into()), artifact: None, parameter: None, limit: 10 },
+            &FactsQuery {
+                part: Some("XPS62840".into()),
+                artifact: None,
+                parameter: None,
+                limit: 10,
+            },
         )
         .expect("facts");
         assert_eq!(other["matched"], 0);
@@ -763,7 +923,11 @@ fn the_seed_vocabulary_parses_and_is_loaded_beside_every_import() {
     with_store(|store| {
         let report = import_into_store(store, GID, &input(fixture(BUCK))).expect("import");
         let vocab = vocabulary_graph_iri(GID);
-        assert!(graph_len(store, &vocab) > 150, "{}", graph_len(store, &vocab));
+        assert!(
+            graph_len(store, &vocab) > 150,
+            "{}",
+            graph_len(store, &vocab)
+        );
         let dsp_high = "https://sophia-labs.ai/concept/datasheet-parser#high";
         let defs = objs(
             store,
@@ -771,7 +935,10 @@ fn the_seed_vocabulary_parses_and_is_loaded_beside_every_import() {
             dsp_high,
             "http://www.w3.org/2004/02/skos/core#definition",
         );
-        assert_eq!(defs, vec![Obj::Text("Two or more independent sources agree.".into())]);
+        assert_eq!(
+            defs,
+            vec![Obj::Text("Two or more independent sources agree.".into())]
+        );
         assert!(!objs(
             store,
             &vocab,
@@ -783,12 +950,30 @@ fn the_seed_vocabulary_parses_and_is_loaded_beside_every_import() {
         assert!(VOCAB_TTL.contains("NomDeTom"));
         // Every concept the importer can emit for a source role, reader or confidence is defined.
         for iri in [
-            "page1", "roc", "prose", "ti_export", "specTable", "docling", "docling-ocr",
-            "pdfplumber", "pdftotext", "high", "medium", "low", "none", "contested",
+            "page1",
+            "roc",
+            "prose",
+            "ti_export",
+            "specTable",
+            "docling",
+            "docling-ocr",
+            "pdfplumber",
+            "pdftotext",
+            "high",
+            "medium",
+            "low",
+            "none",
+            "contested",
         ] {
             let full = format!("https://sophia-labs.ai/concept/datasheet-parser#{iri}");
             assert!(
-                !objs(store, &vocab, &full, "http://www.w3.org/2004/02/skos/core#prefLabel").is_empty(),
+                !objs(
+                    store,
+                    &vocab,
+                    &full,
+                    "http://www.w3.org/2004/02/skos/core#prefLabel"
+                )
+                .is_empty(),
                 "dsp:{iri} undefined"
             );
         }
@@ -804,16 +989,46 @@ fn the_seed_vocabulary_parses_and_is_loaded_beside_every_import() {
 // that run's Docling failed offline, so every value is from his fallback
 // readers pdfplumber and pdftotext). Schema is his real one.
 const REAL: [(&str, &str); 10] = [
-    ("ti-lm5164_DS", include_str!("datasheet_fixtures/real/ti-lm5164_DS.data.json")),
-    ("ti-tps54331_DS", include_str!("datasheet_fixtures/real/ti-tps54331_DS.data.json")),
-    ("ti-ads1115_DS", include_str!("datasheet_fixtures/real/ti-ads1115_DS.data.json")),
-    ("ti-tmp117_DS", include_str!("datasheet_fixtures/real/ti-tmp117_DS.data.json")),
-    ("ti-lm358-family_DS", include_str!("datasheet_fixtures/real/ti-lm358-family_DS.data.json")),
-    ("infineon-bsc016n06ns_DS_V2.6", include_str!("datasheet_fixtures/real/infineon-bsc016n06ns_DS_V2.6.data.json")),
-    ("microchip-atmega328p_DS-revA", include_str!("datasheet_fixtures/real/microchip-atmega328p_DS-revA.data.json")),
-    ("microchip-atmega328p_DS-revB", include_str!("datasheet_fixtures/real/microchip-atmega328p_DS-revB.data.json")),
-    ("espressif-esp32-c3-trm", include_str!("datasheet_fixtures/real/espressif-esp32-c3-trm.data.json")),
-    ("espressif-esp32-c3_DS", include_str!("datasheet_fixtures/real/espressif-esp32-c3_DS.data.json")),
+    (
+        "ti-lm5164_DS",
+        include_str!("datasheet_fixtures/real/ti-lm5164_DS.data.json"),
+    ),
+    (
+        "ti-tps54331_DS",
+        include_str!("datasheet_fixtures/real/ti-tps54331_DS.data.json"),
+    ),
+    (
+        "ti-ads1115_DS",
+        include_str!("datasheet_fixtures/real/ti-ads1115_DS.data.json"),
+    ),
+    (
+        "ti-tmp117_DS",
+        include_str!("datasheet_fixtures/real/ti-tmp117_DS.data.json"),
+    ),
+    (
+        "ti-lm358-family_DS",
+        include_str!("datasheet_fixtures/real/ti-lm358-family_DS.data.json"),
+    ),
+    (
+        "infineon-bsc016n06ns_DS_V2.6",
+        include_str!("datasheet_fixtures/real/infineon-bsc016n06ns_DS_V2.6.data.json"),
+    ),
+    (
+        "microchip-atmega328p_DS-revA",
+        include_str!("datasheet_fixtures/real/microchip-atmega328p_DS-revA.data.json"),
+    ),
+    (
+        "microchip-atmega328p_DS-revB",
+        include_str!("datasheet_fixtures/real/microchip-atmega328p_DS-revB.data.json"),
+    ),
+    (
+        "espressif-esp32-c3-trm",
+        include_str!("datasheet_fixtures/real/espressif-esp32-c3-trm.data.json"),
+    ),
+    (
+        "espressif-esp32-c3_DS",
+        include_str!("datasheet_fixtures/real/espressif-esp32-c3_DS.data.json"),
+    ),
 ];
 
 /// Nodes the light tier must hold for an envelope, derived independently
@@ -823,7 +1038,10 @@ fn expected_nodes(env: &Value, families: usize) -> usize {
         .as_array()
         .unwrap()
         .iter()
-        .map(|p| 1 + p["readings"].as_array().unwrap().len().min(5) + usize::from(p.get("verified").is_some_and(Value::is_object)))
+        .map(|p| {
+            1 + p["readings"].as_array().unwrap().len().min(5)
+                + usize::from(p.get("verified").is_some_and(Value::is_object))
+        })
         .sum();
     let regs: usize = env["registers"]
         .as_array()
@@ -831,10 +1049,20 @@ fn expected_nodes(env: &Value, families: usize) -> usize {
         .iter()
         .map(|r| 1 + r["fields"].as_array().unwrap().len())
         .sum();
-    let fixes = env["document"]["corrections"].as_object().map_or(0, |m| m.len());
+    let fixes = env["document"]["corrections"]
+        .as_object()
+        .map_or(0, |m| m.len());
     // 6 custody + one ToolProfile per non-parser tool the run names + edition + families.
-    let tools = env["extraction"]["tools"].as_object().map_or(0, |t| t.keys().filter(|k| *k != "datasheet-parser").count());
-    6 + tools + 1 + families + params + regs + env["spec_rows"].as_array().unwrap().len().min(600) + fixes
+    let tools = env["extraction"]["tools"]
+        .as_object()
+        .map_or(0, |t| t.keys().filter(|k| *k != "datasheet-parser").count());
+    6 + tools
+        + 1
+        + families
+        + params
+        + regs
+        + env["spec_rows"].as_array().unwrap().len().min(600)
+        + fixes
 }
 
 #[test]
@@ -845,15 +1073,37 @@ fn real_corpus_envelopes_all_import_within_budget_and_pair_revisions_apart() {
             let report = import_into_store(store, GID, &input(env.clone()))
                 .unwrap_or_else(|e| panic!("{name}: {e:?}"));
             let m = &report.mapped;
-            assert!(m.nodes <= MAX_NODES && m.triples.len() <= MAX_TRIPLES, "{name}");
-            assert_eq!(m.nodes, expected_nodes(&env, m.counts["families"]) + m.counts["keyValues"], "{name}");
-            assert_eq!(m.counts["rows"], env["spec_rows"].as_array().unwrap().len(), "{name}");
-            assert_eq!(m.counts["registers"], env["registers"].as_array().unwrap().len(), "{name}");
-            assert_eq!(graph_len(store, &report.graph_iri), m.triples.len(), "{name}");
+            assert!(
+                m.nodes <= MAX_NODES && m.triples.len() <= MAX_TRIPLES,
+                "{name}"
+            );
+            assert_eq!(
+                m.nodes,
+                expected_nodes(&env, m.counts["families"]) + m.counts["keyValues"],
+                "{name}"
+            );
+            assert_eq!(
+                m.counts["rows"],
+                env["spec_rows"].as_array().unwrap().len(),
+                "{name}"
+            );
+            assert_eq!(
+                m.counts["registers"],
+                env["registers"].as_array().unwrap().len(),
+                "{name}"
+            );
+            assert_eq!(
+                graph_len(store, &report.graph_iri),
+                m.triples.len(),
+                "{name}"
+            );
             // Idempotent on real data too.
             let before = graph_dump(store, &report.graph_iri);
             let again = import_into_store(store, GID, &input(env)).expect("again");
-            assert!(again.replaced && graph_dump(store, &again.graph_iri) == before, "{name}");
+            assert!(
+                again.replaced && graph_dump(store, &again.graph_iri) == before,
+                "{name}"
+            );
         }
         // Rev A and rev B of the ATmega328P are two documents, two graphs.
         let graphs: BTreeSet<String> = store
@@ -881,18 +1131,32 @@ fn real_registers_and_key_parameters_round_trip() {
         let atm = fixture(REAL[6].1);
         let ratm = import_into_store(store, GID, &input(atm.clone())).expect("atmega");
         assert_eq!(
-            objs(store, &ratm.graph_iri, &node_of(&atm, "document"), &de("textOnly")),
+            objs(
+                store,
+                &ratm.graph_iri,
+                &node_of(&atm, "document"),
+                &de("textOnly")
+            ),
             vec![typed("true", format!("{XSD}boolean"))]
         );
         import_into_store(store, GID, &input(lm.clone())).expect("lm5164");
         let pat = |s: &str| typed(s, eng("BitPattern"));
         // ADS1115 register 0 (pdfplumber fallback: `source_page`, name UNKNOWN, address "?").
         let f0 = node_of(&ads, "registers-0-fields-0");
-        assert_eq!(objs(store, &rads.graph_iri, &f0, &eng("resetPattern")), vec![pat("6:000000:111111")]);
+        assert_eq!(
+            objs(store, &rads.graph_iri, &f0, &eng("resetPattern")),
+            vec![pat("6:000000:111111")]
+        );
         let f1 = node_of(&ads, "registers-0-fields-1");
-        assert_eq!(objs(store, &rads.graph_iri, &f1, &eng("resetPattern")), vec![pat("2:00:11")]);
+        assert_eq!(
+            objs(store, &rads.graph_iri, &f1, &eng("resetPattern")),
+            vec![pat("2:00:11")]
+        );
         let reg0 = node_of(&ads, "registers-0");
-        assert_eq!(objs(store, &rads.graph_iri, &reg0, &eng("addressLexical")), vec![Obj::Text("?".into())]);
+        assert_eq!(
+            objs(store, &rads.graph_iri, &reg0, &eng("addressLexical")),
+            vec![Obj::Text("?".into())]
+        );
         assert!(objs(store, &rads.graph_iri, &reg0, &eng("address")).is_empty());
         assert_eq!(
             objs(store, &rads.graph_iri, &reg0, &de("pageIndex")),
@@ -915,23 +1179,64 @@ fn real_registers_and_key_parameters_round_trip() {
         assert_eq!(vin["corroboration"]["independentSources"], 2);
         // A key parameter the pipeline did not find is simply absent.
         let vout = facts(store, None, Some(&sha[..16]), Some("fsw"));
-        let in_claims = vout["editions"][0]["claims"].as_array().unwrap().iter().any(|c| c["kind"] == "keyParameter");
-        assert_eq!(in_claims, lm["params"].as_array().unwrap().iter().any(|p| p["key"] == "fsw"));
+        let in_claims = vout["editions"][0]["claims"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c["kind"] == "keyParameter");
+        assert_eq!(
+            in_claims,
+            lm["params"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|p| p["key"] == "fsw")
+        );
     });
 }
 
 // The Docling read of the same corpus (2026-10-08T232520Z).
 const DOCLING: [(&str, &str); 10] = [
-    ("ti-opa2134_DS", include_str!("datasheet_fixtures/docling/ti-opa2134_DS.data.json")),
-    ("ti-lm358-family_DS", include_str!("datasheet_fixtures/docling/ti-lm358-family_DS.data.json")),
-    ("infineon-bsc016n06ns_DS_V2.6", include_str!("datasheet_fixtures/docling/infineon-bsc016n06ns_DS_V2.6.data.json")),
-    ("infineon-irlb8721_DS", include_str!("datasheet_fixtures/docling/infineon-irlb8721_DS.data.json")),
-    ("vishay-si2302cds_DS", include_str!("datasheet_fixtures/docling/vishay-si2302cds_DS.data.json")),
-    ("ti-tmp117_DS", include_str!("datasheet_fixtures/docling/ti-tmp117_DS.data.json")),
-    ("bosch-bme280_DS", include_str!("datasheet_fixtures/docling/bosch-bme280_DS.data.json")),
-    ("ti-ads1115_DS", include_str!("datasheet_fixtures/docling/ti-ads1115_DS.data.json")),
-    ("espressif-esp32-c3_DS", include_str!("datasheet_fixtures/docling/espressif-esp32-c3_DS.data.json")),
-    ("ti-tlv755p_DS", include_str!("datasheet_fixtures/docling/ti-tlv755p_DS.data.json")),
+    (
+        "ti-opa2134_DS",
+        include_str!("datasheet_fixtures/docling/ti-opa2134_DS.data.json"),
+    ),
+    (
+        "ti-lm358-family_DS",
+        include_str!("datasheet_fixtures/docling/ti-lm358-family_DS.data.json"),
+    ),
+    (
+        "infineon-bsc016n06ns_DS_V2.6",
+        include_str!("datasheet_fixtures/docling/infineon-bsc016n06ns_DS_V2.6.data.json"),
+    ),
+    (
+        "infineon-irlb8721_DS",
+        include_str!("datasheet_fixtures/docling/infineon-irlb8721_DS.data.json"),
+    ),
+    (
+        "vishay-si2302cds_DS",
+        include_str!("datasheet_fixtures/docling/vishay-si2302cds_DS.data.json"),
+    ),
+    (
+        "ti-tmp117_DS",
+        include_str!("datasheet_fixtures/docling/ti-tmp117_DS.data.json"),
+    ),
+    (
+        "bosch-bme280_DS",
+        include_str!("datasheet_fixtures/docling/bosch-bme280_DS.data.json"),
+    ),
+    (
+        "ti-ads1115_DS",
+        include_str!("datasheet_fixtures/docling/ti-ads1115_DS.data.json"),
+    ),
+    (
+        "espressif-esp32-c3_DS",
+        include_str!("datasheet_fixtures/docling/espressif-esp32-c3_DS.data.json"),
+    ),
+    (
+        "ti-tlv755p_DS",
+        include_str!("datasheet_fixtures/docling/ti-tlv755p_DS.data.json"),
+    ),
 ];
 
 #[test]
@@ -940,31 +1245,83 @@ fn key_values_are_derived_from_spec_rows_for_every_part_type_and_never_invented(
     // listed must be ABSENT: OPA2134 and BME280 state no parseable VOS /
     // accuracy number, the MCU and the 2008 MOSFET sheet have no matching row.
     let expected: [(&str, &[(&str, usize)]); 10] = [
-        ("ti-opa2134_DS", &[("gainBandwidth", 25), ("supplyVoltage", 15)]),
-        ("ti-lm358-family_DS", &[("gainBandwidth", 55), ("inputOffsetVoltage", 243), ("supplyVoltage", 5)]),
-        ("infineon-bsc016n06ns_DS_V2.6", &[("drainSourceVoltage", 0), ("onResistance", 1), ("drainCurrent", 2)]),
-        ("infineon-irlb8721_DS", &[("drainSourceVoltage", 0), ("onResistance", 25), ("drainCurrent", 3)]),
+        (
+            "ti-opa2134_DS",
+            &[("gainBandwidth", 25), ("supplyVoltage", 15)],
+        ),
+        (
+            "ti-lm358-family_DS",
+            &[
+                ("gainBandwidth", 55),
+                ("inputOffsetVoltage", 243),
+                ("supplyVoltage", 5),
+            ],
+        ),
+        (
+            "infineon-bsc016n06ns_DS_V2.6",
+            &[
+                ("drainSourceVoltage", 0),
+                ("onResistance", 1),
+                ("drainCurrent", 2),
+            ],
+        ),
+        (
+            "infineon-irlb8721_DS",
+            &[
+                ("drainSourceVoltage", 0),
+                ("onResistance", 25),
+                ("drainCurrent", 3),
+            ],
+        ),
         ("vishay-si2302cds_DS", &[]),
         ("ti-tmp117_DS", &[("accuracy", 14), ("supplyVoltage", 6)]),
         ("bosch-bme280_DS", &[("range", 23), ("supplyVoltage", 0)]),
-        ("ti-ads1115_DS", &[("resolution", 29), ("sampleRate", 37), ("supplyVoltage", 11)]),
+        (
+            "ti-ads1115_DS",
+            &[
+                ("resolution", 29),
+                ("sampleRate", 37),
+                ("supplyVoltage", 11),
+            ],
+        ),
         ("espressif-esp32-c3_DS", &[]),
         ("ti-tlv755p_DS", &[("dropout", 48)]),
     ];
     let all_keys = [
-        "gainBandwidth", "inputOffsetVoltage", "supplyVoltage", "drainSourceVoltage", "onResistance",
-        "drainCurrent", "range", "accuracy", "resolution", "sampleRate", "dropout", "core", "flash", "ram",
+        "gainBandwidth",
+        "inputOffsetVoltage",
+        "supplyVoltage",
+        "drainSourceVoltage",
+        "onResistance",
+        "drainCurrent",
+        "range",
+        "accuracy",
+        "resolution",
+        "sampleRate",
+        "dropout",
+        "core",
+        "flash",
+        "ram",
     ];
     with_store(|store| {
         for (i, (name, raw)) in DOCLING.iter().enumerate() {
             assert_eq!(expected[i].0, *name);
             let env = fixture(raw);
-            let report = import_into_store(store, GID, &input(env.clone())).unwrap_or_else(|e| panic!("{name}: {e:?}"));
+            let report = import_into_store(store, GID, &input(env.clone()))
+                .unwrap_or_else(|e| panic!("{name}: {e:?}"));
             let g = &report.graph_iri;
             let want = expected[i].1;
             assert_eq!(report.mapped.counts["keyValues"], want.len(), "{name}");
-            assert_eq!(report.mapped.counts["rows"], env["spec_rows"].as_array().unwrap().len(), "{name}");
-            assert_eq!(report.mapped.nodes, expected_nodes(&env, report.mapped.counts["families"]) + want.len(), "{name}");
+            assert_eq!(
+                report.mapped.counts["rows"],
+                env["spec_rows"].as_array().unwrap().len(),
+                "{name}"
+            );
+            assert_eq!(
+                report.mapped.nodes,
+                expected_nodes(&env, report.mapped.counts["families"]) + want.len(),
+                "{name}"
+            );
             for key in all_keys {
                 let node = node_of(&env, &format!("key-{key}"));
                 match want.iter().find(|(k, _)| *k == key) {
@@ -983,10 +1340,16 @@ fn key_values_are_derived_from_spec_rows_for_every_part_type_and_never_invented(
                         let row_conf = env["spec_rows"][row]["confidence"].as_str().unwrap();
                         assert_eq!(
                             objs(store, g, &node, &de("confidence")),
-                            vec![Obj::Iri(format!("https://sophia-labs.ai/concept/datasheet-parser#{row_conf}"))]
+                            vec![Obj::Iri(format!(
+                                "https://sophia-labs.ai/concept/datasheet-parser#{row_conf}"
+                            ))]
                         );
                         // And the value slots are the row's, not invented.
-                        for (slot, k) in [("lowerLimit", "min"), ("typical", "typ"), ("upperLimit", "max")] {
+                        for (slot, k) in [
+                            ("lowerLimit", "min"),
+                            ("typical", "typ"),
+                            ("upperLimit", "max"),
+                        ] {
                             let got = objs(store, g, &node, &eng(slot));
                             match env["spec_rows"][row][k].as_f64() {
                                 Some(v) => assert_eq!(got.len(), 1, "{name} {key} {slot} {v}"),
@@ -1010,18 +1373,32 @@ fn key_values_are_derived_from_spec_rows_for_every_part_type_and_never_invented(
         assert_eq!(rds["value"]["upper"], 16.0);
         assert_eq!(rds["value"]["unit"], "m\u{3a9}");
         assert_eq!(rds["readings"].as_array().unwrap().len(), 1);
-        assert!(rds["conditions"]["row"].as_str().unwrap().contains("VGS = 4.5V"));
+        assert!(rds["conditions"]["row"]
+            .as_str()
+            .unwrap()
+            .contains("VGS = 4.5V"));
         assert_eq!(rds["corroboration"]["level"], "low");
         // The other RDS(on) row (VGS = 10 V) stays reachable as its own row assertion.
-        assert!(facts(store, None, Some(&sha[..16]), Some("RDS(on)"))["editions"][0]["claims"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|c| c["kind"] == "specRow" && c["conditions"]["row"].as_str().is_some_and(|s| s.contains("VGS = 10V"))));
+        assert!(
+            facts(store, None, Some(&sha[..16]), Some("RDS(on)"))["editions"][0]["claims"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|c| c["kind"] == "specRow"
+                    && c["conditions"]["row"]
+                        .as_str()
+                        .is_some_and(|s| s.contains("VGS = 10V")))
+        );
         // The edition says what it was classified as.
         let ed = node_of(&irlb, "document");
-        let g = format!("urn:mnemosyne:local:graph:{GID}:projection:datasheet:ds-{}:m1", &sha[..16]);
-        assert_eq!(objs(store, &g, &ed, &de("inferredProductType")), vec![Obj::Text("mosfet".into())]);
+        let g = format!(
+            "urn:mnemosyne:local:graph:{GID}:projection:datasheet:ds-{}:m1",
+            &sha[..16]
+        );
+        assert_eq!(
+            objs(store, &g, &ed, &de("inferredProductType")),
+            vec![Obj::Text("mosfet".into())]
+        );
     });
 }
 
@@ -1033,7 +1410,10 @@ fn a_multi_part_string_becomes_one_family_per_part_and_each_is_found() {
         let report = import_into_store(store, GID, &input(env.clone())).expect("import");
         assert_eq!(report.mapped.counts["families"], 3);
         let edition = node_of(&env, "document");
-        assert_eq!(objs(store, &report.graph_iri, &edition, &de("namesFamily")).len(), 3);
+        assert_eq!(
+            objs(store, &report.graph_iri, &edition, &de("namesFamily")).len(),
+            3
+        );
         assert_eq!(
             objs(store, &report.graph_iri, &edition, &de("partNumber")),
             vec![Obj::Text("OPA134".into())]
@@ -1042,7 +1422,10 @@ fn a_multi_part_string_becomes_one_family_per_part_and_each_is_found() {
             let f = facts(store, Some(q), None, Some("gainBandwidth"));
             assert_eq!(f["matched"], 1, "{q}");
             assert_eq!(f["editions"][0]["parts"].as_array().unwrap().len(), 3);
-            assert!(!f["editions"][0]["claims"].as_array().unwrap().is_empty(), "{q}");
+            assert!(
+                !f["editions"][0]["claims"].as_array().unwrap().is_empty(),
+                "{q}"
+            );
         }
         // Nothing exact: a family prefix finds it; an unrelated part does not.
         assert_eq!(facts(store, Some("OPA21"), None, None)["matched"], 1);
@@ -1067,8 +1450,16 @@ fn an_mcu_core_named_in_the_title_is_a_text_key_value() {
             objs(store, &report.graph_iri, &node, &de("valueText")),
             vec![Obj::Text("RISC-V".into())]
         );
-        let f = facts(store, None, Some(&env["document"]["sha256"].as_str().unwrap()[..16]), Some("core"));
-        assert_eq!(claim(&f, 0, "keyParameter", "core")["value"]["text"], "RISC-V");
+        let f = facts(
+            store,
+            None,
+            Some(&env["document"]["sha256"].as_str().unwrap()[..16]),
+            Some("core"),
+        );
+        assert_eq!(
+            claim(&f, 0, "keyParameter", "core")["value"]["text"],
+            "RISC-V"
+        );
     });
 }
 
@@ -1103,7 +1494,8 @@ mod dispatch {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos();
-        let profile = std::env::temp_dir().join(format!("garden-datasheet-dispatch-profile-{nanos}"));
+        let profile =
+            std::env::temp_dir().join(format!("garden-datasheet-dispatch-profile-{nanos}"));
         let jobs_dir = std::env::temp_dir().join(format!("garden-datasheet-dispatch-jobs-{nanos}"));
         std::env::set_var("GARDEN_PROFILE_DIR", &profile);
         let result = std::panic::catch_unwind(|| {
@@ -1120,7 +1512,10 @@ mod dispatch {
             )
             .expect("create graph");
             let jobs = Arc::new(LocalJobRegistry::new(jobs_dir.clone()).expect("jobs"));
-            let ctx = McpCallCtx { app: app.clone(), jobs: &jobs };
+            let ctx = McpCallCtx {
+                app: app.clone(),
+                jobs: &jobs,
+            };
 
             // Inline envelope, as an object.
             let report = call(
@@ -1162,9 +1557,17 @@ mod dispatch {
             // Refusals are loud and validated.
             let mut bad = fixture(BUCK);
             bad["schema"] = json!("nope");
-            let err = call(&ctx, "datasheet_import", json!({"graph_id": graph_id, "envelope": bad}))
-                .expect_err("refused");
-            assert!(err.message_ref().contains("datasheet import refused"), "{}", err.message_ref());
+            let err = call(
+                &ctx,
+                "datasheet_import",
+                json!({"graph_id": graph_id, "envelope": bad}),
+            )
+            .expect_err("refused");
+            assert!(
+                err.message_ref().contains("datasheet import refused"),
+                "{}",
+                err.message_ref()
+            );
             assert!(call(&ctx, "datasheet_import", json!({"graph_id": graph_id})).is_err());
             assert!(call(
                 &ctx,

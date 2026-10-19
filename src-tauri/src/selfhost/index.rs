@@ -32,7 +32,11 @@ pub fn index(profile_dir: &Path, args: &IndexArgs) -> Result<String, String> {
     crate::ids::validate_local_id(&args.graph, "--graph")?;
     let graph_dir = profile_dir.join("graphs").join(&args.graph);
     if !graph_dir.join("graph.json").is_file() {
-        return Err(format!("no graph {:?} in {}", args.graph, profile_dir.display()));
+        return Err(format!(
+            "no graph {:?} in {}",
+            args.graph,
+            profile_dir.display()
+        ));
     }
     let mut config = read_entity_index_config(&graph_dir).unwrap_or(EntityIndexConfig {
         enabled: false,
@@ -61,12 +65,18 @@ pub fn index(profile_dir: &Path, args: &IndexArgs) -> Result<String, String> {
     write_entity_index_config(&graph_dir, &config)?;
     match super::serving_now(profile_dir) {
         Some(running) => build_on_server(&running, &args.graph),
-        None => build_here(profile_dir, &args.graph, args.threads).map(|summary| format!("{summary}\n")),
+        None => {
+            build_here(profile_dir, &args.graph, args.threads).map(|summary| format!("{summary}\n"))
+        }
     }
 }
 
 /// After `gardend load`, on a graph with `find` on: index what was loaded.
-pub(crate) fn refresh_after_load(profile_dir: &Path, graph: &str, threads: Option<usize>) -> Option<Result<String, String>> {
+pub(crate) fn refresh_after_load(
+    profile_dir: &Path,
+    graph: &str,
+    threads: Option<usize>,
+) -> Option<Result<String, String>> {
     let graph_dir = profile_dir.join("graphs").join(graph);
     if !crate::entity_index::entity_index_enabled(&graph_dir) {
         return None;
@@ -78,14 +88,20 @@ fn build_here(profile_dir: &Path, graph: &str, threads: Option<usize>) -> Result
     let graph_dir = profile_dir.join("graphs").join(graph);
     let store_path = graph_dir.join("store.oxigraph");
     let store = Store::open(&store_path).map_err(|error| {
-        format!("open the store of {graph} ({}): {error}. Is a gardend still running on this profile?", store_path.display())
+        format!(
+            "open the store of {graph} ({}): {error}. Is a gardend still running on this profile?",
+            store_path.display()
+        )
     })?;
     let mut last = Instant::now() - Duration::from_secs(60);
     let report = refresh_entity_index(
         graph,
         &graph_dir,
         &store,
-        &RefreshOptions { threads, batch: None },
+        &RefreshOptions {
+            threads,
+            batch: None,
+        },
         &mut |stage, done, total| {
             if last.elapsed() >= Duration::from_secs(5) || (total > 0 && done == total) {
                 last = Instant::now();
@@ -109,7 +125,12 @@ fn build_on_server(running: &super::RunningManifest, graph: &str) -> Result<Stri
         .post(&format!("{base}/api/semantic/index/refresh/jobs"))
         .header("Authorization", &auth)
         .send_json(serde_json::json!({ "graphId": graph, "entitiesOnly": true }))
-        .map_err(|error| format!("ask the running gardend (pid {}) to index {graph}: {error}", running.pid))?
+        .map_err(|error| {
+            format!(
+                "ask the running gardend (pid {}) to index {graph}: {error}",
+                running.pid
+            )
+        })?
         .body_mut()
         .read_json()
         .map_err(|error| format!("the running gardend's answer: {error}"))?;
@@ -117,7 +138,10 @@ fn build_on_server(running: &super::RunningManifest, graph: &str) -> Result<Stri
         .as_str()
         .ok_or_else(|| format!("the running gardend started no job: {submitted}"))?
         .to_string();
-    eprintln!("gardend (pid {}) is serving this profile: indexing {graph} there, job {job_id}", running.pid);
+    eprintln!(
+        "gardend (pid {}) is serving this profile: indexing {graph} there, job {job_id}",
+        running.pid
+    );
     let mut last_phase = String::new();
     loop {
         std::thread::sleep(Duration::from_secs(2));
@@ -162,7 +186,9 @@ fn build_on_server(running: &super::RunningManifest, graph: &str) -> Result<Stri
                 return Ok(match report.get("entities") {
                     Some(_) => format!(
                         "entity index {graph}: {} entities ({} embedded, {} reused), {:.1} s\n",
-                        report["entities"], report["embedded"], report["reused"],
+                        report["entities"],
+                        report["embedded"],
+                        report["reused"],
                         report["seconds"].as_f64().unwrap_or(0.0)
                     ),
                     None => format!("job {job_id} succeeded\n"),

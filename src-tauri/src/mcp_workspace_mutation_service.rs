@@ -172,7 +172,8 @@ pub(super) async fn mcp_local_create_wires(
 
     // Validate all supplied fence carriers before any child is admitted.
     // Execution remains sequential, not one cross-operation transaction.
-    let prepared = wire_inputs.iter()
+    let prepared = wire_inputs
+        .iter()
         .map(|wire_input| wire_create_payload(wire_input, arguments, &graph_id))
         .collect::<Result<Vec<_>, _>>()?;
     let mut created = Vec::new();
@@ -193,7 +194,8 @@ pub(super) async fn mcp_local_create_wires(
     if let Some(expected) = &expected {
         crate::crdt_projection_flush::flush_projection_incarnation(
             app, &graph_id, None, expected, None,
-        ).await?;
+        )
+        .await?;
     } else {
         flush_graph_projection(app, &graph_id).await?;
     }
@@ -207,7 +209,9 @@ pub(super) async fn mcp_local_create_wires(
         "created_count": created_count,
         "createdCount": created_count,
     });
-    if let Some(expected) = expected { response["graphIncarnation"] = serde_json::json!(expected); }
+    if let Some(expected) = expected {
+        response["graphIncarnation"] = serde_json::json!(expected);
+    }
     Ok(response)
 }
 

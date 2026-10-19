@@ -53,8 +53,7 @@ pub(super) fn mcp_local_search_documents(
     for document in &documents {
         let mut best: Option<(f64, &String)> = None;
         for query in &queries {
-            let score =
-                document_match_score(&document.title, &document.document_id, query, &mode)?;
+            let score = document_match_score(&document.title, &document.document_id, query, &mode)?;
             if let Some(score) = score {
                 if best.map(|(existing, _)| score > existing).unwrap_or(true) {
                     best = Some((score, query));
@@ -98,7 +97,14 @@ pub(super) fn mcp_local_search_documents(
         "total": results.len(),
     });
     crate::file_search::add_file_hits(
-        &graph_id, &graph_dir, arguments, &queries, &mode, limit, &mut output, "document title",
+        &graph_id,
+        &graph_dir,
+        arguments,
+        &queries,
+        &mode,
+        limit,
+        &mut output,
+        "document title",
     );
     Ok(output)
 }
@@ -137,10 +143,7 @@ fn document_match_score(
         return Ok(Some(0.7));
     }
     if mode == "auto" {
-        let overlap = fuzzy_token_overlap(
-            &fuzzy_tokens(&query_lower),
-            &fuzzy_tokens(&title_lower),
-        );
+        let overlap = fuzzy_token_overlap(&fuzzy_tokens(&query_lower), &fuzzy_tokens(&title_lower));
         if overlap >= 0.5 {
             return Ok(Some(0.6 * overlap));
         }
@@ -311,7 +314,9 @@ fn cap_hits_per_document<T>(
             break;
         }
         if let Some(per_document_limit) = per_document_limit {
-            let count = per_document.entry(document_id(&hit).to_string()).or_insert(0);
+            let count = per_document
+                .entry(document_id(&hit).to_string())
+                .or_insert(0);
             if *count >= per_document_limit {
                 continue;
             }
@@ -362,12 +367,21 @@ fn fused_hit_json(hit: &FusedHit) -> serde_json::Value {
     });
     let object = value.as_object_mut().expect("fused hit json object");
     if let Some(lexical_score) = hit.lexical_score {
-        object.insert("lexical_score".to_string(), serde_json::json!(lexical_score));
+        object.insert(
+            "lexical_score".to_string(),
+            serde_json::json!(lexical_score),
+        );
         object.insert("lexicalScore".to_string(), serde_json::json!(lexical_score));
     }
     if let Some(semantic_score) = hit.semantic_score {
-        object.insert("semantic_score".to_string(), serde_json::json!(semantic_score));
-        object.insert("semanticScore".to_string(), serde_json::json!(semantic_score));
+        object.insert(
+            "semantic_score".to_string(),
+            serde_json::json!(semantic_score),
+        );
+        object.insert(
+            "semanticScore".to_string(),
+            serde_json::json!(semantic_score),
+        );
     }
     value
 }
@@ -403,51 +417,50 @@ pub(super) fn mcp_local_search_blocks(
         Vec::new()
     };
 
-    let semantic_lists: Vec<(String, Vec<SemanticSearchHit>)> = if mode == "semantic"
-        || mode == "hybrid"
-    {
-        let fetch_limit = if mode == "hybrid" {
-            limit.max(HYBRID_FETCH_FLOOR)
-        } else {
-            limit
-        };
-        let min_score = min_score_arg.unwrap_or(if mode == "hybrid" {
-            HYBRID_SEMANTIC_MIN_SCORE
-        } else {
-            0.0
-        });
-        let mut lists = Vec::new();
-        for query in &queries {
-            match semantic_search(
-                app.clone(),
-                SemanticSearchInput {
-                    graph_id: graph_id.clone(),
-                    query: query.clone(),
-                    limit: Some(fetch_limit),
-                },
-            ) {
-                Ok(search_result) => {
-                    let hits = search_result
-                        .hits
-                        .into_iter()
-                        .filter(|hit| hit.score as f64 >= min_score)
-                        .filter(|hit| {
-                            doc_filter
-                                .as_deref()
-                                .map(|document_id| hit.document_id == document_id)
-                                .unwrap_or(true)
-                        })
-                        .collect::<Vec<_>>();
-                    lists.push((query.clone(), hits));
+    let semantic_lists: Vec<(String, Vec<SemanticSearchHit>)> =
+        if mode == "semantic" || mode == "hybrid" {
+            let fetch_limit = if mode == "hybrid" {
+                limit.max(HYBRID_FETCH_FLOOR)
+            } else {
+                limit
+            };
+            let min_score = min_score_arg.unwrap_or(if mode == "hybrid" {
+                HYBRID_SEMANTIC_MIN_SCORE
+            } else {
+                0.0
+            });
+            let mut lists = Vec::new();
+            for query in &queries {
+                match semantic_search(
+                    app.clone(),
+                    SemanticSearchInput {
+                        graph_id: graph_id.clone(),
+                        query: query.clone(),
+                        limit: Some(fetch_limit),
+                    },
+                ) {
+                    Ok(search_result) => {
+                        let hits = search_result
+                            .hits
+                            .into_iter()
+                            .filter(|hit| hit.score as f64 >= min_score)
+                            .filter(|hit| {
+                                doc_filter
+                                    .as_deref()
+                                    .map(|document_id| hit.document_id == document_id)
+                                    .unwrap_or(true)
+                            })
+                            .collect::<Vec<_>>();
+                        lists.push((query.clone(), hits));
+                    }
+                    Err(error) if mode == "semantic" => return Err(error),
+                    Err(error) => semantic_error = Some(error),
                 }
-                Err(error) if mode == "semantic" => return Err(error),
-                Err(error) => semantic_error = Some(error),
             }
-        }
-        lists
-    } else {
-        Vec::new()
-    };
+            lists
+        } else {
+            Vec::new()
+        };
 
     let results: Vec<serde_json::Value> = match mode.as_str() {
         "lexical" => cap_hits_per_document(
@@ -512,7 +525,14 @@ pub(super) fn mcp_local_search_blocks(
     // A search inside one document (docFilter) is about that document's blocks.
     if doc_filter.is_none() {
         crate::file_search::add_file_hits(
-            &graph_id, &graph_dir, arguments, &queries, &mode, limit, &mut output, "block",
+            &graph_id,
+            &graph_dir,
+            arguments,
+            &queries,
+            &mode,
+            limit,
+            &mut output,
+            "block",
         );
     }
     Ok(output)
@@ -557,7 +577,10 @@ mod tests {
             lexical_hit("doc-b", "block-lex-only", 9.0),
         ];
         let semantic = vec![
-            ("q".to_string(), semantic_hit("doc-c", "block-sem-only", 0.92)),
+            (
+                "q".to_string(),
+                semantic_hit("doc-c", "block-sem-only", 0.92),
+            ),
             ("q".to_string(), semantic_hit("doc-a", "block-shared", 0.66)),
         ];
 
@@ -631,7 +654,13 @@ mod tests {
             10,
         );
         assert_eq!(capped.len(), 4);
-        assert!(capped.iter().filter(|hit| hit.document_id == "doc-a").count() == 3);
+        assert!(
+            capped
+                .iter()
+                .filter(|hit| hit.document_id == "doc-a")
+                .count()
+                == 3
+        );
 
         let uncapped = cap_hits_per_document(hits, |hit| hit.document_id.as_str(), None, 10);
         assert_eq!(uncapped.len(), 5);
@@ -659,9 +688,11 @@ mod tests {
                 .is_none(),
             "fuzzy tier is auto-mode only"
         );
-        assert!(document_match_score("Some Title", "doc-3", "unrelated", "auto")
-            .unwrap()
-            .is_none());
+        assert!(
+            document_match_score("Some Title", "doc-3", "unrelated", "auto")
+                .unwrap()
+                .is_none()
+        );
         assert!(document_match_score("Some Title", "doc-3", "query", "bogus-mode").is_err());
     }
 

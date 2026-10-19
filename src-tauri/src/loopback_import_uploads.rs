@@ -198,9 +198,7 @@ pub(super) async fn read_cell_archive_restore_upload(
             "expected_rdf_triple_count" => {
                 expected_rdf_triple_count = Some(text.parse().map_err(|_| invalid_integer())?)
             }
-            "format_version" => {
-                format_version = Some(text.parse().map_err(|_| invalid_integer())?)
-            }
+            "format_version" => format_version = Some(text.parse().map_err(|_| invalid_integer())?),
             "content_parity" => {
                 // Parsed as JSON here and validated against the known concession kinds
                 // where it is consumed, so one list of kinds stays authoritative.
@@ -262,7 +260,10 @@ pub(super) async fn read_cell_archive_restore_upload(
         }
         let format_version = format_version.unwrap_or(1);
         if !matches!(format_version, 1 | 2) {
-            return Err(invalid_restore_field("format_version", "only versions 1 and 2 are supported"));
+            return Err(invalid_restore_field(
+                "format_version",
+                "only versions 1 and 2 are supported",
+            ));
         }
         Ok(CellArchiveRestoreUpload {
             filename: filename.unwrap_or_else(|| "graph.tar.gz".to_string()),

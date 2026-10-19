@@ -67,10 +67,11 @@ pub(super) fn mcp_tools_list_result_with_optional(
 ) -> McpToolsListResult {
     let mut envelope = mcp_tools_list_result();
     envelope.tools.retain(|tool| {
-        (custom_css || tool.get("optionalCapability").is_none()) &&
-        tool.get("name")
-            .and_then(serde_json::Value::as_str)
-            .is_some_and(|name| boundary.mcp_tool_visible_for_role(name, role))
+        (custom_css || tool.get("optionalCapability").is_none())
+            && tool
+                .get("name")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|name| boundary.mcp_tool_visible_for_role(name, role))
     });
     envelope
 }
@@ -128,7 +129,11 @@ fn strip_graph_argument(schema: &mut serde_json::Value) {
         .get_mut("required")
         .and_then(serde_json::Value::as_array_mut)
     {
-        required.retain(|name| !name.as_str().is_some_and(|name| GRAPH_ARGUMENTS.contains(&name)));
+        required.retain(|name| {
+            !name
+                .as_str()
+                .is_some_and(|name| GRAPH_ARGUMENTS.contains(&name))
+        });
     }
     // A branch left asking for nothing: an `anyOf`/`oneOf` holding one is
     // met by anything (drop it whole); in an `allOf` it is just dropped.
@@ -140,7 +145,10 @@ fn strip_graph_argument(schema: &mut serde_json::Value) {
         })
     };
     for key in ["anyOf", "oneOf", "allOf"] {
-        let Some(branches) = object.get_mut(key).and_then(serde_json::Value::as_array_mut) else {
+        let Some(branches) = object
+            .get_mut(key)
+            .and_then(serde_json::Value::as_array_mut)
+        else {
             continue;
         };
         for branch in branches.iter_mut() {
@@ -332,7 +340,9 @@ mod tests {
         assert_eq!(tools.len(), 114);
         assert!(tools.iter().any(|tool| tool["name"] == "read_document"));
         assert!(tools.iter().any(|tool| tool["name"] == "write_document"));
-        assert!(tools.iter().any(|tool| tool["name"] == "create_document_once"));
+        assert!(tools
+            .iter()
+            .any(|tool| tool["name"] == "create_document_once"));
     }
 
     #[test]
@@ -366,7 +376,10 @@ mod tests {
             assert!(names.contains(added), "missing default tool {added}");
         }
         for optional in ["read_custom_css", "write_custom_css"] {
-            assert!(!names.contains(optional), "optional tool leaked into default discovery: {optional}");
+            assert!(
+                !names.contains(optional),
+                "optional tool leaked into default discovery: {optional}"
+            );
         }
         for denied in [
             "create_graph",
@@ -398,9 +411,10 @@ mod tests {
         let mut viewer = crate::loopback_token_grants::grant_profile_scopes("read-only");
         viewer.push("mcp.tools.call".into());
         let names_of = |scopes: &[String]| {
-            let listed =
-                serde_json::to_value(mcp_tools_list_result_for_bound_graph(&boundary, scopes, false))
-                    .unwrap();
+            let listed = serde_json::to_value(mcp_tools_list_result_for_bound_graph(
+                &boundary, scopes, false,
+            ))
+            .unwrap();
             for tool in listed["tools"].as_array().unwrap() {
                 let schema = tool["inputSchema"].to_string();
                 assert!(
@@ -418,15 +432,35 @@ mod tests {
         };
         let writer = names_of(&member);
         let reader = names_of(&viewer);
-        for tool in ["read_document", "search_blocks", "datasheet_facts", "read_artifact"] {
+        for tool in [
+            "read_document",
+            "search_blocks",
+            "datasheet_facts",
+            "read_artifact",
+        ] {
             assert!(writer.contains(tool) && reader.contains(tool), "{tool}");
         }
-        for tool in ["write_document", "insert_blocks", "edit_comment", "create_wires", "create_artifact_text"] {
+        for tool in [
+            "write_document",
+            "insert_blocks",
+            "edit_comment",
+            "create_wires",
+            "create_artifact_text",
+        ] {
             assert!(writer.contains(tool), "a member writes with {tool}");
             assert!(!reader.contains(tool), "a viewer is not offered {tool}");
         }
-        for tool in ["list_graphs", "create_graph", "upload_artifact", "sparql_update", "rdf_load"] {
-            assert!(!writer.contains(tool), "{tool} is not for a graph-bound member");
+        for tool in [
+            "list_graphs",
+            "create_graph",
+            "upload_artifact",
+            "sparql_update",
+            "rdf_load",
+        ] {
+            assert!(
+                !writer.contains(tool),
+                "{tool} is not for a graph-bound member"
+            );
         }
         let write_document = serde_json::to_value(mcp_tools_list_result_for_bound_graph(
             &boundary, &member, false,
@@ -442,7 +476,9 @@ mod tests {
         // document and content requirements are the handler's, and said in
         // the description.
         assert!(write_document["inputSchema"].get("allOf").is_none());
-        assert!(write_document["inputSchema"].to_string().contains("documentId"));
+        assert!(write_document["inputSchema"]
+            .to_string()
+            .contains("documentId"));
         assert!(write_document["description"]
             .as_str()
             .unwrap()
@@ -465,7 +501,9 @@ mod tests {
         fn walk(tool: &str, path: &str, schema: &serde_json::Value, problems: &mut Vec<String>) {
             let Some(object) = schema.as_object() else {
                 if !schema.is_boolean() {
-                    problems.push(format!("{tool}{path}: a schema must be an object or a boolean"));
+                    problems.push(format!(
+                        "{tool}{path}: a schema must be an object or a boolean"
+                    ));
                 }
                 return;
             };
@@ -474,7 +512,9 @@ mod tests {
             }
             let types: Vec<&str> = match object.get("type") {
                 Some(serde_json::Value::String(t)) => vec![t.as_str()],
-                Some(serde_json::Value::Array(ts)) => ts.iter().filter_map(|t| t.as_str()).collect(),
+                Some(serde_json::Value::Array(ts)) => {
+                    ts.iter().filter_map(|t| t.as_str()).collect()
+                }
                 _ => Vec::new(),
             };
             if types.contains(&"array") {
@@ -488,7 +528,12 @@ mod tests {
                 match properties.as_object() {
                     Some(properties) => {
                         for (name, property) in properties {
-                            walk(tool, &format!("{path}/properties/{name}"), property, problems);
+                            walk(
+                                tool,
+                                &format!("{path}/properties/{name}"),
+                                property,
+                                problems,
+                            );
                         }
                     }
                     None => problems.push(format!("{tool}{path}: properties must be an object")),
@@ -526,7 +571,9 @@ mod tests {
                 if top.get("type").and_then(serde_json::Value::as_str) != Some("object") {
                     problems.push(format!("{name}: top-level type must be \"object\""));
                 }
-                for key in ["allOf", "anyOf", "oneOf", "enum", "const", "not", "if", "then", "else"] {
+                for key in [
+                    "allOf", "anyOf", "oneOf", "enum", "const", "not", "if", "then", "else",
+                ] {
                     if top.contains_key(key) {
                         problems.push(format!("{name}: top-level {key}"));
                     }
@@ -553,8 +600,18 @@ mod tests {
             crate::cell_graph_boundary::CellRole::Owner,
             crate::cell_graph_boundary::CellRole::Viewer,
         ] {
-            assert!(audit("desktop", &mcp_tools_list_result_with_optional(&desktop, role, true)) > 0);
-            assert!(audit("cell", &mcp_tools_list_result_with_optional(&cell, role, true)) > 0);
+            assert!(
+                audit(
+                    "desktop",
+                    &mcp_tools_list_result_with_optional(&desktop, role, true)
+                ) > 0
+            );
+            assert!(
+                audit(
+                    "cell",
+                    &mcp_tools_list_result_with_optional(&cell, role, true)
+                ) > 0
+            );
         }
         for grant in ["member", "read-only", "authoring", "session-all"] {
             let mut scopes = crate::loopback_token_grants::grant_profile_scopes(grant);

@@ -224,10 +224,7 @@ mod tests {
         assert!(fallback.starts_with("filler"), "{fallback}");
 
         // Short content is returned whole regardless of query.
-        assert_eq!(
-            snippet_for_query("short text", "text", 60),
-            "short text"
-        );
+        assert_eq!(snippet_for_query("short text", "text", 60), "short text");
     }
 
     #[test]

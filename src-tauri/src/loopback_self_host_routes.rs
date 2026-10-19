@@ -79,7 +79,11 @@ pub(crate) async fn self_host_fallback(
     // Public mode: the MCP server card where SEP-2127 puts it (`/mcp` is the
     // only route under `/mcp`, so the path reaches this fallback).
     if uri.path() == crate::public_mode::SERVER_CARD_PATH {
-        return match state.self_host.public().and_then(|public| public.server_card()) {
+        return match state
+            .self_host
+            .public()
+            .and_then(|public| public.server_card())
+        {
             Some(card) => {
                 let mut response = Json(card.clone()).into_response();
                 response
@@ -91,7 +95,11 @@ pub(crate) async fn self_host_fallback(
         };
     }
     // Public mode with a site: the site at `/`, the app under `/app/`.
-    if let Some(site_dir) = state.self_host.public().and_then(|public| public.site_dir()) {
+    if let Some(site_dir) = state
+        .self_host
+        .public()
+        .and_then(|public| public.site_dir())
+    {
         return serve_public_site(site_dir, state.self_host.ui_dir(), uri.path(), &headers).await;
     }
     match state.self_host.ui_dir() {
@@ -188,9 +196,10 @@ async fn serve_public_site(
     let app = crate::public_mode::APP_PATH.trim_end_matches('/');
     if path == app {
         let mut response = StatusCode::PERMANENT_REDIRECT.into_response();
-        response
-            .headers_mut()
-            .insert(header::LOCATION, HeaderValue::from_static(crate::public_mode::APP_PATH));
+        response.headers_mut().insert(
+            header::LOCATION,
+            HeaderValue::from_static(crate::public_mode::APP_PATH),
+        );
         return response;
     }
     if let Some(rest) = path.strip_prefix(app).filter(|rest| rest.starts_with('/')) {
@@ -208,7 +217,11 @@ async fn serve_public_site(
     let (file, relative) = if segments.is_empty() || file.is_dir() {
         (
             file.join("index.html"),
-            if relative.is_empty() { "index.html".to_string() } else { format!("{relative}/index.html") },
+            if relative.is_empty() {
+                "index.html".to_string()
+            } else {
+                format!("{relative}/index.html")
+            },
         )
     } else {
         (file, relative)
@@ -280,7 +293,9 @@ fn prefers_markdown(headers: &HeaderMap) -> bool {
                     .unwrap_or(1.0);
                 Some(q)
             })
-            .fold(None, |best: Option<f32>, q| Some(best.map_or(q, |best| best.max(q))))
+            .fold(None, |best: Option<f32>, q| {
+                Some(best.map_or(q, |best| best.max(q)))
+            })
     };
     let html = quality(&["text/html", "application/xhtml+xml"]).unwrap_or(0.0);
     let markdown = quality(&["text/markdown", "text/x-markdown"]).unwrap_or(0.0);

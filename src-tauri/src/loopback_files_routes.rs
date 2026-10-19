@@ -554,8 +554,10 @@ async fn trash_target_is_document(
         {
             return Ok(false);
         }
-        return Ok(crate::document_trash_service::document_is_live(&state.app, graph_id, id).await?
-            || crate::document_trash_service::document_in_trash(&state.app, graph_id, id));
+        return Ok(
+            crate::document_trash_service::document_is_live(&state.app, graph_id, id).await?
+                || crate::document_trash_service::document_in_trash(&state.app, graph_id, id),
+        );
     }
     Ok(!files_service::artifact_in_trash(&state.app, graph_id, id)
         && crate::document_trash_service::document_in_trash(&state.app, graph_id, id))
@@ -577,8 +579,18 @@ pub(super) async fn loopback_files_trash(
     ) {
         return response;
     }
-    let result = match trash_target_is_document(&state, &graph_id, &artifact_id, kind.as_deref(), true).await {
-        Ok(true) => crate::document_trash_service::trash_document(&state.app, &graph_id, &artifact_id).await,
+    let result = match trash_target_is_document(
+        &state,
+        &graph_id,
+        &artifact_id,
+        kind.as_deref(),
+        true,
+    )
+    .await
+    {
+        Ok(true) => {
+            crate::document_trash_service::trash_document(&state.app, &graph_id, &artifact_id).await
+        }
         Ok(false) => files_service::trash_artifact(&state.app, &graph_id, &artifact_id).await,
         Err(error) => Err(error),
     };
@@ -618,8 +630,19 @@ pub(super) async fn loopback_files_restore(
     ) {
         return response;
     }
-    let result = match trash_target_is_document(&state, &graph_id, &artifact_id, params.get("kind").map(String::as_str), false).await {
-        Ok(true) => crate::document_trash_service::restore_document(&state.app, &graph_id, &artifact_id).await,
+    let result = match trash_target_is_document(
+        &state,
+        &graph_id,
+        &artifact_id,
+        params.get("kind").map(String::as_str),
+        false,
+    )
+    .await
+    {
+        Ok(true) => {
+            crate::document_trash_service::restore_document(&state.app, &graph_id, &artifact_id)
+                .await
+        }
         Ok(false) => files_service::restore_artifact(&state.app, &graph_id, &artifact_id).await,
         Err(error) => Err(error),
     };
@@ -645,8 +668,18 @@ pub(super) async fn loopback_files_purge(
     ) {
         return response;
     }
-    let result = match trash_target_is_document(&state, &graph_id, &artifact_id, params.get("kind").map(String::as_str), false).await {
-        Ok(true) => crate::document_trash_service::purge_document(&state.app, &graph_id, &artifact_id).await,
+    let result = match trash_target_is_document(
+        &state,
+        &graph_id,
+        &artifact_id,
+        params.get("kind").map(String::as_str),
+        false,
+    )
+    .await
+    {
+        Ok(true) => {
+            crate::document_trash_service::purge_document(&state.app, &graph_id, &artifact_id).await
+        }
         Ok(false) => files_service::purge_artifact(&state.app, &graph_id, &artifact_id).await,
         Err(error) => Err(error),
     };

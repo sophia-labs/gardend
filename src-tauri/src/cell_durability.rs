@@ -2905,8 +2905,7 @@ const HYDRATE_COPY_PARALLELISM: usize = 16;
 /// `target`; hydrate already treats any `Err` as fatal and never publishes a
 /// clean-hydration proof for it.)
 fn copy_tree(source: &Path, target: &Path) -> Result<u64, String> {
-    fs::create_dir_all(target)
-        .map_err(|error| format!("create {}: {error}", display(target)))?;
+    fs::create_dir_all(target).map_err(|error| format!("create {}: {error}", display(target)))?;
     let mut files: Vec<(PathBuf, PathBuf)> = Vec::new();
     collect_copy_tree_files(source, target, &mut files)?;
     copy_files_bounded_parallel(&files)
@@ -3512,9 +3511,14 @@ mod tests {
         let hydration = hydrate_detailed(&restored, &durable).expect("actual snapshot hydration");
         assert_eq!(hydration.mode, HydrateMode::Restored);
         let restored_graph = restored.join("graphs/starter");
-        let restored_path = crate::crdt_engine::create_once::admission_path(&restored_graph, "page").unwrap();
+        let restored_path =
+            crate::crdt_engine::create_once::admission_path(&restored_graph, "page").unwrap();
         assert_eq!(fs::read(restored_path).unwrap(), expected);
-        assert!(crate::crdt_engine::create_once::retain_admission_for_test(&restored_graph, "page").is_err());
+        assert!(crate::crdt_engine::create_once::retain_admission_for_test(
+            &restored_graph,
+            "page"
+        )
+        .is_err());
         let _ = fs::remove_dir_all(root);
     }
 
@@ -3670,21 +3674,39 @@ mod tests {
             },
             FlushAttemptOutcome::Published,
         ));
-        assert_eq!(durably_resolved_epoch_after_attempt(9, &published, false), Some(9));
+        assert_eq!(
+            durably_resolved_epoch_after_attempt(9, &published, false),
+            Some(9)
+        );
         // S2: a Published attempt with observe-mode lease doubt pays nothing.
-        assert_eq!(durably_resolved_epoch_after_attempt(9, &published, true), None);
+        assert_eq!(
+            durably_resolved_epoch_after_attempt(9, &published, true),
+            None
+        );
 
         let clean = Ok((FlushOutcome::default(), FlushAttemptOutcome::ConfirmedClean));
-        assert_eq!(durably_resolved_epoch_after_attempt(9, &clean, false), Some(9));
+        assert_eq!(
+            durably_resolved_epoch_after_attempt(9, &clean, false),
+            Some(9)
+        );
 
         let deferred = Ok((FlushOutcome::default(), FlushAttemptOutcome::Deferred));
-        assert_eq!(durably_resolved_epoch_after_attempt(9, &deferred, false), None);
+        assert_eq!(
+            durably_resolved_epoch_after_attempt(9, &deferred, false),
+            None
+        );
 
         let fenced = Ok((FlushOutcome::default(), FlushAttemptOutcome::Fenced));
-        assert_eq!(durably_resolved_epoch_after_attempt(9, &fenced, false), None);
+        assert_eq!(
+            durably_resolved_epoch_after_attempt(9, &fenced, false),
+            None
+        );
 
         let errored: Result<(FlushOutcome, FlushAttemptOutcome), String> = Err("boom".to_string());
-        assert_eq!(durably_resolved_epoch_after_attempt(9, &errored, false), None);
+        assert_eq!(
+            durably_resolved_epoch_after_attempt(9, &errored, false),
+            None
+        );
     }
 
     /// End-to-end positive: a real published flush advances the awaitDurable

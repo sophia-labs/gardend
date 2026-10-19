@@ -23,7 +23,10 @@ static GRAPH_STORE_SEEDED_AT: OnceLock<Mutex<BTreeMap<PathBuf, String>>> = OnceL
 static SOURCE_REPLAY_STORES: OnceLock<Mutex<BTreeSet<PathBuf>>> = OnceLock::new();
 
 fn seed_projection_version() -> String {
-    format!("document-faces-v1+{}", crate::pdf_source::PROJECTION_VERSION)
+    format!(
+        "document-faces-v1+{}",
+        crate::pdf_source::PROJECTION_VERSION
+    )
 }
 
 /// A Send ownership token, not a mutex guard: async source replay may hold it
@@ -38,13 +41,20 @@ pub(crate) struct SeedReplayGuard {
 pub(crate) fn begin_seed_replay(graph_dir: &Path) -> Result<SeedReplayGuard, String> {
     let store_path = graph_dir.join("store.oxigraph");
     let walk_lock = seed_walk_lock(&store_path)?;
-    let _walk_guard = walk_lock.lock().map_err(|_| "Oxigraph seed walk lock poisoned".to_string())?;
-    let mut active = SOURCE_REPLAY_STORES.get_or_init(|| Mutex::new(BTreeSet::new()))
-        .lock().map_err(|_| "Oxigraph source replay map poisoned".to_string())?;
+    let _walk_guard = walk_lock
+        .lock()
+        .map_err(|_| "Oxigraph seed walk lock poisoned".to_string())?;
+    let mut active = SOURCE_REPLAY_STORES
+        .get_or_init(|| Mutex::new(BTreeSet::new()))
+        .lock()
+        .map_err(|_| "Oxigraph source replay map poisoned".to_string())?;
     if !active.insert(store_path.clone()) {
         return Err("Oxigraph source projection replay already in progress".into());
     }
-    Ok(SeedReplayGuard { graph_dir: graph_dir.to_path_buf(), store_path })
+    Ok(SeedReplayGuard {
+        graph_dir: graph_dir.to_path_buf(),
+        store_path,
+    })
 }
 
 impl SeedReplayGuard {
@@ -52,9 +62,12 @@ impl SeedReplayGuard {
         with_invalidated_seed_cache(&self.graph_dir, || {
             let graph = read_json::<GraphRecord>(&self.graph_dir.join("graph.json"))?;
             let store = open_graph_store(&self.graph_dir)?;
-            let marker_graph = oxigraph::model::NamedNode::new(seed_marker_graph_iri(&graph.graph_id))
+            let marker_graph =
+                oxigraph::model::NamedNode::new(seed_marker_graph_iri(&graph.graph_id))
+                    .map_err(|error| error.to_string())?;
+            store
+                .clear_graph(marker_graph.as_ref())
                 .map_err(|error| error.to_string())?;
-            store.clear_graph(marker_graph.as_ref()).map_err(|error| error.to_string())?;
             crate::cell_durability::mark_rdf_store_written(&store);
             Ok(())
         })
@@ -69,15 +82,23 @@ impl Drop for SeedReplayGuard {
     fn drop(&mut self) {
         // No fallible I/O in Drop. The working store marker was invalidated
         // before projection effects, so an aborted replay stays cold on restart.
-        if let Ok(mut active) = SOURCE_REPLAY_STORES.get_or_init(|| Mutex::new(BTreeSet::new())).lock() {
+        if let Ok(mut active) = SOURCE_REPLAY_STORES
+            .get_or_init(|| Mutex::new(BTreeSet::new()))
+            .lock()
+        {
             active.remove(&self.store_path);
         }
     }
 }
 
-fn require_seed_replay_owner(store_path: &Path, owner: Option<&SeedReplayGuard>) -> Result<(), String> {
-    let active = SOURCE_REPLAY_STORES.get_or_init(|| Mutex::new(BTreeSet::new()))
-        .lock().map_err(|_| "Oxigraph source replay map poisoned".to_string())?;
+fn require_seed_replay_owner(
+    store_path: &Path,
+    owner: Option<&SeedReplayGuard>,
+) -> Result<(), String> {
+    let active = SOURCE_REPLAY_STORES
+        .get_or_init(|| Mutex::new(BTreeSet::new()))
+        .lock()
+        .map_err(|_| "Oxigraph source replay map poisoned".to_string())?;
     if active.contains(store_path) && owner.is_none_or(|owner| owner.store_path != store_path) {
         return Err("Oxigraph source projection replay in progress; retry after completion".into());
     }
@@ -543,12 +564,24 @@ mod tests {
         let replay = begin_seed_replay(&dir).unwrap();
         fn require_send<T: Send>(_: &T) {}
         require_send(&replay);
-        with_invalidated_seed_cache(&dir, || write_durable_seed_marker(&store, GID, "checkpoint-old")).unwrap();
+        with_invalidated_seed_cache(&dir, || {
+            write_durable_seed_marker(&store, GID, "checkpoint-old")
+        })
+        .unwrap();
         // The transaction gate is gone; the token survives the async interval.
         let worker_dir = dir.clone();
-        let result = std::thread::spawn(move || ensure_graph_store_seeded(&worker_dir)).join().unwrap();
-        println!("SEED_REPLAY_GAP={{\"seedAccepted\":{},\"cacheCurrent\":{}}}", result.is_ok(), process_seed_marker_matches(&path, &key).unwrap());
-        assert!(result.is_err(), "an unrelated seed caller must not certify an in-progress replay");
+        let result = std::thread::spawn(move || ensure_graph_store_seeded(&worker_dir))
+            .join()
+            .unwrap();
+        println!(
+            "SEED_REPLAY_GAP={{\"seedAccepted\":{},\"cacheCurrent\":{}}}",
+            result.is_ok(),
+            process_seed_marker_matches(&path, &key).unwrap()
+        );
+        assert!(
+            result.is_err(),
+            "an unrelated seed caller must not certify an in-progress replay"
+        );
         assert!(!process_seed_marker_matches(&path, &key).unwrap());
         replay.finish().unwrap();
         assert!(process_seed_marker_matches(&path, &key).unwrap());
@@ -569,7 +602,9 @@ mod tests {
         let replay = begin_seed_replay(&dir).unwrap();
         assert!(begin_seed_replay(&dir).is_err());
         replay.invalidate().unwrap();
-        assert!(ensure_graph_store_seeded(&dir).unwrap_err().contains("replay in progress"));
+        assert!(ensure_graph_store_seeded(&dir)
+            .unwrap_err()
+            .contains("replay in progress"));
         drop(replay);
         assert!(!process_seed_marker_matches(&path, &key).unwrap());
         assert_eq!(read_durable_seed_marker(&store, GID).unwrap(), None);
@@ -589,7 +624,8 @@ mod tests {
         let manifest = documents_dir(&dir).join("kept/document.json");
         let mut value: serde_json::Value = read_json(&manifest).unwrap();
         value["body"] = serde_json::json!("Retained legacy document text.");
-        value["tiptapXml"] = serde_json::json!("<paragraph>Retained legacy document text.</paragraph>");
+        value["tiptapXml"] =
+            serde_json::json!("<paragraph>Retained legacy document text.</paragraph>");
         value["updatedAt"] = serde_json::json!("500");
         write_json(&manifest, &value).unwrap();
         let mut graph_value: serde_json::Value = read_json(&dir.join("graph.json")).unwrap();
@@ -601,43 +637,93 @@ mod tests {
         let document = read_document_record_cold(&dir, &manifest).unwrap();
         crate::rdf_record_materializer::materialize_document_record(&store, &document).unwrap();
         let graph = read_json::<GraphRecord>(&dir.join("graph.json")).unwrap();
-        let revision = graph.content_revision.clone().unwrap_or_else(|| graph.created_at.clone());
-        let identity = graph.incarnation_id.as_ref().map(|id| format!("{id}:{revision}")).unwrap_or(revision);
+        let revision = graph
+            .content_revision
+            .clone()
+            .unwrap_or_else(|| graph.created_at.clone());
+        let identity = graph
+            .incarnation_id
+            .as_ref()
+            .map(|id| format!("{id}:{revision}"))
+            .unwrap_or(revision);
         let legacy_key = format!("{}|{identity}", crate::pdf_source::PROJECTION_VERSION);
         write_durable_seed_marker(&store, GID, &legacy_key).unwrap();
         forget_process_seed_marker_for_test(&path);
-        let authority = (fs::read(&manifest).unwrap(), fs::read(dir.join("graph.json")).unwrap());
+        let authority = (
+            fs::read(&manifest).unwrap(),
+            fs::read(dir.join("graph.json")).unwrap(),
+        );
         let walks_before = reseed_count(&path);
         let documents_before = seed_document_materialization_count(&path);
         ensure_graph_store_seeded(&dir).unwrap();
-        let actual = crate::rdf_query_service::dump_rdf_from_store(&store, "nquads", None, None).unwrap().data;
+        let actual = crate::rdf_query_service::dump_rdf_from_store(&store, "nquads", None, None)
+            .unwrap()
+            .data;
         let simple = |value: &str| oxigraph::model::Literal::new_simple_literal(value).to_string();
-        let integer = |value: u64| format!("\"{value}\"^^<http://www.w3.org/2001/XMLSchema#integer>");
+        let integer =
+            |value: u64| format!("\"{value}\"^^<http://www.w3.org/2001/XMLSchema#integer>");
         let expected = BTreeMap::from([
-            ("body", simple(&document.body)), ("documentId", simple(&document.document_id)),
-            ("graphId", simple(&document.graph_id)), ("localPath", simple(&document.local_path)),
-            ("origin", simple(&document.origin)), ("providerId", simple(&document.provider_id)),
-            ("rdfTripleCount", integer(crate::rdf_document_tree::document_tree_triples(&document).len() as u64)),
+            ("body", simple(&document.body)),
+            ("documentId", simple(&document.document_id)),
+            ("graphId", simple(&document.graph_id)),
+            ("localPath", simple(&document.local_path)),
+            ("origin", simple(&document.origin)),
+            ("providerId", simple(&document.provider_id)),
+            (
+                "rdfTripleCount",
+                integer(crate::rdf_document_tree::document_tree_triples(&document).len() as u64),
+            ),
             ("schemaVersion", integer(document.schema_version as u64)),
-            ("tiptapXml", simple(&document.tiptap_xml)), ("ydocStatePath", simple(&document.ydoc_state_path)),
+            ("tiptapXml", simple(&document.tiptap_xml)),
+            ("ydocStatePath", simple(&document.ydoc_state_path)),
         ]);
         let prefix = format!("<{}> <{MNEMO_NS}", document.rdf_subject);
-        let suffix = format!(" <{}> .", crate::rdf_authority::document_projection_graph_iri(GID, "kept"));
-        let actual_rows = actual.lines().filter_map(|line| line.strip_prefix(&prefix))
+        let suffix = format!(
+            " <{}> .",
+            crate::rdf_authority::document_projection_graph_iri(GID, "kept")
+        );
+        let actual_rows = actual
+            .lines()
+            .filter_map(|line| line.strip_prefix(&prefix))
             .filter_map(|line| line.split_once("> "))
             .filter(|(predicate, _)| expected.contains_key(predicate))
-            .map(|(predicate, object)| (predicate, object.strip_suffix(&suffix).unwrap().to_string()))
+            .map(|(predicate, object)| {
+                (predicate, object.strip_suffix(&suffix).unwrap().to_string())
+            })
             .collect::<Vec<_>>();
-        assert_eq!(actual_rows.len(), 10, "exactly one value per advertised predicate");
-        assert_eq!(actual_rows.into_iter().collect::<BTreeMap<_, _>>(), expected);
+        assert_eq!(
+            actual_rows.len(),
+            10,
+            "exactly one value per advertised predicate"
+        );
+        assert_eq!(
+            actual_rows.into_iter().collect::<BTreeMap<_, _>>(),
+            expected
+        );
         assert_eq!(reseed_count(&path) - walks_before, 1);
-        assert_eq!(seed_document_materialization_count(&path) - documents_before, 1);
-        assert_eq!((fs::read(&manifest).unwrap(), fs::read(dir.join("graph.json")).unwrap()), authority);
+        assert_eq!(
+            seed_document_materialization_count(&path) - documents_before,
+            1
+        );
+        assert_eq!(
+            (
+                fs::read(&manifest).unwrap(),
+                fs::read(dir.join("graph.json")).unwrap()
+            ),
+            authority
+        );
         ensure_graph_store_seeded(&dir).unwrap();
         forget_process_seed_marker_for_test(&path);
         ensure_graph_store_seeded(&dir).unwrap();
-        assert_eq!(reseed_count(&path) - walks_before, 1, "no subsequent warm/cold walk");
-        assert_eq!(seed_document_materialization_count(&path) - documents_before, 1);
+        assert_eq!(
+            reseed_count(&path) - walks_before,
+            1,
+            "no subsequent warm/cold walk"
+        );
+        assert_eq!(
+            seed_document_materialization_count(&path) - documents_before,
+            1
+        );
         println!("SEED_MIGRATION={{\"firstColdWalks\":1,\"documents\":1,\"laterWarmColdWalks\":0,\"authorityUnchanged\":true}}");
         println!("SEED_MIGRATION_RETAINED_PROFILE={}", dir.display());
     }
@@ -653,7 +739,9 @@ mod tests {
         let graph = read_json::<GraphRecord>(&dir.join("graph.json")).unwrap();
         let key = seed_key_for(&graph);
         let store = open_graph_store(&dir).unwrap();
-        let before = crate::rdf_query_service::dump_rdf_from_store(&store, "nquads", None, None).unwrap().data;
+        let before = crate::rdf_query_service::dump_rdf_from_store(&store, "nquads", None, None)
+            .unwrap()
+            .data;
         let count = reseed_count(&path);
         assert!(process_seed_marker_matches(&path, &key).unwrap());
         let result = with_invalidated_seed_cache(&dir, || {
@@ -662,12 +750,24 @@ mod tests {
             transaction.clear().map_err(|e| e.to_string())?;
             Err::<(), String>("injected transaction abort before commit".into())
         });
-        assert_eq!(result.unwrap_err(), "injected transaction abort before commit");
+        assert_eq!(
+            result.unwrap_err(),
+            "injected transaction abort before commit"
+        );
         assert!(!process_seed_marker_matches(&path, &key).unwrap());
-        assert_eq!(crate::rdf_query_service::dump_rdf_from_store(&store, "nquads", None, None).unwrap().data, before);
+        assert_eq!(
+            crate::rdf_query_service::dump_rdf_from_store(&store, "nquads", None, None)
+                .unwrap()
+                .data,
+            before
+        );
         ensure_graph_store_seeded(&dir).unwrap();
         assert!(process_seed_marker_matches(&path, &key).unwrap());
-        assert_eq!(reseed_count(&path), count, "unchanged durable marker avoids a walk after abort");
+        assert_eq!(
+            reseed_count(&path),
+            count,
+            "unchanged durable marker avoids a walk after abort"
+        );
         println!("SEED_FAILURE_RETAINED_PROFILE={}", dir.display());
     }
 
@@ -691,30 +791,50 @@ mod tests {
                 let worker_path = path.clone();
                 scope.spawn(move || {
                     let lock = seed_walk_lock(&worker_path).unwrap();
-                    assert!(matches!(lock.try_lock(), Err(std::sync::TryLockError::WouldBlock)));
+                    assert!(matches!(
+                        lock.try_lock(),
+                        Err(std::sync::TryLockError::WouldBlock)
+                    ));
                     blocked_tx.send(()).unwrap();
                     let result = ensure_graph_store_seeded(&worker_dir);
                     done_tx.send(result).unwrap();
                 });
-                blocked_rx.recv_timeout(std::time::Duration::from_secs(2)).unwrap();
+                blocked_rx
+                    .recv_timeout(std::time::Duration::from_secs(2))
+                    .unwrap();
                 assert!(!process_seed_marker_matches(&path, &key)?);
                 write_durable_seed_marker(&store, GID, "restored-old-marker")?;
-                assert!(matches!(done_rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)));
+                assert!(matches!(
+                    done_rx.try_recv(),
+                    Err(std::sync::mpsc::TryRecvError::Empty)
+                ));
                 Ok(())
-            }).unwrap();
-            done_rx.recv_timeout(std::time::Duration::from_secs(2)).unwrap().unwrap();
+            })
+            .unwrap();
+            done_rx
+                .recv_timeout(std::time::Duration::from_secs(2))
+                .unwrap()
+                .unwrap();
         });
         assert!(process_seed_marker_matches(&path, &key).unwrap());
-        assert_eq!(read_durable_seed_marker(&store, GID).unwrap().as_deref(), Some(key.as_str()));
+        assert_eq!(
+            read_durable_seed_marker(&store, GID).unwrap().as_deref(),
+            Some(key.as_str())
+        );
         assert_eq!(reseed_count(&path), count + 1);
         ensure_graph_store_seeded(&dir).unwrap();
-        assert_eq!(reseed_count(&path), count + 1, "next warm read adds no walk");
+        assert_eq!(
+            reseed_count(&path),
+            count + 1,
+            "next warm read adds no walk"
+        );
         println!("SEED_FAILURE_RETAINED_PROFILE={}", dir.display());
     }
 
     #[test]
     fn seed_replacement_failed_reconcile_never_rearms_marker() {
-        let dir = std::env::temp_dir().join(format!("garden-seed-final-failure-{}", Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("garden-seed-final-failure-{}", Uuid::new_v4()));
         fs::create_dir_all(&dir).unwrap();
         write_graph_json(&dir);
         write_minimal_document(&dir, "kept");
@@ -723,11 +843,21 @@ mod tests {
         let graph = read_json::<GraphRecord>(&dir.join("graph.json")).unwrap();
         let key = seed_key_for(&graph);
         let store = open_graph_store(&dir).unwrap();
-        with_invalidated_seed_cache(&dir, || write_durable_seed_marker(&store, GID, "restored-old-marker")).unwrap();
-        fs::write(documents_dir(&dir).join("kept/document.json"), b"{broken-json").unwrap();
+        with_invalidated_seed_cache(&dir, || {
+            write_durable_seed_marker(&store, GID, "restored-old-marker")
+        })
+        .unwrap();
+        fs::write(
+            documents_dir(&dir).join("kept/document.json"),
+            b"{broken-json",
+        )
+        .unwrap();
         assert!(ensure_graph_store_seeded(&dir).is_err());
         assert!(!process_seed_marker_matches(&path, &key).unwrap());
-        assert_eq!(read_durable_seed_marker(&store, GID).unwrap().as_deref(), Some("restored-old-marker"));
+        assert_eq!(
+            read_durable_seed_marker(&store, GID).unwrap().as_deref(),
+            Some("restored-old-marker")
+        );
         write_minimal_document(&dir, "kept");
         ensure_graph_store_seeded(&dir).unwrap();
         assert!(process_seed_marker_matches(&path, &key).unwrap());

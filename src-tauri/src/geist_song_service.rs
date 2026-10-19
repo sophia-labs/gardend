@@ -112,10 +112,7 @@ mod music_read_tests {
     }
 
     fn logical_quads(store: &oxigraph::store::Store) -> std::collections::BTreeSet<String> {
-        store
-            .iter()
-            .map(|quad| quad.unwrap().to_string())
-            .collect()
+        store.iter().map(|quad| quad.unwrap().to_string()).collect()
     }
 
     fn assert_logical_quads_unchanged(
@@ -259,22 +256,42 @@ pub(super) fn mcp_local_sing(
 ) -> Result<serde_json::Value, String> {
     // Validate before reading or rotating authority: a misspelled field must
     // never become an empty verse that ejects an existing voice.
-    let object = arguments.as_object().ok_or("sing arguments must be an object")?;
+    let object = arguments
+        .as_object()
+        .ok_or("sing arguments must be an object")?;
     for key in object.keys() {
-        if !matches!(key.as_str(), "graph_id" | "graphId" | "verse" | "mode"
-            | "verse_index" | "verseIndex" | "observer_agent_id" | "observerAgentId") {
-            return Err(format!("sing does not accept '{key}'; supply Song text in 'verse'"));
+        if !matches!(
+            key.as_str(),
+            "graph_id"
+                | "graphId"
+                | "verse"
+                | "mode"
+                | "verse_index"
+                | "verseIndex"
+                | "observer_agent_id"
+                | "observerAgentId"
+        ) {
+            return Err(format!(
+                "sing does not accept '{key}'; supply Song text in 'verse'"
+            ));
         }
     }
-    let verse = object.get("verse").and_then(serde_json::Value::as_str)
+    let verse = object
+        .get("verse")
+        .and_then(serde_json::Value::as_str)
         .filter(|text| !text.trim().is_empty())
-        .ok_or("sing requires a non-empty string in 'verse'")?.to_string();
+        .ok_or("sing requires a non-empty string in 'verse'")?
+        .to_string();
     let mode = match object.get("mode") {
         None => "verse",
         Some(value) => value.as_str().ok_or("sing mode must be a string")?,
-    }.trim().to_ascii_lowercase();
+    }
+    .trim()
+    .to_ascii_lowercase();
     if !matches!(mode.as_str(), "verse" | "counterpoint" | "coda") {
-        return Err(format!("mode must be 'verse', 'counterpoint', or 'coda' (got '{mode}')"));
+        return Err(format!(
+            "mode must be 'verse', 'counterpoint', or 'coda' (got '{mode}')"
+        ));
     }
     let graph_id = mcp_graph_id_or_default(&app, arguments)?;
     let graph_dir = existing_graph_dir(&app, &graph_id)?;

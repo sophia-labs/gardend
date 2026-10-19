@@ -3,21 +3,29 @@ use super::*;
 use std::{collections::BTreeMap, io::Read, path::Path};
 
 fn specimen(name: &str) -> (Vec<u8>, Value) {
-    let inputs=std::env::var("GARDEN_PRESERVATION_EXAMINER_INPUTS").expect("explicit retained examiner input directory required; no default profile");
-    let bytes = std::fs::read(Path::new(&inputs).join(format!("{name}.tar.gz"))).expect("named retained examiner archive missing");
+    let inputs = std::env::var("GARDEN_PRESERVATION_EXAMINER_INPUTS")
+        .expect("explicit retained examiner input directory required; no default profile");
+    let bytes = std::fs::read(Path::new(&inputs).join(format!("{name}.tar.gz")))
+        .expect("named retained examiner archive missing");
     let plan = json!({"operationId":format!("independent-v2-{name}"),
         "sourceUserId":"fixture-cloud1-owner-20260908","sourceGraphId":GRAPH,
         "targetGeneration":1,"archiveSha256":format!("{:x}",Sha256::digest(&bytes)),
         "expectedDocumentCount":2,"expectedRdfTripleCount":11,"formatVersion":2});
-    (bytes,plan)
+    (bytes, plan)
 }
 
 fn wire(bytes: &[u8], plan: &Value) -> Vec<u8> {
     let mut fields = plan.clone();
-    fields["planDigest"] = json!(format!("{:x}",Sha256::digest(serde_json::to_vec(plan).unwrap())));
+    fields["planDigest"] = json!(format!(
+        "{:x}",
+        Sha256::digest(serde_json::to_vec(plan).unwrap())
+    ));
     let mut output = Vec::new();
-    for (key,value) in fields.as_object().unwrap() {
-        let value=value.as_str().map(str::to_owned).unwrap_or_else(||value.to_string());
+    for (key, value) in fields.as_object().unwrap() {
+        let value = value
+            .as_str()
+            .map(str::to_owned)
+            .unwrap_or_else(|| value.to_string());
         output.extend_from_slice(format!("--restore-boundary\r\nContent-Disposition: form-data; name=\"{key}\"\r\n\r\n{value}\r\n").as_bytes());
     }
     output.extend_from_slice(b"--restore-boundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"independent.tar.gz\"\r\nContent-Type: application/gzip\r\n\r\n");
@@ -26,116 +34,208 @@ fn wire(bytes: &[u8], plan: &Value) -> Vec<u8> {
     output
 }
 
-fn members(bytes: &[u8]) -> BTreeMap<String,Vec<u8>> {
-    let mut archive=tar::Archive::new(flate2::read::GzDecoder::new(bytes));
-    archive.entries().unwrap().map(|entry| {
-        let mut entry=entry.unwrap();let name=entry.path().unwrap().to_str().unwrap().to_owned();
-        let mut body=Vec::new();entry.read_to_end(&mut body).unwrap();(name,body)
-    }).collect()
+fn members(bytes: &[u8]) -> BTreeMap<String, Vec<u8>> {
+    let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(bytes));
+    archive
+        .entries()
+        .unwrap()
+        .map(|entry| {
+            let mut entry = entry.unwrap();
+            let name = entry.path().unwrap().to_str().unwrap().to_owned();
+            let mut body = Vec::new();
+            entry.read_to_end(&mut body).unwrap();
+            (name, body)
+        })
+        .collect()
 }
 
 fn content_tree(bytes: &[u8]) -> Value {
-    use yrs::{Any,Doc,ReadTxn,Text,Transact,Update,Xml};
-    use yrs::types::xml::{XmlFragment,XmlOut};
+    use yrs::types::xml::{XmlFragment, XmlOut};
     use yrs::updates::decoder::Decode;
-    fn any(value:&Any)->Value {
+    use yrs::{Any, Doc, ReadTxn, Text, Transact, Update, Xml};
+    fn any(value: &Any) -> Value {
         match value {
-            Any::Null=>json!(["null"]),Any::Undefined=>json!(["undefined"]),
-            Any::Bool(v)=>json!(["bool",v]),Any::Number(v)=>json!(["number",v]),
-            Any::BigInt(v)=>json!(["bigint",v.to_string()]),Any::String(v)=>json!(["string",v.as_ref()]),
-            Any::Buffer(v)=>json!(["bytes",v.as_ref()]),
-            Any::Array(v)=>json!(["array",v.iter().map(any).collect::<Vec<_>>()]),
-            Any::Map(v)=>json!(["map",v.iter().map(|(k,v)|(k.to_string(),any(v))).collect::<BTreeMap<_,_>>()]),
+            Any::Null => json!(["null"]),
+            Any::Undefined => json!(["undefined"]),
+            Any::Bool(v) => json!(["bool", v]),
+            Any::Number(v) => json!(["number", v]),
+            Any::BigInt(v) => json!(["bigint", v.to_string()]),
+            Any::String(v) => json!(["string", v.as_ref()]),
+            Any::Buffer(v) => json!(["bytes", v.as_ref()]),
+            Any::Array(v) => json!(["array", v.iter().map(any).collect::<Vec<_>>()]),
+            Any::Map(v) => json!([
+                "map",
+                v.iter()
+                    .map(|(k, v)| (k.to_string(), any(v)))
+                    .collect::<BTreeMap<_, _>>()
+            ]),
         }
     }
-    fn node<T:ReadTxn>(txn:&T,value:XmlOut)->Value {
+    fn node<T: ReadTxn>(txn: &T, value: XmlOut) -> Value {
         match value {
-            XmlOut::Element(e)=>json!({"element":e.tag().to_string(),
+            XmlOut::Element(e) => json!({"element":e.tag().to_string(),
                 "attributes":e.attributes(txn).map(|(k,v)| {
                     let yrs::Out::Any(v)=v else {panic!("unsupported attribute carrier")};
                     (k.to_string(),any(&v))
                 }).collect::<BTreeMap<_,_>>(),
                 "children":e.children(txn).map(|v|node(txn,v)).collect::<Vec<_>>()}),
-            XmlOut::Text(t)=>json!({"text":t.diff(txn,yrs::types::text::YChange::identity).into_iter().map(|diff| {
+            XmlOut::Text(t) => {
+                json!({"text":t.diff(txn,yrs::types::text::YChange::identity).into_iter().map(|diff| {
                 let yrs::Out::Any(Any::String(text))=diff.insert else {panic!("unsupported text embed")};
                 let marks=diff.attributes.as_deref().map(|attrs|attrs.iter().map(|(k,v)|(k.to_string(),any(v))).collect::<BTreeMap<_,_>>()).unwrap_or_default();
                 json!({"text":text.as_ref(),"marks":marks})
-            }).collect::<Vec<_>>()}),
-            XmlOut::Fragment(f)=>json!({"fragment":f.children(txn).map(|v|node(txn,v)).collect::<Vec<_>>()}),
+            }).collect::<Vec<_>>()})
+            }
+            XmlOut::Fragment(f) => {
+                json!({"fragment":f.children(txn).map(|v|node(txn,v)).collect::<Vec<_>>()})
+            }
         }
     }
-    let doc=Doc::new();
-    doc.transact_mut().apply_update(Update::decode_v1(bytes).unwrap()).unwrap();
-    let txn=doc.transact();
+    let doc = Doc::new();
+    doc.transact_mut()
+        .apply_update(Update::decode_v1(bytes).unwrap())
+        .unwrap();
+    let txn = doc.transact();
     match txn.get_xml_fragment("content") {
-        Some(root)=>json!(root.children(&txn).map(|v|node(&txn,v)).collect::<Vec<_>>()),
-        None=>json!([]),
+        Some(root) => json!(root
+            .children(&txn)
+            .map(|v| node(&txn, v))
+            .collect::<Vec<_>>()),
+        None => json!([]),
     }
 }
 
 // Consumer-side source reconstruction: do not call the converter's wire rule or
 // graph mapping helper. The independent runtime reader separately checks anatomy.
-fn source_only_wire_readback(graph_dir: &Path, user: &str, graph: &str, digest: &str,
-    source: &BTreeMap<String,Vec<u8>>, imported: &Value) -> Value {
+fn source_only_wire_readback(
+    graph_dir: &Path,
+    user: &str,
+    graph: &str,
+    digest: &str,
+    source: &BTreeMap<String, Vec<u8>>,
+    imported: &Value,
+) -> Value {
+    use oxigraph::{
+        io::{RdfFormat, RdfParser},
+        model::{GraphName, NamedNode, NamedOrBlankNode},
+    };
     use std::collections::BTreeSet;
-    use yrs::{Doc,Map,ReadTxn,Transact,Update};
     use yrs::updates::decoder::Decode;
-    use oxigraph::{io::{RdfFormat,RdfParser},model::{NamedNode,NamedOrBlankNode,GraphName}};
-    let doc=Doc::new();
-    doc.transact_mut().apply_update(Update::decode_v1(&source["crdt/workspace.yjs"]).unwrap()).unwrap();
-    let txn=doc.transact();
-    let saved:BTreeSet<String>=txn.get_map("wires").map(|m|m.iter(&txn).map(|(id,value)| {
-        assert!(matches!(value,yrs::Out::YMap(_)),"source wire carrier must be typed map");id.to_string()
-    }).collect()).unwrap_or_default();
-    let record=crate::document_service::read_workspace_record(graph_dir,graph).unwrap();
-    let native:BTreeSet<String>=crate::workspace_entity_projection::workspace_wires(record.snapshot.as_ref())
-        .iter().map(|r|r["id"].as_str().unwrap().to_string()).collect();
-    assert_eq!(native,saved,"exact saved/native wire identity set; no evidence materialization");
-    let main=format!("urn:mnemosyne:user:{user}:graph:{graph}");
-    let prefix=format!("{main}:wire:");
-    let evidence_prefix=format!("urn:mnemosyne:local:graph:{graph}:user:legacy-evidence:");
-    let context=serde_json::to_vec(&json!([user,graph,digest,main])).unwrap();
-    let evidence_graph=format!("{evidence_prefix}{:x}",Sha256::digest(&context));
-    let mut expected=BTreeSet::new();let mut source_quads=BTreeSet::new();let mut absent=BTreeSet::new();
+    use yrs::{Doc, Map, ReadTxn, Transact, Update};
+    let doc = Doc::new();
+    doc.transact_mut()
+        .apply_update(Update::decode_v1(&source["crdt/workspace.yjs"]).unwrap())
+        .unwrap();
+    let txn = doc.transact();
+    let saved: BTreeSet<String> = txn
+        .get_map("wires")
+        .map(|m| {
+            m.iter(&txn)
+                .map(|(id, value)| {
+                    assert!(
+                        matches!(value, yrs::Out::YMap(_)),
+                        "source wire carrier must be typed map"
+                    );
+                    id.to_string()
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let record = crate::document_service::read_workspace_record(graph_dir, graph).unwrap();
+    let native: BTreeSet<String> =
+        crate::workspace_entity_projection::workspace_wires(record.snapshot.as_ref())
+            .iter()
+            .map(|r| r["id"].as_str().unwrap().to_string())
+            .collect();
+    assert_eq!(
+        native, saved,
+        "exact saved/native wire identity set; no evidence materialization"
+    );
+    let main = format!("urn:mnemosyne:user:{user}:graph:{graph}");
+    let prefix = format!("{main}:wire:");
+    let evidence_prefix = format!("urn:mnemosyne:local:graph:{graph}:user:legacy-evidence:");
+    let context = serde_json::to_vec(&json!([user, graph, digest, main])).unwrap();
+    let evidence_graph = format!("{evidence_prefix}{:x}", Sha256::digest(&context));
+    let mut expected = BTreeSet::new();
+    let mut source_quads = BTreeSet::new();
+    let mut absent = BTreeSet::new();
     for q in RdfParser::from_format(RdfFormat::NQuads).for_slice(&source["rdf/dataset.nq"]) {
-        let mut q=q.unwrap();
-        let NamedOrBlankNode::NamedNode(subject)=&q.subject else {continue;};
-        let Some(id)=subject.as_str().strip_prefix(&prefix) else {continue;};
-        if saved.contains(id) {continue;}
+        let mut q = q.unwrap();
+        let NamedOrBlankNode::NamedNode(subject) = &q.subject else {
+            continue;
+        };
+        let Some(id) = subject.as_str().strip_prefix(&prefix) else {
+            continue;
+        };
+        if saved.contains(id) {
+            continue;
+        }
         assert!(matches!(&q.graph_name,GraphName::NamedNode(n) if n.as_str()==main));
         absent.insert(format!("urn:mnemosyne:local:graph:{graph}:wire:{id}"));
         source_quads.insert(format!("{q} .\n"));
-        q.graph_name=NamedNode::new(&evidence_graph).unwrap().into();expected.insert(q.to_string());
+        q.graph_name = NamedNode::new(&evidence_graph).unwrap().into();
+        expected.insert(q.to_string());
     }
-    let entries=imported["sourceDerivedAssertionDisposition"]["entries"].as_array().unwrap();
-    let mut declared=BTreeSet::new();
-    for row in entries.iter().filter(|r|r["evidenceGraph"].is_string()) {
-        assert_eq!(row["reason"],"source-only-wire-anatomy-v1");
-        assert_eq!(row["evidenceGraph"],evidence_graph);assert_eq!(row["sourceGraphIri"],main);
-        assert_eq!(row["sourceArchiveSha256"],digest);assert_eq!(row["currentEntityExistenceAsserted"],false);
-        assert_eq!(row["referenceOnly"],true);assert!(row["native"].is_null());
-        let quad=row["sourceQuad"].as_str().unwrap();
-        assert_eq!(row["sourceQuadCanonicalSha256"],format!("{:x}",Sha256::digest(quad.as_bytes())));
-        assert!(declared.insert(quad.to_string()),"no duplicate source disposition");
+    let entries = imported["sourceDerivedAssertionDisposition"]["entries"]
+        .as_array()
+        .unwrap();
+    let mut declared = BTreeSet::new();
+    for row in entries.iter().filter(|r| r["evidenceGraph"].is_string()) {
+        assert_eq!(row["reason"], "source-only-wire-anatomy-v1");
+        assert_eq!(row["evidenceGraph"], evidence_graph);
+        assert_eq!(row["sourceGraphIri"], main);
+        assert_eq!(row["sourceArchiveSha256"], digest);
+        assert_eq!(row["currentEntityExistenceAsserted"], false);
+        assert_eq!(row["referenceOnly"], true);
+        assert!(row["native"].is_null());
+        let quad = row["sourceQuad"].as_str().unwrap();
+        assert_eq!(
+            row["sourceQuadCanonicalSha256"],
+            format!("{:x}", Sha256::digest(quad.as_bytes()))
+        );
+        assert!(
+            declared.insert(quad.to_string()),
+            "no duplicate source disposition"
+        );
     }
-    assert_eq!(declared,source_quads,"complete source-only quad coverage, not sampled claims");
-    assert_eq!(imported["rdfPreservationAccounting"]["nativeEvidenceQuadCount"],expected.len());
-    let store=crate::rdf_store_service::open_graph_store(graph_dir).unwrap();
-    let mut actual=BTreeSet::new();
+    assert_eq!(
+        declared, source_quads,
+        "complete source-only quad coverage, not sampled claims"
+    );
+    assert_eq!(
+        imported["rdfPreservationAccounting"]["nativeEvidenceQuadCount"],
+        expected.len()
+    );
+    let store = crate::rdf_store_service::open_graph_store(graph_dir).unwrap();
+    let mut actual = BTreeSet::new();
     for q in store.iter() {
-        let q=q.unwrap();
-        assert!(!matches!(&q.subject,NamedOrBlankNode::NamedNode(n) if absent.contains(n.as_str())),"no phantom native wire projection");
-        if matches!(&q.subject,NamedOrBlankNode::NamedNode(n) if n.as_str().strip_prefix(&prefix).is_some_and(|id|!saved.contains(id))) {
-            assert!(matches!(&q.graph_name,GraphName::NamedNode(n) if n.as_str()==evidence_graph),"source-only subjects stay outside current authority");
+        let q = q.unwrap();
+        assert!(
+            !matches!(&q.subject,NamedOrBlankNode::NamedNode(n) if absent.contains(n.as_str())),
+            "no phantom native wire projection"
+        );
+        if matches!(&q.subject,NamedOrBlankNode::NamedNode(n) if n.as_str().strip_prefix(&prefix).is_some_and(|id|!saved.contains(id)))
+        {
+            assert!(
+                matches!(&q.graph_name,GraphName::NamedNode(n) if n.as_str()==evidence_graph),
+                "source-only subjects stay outside current authority"
+            );
         }
-        if matches!(&q.graph_name,GraphName::NamedNode(n) if n.as_str().starts_with(&evidence_prefix)) {
+        if matches!(&q.graph_name,GraphName::NamedNode(n) if n.as_str().starts_with(&evidence_prefix))
+        {
             actual.insert(q.to_string());
         }
     }
-    assert_eq!(actual,expected,"actual retained named graph fullset, including no-evidence control");
-    let query=format!("SELECT ?s ?p ?o WHERE {{ GRAPH <{evidence_graph}> {{ ?s ?p ?o }} }}");
-    let oxigraph::sparql::QueryResults::Solutions(rows)=store.query(query.as_str()).unwrap() else {panic!("expected query rows");};
-    assert_eq!(rows.map(Result::unwrap).count(),expected.len());
+    assert_eq!(
+        actual, expected,
+        "actual retained named graph fullset, including no-evidence control"
+    );
+    let query = format!("SELECT ?s ?p ?o WHERE {{ GRAPH <{evidence_graph}> {{ ?s ?p ?o }} }}");
+    let oxigraph::sparql::QueryResults::Solutions(rows) = store.query(query.as_str()).unwrap()
+    else {
+        panic!("expected query rows");
+    };
+    assert_eq!(rows.map(Result::unwrap).count(), expected.len());
     json!({"savedWireCount":saved.len(),"nativeWireCount":native.len(),"sourceOnlyWireCount":absent.len(),
         "evidenceQuadCount":expected.len(),"completeSourceQuadCoverage":true,"actualStoreFullSet":true,
         "explicitNamedGraphQuery":true,"noCurrentWireMaterialization":true})
@@ -143,30 +243,61 @@ fn source_only_wire_readback(graph_dir: &Path, user: &str, graph: &str, digest: 
 
 // Actual retained inputs, but exclusively an isolated mock authority and private
 // profile. No production lease, account call, or runtime lifecycle is exercised.
-fn actual_rich_signed_profile(graph: &str, input_env: &str, digest: &str, documents: u64, quads: u64, histories: usize) {
-    actual_rich_signed_profile_owned("00000000-0000-4000-8000-0000000000a1", graph, input_env, digest, documents, quads, histories);
+fn actual_rich_signed_profile(
+    graph: &str,
+    input_env: &str,
+    digest: &str,
+    documents: u64,
+    quads: u64,
+    histories: usize,
+) {
+    actual_rich_signed_profile_owned(
+        "00000000-0000-4000-8000-0000000000a1",
+        graph,
+        input_env,
+        digest,
+        documents,
+        quads,
+        histories,
+    );
 }
 
-fn actual_rich_signed_profile_owned(user: &str, graph: &str, input_env: &str, digest: &str, documents: u64, quads: u64, histories: usize) {
-    let clock=std::time::Instant::now();
-    let phase=|name:&str| eprintln!("POPULATION_PHASE {} {}",name,clock.elapsed().as_millis());
+fn actual_rich_signed_profile_owned(
+    user: &str,
+    graph: &str,
+    input_env: &str,
+    digest: &str,
+    documents: u64,
+    quads: u64,
+    histories: usize,
+) {
+    let clock = std::time::Instant::now();
+    let phase = |name: &str| eprintln!("POPULATION_PHASE {} {}", name, clock.elapsed().as_millis());
     phase("start");
-    let _serial=crate::tauri_runtime::profile_env_serial().lock().unwrap_or_else(|p|p.into_inner());
-    let bytes=std::fs::read(std::env::var(input_env).expect("explicit retained archive required")).unwrap();
-    assert_eq!(format!("{:x}",Sha256::digest(&bytes)),digest,"exact retained input");
-    let source=members(&bytes);
-    let manifest:Value=serde_json::from_slice(&source["manifest.json"]).unwrap();
-    assert_eq!(manifest["source"]["userId"],user);
-    assert_eq!(manifest["source"]["graphId"],graph);
-    assert_eq!(manifest["counts"]["documents"],documents);
-    assert_eq!(manifest["counts"]["rdfQuads"],quads);
-    let owner=format!("user:{user}");
-    let base=std::env::temp_dir().join(format!("garden-actual-rich-{}",uuid::Uuid::new_v4()));
+    let _serial = crate::tauri_runtime::profile_env_serial()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    let bytes =
+        std::fs::read(std::env::var(input_env).expect("explicit retained archive required"))
+            .unwrap();
+    assert_eq!(
+        format!("{:x}", Sha256::digest(&bytes)),
+        digest,
+        "exact retained input"
+    );
+    let source = members(&bytes);
+    let manifest: Value = serde_json::from_slice(&source["manifest.json"]).unwrap();
+    assert_eq!(manifest["source"]["userId"], user);
+    assert_eq!(manifest["source"]["graphId"], graph);
+    assert_eq!(manifest["counts"]["documents"], documents);
+    assert_eq!(manifest["counts"]["rdfQuads"], quads);
+    let owner = format!("user:{user}");
+    let base = std::env::temp_dir().join(format!("garden-actual-rich-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir(&base).unwrap();
-    let profile=base.join("profile");
-    let previous=std::env::var_os("GARDEN_PROFILE_DIR");
-    std::env::set_var("GARDEN_PROFILE_DIR",&profile);
-    let result=std::panic::catch_unwind(|| {
+    let profile = base.join("profile");
+    let previous = std::env::var_os("GARDEN_PROFILE_DIR");
+    std::env::set_var("GARDEN_PROFILE_DIR", &profile);
+    let result = std::panic::catch_unwind(|| {
         tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap().block_on(async {
             let state=state_for(&profile,&owner,graph);
             phase("state-created");
@@ -305,93 +436,174 @@ fn actual_rich_signed_profile_owned(user: &str, graph: &str, input_env: &str, di
         });
         phase("first-runtime-closed");
         // New runtime/reader context after the importer and its tasks are gone.
-        tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap().block_on(async {
-            let cold=state_for(&profile,&owner,graph);
-            phase("reopen-state-created");
-            let graph_dir=crate::graph_paths::existing_graph_dir(&cold.app,graph).unwrap();
-            let imported:Value=serde_json::from_slice(&std::fs::read(base.join("result.json")).unwrap()).unwrap();
-            let evidence=source_only_wire_readback(&graph_dir,user,graph,digest,&source,&imported);
-            let first:Value=serde_json::from_slice(&std::fs::read(base.join("source-only-first-read.json")).unwrap()).unwrap();
-            assert_eq!(evidence,first);
-            std::fs::write(base.join("source-only-reopen-read.json"),serde_json::to_vec_pretty(&evidence).unwrap()).unwrap();
-            for row in crate::document_body_availability::unavailable_documents(&graph_dir).unwrap() {
-                let id=row["documentId"].as_str().unwrap();
-                assert!(crate::document_service::read_document(cold.app.clone(),graph.into(),id.into())
-                    .unwrap_err().starts_with("source_body_unavailable:"));
-            }
-            for path in source.keys() {
-                if let Some(id)=path.strip_prefix("crdt/documents/").and_then(|p|p.strip_suffix(".yjs")) {
-                    assert!(crate::document_service::read_document(cold.app.clone(),graph.into(),id.into()).is_ok());
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(async {
+                let cold = state_for(&profile, &owner, graph);
+                phase("reopen-state-created");
+                let graph_dir = crate::graph_paths::existing_graph_dir(&cold.app, graph).unwrap();
+                let imported: Value =
+                    serde_json::from_slice(&std::fs::read(base.join("result.json")).unwrap())
+                        .unwrap();
+                let evidence =
+                    source_only_wire_readback(&graph_dir, user, graph, digest, &source, &imported);
+                let first: Value = serde_json::from_slice(
+                    &std::fs::read(base.join("source-only-first-read.json")).unwrap(),
+                )
+                .unwrap();
+                assert_eq!(evidence, first);
+                std::fs::write(
+                    base.join("source-only-reopen-read.json"),
+                    serde_json::to_vec_pretty(&evidence).unwrap(),
+                )
+                .unwrap();
+                for row in
+                    crate::document_body_availability::unavailable_documents(&graph_dir).unwrap()
+                {
+                    let id = row["documentId"].as_str().unwrap();
+                    assert!(crate::document_service::read_document(
+                        cold.app.clone(),
+                        graph.into(),
+                        id.into()
+                    )
+                    .unwrap_err()
+                    .starts_with("source_body_unavailable:"));
                 }
-            }
-        });
+                for path in source.keys() {
+                    if let Some(id) = path
+                        .strip_prefix("crdt/documents/")
+                        .and_then(|p| p.strip_suffix(".yjs"))
+                    {
+                        assert!(crate::document_service::read_document(
+                            cold.app.clone(),
+                            graph.into(),
+                            id.into()
+                        )
+                        .is_ok());
+                    }
+                }
+            });
         phase("reopen-runtime-closed");
     });
-    match previous {Some(value)=>std::env::set_var("GARDEN_PROFILE_DIR",value),None=>std::env::remove_var("GARDEN_PROFILE_DIR")}
-    eprintln!("Actual rich private profile retained: {}",base.display());
-    if let Err(error)=result {std::panic::resume_unwind(error);}
+    match previous {
+        Some(value) => std::env::set_var("GARDEN_PROFILE_DIR", value),
+        None => std::env::remove_var("GARDEN_PROFILE_DIR"),
+    }
+    eprintln!("Actual rich private profile retained: {}", base.display());
+    if let Err(error) = result {
+        std::panic::resume_unwind(error);
+    }
 }
 
 #[test]
 #[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn population_manifest_signed_import_profile() {
-    let file = std::env::var("GARDEN_PRESERVATION_PROFILE_MANIFEST").expect("explicit profile manifest required");
+    let file = std::env::var("GARDEN_PRESERVATION_PROFILE_MANIFEST")
+        .expect("explicit profile manifest required");
     let row: Value = serde_json::from_slice(&std::fs::read(file).unwrap()).unwrap();
-    actual_rich_signed_profile_owned(row["sourceOwner"].as_str().unwrap(), row["graphId"].as_str().unwrap(),
-        "GARDEN_PRESERVATION_RETAINED_ARCHIVE", row["archiveSha256"].as_str().unwrap(),
-        row["documents"].as_u64().unwrap(), row["rdfQuads"].as_u64().unwrap(),
-        row["histories"].as_u64().unwrap() as usize);
+    actual_rich_signed_profile_owned(
+        row["sourceOwner"].as_str().unwrap(),
+        row["graphId"].as_str().unwrap(),
+        "GARDEN_PRESERVATION_RETAINED_ARCHIVE",
+        row["archiveSha256"].as_str().unwrap(),
+        row["documents"].as_u64().unwrap(),
+        row["rdfQuads"].as_u64().unwrap(),
+        row["histories"].as_u64().unwrap() as usize,
+    );
 }
 
 #[test]
 #[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn actual_wf_emit_lab_signed_import_profile() {
-    actual_rich_signed_profile("wf-emit-lab","GARDEN_PRESERVATION_HISTORY_ARCHIVE_08",
-        "3d092a7b9609fde7f5165cf497e236d2ab6d440c8b2404c80abbc32281fc212c",32,3289,39);
+    actual_rich_signed_profile(
+        "wf-emit-lab",
+        "GARDEN_PRESERVATION_HISTORY_ARCHIVE_08",
+        "3d092a7b9609fde7f5165cf497e236d2ab6d440c8b2404c80abbc32281fc212c",
+        32,
+        3289,
+        39,
+    );
 }
 
 #[test]
 #[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn actual_workflow_commons_copy_unavailable_signed_import_profile() {
-    actual_rich_signed_profile("workflow-commons-copy","GARDEN_PRESERVATION_UNAVAILABLE_ARCHIVE",
-        "d5f7cfae99926e3acea0e47a252bb6db473d11e95a86000530cdb0d67b23ff6c",31,10314,0);
+    actual_rich_signed_profile(
+        "workflow-commons-copy",
+        "GARDEN_PRESERVATION_UNAVAILABLE_ARCHIVE",
+        "d5f7cfae99926e3acea0e47a252bb6db473d11e95a86000530cdb0d67b23ff6c",
+        31,
+        10314,
+        0,
+    );
 }
 
 #[test]
 #[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn actual_graph_a_signed_import_profile() {
-    actual_rich_signed_profile("graph-a","GARDEN_PRESERVATION_CANDIDATE23_ARCHIVE",
-        "ecca0ebf97e31679420fea82eb5317933046bd23f1e7d968a6756d3f8851302f",62,124770,6);
+    actual_rich_signed_profile(
+        "graph-a",
+        "GARDEN_PRESERVATION_CANDIDATE23_ARCHIVE",
+        "ecca0ebf97e31679420fea82eb5317933046bd23f1e7d968a6756d3f8851302f",
+        62,
+        124770,
+        6,
+    );
 }
 
 #[test]
 #[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn independent_v2_tree_comparator_retains_attribute_values() {
-    use yrs::{Doc,ReadTxn,StateVector,Transact,Update,Xml};
-    use yrs::types::xml::{XmlFragment,XmlOut};
+    use yrs::types::xml::{XmlFragment, XmlOut};
     use yrs::updates::decoder::Decode;
-    let (archive,_)=specimen("healthy");let source=members(&archive);
-    let bytes=&source["crdt/documents/doc-fixture-alpha.yjs"];
-    let doc=Doc::new();doc.transact_mut().apply_update(Update::decode_v1(bytes).unwrap()).unwrap();
+    use yrs::{Doc, ReadTxn, StateVector, Transact, Update, Xml};
+    let (archive, _) = specimen("healthy");
+    let source = members(&archive);
+    let bytes = &source["crdt/documents/doc-fixture-alpha.yjs"];
+    let doc = Doc::new();
+    doc.transact_mut()
+        .apply_update(Update::decode_v1(bytes).unwrap())
+        .unwrap();
     {
-        let mut txn=doc.transact_mut();
-        let root=txn.get_xml_fragment("content").unwrap();
-        let XmlOut::Element(heading)=root.children(&txn).next().unwrap() else {panic!("source heading")};
-        heading.insert_attribute(&mut txn,"level","2");
+        let mut txn = doc.transact_mut();
+        let root = txn.get_xml_fragment("content").unwrap();
+        let XmlOut::Element(heading) = root.children(&txn).next().unwrap() else {
+            panic!("source heading")
+        };
+        heading.insert_attribute(&mut txn, "level", "2");
     }
-    let changed=doc.transact().encode_state_as_update_v1(&StateVector::default());
-    assert_ne!(content_tree(bytes),content_tree(&changed),"attribute values must not be normalized away");
+    let changed = doc
+        .transact()
+        .encode_state_as_update_v1(&StateVector::default());
+    assert_ne!(
+        content_tree(bytes),
+        content_tree(&changed),
+        "attribute values must not be normalized away"
+    );
 }
 
 #[test]
 #[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn independent_v2_real_caller_preserves_and_refuses() {
-    let _serial=crate::tauri_runtime::profile_env_serial().lock().unwrap_or_else(|p|p.into_inner());
-    let base=std::env::temp_dir().join(format!("garden-independent-v2-{}",uuid::Uuid::new_v4()));
+    let _serial = crate::tauri_runtime::profile_env_serial()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    let base = std::env::temp_dir().join(format!("garden-independent-v2-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir(&base).unwrap();
-    let result=std::panic::catch_unwind(|| {
-        for name in ["equal-length-original-mutation","missing-history","wrong-source-owner","healthy","healthy-v22","healthy-v23"] {
-            let profile=base.join(name);std::env::set_var("GARDEN_PROFILE_DIR",&profile);
+    let result = std::panic::catch_unwind(|| {
+        for name in [
+            "equal-length-original-mutation",
+            "missing-history",
+            "wrong-source-owner",
+            "healthy",
+            "healthy-v22",
+            "healthy-v23",
+        ] {
+            let profile = base.join(name);
+            std::env::set_var("GARDEN_PROFILE_DIR", &profile);
             tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap().block_on(async {
                 let state=state(&profile);
                 let before=crate::graph_service::create_graph_service(&state.app,crate::graph_service::CreateGraphInput {
@@ -500,68 +712,159 @@ fn independent_v2_real_caller_preserves_and_refuses() {
             if name.starts_with("healthy") {
                 // Previous runtime and its tasks have ended. This is a new app/
                 // reader context over retained disk, not a live-room reread.
-                tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap().block_on(async {
-                    let cold=state(&profile);
-                    let graph_dir=crate::graph_paths::existing_graph_dir(&cold.app,GRAPH).unwrap();
-                    for id in ["doc-fixture-alpha","doc-fixture-beta"] {
-                        assert!(crate::document_service::read_document(cold.app.clone(),GRAPH.into(),id.into()).is_ok());
-                    }
-                    let snapshot:Value=crate::storage::read_json(&crate::paths::workspace_snapshot_path(&graph_dir)).unwrap();
-                    assert!(snapshot["folders"].as_array().unwrap().iter().any(|f|f["id"]=="independent-after-import"));
-                    assert!(crate::document_tombstone_store::document_is_tombstoned(&graph_dir,"doc-fixture-deleted").unwrap());
-                    let (_,original)=crate::original_file_service::read_artifact_original_file(&cold.app,GRAPH,"artifact-fixture-html").unwrap();
-                    assert_eq!(original,b"<!doctype html><title>Moss</title><p>Cloud one original.</p>\n");
-                });
+                tokio::runtime::Builder::new_multi_thread()
+                    .worker_threads(2)
+                    .enable_all()
+                    .build()
+                    .unwrap()
+                    .block_on(async {
+                        let cold = state(&profile);
+                        let graph_dir =
+                            crate::graph_paths::existing_graph_dir(&cold.app, GRAPH).unwrap();
+                        for id in ["doc-fixture-alpha", "doc-fixture-beta"] {
+                            assert!(crate::document_service::read_document(
+                                cold.app.clone(),
+                                GRAPH.into(),
+                                id.into()
+                            )
+                            .is_ok());
+                        }
+                        let snapshot: Value = crate::storage::read_json(
+                            &crate::paths::workspace_snapshot_path(&graph_dir),
+                        )
+                        .unwrap();
+                        assert!(snapshot["folders"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .any(|f| f["id"] == "independent-after-import"));
+                        assert!(crate::document_tombstone_store::document_is_tombstoned(
+                            &graph_dir,
+                            "doc-fixture-deleted"
+                        )
+                        .unwrap());
+                        let (_, original) =
+                            crate::original_file_service::read_artifact_original_file(
+                                &cold.app,
+                                GRAPH,
+                                "artifact-fixture-html",
+                            )
+                            .unwrap();
+                        assert_eq!(
+                            original,
+                            b"<!doctype html><title>Moss</title><p>Cloud one original.</p>\n"
+                        );
+                    });
             }
         }
     });
     std::env::remove_var("GARDEN_PROFILE_DIR");
-    eprintln!("Independent consumer profiles retained: {}",base.display());
-    if let Err(error)=result {std::panic::resume_unwind(error);}
+    eprintln!("Independent consumer profiles retained: {}", base.display());
+    if let Err(error) = result {
+        std::panic::resume_unwind(error);
+    }
 }
 
 #[test]
 #[ignore = "needs GARDEN_PRESERVATION_* operator data; run with --include-ignored"]
 fn independent_v2_partial_import_cannot_overwrite_later_edit() {
-    let _serial=crate::tauri_runtime::profile_env_serial().lock().unwrap_or_else(|p|p.into_inner());
-    let profile=std::env::temp_dir().join(format!("garden-independent-v2-partial-{}",uuid::Uuid::new_v4()));
-    std::env::set_var("GARDEN_PROFILE_DIR",&profile);
-    let result=std::panic::catch_unwind(|| {
-        tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap().block_on(async {
-            let state=state(&profile);
-            crate::graph_service::create_graph_service(&state.app,crate::graph_service::CreateGraphInput {
-                graph_id:Some(GRAPH.into()),title:"Independent partial preservation".into(),description:None,operation_id:None,
-            }).unwrap();
-            let graph_dir=crate::graph_paths::existing_graph_dir(&state.app,GRAPH).unwrap();
-            let (bytes,mut plan)=specimen("healthy");
-            plan["operationId"]=json!("independent-v2-partial");
-            crate::crdt_engine::import_archive_ops::fail_next_archive_step_for_test("independent-v2-partial",
-                crate::crdt_engine::import_archive_ops::ArchiveFailurePoint::BeforeDocument);
-            let owner=lease("owner",None);let route=format!("/graphs/{GRAPH}/restore-archive");
-            let mime="multipart/form-data; boundary=restore-boundary";
-            let (status,body)=request(state.clone(),&route,&owner,wire(&bytes,&plan),mime).await;
-            assert_eq!(status,StatusCode::ACCEPTED,"{body}");
-            let failed=await_job(&state,&body).await;
-            assert!(matches!(failed.status,LocalJobStatus::Failed),"{failed:?}");
-            let custody=graph_dir.join(".migration/preservation-v2");
-            assert_eq!(std::fs::read(custody.join("archive.tar.gz")).unwrap(),bytes);
-            assert!(crate::paths::workspace_ydoc_state_path(&graph_dir).exists(),"actual post-workspace cutpoint");
-            assert!(!crate::paths::document_ydoc_state_path(&graph_dir,"doc-fixture-alpha").exists(),"failure occurred before first document");
-            create_folder_normally(state.clone(),&owner,"independent-after-partial").await;
-            let snapshot_path=crate::paths::workspace_snapshot_path(&graph_dir);
-            let edited:Value=crate::storage::read_json(&snapshot_path).unwrap();
-            assert!(edited["folders"].as_array().unwrap().iter().any(|f|f["id"]=="independent-after-partial"));
-            let (status,body)=request(state.clone(),&route,&owner,wire(&bytes,&plan),mime).await;
-            if status==StatusCode::ACCEPTED {
-                let refused=await_job(&state,&body).await;
-                assert!(matches!(refused.status,LocalJobStatus::Failed),"unsafe partial resume {refused:?}");
-            } else {assert!(status.is_client_error(),"wrong partial-resume refusal {status} {body}");}
-            let after:Value=crate::storage::read_json(&snapshot_path).unwrap();
-            assert_eq!(edited,after,"partial resume erased a legitimate destination edit");
-            assert_eq!(std::fs::read(custody.join("archive.tar.gz")).unwrap(),bytes);
-        });
+    let _serial = crate::tauri_runtime::profile_env_serial()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    let profile = std::env::temp_dir().join(format!(
+        "garden-independent-v2-partial-{}",
+        uuid::Uuid::new_v4()
+    ));
+    std::env::set_var("GARDEN_PROFILE_DIR", &profile);
+    let result = std::panic::catch_unwind(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(async {
+                let state = state(&profile);
+                crate::graph_service::create_graph_service(
+                    &state.app,
+                    crate::graph_service::CreateGraphInput {
+                        graph_id: Some(GRAPH.into()),
+                        title: "Independent partial preservation".into(),
+                        description: None,
+                        operation_id: None,
+                    },
+                )
+                .unwrap();
+                let graph_dir = crate::graph_paths::existing_graph_dir(&state.app, GRAPH).unwrap();
+                let (bytes, mut plan) = specimen("healthy");
+                plan["operationId"] = json!("independent-v2-partial");
+                crate::crdt_engine::import_archive_ops::fail_next_archive_step_for_test(
+                    "independent-v2-partial",
+                    crate::crdt_engine::import_archive_ops::ArchiveFailurePoint::BeforeDocument,
+                );
+                let owner = lease("owner", None);
+                let route = format!("/graphs/{GRAPH}/restore-archive");
+                let mime = "multipart/form-data; boundary=restore-boundary";
+                let (status, body) =
+                    request(state.clone(), &route, &owner, wire(&bytes, &plan), mime).await;
+                assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+                let failed = await_job(&state, &body).await;
+                assert!(
+                    matches!(failed.status, LocalJobStatus::Failed),
+                    "{failed:?}"
+                );
+                let custody = graph_dir.join(".migration/preservation-v2");
+                assert_eq!(
+                    std::fs::read(custody.join("archive.tar.gz")).unwrap(),
+                    bytes
+                );
+                assert!(
+                    crate::paths::workspace_ydoc_state_path(&graph_dir).exists(),
+                    "actual post-workspace cutpoint"
+                );
+                assert!(
+                    !crate::paths::document_ydoc_state_path(&graph_dir, "doc-fixture-alpha")
+                        .exists(),
+                    "failure occurred before first document"
+                );
+                create_folder_normally(state.clone(), &owner, "independent-after-partial").await;
+                let snapshot_path = crate::paths::workspace_snapshot_path(&graph_dir);
+                let edited: Value = crate::storage::read_json(&snapshot_path).unwrap();
+                assert!(edited["folders"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|f| f["id"] == "independent-after-partial"));
+                let (status, body) =
+                    request(state.clone(), &route, &owner, wire(&bytes, &plan), mime).await;
+                if status == StatusCode::ACCEPTED {
+                    let refused = await_job(&state, &body).await;
+                    assert!(
+                        matches!(refused.status, LocalJobStatus::Failed),
+                        "unsafe partial resume {refused:?}"
+                    );
+                } else {
+                    assert!(
+                        status.is_client_error(),
+                        "wrong partial-resume refusal {status} {body}"
+                    );
+                }
+                let after: Value = crate::storage::read_json(&snapshot_path).unwrap();
+                assert_eq!(
+                    edited, after,
+                    "partial resume erased a legitimate destination edit"
+                );
+                assert_eq!(
+                    std::fs::read(custody.join("archive.tar.gz")).unwrap(),
+                    bytes
+                );
+            });
     });
     std::env::remove_var("GARDEN_PROFILE_DIR");
-    eprintln!("Independent partial-import profile retained: {}",profile.display());
-    if let Err(error)=result {std::panic::resume_unwind(error);}
+    eprintln!(
+        "Independent partial-import profile retained: {}",
+        profile.display()
+    );
+    if let Err(error) = result {
+        std::panic::resume_unwind(error);
+    }
 }

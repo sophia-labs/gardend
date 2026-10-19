@@ -40,7 +40,10 @@ fn lease_for(role: &str) -> String {
     let signed = format!("{header}.{payload}");
     let mut mac = Hmac::<Sha256>::new_from_slice(SECRET).unwrap();
     mac.update(signed.as_bytes());
-    format!("{signed}.{}", URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes()))
+    format!(
+        "{signed}.{}",
+        URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes())
+    )
 }
 
 fn state(profile: &std::path::Path) -> Arc<LoopbackState> {
@@ -178,7 +181,12 @@ fn manifest_is_secret_free_under_viewer_role_cell_boundary_and_write_still_denie
                 Body::empty(),
             )
             .await;
-            assert_eq!(status, axum::http::StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+            assert_eq!(
+                status,
+                axum::http::StatusCode::OK,
+                "{}",
+                String::from_utf8_lossy(&body)
+            );
             let text = String::from_utf8_lossy(&body).into_owned();
             assert!(
                 !text.contains(MASTER_TOKEN),

@@ -231,10 +231,7 @@ fn systemd_word(word: &str) -> String {
     if plain {
         doubled
     } else {
-        format!(
-            "\"{}\"",
-            doubled.replace('\\', "\\\\").replace('"', "\\\"")
-        )
+        format!("\"{}\"", doubled.replace('\\', "\\\\").replace('"', "\\\""))
     }
 }
 
@@ -463,7 +460,10 @@ pub(crate) fn install(args: &ServiceArgs, env: Env) -> Result<String, String> {
                 .unwrap_or_default();
             ensure_profile_dir(&log_dir)?; // owner-only, like the profile
             let domain = gui_domain()?;
-            let _ = run("launchctl", &["bootout", &format!("{domain}/{LAUNCHD_LABEL}")]);
+            let _ = run(
+                "launchctl",
+                &["bootout", &format!("{domain}/{LAUNCHD_LABEL}")],
+            );
             let plist = path.display().to_string();
             let mut last = Ok(String::new());
             // Right after a bootout launchd can briefly refuse the same label.
@@ -539,7 +539,10 @@ pub(crate) fn uninstall(env: Env) -> Result<String, String> {
     match manager {
         Manager::Launchd => {
             let domain = gui_domain()?;
-            let _ = run("launchctl", &["bootout", &format!("{domain}/{LAUNCHD_LABEL}")]);
+            let _ = run(
+                "launchctl",
+                &["bootout", &format!("{domain}/{LAUNCHD_LABEL}")],
+            );
             std::fs::remove_file(&path)
                 .map_err(|error| format!("remove {}: {error}", path.display()))?;
         }
@@ -575,7 +578,10 @@ pub(crate) fn status(env: Env) -> Result<(String, bool), String> {
     let (state, pid) = match manager {
         Manager::Launchd => {
             let domain = gui_domain()?;
-            match run("launchctl", &["print", &format!("{domain}/{LAUNCHD_LABEL}")]) {
+            match run(
+                "launchctl",
+                &["print", &format!("{domain}/{LAUNCHD_LABEL}")],
+            ) {
                 Ok(text) => {
                     let field = |name: &str| {
                         text.lines().find_map(|line| {
@@ -603,7 +609,13 @@ pub(crate) fn status(env: Env) -> Result<(String, bool), String> {
             };
             let pid = run(
                 "systemctl",
-                &["--user", "show", SYSTEMD_UNIT, "--property=MainPID", "--value"],
+                &[
+                    "--user",
+                    "show",
+                    SYSTEMD_UNIT,
+                    "--property=MainPID",
+                    "--value",
+                ],
             )
             .ok()
             .map(|value| value.trim().to_string())
@@ -658,9 +670,15 @@ mod tests {
 
     #[test]
     fn launchd_plist_runs_serve_with_profile_port_and_logs() {
-        let plist = render_launchd_plist(&spec(), Path::new("/Users/ana/Library/Logs/Sophia/gardend.log"));
+        let plist = render_launchd_plist(
+            &spec(),
+            Path::new("/Users/ana/Library/Logs/Sophia/gardend.log"),
+        );
         assert!(plist.contains("<string>dev.sophia.gardend</string>"));
-        assert!(plist.contains("<string>Sophia &amp; Co</string>") || plist.contains("Sophia &amp; Co</string>"));
+        assert!(
+            plist.contains("<string>Sophia &amp; Co</string>")
+                || plist.contains("Sophia &amp; Co</string>")
+        );
         assert!(!plist.contains("Sophia & Co"), "XML must be escaped");
         assert!(plist.contains("<key>GARDEN_UI_DIR</key>\n\t\t<string>/opt/gardend/ui</string>"));
         assert!(plist.contains("<key>StandardErrorPath</key>\n\t<string>/Users/ana/Library/Logs/Sophia/gardend.log</string>"));
@@ -696,7 +714,10 @@ mod tests {
         assert!(unit.contains("WantedBy=default.target\n"));
         let args = parse_systemd_exec_start(&unit);
         assert_eq!(args[3], "/home/ana/my \"sophia\" 100%");
-        assert_eq!(installed_profile_and_port(&args), (Some(spec.profile_dir.clone()), Some(7674)));
+        assert_eq!(
+            installed_profile_and_port(&args),
+            (Some(spec.profile_dir.clone()), Some(7674))
+        );
         assert_eq!(systemd_word("$HOME"), "\"$$HOME\"");
     }
 
@@ -746,9 +767,15 @@ mod tests {
     #[test]
     fn choreograph_knobs_are_carried_into_the_service() {
         let env = env_of(&[
-            ("GARDEN_CHOREOGRAPH_MANIFEST", "/opt/sophia/choreograph/service.json"),
+            (
+                "GARDEN_CHOREOGRAPH_MANIFEST",
+                "/opt/sophia/choreograph/service.json",
+            ),
             ("GARDEN_CHOREOGRAPH_COMMAND", "node"),
-            ("GARDEN_CHOREOGRAPH_ARGS", "--import tsx src/orchestrator.ts"),
+            (
+                "GARDEN_CHOREOGRAPH_ARGS",
+                "--import tsx src/orchestrator.ts",
+            ),
             ("GARDEN_CHOREOGRAPH_WORKDIR", "/opt/choreograph"),
             ("GARDEN_CHOREOGRAPH_AUTOSTART", "0"),
             ("OPENROUTER_API_KEY", "sk-or-secret"),
@@ -782,18 +809,30 @@ mod tests {
         assert!(systemd_ready(true, true).is_ok());
         assert!(systemd_ready(true, false).is_ok());
         let wsl = systemd_ready(false, true).unwrap_err();
-        assert!(wsl.contains("[boot]") && wsl.contains("systemd=true"), "{wsl}");
-        assert!(wsl.contains("/etc/wsl.conf") && wsl.contains("wsl --shutdown"), "{wsl}");
+        assert!(
+            wsl.contains("[boot]") && wsl.contains("systemd=true"),
+            "{wsl}"
+        );
+        assert!(
+            wsl.contains("/etc/wsl.conf") && wsl.contains("wsl --shutdown"),
+            "{wsl}"
+        );
         assert!(wsl.contains("gardend serve"), "{wsl}");
         let plain = systemd_ready(false, false).unwrap_err();
-        assert!(plain.contains("gardend serve") && !plain.contains("wsl.conf"), "{plain}");
+        assert!(
+            plain.contains("gardend serve") && !plain.contains("wsl.conf"),
+            "{plain}"
+        );
     }
 
     #[test]
     fn install_print_changes_nothing() {
         let root = super::super::test_support::tempdir("service-print");
         let home = root.join("home");
-        let env = env_of(&[("HOME", home.to_str().unwrap()), ("XDG_CONFIG_HOME", root.join("cfg").to_str().unwrap())]);
+        let env = env_of(&[
+            ("HOME", home.to_str().unwrap()),
+            ("XDG_CONFIG_HOME", root.join("cfg").to_str().unwrap()),
+        ]);
         let args = ServiceArgs {
             profile: Some(root.join("profile").display().to_string()),
             port: Some(7805),
@@ -803,11 +842,19 @@ mod tests {
             Ok(text) => {
                 assert!(text.contains("serve"));
                 assert!(text.contains("7805"));
-                assert!(!root.join("profile").exists(), "--print must not create the profile");
-                assert!(!home.exists() && !root.join("cfg").exists(), "--print must not write a unit");
+                assert!(
+                    !root.join("profile").exists(),
+                    "--print must not create the profile"
+                );
+                assert!(
+                    !home.exists() && !root.join("cfg").exists(),
+                    "--print must not write a unit"
+                );
             }
             // Platforms without a service manager say so instead.
-            Err(error) => assert!(error.contains("not available") || error.contains("knows launchd")),
+            Err(error) => {
+                assert!(error.contains("not available") || error.contains("knows launchd"))
+            }
         }
     }
 }

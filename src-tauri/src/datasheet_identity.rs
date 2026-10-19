@@ -62,44 +62,175 @@ struct Maker {
 }
 
 const LEXICON: &[Maker] = &[
-    Maker { name: "Texas Instruments", text: &["texas instruments", "ti.com"], file: &["ti", "texas"] },
-    Maker { name: "Analog Devices", text: &["analog devices", "analog.com"], file: &["adi", "analog"] },
-    Maker { name: "Infineon", text: &["infineon", "international rectifier", "irf.com"], file: &["infineon", "ir"] },
-    Maker { name: "Microchip Technology", text: &["microchip", "atmel"], file: &["microchip", "atmel"] },
-    Maker { name: "Espressif", text: &["espressif"], file: &["espressif"] },
-    Maker { name: "Bosch Sensortec", text: &["bosch sensortec", "bosch"], file: &["bosch"] },
-    Maker { name: "Vishay", text: &["vishay", "siliconix"], file: &["vishay"] },
-    Maker { name: "Murata", text: &["murata"], file: &["murata"] },
-    Maker { name: "Zilog", text: &["zilog"], file: &["zilog"] },
-    Maker { name: "JST", text: &["jst", "jst-mfg"], file: &["jst"] },
-    Maker { name: "STMicroelectronics", text: &["stmicroelectronics", "st.com"], file: &["st", "stm"] },
-    Maker { name: "NXP", text: &["nxp"], file: &["nxp"] },
-    Maker { name: "onsemi", text: &["onsemi", "on semiconductor", "fairchild"], file: &["onsemi", "fairchild"] },
-    Maker { name: "Renesas", text: &["renesas", "intersil"], file: &["renesas", "intersil"] },
-    Maker { name: "Nexperia", text: &["nexperia"], file: &["nexperia"] },
-    Maker { name: "Diodes Incorporated", text: &["diodes incorporated", "diodes.com"], file: &["diodes"] },
-    Maker { name: "Maxim Integrated", text: &["maxim integrated", "maximintegrated"], file: &["maxim"] },
-    Maker { name: "Linear Technology", text: &["linear technology"], file: &["linear", "ltc"] },
-    Maker { name: "Nordic Semiconductor", text: &["nordic semiconductor", "nordicsemi"], file: &["nordic"] },
-    Maker { name: "Silicon Labs", text: &["silicon labs", "silabs"], file: &["silabs"] },
-    Maker { name: "ROHM", text: &["rohm"], file: &["rohm"] },
-    Maker { name: "Toshiba", text: &["toshiba"], file: &["toshiba"] },
-    Maker { name: "Cypress", text: &["cypress semiconductor"], file: &["cypress"] },
-    Maker { name: "Allegro MicroSystems", text: &["allegro microsystems"], file: &["allegro"] },
-    Maker { name: "Monolithic Power Systems", text: &["monolithic power"], file: &["mps"] },
-    Maker { name: "Semtech", text: &["semtech"], file: &["semtech"] },
-    Maker { name: "Lattice Semiconductor", text: &["lattice semiconductor"], file: &["lattice"] },
-    Maker { name: "Littelfuse", text: &["littelfuse"], file: &["littelfuse"] },
-    Maker { name: "TDK", text: &["tdk"], file: &["tdk"] },
-    Maker { name: "Kemet", text: &["kemet"], file: &["kemet"] },
-    Maker { name: "Panasonic", text: &["panasonic"], file: &["panasonic"] },
-    Maker { name: "arXiv", text: &["arxiv"], file: &["arxiv"] },
+    Maker {
+        name: "Texas Instruments",
+        text: &["texas instruments", "ti.com"],
+        file: &["ti", "texas"],
+    },
+    Maker {
+        name: "Analog Devices",
+        text: &["analog devices", "analog.com"],
+        file: &["adi", "analog"],
+    },
+    Maker {
+        name: "Infineon",
+        text: &["infineon", "international rectifier", "irf.com"],
+        file: &["infineon", "ir"],
+    },
+    Maker {
+        name: "Microchip Technology",
+        text: &["microchip", "atmel"],
+        file: &["microchip", "atmel"],
+    },
+    Maker {
+        name: "Espressif",
+        text: &["espressif"],
+        file: &["espressif"],
+    },
+    Maker {
+        name: "Bosch Sensortec",
+        text: &["bosch sensortec", "bosch"],
+        file: &["bosch"],
+    },
+    Maker {
+        name: "Vishay",
+        text: &["vishay", "siliconix"],
+        file: &["vishay"],
+    },
+    Maker {
+        name: "Murata",
+        text: &["murata"],
+        file: &["murata"],
+    },
+    Maker {
+        name: "Zilog",
+        text: &["zilog"],
+        file: &["zilog"],
+    },
+    Maker {
+        name: "JST",
+        text: &["jst", "jst-mfg"],
+        file: &["jst"],
+    },
+    Maker {
+        name: "STMicroelectronics",
+        text: &["stmicroelectronics", "st.com"],
+        file: &["st", "stm"],
+    },
+    Maker {
+        name: "NXP",
+        text: &["nxp"],
+        file: &["nxp"],
+    },
+    Maker {
+        name: "onsemi",
+        text: &["onsemi", "on semiconductor", "fairchild"],
+        file: &["onsemi", "fairchild"],
+    },
+    Maker {
+        name: "Renesas",
+        text: &["renesas", "intersil"],
+        file: &["renesas", "intersil"],
+    },
+    Maker {
+        name: "Nexperia",
+        text: &["nexperia"],
+        file: &["nexperia"],
+    },
+    Maker {
+        name: "Diodes Incorporated",
+        text: &["diodes incorporated", "diodes.com"],
+        file: &["diodes"],
+    },
+    Maker {
+        name: "Maxim Integrated",
+        text: &["maxim integrated", "maximintegrated"],
+        file: &["maxim"],
+    },
+    Maker {
+        name: "Linear Technology",
+        text: &["linear technology"],
+        file: &["linear", "ltc"],
+    },
+    Maker {
+        name: "Nordic Semiconductor",
+        text: &["nordic semiconductor", "nordicsemi"],
+        file: &["nordic"],
+    },
+    Maker {
+        name: "Silicon Labs",
+        text: &["silicon labs", "silabs"],
+        file: &["silabs"],
+    },
+    Maker {
+        name: "ROHM",
+        text: &["rohm"],
+        file: &["rohm"],
+    },
+    Maker {
+        name: "Toshiba",
+        text: &["toshiba"],
+        file: &["toshiba"],
+    },
+    Maker {
+        name: "Cypress",
+        text: &["cypress semiconductor"],
+        file: &["cypress"],
+    },
+    Maker {
+        name: "Allegro MicroSystems",
+        text: &["allegro microsystems"],
+        file: &["allegro"],
+    },
+    Maker {
+        name: "Monolithic Power Systems",
+        text: &["monolithic power"],
+        file: &["mps"],
+    },
+    Maker {
+        name: "Semtech",
+        text: &["semtech"],
+        file: &["semtech"],
+    },
+    Maker {
+        name: "Lattice Semiconductor",
+        text: &["lattice semiconductor"],
+        file: &["lattice"],
+    },
+    Maker {
+        name: "Littelfuse",
+        text: &["littelfuse"],
+        file: &["littelfuse"],
+    },
+    Maker {
+        name: "TDK",
+        text: &["tdk"],
+        file: &["tdk"],
+    },
+    Maker {
+        name: "Kemet",
+        text: &["kemet"],
+        file: &["kemet"],
+    },
+    Maker {
+        name: "Panasonic",
+        text: &["panasonic"],
+        file: &["panasonic"],
+    },
+    Maker {
+        name: "arXiv",
+        text: &["arxiv"],
+        file: &["arxiv"],
+    },
 ];
 
 // ------------------------------------------------------------------ helpers
 
 pub fn norm(s: &str) -> String {
-    s.chars().filter(|c| c.is_ascii_alphanumeric()).map(|c| c.to_ascii_lowercase()).collect()
+    s.chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .map(|c| c.to_ascii_lowercase())
+        .collect()
 }
 
 fn esc(s: &str) -> String {
@@ -118,14 +249,19 @@ fn esc(s: &str) -> String {
 }
 
 fn json_list(items: &[String]) -> String {
-    format!("[{}]", items.iter().map(|s| esc(s)).collect::<Vec<_>>().join(","))
+    format!(
+        "[{}]",
+        items.iter().map(|s| esc(s)).collect::<Vec<_>>().join(",")
+    )
 }
 
 /// The text the importer reads: from page 1 to `WINDOW_PAGES`, at most `WINDOW_BYTES`.
 pub fn window(text: &str) -> &str {
     let start = text.find("=== PAGE 1 ===").unwrap_or(0);
     let body = &text[start..];
-    let end = body.find(&format!("=== PAGE {} ===", WINDOW_PAGES + 1)).unwrap_or(body.len());
+    let end = body
+        .find(&format!("=== PAGE {} ===", WINDOW_PAGES + 1))
+        .unwrap_or(body.len());
     let mut body = &body[..end];
     if body.len() > WINDOW_BYTES {
         let mut cut = WINDOW_BYTES;
@@ -148,11 +284,20 @@ fn words(line: &str) -> Vec<String> {
     let cleaned: String = line
         .chars()
         .filter(|c| *c != '\\')
-        .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '-' | '+' | '_' | '.' | '/') { c } else { ' ' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '-' | '+' | '_' | '.' | '/') {
+                c
+            } else {
+                ' '
+            }
+        })
         .collect();
     cleaned
         .split_whitespace()
-        .map(|w| w.trim_matches(|c| c == '.' || c == '-' || c == '/' || c == '_').to_string())
+        .map(|w| {
+            w.trim_matches(|c| c == '.' || c == '-' || c == '/' || c == '_')
+                .to_string()
+        })
         .filter(|w| !w.is_empty())
         .collect()
 }
@@ -167,12 +312,14 @@ enum Kind {
 fn is_noise(n: &str) -> bool {
     // Interfaces and standards that carry digits but name no part.
     const NOISE: &[&str] = &[
-        "usb", "ddr", "i2c", "i2s", "spi", "can", "rs", "ieee", "jedec", "iso", "iec", "ul", "rohs", "wifi", "lte",
-        "bt", "ble", "uart", "pcie", "sata", "ip", "mil", "eia", "aec", "qfn", "sot", "soic", "tssop", "vssop",
-        "wson", "bga", "lqfp", "tqfp", "dip",
+        "usb", "ddr", "i2c", "i2s", "spi", "can", "rs", "ieee", "jedec", "iso", "iec", "ul",
+        "rohs", "wifi", "lte", "bt", "ble", "uart", "pcie", "sata", "ip", "mil", "eia", "aec",
+        "qfn", "sot", "soic", "tssop", "vssop", "wson", "bga", "lqfp", "tqfp", "dip",
     ];
     let trimmed = n.trim_end_matches(|c: char| c.is_ascii_digit());
-    let stripped = trimmed.strip_suffix(|c: char| c.is_ascii_lowercase()).unwrap_or(trimmed);
+    let stripped = trimmed
+        .strip_suffix(|c: char| c.is_ascii_lowercase())
+        .unwrap_or(trimmed);
     [n, trimmed, stripped].iter().any(|c| NOISE.contains(c))
 }
 
@@ -181,7 +328,10 @@ fn classify(w: &str) -> Kind {
     if w.len() < 3 || w.len() > 32 || !b[0].is_ascii_alphabetic() {
         return Kind::No;
     }
-    if !w.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '+' | '.' | '_')) {
+    if !w
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '+' | '.' | '_'))
+    {
         return Kind::No;
     }
     let letters = w.chars().filter(|c| c.is_ascii_alphabetic()).count();
@@ -204,7 +354,13 @@ fn classify(w: &str) -> Kind {
 /// TI-style literature numbers: SBAS444E, SLOS068AB, SLVU720A, SNOSD82D.
 pub fn is_literature(w: &str) -> bool {
     let c: Vec<char> = w.chars().collect();
-    if c.len() < 7 || c.len() > 10 || c[0] != 'S' || !c.iter().all(|x| x.is_ascii_uppercase() || x.is_ascii_digit()) {
+    if c.len() < 7
+        || c.len() > 10
+        || c[0] != 'S'
+        || !c
+            .iter()
+            .all(|x| x.is_ascii_uppercase() || x.is_ascii_digit())
+    {
         return false;
     }
     let mut i = 1;
@@ -241,7 +397,9 @@ fn find_literature(s: &str) -> Option<String> {
 /// trim punctuation. `None` when no digit is left.
 fn finish(tok: &str) -> Option<String> {
     let core = tok.split('_').next().unwrap_or(tok);
-    let mut t = core.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '+').to_string();
+    let mut t = core
+        .trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '+')
+        .to_string();
     let lower = t.to_ascii_lowercase();
     if lower.ends_with("pbf") && t.len() >= 7 {
         t.truncate(t.len() - 3);
@@ -271,7 +429,10 @@ fn expand(w: &str) -> Vec<String> {
         Some(b) if classify(b) == Kind::Part => b,
         _ => return Vec::new(),
     };
-    let prefix: String = base.chars().take_while(|c| c.is_ascii_alphabetic()).collect();
+    let prefix: String = base
+        .chars()
+        .take_while(|c| c.is_ascii_alphabetic())
+        .collect();
     let mut digits: String = base
         .chars()
         .skip_while(|c| !c.is_ascii_digit())
@@ -319,7 +480,11 @@ pub fn lead_parts(line: &str) -> Vec<String> {
             continue;
         }
         let kind = if w.contains('/') {
-            if expand(&w).is_empty() { Kind::No } else { Kind::Part }
+            if expand(&w).is_empty() {
+                Kind::No
+            } else {
+                Kind::Part
+            }
         } else {
             classify(&w)
         };
@@ -351,7 +516,9 @@ fn parser_tokens(raws: &[String], stems: &[String], diags: &mut Vec<String>) -> 
     let mut out: Vec<String> = Vec::new();
     for raw in raws {
         if !stems.is_empty() && stems.contains(&norm(raw)) {
-            diags.push(format!("parser part {raw:?} is the file name; treated as the filename witness"));
+            diags.push(format!(
+                "parser part {raw:?} is the file name; treated as the filename witness"
+            ));
             continue;
         }
         for tok in raw.split(|c: char| c == ',' || c == '/' || c == ';' || c.is_whitespace()) {
@@ -384,9 +551,36 @@ fn file_stems(names: &[String]) -> Vec<String> {
 }
 
 const STOP_WORDS: &[&str] = &[
-    "ds", "datasheet", "datasheets", "data", "sheet", "appnote", "app", "note", "spec", "specs", "productspec",
-    "userguide", "guide", "manual", "trm", "errata", "master", "local", "older", "family", "series", "mlcc",
-    "pdf", "reference", "rev", "revision", "final", "preliminary", "sidecar", "connector",
+    "ds",
+    "datasheet",
+    "datasheets",
+    "data",
+    "sheet",
+    "appnote",
+    "app",
+    "note",
+    "spec",
+    "specs",
+    "productspec",
+    "userguide",
+    "guide",
+    "manual",
+    "trm",
+    "errata",
+    "master",
+    "local",
+    "older",
+    "family",
+    "series",
+    "mlcc",
+    "pdf",
+    "reference",
+    "rev",
+    "revision",
+    "final",
+    "preliminary",
+    "sidecar",
+    "connector",
 ];
 
 fn is_stop(w: &str) -> bool {
@@ -399,7 +593,21 @@ fn is_stop(w: &str) -> bool {
     (l.starts_with("rev") && l.len() <= 5)
         || (l.starts_with('v') && l.len() >= 2 && b[1].is_ascii_digit())
         || (l.len() == 5
-            && matches!(&l[..3], "jan" | "feb" | "mar" | "apr" | "may" | "jun" | "jul" | "aug" | "sep" | "oct" | "nov" | "dec")
+            && matches!(
+                &l[..3],
+                "jan"
+                    | "feb"
+                    | "mar"
+                    | "apr"
+                    | "may"
+                    | "jun"
+                    | "jul"
+                    | "aug"
+                    | "sep"
+                    | "oct"
+                    | "nov"
+                    | "dec"
+            )
             && l[3..].chars().all(|c| c.is_ascii_digit()))
         || (l.len() == 4 && l.chars().all(|c| c.is_ascii_digit()))
 }
@@ -409,12 +617,18 @@ fn filename_witness(names: &[String]) -> (Option<&'static str>, Vec<String>, Opt
     for n in names {
         let base = n.rsplit('/').next().unwrap_or(n);
         let stem = base.rsplit_once('.').map(|(a, _)| a).unwrap_or(base);
-        let ws: Vec<&str> = stem.split(|c: char| c == '-' || c == '_' || c == ' ').filter(|w| !w.is_empty()).collect();
+        let ws: Vec<&str> = stem
+            .split(|c: char| c == '-' || c == '_' || c == ' ')
+            .filter(|w| !w.is_empty())
+            .collect();
         if ws.is_empty() {
             continue;
         }
         let first = ws[0].to_ascii_lowercase();
-        let maker = LEXICON.iter().find(|m| m.file.contains(&first.as_str())).map(|m| m.name);
+        let maker = LEXICON
+            .iter()
+            .find(|m| m.file.contains(&first.as_str()))
+            .map(|m| m.name);
         let rest = if maker.is_some() { &ws[1..] } else { &ws[..] };
         let mut run: Vec<&str> = Vec::new();
         for w in rest {
@@ -475,7 +689,11 @@ fn count_word(hay: &str, needle: &str) -> (usize, usize) {
 
 /// (maker, mentions, runner-up) the document's text names most.
 fn text_maker(win: &str) -> Option<(&'static str, usize, Option<(&'static str, usize)>)> {
-    let hay = win.split_whitespace().collect::<Vec<_>>().join(" ").to_ascii_lowercase();
+    let hay = win
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_lowercase();
     let mut hits: Vec<(&'static str, usize, usize)> = Vec::new();
     for m in LEXICON {
         let (mut c, mut f) = (0, usize::MAX);
@@ -525,7 +743,11 @@ pub fn reconcile(e: &Evidence<'_>) -> Identity {
         text_maker_hit = text_maker(w);
     }
     let (file_maker, file_parts, file_lit) = filename_witness(names);
-    let literature = e.title.and_then(find_literature).or(text_lit.clone()).or(file_lit);
+    let literature = e
+        .title
+        .and_then(find_literature)
+        .or(text_lit.clone())
+        .or(file_lit);
 
     // ---- parts: text, title, parser, filename
     let mut parts: Vec<String> = Vec::new();
@@ -539,7 +761,10 @@ pub fn reconcile(e: &Evidence<'_>) -> Identity {
     for t in &parser {
         let n = norm(t);
         // a short tail of a longer part number ("A12" for GRM188R71C105KA12) is a fragment
-        let fragment = n.len() <= 4 && parts.iter().any(|p| norm(p).len() > n.len() && norm(p).ends_with(&n));
+        let fragment = n.len() <= 4
+            && parts
+                .iter()
+                .any(|p| norm(p).len() > n.len() && norm(p).ends_with(&n));
         if fragment {
             continue;
         }
@@ -547,7 +772,10 @@ pub fn reconcile(e: &Evidence<'_>) -> Identity {
         push_unique(&mut parts, t.clone());
     }
     let mut by: Vec<&str> = Vec::new();
-    let in_parts = |list: &[String]| list.iter().any(|t| parts.iter().any(|p| norm(p) == norm(t)));
+    let in_parts = |list: &[String]| {
+        list.iter()
+            .any(|t| parts.iter().any(|p| norm(p) == norm(t)))
+    };
     if in_parts(&text_parts) {
         by.push("text");
     }
@@ -574,7 +802,11 @@ pub fn reconcile(e: &Evidence<'_>) -> Identity {
             diags.push(format!(
                 "parts contested: parser={} vs {}={}",
                 json_list(&parser),
-                if others.is_empty() { "reconciled".to_string() } else { others.join("+") },
+                if others.is_empty() {
+                    "reconciled".to_string()
+                } else {
+                    others.join("+")
+                },
                 json_list(&parts)
             ));
         }
@@ -582,7 +814,9 @@ pub fn reconcile(e: &Evidence<'_>) -> Identity {
 
     // ---- maker: text, then a parser reading that is not a bare part-prefix guess, then the file name
     let parser_maker = e.parser_maker.filter(|m| !m.trim().is_empty());
-    let parser_by = e.parser_maker_by.filter(|m| !m.trim().is_empty() && *m != "none");
+    let parser_by = e
+        .parser_maker_by
+        .filter(|m| !m.trim().is_empty() && *m != "none");
     let parser_label = |m: &str| match parser_by {
         Some(b) => format!("{m} ({b})"),
         None => m.to_string(),
@@ -594,7 +828,10 @@ pub fn reconcile(e: &Evidence<'_>) -> Identity {
             if same_maker(pm, tm) {
                 by.push("parser");
             } else {
-                diags.push(format!("maker contested: parser={} vs text={tm}", parser_label(pm)));
+                diags.push(format!(
+                    "maker contested: parser={} vs text={tm}",
+                    parser_label(pm)
+                ));
             }
         }
         if let Some(fm) = file_maker {
@@ -606,7 +843,9 @@ pub fn reconcile(e: &Evidence<'_>) -> Identity {
         }
         if let Some((sm, sn)) = second {
             if sn >= 2 {
-                diags.push(format!("maker also named in the text: {sm} ({sn} mentions)"));
+                diags.push(format!(
+                    "maker also named in the text: {sm} ({sn} mentions)"
+                ));
             }
         }
         maker = Some(tm.to_string());
@@ -616,7 +855,10 @@ pub fn reconcile(e: &Evidence<'_>) -> Identity {
         maker_by = Some("parser".into());
         if let Some(fm) = file_maker {
             if !same_maker(fm, pm) {
-                diags.push(format!("maker contested: parser={} vs filename={fm}", parser_label(pm)));
+                diags.push(format!(
+                    "maker contested: parser={} vs filename={fm}",
+                    parser_label(pm)
+                ));
             }
         }
     } else if let Some(fm) = file_maker {
@@ -625,7 +867,10 @@ pub fn reconcile(e: &Evidence<'_>) -> Identity {
             if same_maker(pm, fm) {
                 by.push("parser");
             } else {
-                diags.push(format!("maker contested: parser={} vs filename={fm}", parser_label(pm)));
+                diags.push(format!(
+                    "maker contested: parser={} vs filename={fm}",
+                    parser_label(pm)
+                ));
             }
         }
         maker = Some(fm.to_string());
@@ -648,7 +893,10 @@ pub fn reconcile(e: &Evidence<'_>) -> Identity {
         w.push(format!("\"parser\":{{{}}}", p.join(",")));
     }
     if !title_parts.is_empty() {
-        w.push(format!("\"title\":{{\"parts\":{}}}", json_list(&title_parts)));
+        w.push(format!(
+            "\"title\":{{\"parts\":{}}}",
+            json_list(&title_parts)
+        ));
     }
     if win.is_some() {
         let mut p: Vec<String> = vec![format!("\"parts\":{}", json_list(&text_parts))];
@@ -684,7 +932,12 @@ pub fn reconcile(e: &Evidence<'_>) -> Identity {
 mod tests {
     use super::*;
 
-    fn ev<'a>(parts: &'a [String], title: Option<&'a str>, names: &'a [String], text: Option<&'a str>) -> Evidence<'a> {
+    fn ev<'a>(
+        parts: &'a [String],
+        title: Option<&'a str>,
+        names: &'a [String],
+        text: Option<&'a str>,
+    ) -> Evidence<'a> {
         Evidence {
             parser_parts: parts,
             parser_maker: None,
@@ -700,20 +953,41 @@ mod tests {
     fn slash_shorthand_expands_to_the_family() {
         assert_eq!(
             lead_parts("ATmega48A/PA/88A/PA/168A/PA/328/P"),
-            ["ATmega48A", "ATmega48PA", "ATmega88A", "ATmega88PA", "ATmega168A", "ATmega168PA", "ATmega328", "ATmega328P"]
+            [
+                "ATmega48A",
+                "ATmega48PA",
+                "ATmega88A",
+                "ATmega88PA",
+                "ATmega168A",
+                "ATmega168PA",
+                "ATmega328",
+                "ATmega328P"
+            ]
         );
-        assert_eq!(lead_parts("OPA2134/OPA134/OPA4134 SoundPlus"), ["OPA2134", "OPA134", "OPA4134"]);
+        assert_eq!(
+            lead_parts("OPA2134/OPA134/OPA4134 SoundPlus"),
+            ["OPA2134", "OPA134", "OPA4134"]
+        );
     }
 
     #[test]
     fn lead_parts_stop_at_prose_and_skip_wildcards() {
-        assert_eq!(lead_parts("TMP117 High-Accuracy, Low-Power Sensor"), ["TMP117"]);
-        assert_eq!(lead_parts("Publ i c BSC016N06NS Final datasheet"), ["BSC016N06NS"]);
+        assert_eq!(
+            lead_parts("TMP117 High-Accuracy, Low-Power Sensor"),
+            ["TMP117"]
+        );
+        assert_eq!(
+            lead_parts("Publ i c BSC016N06NS Final datasheet"),
+            ["BSC016N06NS"]
+        );
         assert!(lead_parts("ADS111x Ultra-Small, Low-Power 16-Bit ADCs").is_empty());
         assert!(lead_parts("OPAx134 High-Performance Audio").is_empty());
         assert!(lead_parts("Ultra-low power 10-bit 50-90MSps SAR ADCs").is_empty());
         assert_eq!(lead_parts("Z80':CPU Z80A-CPU"), ["Z80"]);
-        assert_eq!(lead_parts("ADS1113, ADS1114, ADS1115 SBAS444E - MAY 2009"), ["ADS1113", "ADS1114", "ADS1115"]);
+        assert_eq!(
+            lead_parts("ADS1113, ADS1114, ADS1115 SBAS444E - MAY 2009"),
+            ["ADS1113", "ADS1114", "ADS1115"]
+        );
     }
 
     #[test]
@@ -721,16 +995,28 @@ mod tests {
         for l in ["SBAS444E", "SLOS068AB", "SLVU720A", "SNOSD82D", "SLVA477B"] {
             assert!(is_literature(l), "{l}");
         }
-        assert!(!is_literature("STM32F407") && !is_literature("SOT23") && !is_literature("TPS54331"));
+        assert!(
+            !is_literature("STM32F407") && !is_literature("SOT23") && !is_literature("TPS54331")
+        );
     }
 
     #[test]
     fn the_file_name_reads_a_maker_and_a_part_only_when_it_has_one() {
         let n = |s: &str| vec![s.to_string()];
         let (m, p, l) = filename_witness(&n("infineon-bsc016n06ns_DS_V2.6.pdf"));
-        assert_eq!((m, p, l), (Some("Infineon"), vec!["BSC016N06NS".to_string()], None));
+        assert_eq!(
+            (m, p, l),
+            (Some("Infineon"), vec!["BSC016N06NS".to_string()], None)
+        );
         let (m, p, l) = filename_witness(&n("ti-slva477b-appnote.pdf"));
-        assert_eq!((m, p, l), (Some("Texas Instruments"), vec![], Some("SLVA477B".to_string())));
+        assert_eq!(
+            (m, p, l),
+            (
+                Some("Texas Instruments"),
+                vec![],
+                Some("SLVA477B".to_string())
+            )
+        );
         let (m, p, _) = filename_witness(&n("arxiv-2312.14592-sar-adc-65nm.pdf"));
         assert_eq!((m, p), (Some("arXiv"), vec![]));
         let (m, p, _) = filename_witness(&n("zilog-z80-ctc-productspec-feb80.pdf"));
@@ -747,12 +1033,21 @@ mod tests {
         assert_eq!(id.literature.as_deref(), Some("SLVA477B"));
         assert_eq!(id.maker.as_deref(), Some("Texas Instruments"));
         assert_eq!(id.maker_by.as_deref(), Some("filename"));
-        assert!(id.diagnostics.iter().any(|d| d.contains("is the file name")), "{:?}", id.diagnostics);
+        assert!(
+            id.diagnostics
+                .iter()
+                .any(|d| d.contains("is the file name")),
+            "{:?}",
+            id.diagnostics
+        );
 
         let none: Vec<String> = Vec::new();
         let names = vec!["infineon-bsc016n06ns_DS_V2.6.pdf".to_string()];
         let id = reconcile(&ev(&none, None, &names, None));
-        assert_eq!((id.parts.clone(), id.parts_by.as_str()), (vec!["BSC016N06NS".to_string()], "filename"));
+        assert_eq!(
+            (id.parts.clone(), id.parts_by.as_str()),
+            (vec!["BSC016N06NS".to_string()], "filename")
+        );
         // switched off, nothing is invented
         let mut off = ev(&none, None, &names, None);
         off.use_filename = false;

@@ -152,10 +152,20 @@ pub(crate) fn embed_texts_with_progress<P: SemanticEmbeddingProgress>(
     batch_size: usize,
     progress: Option<&P>,
 ) -> AppResult<Vec<Vec<f32>>> {
-    embed_prefixed_with_progress(app, texts, &format!("{task_prefix}: "), batch_size, progress)
+    embed_prefixed_with_progress(
+        app,
+        texts,
+        &format!("{task_prefix}: "),
+        batch_size,
+        progress,
+    )
 }
 
-pub(crate) fn embed_texts_prefixed(app: &AppHandle, texts: &[String], prefix: &str) -> AppResult<Vec<Vec<f32>>> {
+pub(crate) fn embed_texts_prefixed(
+    app: &AppHandle,
+    texts: &[String],
+    prefix: &str,
+) -> AppResult<Vec<Vec<f32>>> {
     embed_prefixed_with_progress::<NoSemanticEmbeddingProgress>(app, texts, prefix, 64, None)
 }
 

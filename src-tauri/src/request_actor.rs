@@ -50,6 +50,9 @@ mod tests {
         let seen = acting_for(Some(actor.clone()), async { current_request_actor() }).await;
         assert_eq!(seen, Some(actor));
         assert_eq!(current_request_actor(), None);
-        assert_eq!(acting_for(None, async { current_request_actor() }).await, None);
+        assert_eq!(
+            acting_for(None, async { current_request_actor() }).await,
+            None
+        );
     }
 }

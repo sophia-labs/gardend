@@ -16,7 +16,8 @@ const DEFAULT_K: usize = 5;
 const MAX_K: usize = 25;
 
 pub(crate) fn mcp_local_find(app: AppHandle, arguments: &Value) -> AppResult<Value> {
-    let graph_id = crate::mcp_arg_utils::mcp_required_graph_id(arguments).map_err(AppError::validation)?;
+    let graph_id =
+        crate::mcp_arg_utils::mcp_required_graph_id(arguments).map_err(AppError::validation)?;
     crate::ids::validate_local_id(&graph_id, "graph_id").map_err(AppError::validation)?;
     let query = crate::mcp_arg_utils::mcp_arg_string(arguments, &["query", "q"])
         .ok_or_else(|| AppError::validation("query is required"))?;
@@ -29,14 +30,19 @@ pub(crate) fn mcp_local_find(app: AppHandle, arguments: &Value) -> AppResult<Val
         None | Some("fused") | Some("hybrid") => FindMode::Fused,
         Some("vector") | Some("meaning") => FindMode::Vector,
         Some("lexical") | Some("words") => FindMode::Lexical,
-        Some(other) => return Err(AppError::validation(format!("mode {other:?}: use fused (default), vector or lexical"))),
+        Some(other) => {
+            return Err(AppError::validation(format!(
+                "mode {other:?}: use fused (default), vector or lexical"
+            )))
+        }
     };
     let filter = FindFilter {
         kinds: crate::mcp_arg_utils::mcp_arg_string_vec(arguments, &["kinds", "kind"]),
         types: crate::mcp_arg_utils::mcp_arg_string_vec(arguments, &["types", "type"]),
         graphs: crate::mcp_arg_utils::mcp_arg_string_vec(arguments, &["graphs", "namedGraphs"]),
     };
-    let graph_dir = crate::paths::existing_graph_dir(&app, &graph_id).map_err(AppError::not_found)?;
+    let graph_dir =
+        crate::paths::existing_graph_dir(&app, &graph_id).map_err(AppError::not_found)?;
     if !entity_index_enabled(&graph_dir) {
         return Err(AppError::validation(format!(
             "find is not enabled for graph {graph_id}: its owner turns it on with `gardend index --graph {graph_id}`. \
@@ -53,20 +59,36 @@ pub(crate) fn mcp_local_find(app: AppHandle, arguments: &Value) -> AppResult<Val
         None
     } else {
         Some(
-            with_entity_embedder(&index.manifest.model_id, None, |embedder| embedder.embed_query(&query))
-                .map_err(AppError::internal)?,
+            with_entity_embedder(&index.manifest.model_id, None, |embedder| {
+                embedder.embed_query(&query)
+            })
+            .map_err(AppError::internal)?,
         )
     };
     let hits = index.rank(vector.as_deref(), &query, &filter, mode, k);
-    Ok(find_response(&graph_id, &query, &index, &hits, started.elapsed().as_millis() as u64))
+    Ok(find_response(
+        &graph_id,
+        &query,
+        &index,
+        &hits,
+        started.elapsed().as_millis() as u64,
+    ))
 }
 
-pub(crate) fn find_response(graph_id: &str, query: &str, index: &LoadedEntityIndex, hits: &[RankedHit], ms: u64) -> Value {
+pub(crate) fn find_response(
+    graph_id: &str,
+    query: &str,
+    index: &LoadedEntityIndex,
+    hits: &[RankedHit],
+    ms: u64,
+) -> Value {
     // the named graph most hits come from is the response's default; a hit
     // from another one says so
     let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
     for hit in hits {
-        *counts.entry(index.rows[hit.row].graph.as_str()).or_default() += 1;
+        *counts
+            .entry(index.rows[hit.row].graph.as_str())
+            .or_default() += 1;
     }
     let default_graph = counts
         .iter()
@@ -78,7 +100,11 @@ pub(crate) fn find_response(graph_id: &str, query: &str, index: &LoadedEntityInd
         .map(|graph| {
             let mut entry = json!({ "namedGraph": graph });
             if let Some(found) = index.manifest.graphs.get(*graph) {
-                for (key, value) in [("rights", &found.rights), ("license", &found.license), ("source", &found.source)] {
+                for (key, value) in [
+                    ("rights", &found.rights),
+                    ("license", &found.license),
+                    ("source", &found.source),
+                ] {
                     if let Some(value) = value {
                         entry[key] = json!(value);
                     }
@@ -87,7 +113,10 @@ pub(crate) fn find_response(graph_id: &str, query: &str, index: &LoadedEntityInd
             entry
         })
         .collect();
-    let hits_json: Vec<Value> = hits.iter().map(|hit| index.hit_json(hit, &default_graph)).collect();
+    let hits_json: Vec<Value> = hits
+        .iter()
+        .map(|hit| index.hit_json(hit, &default_graph))
+        .collect();
     let mut out = json!({
         "query": query,
         "graph": graph_id,

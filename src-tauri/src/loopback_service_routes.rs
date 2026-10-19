@@ -965,9 +965,10 @@ async fn proxy_service_path(
             email_verified,
             ..
         } => {
-            request = request
-                .header(CALLER_KIND_HEADER, "account")
-                .header(ACCOUNT_EMAIL_VERIFIED_HEADER, if *email_verified { "true" } else { "false" });
+            request = request.header(CALLER_KIND_HEADER, "account").header(
+                ACCOUNT_EMAIL_VERIFIED_HEADER,
+                if *email_verified { "true" } else { "false" },
+            );
             if let Some(email) = email {
                 request = request.header(ACCOUNT_EMAIL_HEADER, email);
             }
@@ -993,9 +994,14 @@ async fn proxy_service_path(
         // writes there and nowhere else).
         if let Some(public) = state.self_host.public() {
             let account = crate::visitor_fence::VisitorAccount::of(&caller.principal);
-            if let Ok(fence) = crate::visitor_fence::fence_for(Some(public), account.as_ref(), graph_id) {
+            if let Ok(fence) =
+                crate::visitor_fence::fence_for(Some(public), account.as_ref(), graph_id)
+            {
                 request = request
-                    .header(WRITE_FENCE_HEADER, format!("{}/{}", fence.graph_id, fence.root_folder_id))
+                    .header(
+                        WRITE_FENCE_HEADER,
+                        format!("{}/{}", fence.graph_id, fence.root_folder_id),
+                    )
                     .header(VISITOR_ACCOUNT_HEADER, fence.account);
             }
         }
@@ -2214,8 +2220,13 @@ mod proxy_tests {
             );
             state.services.pin_services_dir(dir);
             state.services.set_timing(fast_timing());
-            state.services.set_local_api_url("http://127.0.0.1:9".into());
-            assert!(state.services.start("vehicle", &state.app, &state.manifest).is_err());
+            state
+                .services
+                .set_local_api_url("http://127.0.0.1:9".into());
+            assert!(state
+                .services
+                .start("vehicle", &state.app, &state.manifest)
+                .is_err());
             let reason = "Chat needs Node.js 22.19 or newer; the node on gardend's PATH is 18.20.4. Put Node.js 22.19 or newer first on gardend's PATH, then restart gardend.";
             crate::app_runtime::async_runtime::block_on(async {
                 let (status, described) =
@@ -2486,7 +2497,10 @@ mod proxy_tests {
                             echo("/services/vehicle/g/notes/sessions", credential).await;
                         assert_eq!(status, StatusCode::OK, "{echoed}");
                         assert_eq!(echoed["graphId"], "notes");
-                        let token = echoed["delegatedToken"].as_str().unwrap_or_default().to_string();
+                        let token = echoed["delegatedToken"]
+                            .as_str()
+                            .unwrap_or_default()
+                            .to_string();
                         assert!(token.starts_with("sophia-dlg-"), "{echoed}");
                         token
                     }
@@ -2530,7 +2544,11 @@ mod proxy_tests {
                     }
                 };
                 let tool = |token: &String, name: &'static str, arguments: Value| {
-                    mcp(token.clone(), "tools/call", json!({ "name": name, "arguments": arguments }))
+                    mcp(
+                        token.clone(),
+                        "tools/call",
+                        json!({ "name": name, "arguments": arguments }),
+                    )
                 };
                 let listed_names = |listed: &Value| {
                     listed["result"]["tools"]
@@ -2549,7 +2567,10 @@ mod proxy_tests {
                 let owner_tools = listed_names(&listed);
                 for schema in listed["result"]["tools"].as_array().unwrap() {
                     let schema = schema["inputSchema"].to_string();
-                    assert!(!schema.contains("\"graphId\"") && !schema.contains("\"graph_id\""), "{schema}");
+                    assert!(
+                        !schema.contains("\"graphId\"") && !schema.contains("\"graph_id\""),
+                        "{schema}"
+                    );
                 }
                 assert!(owner_tools.iter().any(|name| name == "create_document"));
                 assert!(owner_tools.iter().any(|name| name == "datasheet_facts"));
@@ -2557,7 +2578,12 @@ mod proxy_tests {
                 let (_, listed) = mcp(viewer_token.clone(), "tools/list", json!({})).await;
                 let viewer_tools = listed_names(&listed);
                 assert!(viewer_tools.iter().any(|name| name == "read_document"));
-                for writer in ["create_document", "write_document", "edit_comment", "create_wires"] {
+                for writer in [
+                    "create_document",
+                    "write_document",
+                    "edit_comment",
+                    "create_wires",
+                ] {
                     assert!(!viewer_tools.iter().any(|name| name == writer), "{writer}");
                 }
 
@@ -2573,12 +2599,17 @@ mod proxy_tests {
                 }
                 // (ii) the viewer's token cannot write, whatever the service
                 // asks: gardend refuses it.
-                let (_, refused) =
-                    tool(&viewer_token, "create_document", json!({ "title": "Not for a viewer" })).await;
+                let (_, refused) = tool(
+                    &viewer_token,
+                    "create_document",
+                    json!({ "title": "Not for a viewer" }),
+                )
+                .await;
                 assert!(
                     refused["error"]["message"]
                         .as_str()
-                        .is_some_and(|message| message.contains("missing required scope") && message.contains(".write.crdt")),
+                        .is_some_and(|message| message.contains("missing required scope")
+                            && message.contains(".write.crdt")),
                     "{refused}"
                 );
                 // (iii) the graph is gardend's to fill in: none named, the
@@ -2586,16 +2617,34 @@ mod proxy_tests {
                 let (_, listed) = tool(&viewer_token, "list_documents", json!({})).await;
                 assert!(listed["error"].is_null(), "{listed}");
                 let listed = listed.to_string();
-                assert!(listed.contains("Written for the owner") && listed.contains("Written for the member"), "{listed}");
+                assert!(
+                    listed.contains("Written for the owner")
+                        && listed.contains("Written for the member"),
+                    "{listed}"
+                );
                 assert!(!listed.contains("Not for a viewer"));
                 for (name, arguments, said) in [
-                    ("list_documents", json!({ "graphId": "other" }), "bound to the graph \"notes\""),
-                    ("read_document", json!({ "graph_id": "other", "documentId": "x" }), "bound to the graph \"notes\""),
-                    ("list_graphs", json!({}), "reaches beyond the graph \"notes\""),
+                    (
+                        "list_documents",
+                        json!({ "graphId": "other" }),
+                        "bound to the graph \"notes\"",
+                    ),
+                    (
+                        "read_document",
+                        json!({ "graph_id": "other", "documentId": "x" }),
+                        "bound to the graph \"notes\"",
+                    ),
+                    (
+                        "list_graphs",
+                        json!({}),
+                        "reaches beyond the graph \"notes\"",
+                    ),
                 ] {
                     let (_, refused) = tool(&owner_token, name, arguments).await;
                     assert!(
-                        refused["error"]["message"].as_str().is_some_and(|message| message.contains(said)),
+                        refused["error"]["message"]
+                            .as_str()
+                            .is_some_and(|message| message.contains(said)),
                         "{name}: {refused}"
                     );
                 }
@@ -2603,7 +2652,10 @@ mod proxy_tests {
                 // The old way: the service's own process token, attributed to
                 // the service.
                 let (_, echoed) = echo("/services/vehicle/api/env", bearer(MASTER)).await;
-                let service_token = echoed["env"]["MNEMOSYNE_MCP_ACCESS_TOKEN"].as_str().unwrap().to_string();
+                let service_token = echoed["env"]["MNEMOSYNE_MCP_ACCESS_TOKEN"]
+                    .as_str()
+                    .unwrap()
+                    .to_string();
                 let (_, created) = tool(
                     &service_token,
                     "create_document",
@@ -2615,14 +2667,22 @@ mod proxy_tests {
                 // The audit log names who: every CRDT write and every write
                 // tool call a delegation token made.
                 let events = serde_json::to_value(
-                    crate::loopback_audit_log::list_loopback_audit_events(state.app.clone(), None).unwrap(),
+                    crate::loopback_audit_log::list_loopback_audit_events(state.app.clone(), None)
+                        .unwrap(),
                 )
                 .unwrap();
                 let rows = events.as_array().unwrap();
                 let crdt_actors = rows
                     .iter()
-                    .filter(|row| row["category"] == "crdt.operation" && row["outcome"] == "succeeded")
-                    .map(|row| (row["actor"].as_str().unwrap().to_string(), row["details"]["via"].clone()))
+                    .filter(|row| {
+                        row["category"] == "crdt.operation" && row["outcome"] == "succeeded"
+                    })
+                    .map(|row| {
+                        (
+                            row["actor"].as_str().unwrap().to_string(),
+                            row["details"]["via"].clone(),
+                        )
+                    })
                     .collect::<Vec<_>>();
                 let member_id = format!("token:{}", member.record.token_id);
                 for expected in [
@@ -2630,10 +2690,15 @@ mod proxy_tests {
                     (member_id.clone(), json!("service:vehicle")),
                     ("service:vehicle".to_string(), Value::Null),
                 ] {
-                    assert!(crdt_actors.contains(&expected), "{expected:?} in {crdt_actors:?}");
+                    assert!(
+                        crdt_actors.contains(&expected),
+                        "{expected:?} in {crdt_actors:?}"
+                    );
                 }
                 assert!(
-                    !crdt_actors.iter().any(|(actor, _)| actor == "local-runtime"),
+                    !crdt_actors
+                        .iter()
+                        .any(|(actor, _)| actor == "local-runtime"),
                     "{crdt_actors:?}"
                 );
                 let calls = rows
@@ -2674,7 +2739,8 @@ mod proxy_tests {
                     ("GET", "/services/vehicle/g/notes/sessions"),
                     ("GET", "/api/services/vehicle/status"),
                 ] {
-                    let response = call(&state, method, path, &[bearer(&owner_token)], Body::empty()).await;
+                    let response =
+                        call(&state, method, path, &[bearer(&owner_token)], Body::empty()).await;
                     assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{path}");
                 }
                 // A revoked client token takes its delegations with it.

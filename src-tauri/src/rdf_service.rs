@@ -102,7 +102,9 @@ pub(super) async fn mcp_local_sparql_update(
         ));
     }
     if options.cursor.is_some() {
-        return Err(AppError::validation("cursor applies only to SPARQL queries"));
+        return Err(AppError::validation(
+            "cursor applies only to SPARQL queries",
+        ));
     }
     let result =
         run_external_sparql_update(app, sparql_update_input_from_mcp_args(arguments)).await?;

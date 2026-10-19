@@ -323,18 +323,27 @@ mod tests {
         let sidecar = document_ydoc_state_path(&graph_dir, "doc-a");
 
         RECORD_READ_COUNTS.with(|counts| counts.set((0, 0)));
-        assert!(read_document_record_if_title_changed(&graph_dir, &manifest, &document.title)
-            .unwrap().is_none());
+        assert!(
+            read_document_record_if_title_changed(&graph_dir, &manifest, &document.title)
+                .unwrap()
+                .is_none()
+        );
         assert_eq!(RECORD_READ_COUNTS.with(std::cell::Cell::get), (0, 0));
-        assert!(!sidecar.exists(), "equal title must not backfill legacy history");
+        assert!(
+            !sidecar.exists(),
+            "equal title must not backfill legacy history"
+        );
 
         // A directory at the exact byte-file path makes legacy backfill fail.
         // The unchanged-title path must not enter hydration/backfill at all.
         fs::create_dir_all(&sidecar).unwrap();
         assert!(read_document_record(&graph_dir, &manifest).is_err());
         RECORD_READ_COUNTS.with(|counts| counts.set((0, 0)));
-        assert!(read_document_record_if_title_changed(&graph_dir, &manifest, &document.title)
-            .unwrap().is_none());
+        assert!(
+            read_document_record_if_title_changed(&graph_dir, &manifest, &document.title)
+                .unwrap()
+                .is_none()
+        );
         assert_eq!(RECORD_READ_COUNTS.with(std::cell::Cell::get), (0, 0));
         assert!(sidecar.is_dir());
         assert_eq!(fs::read(&manifest).unwrap(), before);
@@ -351,15 +360,23 @@ mod tests {
 
         RECORD_READ_COUNTS.with(|counts| counts.set((0, 0)));
         let record = read_document_record_if_title_changed(&graph_dir, &manifest, "Renamed")
-            .unwrap().expect("rename retains the actual record for the save path");
-        assert_eq!(record.title, document.title, "the reader must not save a rename");
+            .unwrap()
+            .expect("rename retains the actual record for the save path");
+        assert_eq!(
+            record.title, document.title,
+            "the reader must not save a rename"
+        );
         assert_eq!(record.body, document.body);
         assert_eq!(record.revision, document.revision);
         assert_eq!(fs::read(&sidecar).unwrap(), b"legacy-history");
         fs::write(&sidecar, b"current-sidecar").unwrap();
         let record = read_document_record_if_title_changed(&graph_dir, &manifest, "Renamed")
-            .unwrap().unwrap();
-        assert_eq!(record.ydoc_update_base64, BASE64_STANDARD.encode(b"current-sidecar"));
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            record.ydoc_update_base64,
+            BASE64_STANDARD.encode(b"current-sidecar")
+        );
         assert_eq!(record.updated_at, document.updated_at);
         assert_eq!(RECORD_READ_COUNTS.with(std::cell::Cell::get), (0, 2));
         fs::remove_dir_all(graph_dir).unwrap();
@@ -373,20 +390,33 @@ mod tests {
         let mut value = serde_json::to_value(&document).unwrap();
         value["documentId"] = serde_json::json!("../escape");
         write_json(&manifest, &value).unwrap();
-        assert!(read_document_record_if_title_changed(&graph_dir, &manifest, &document.title)
-            .unwrap_err().contains("document_id"));
+        assert!(
+            read_document_record_if_title_changed(&graph_dir, &manifest, &document.title)
+                .unwrap_err()
+                .contains("document_id")
+        );
         value["documentId"] = serde_json::json!("doc-a");
         value["body"] = serde_json::json!({"malformed": true});
         write_json(&manifest, &value).unwrap();
-        assert!(read_document_record_if_title_changed(&graph_dir, &manifest, &document.title)
-            .is_err(), "metadata optimization must not silently bless malformed content");
+        assert!(
+            read_document_record_if_title_changed(&graph_dir, &manifest, &document.title).is_err(),
+            "metadata optimization must not silently bless malformed content"
+        );
         write_json(&manifest, &document).unwrap();
         crate::document_tombstone_store::write_document_tombstone_for_operation(
-            &graph_dir, "doc-a", Some("inventory-delete"),
-        ).unwrap();
-        assert!(read_document_record_if_title_changed(&graph_dir, &manifest, &document.title)
-            .unwrap_err().contains("tombstoned"));
-        assert!(read_graph_document_inventory(&graph_dir).unwrap().is_empty());
+            &graph_dir,
+            "doc-a",
+            Some("inventory-delete"),
+        )
+        .unwrap();
+        assert!(
+            read_document_record_if_title_changed(&graph_dir, &manifest, &document.title)
+                .unwrap_err()
+                .contains("tombstoned")
+        );
+        assert!(read_graph_document_inventory(&graph_dir)
+            .unwrap()
+            .is_empty());
         fs::remove_dir_all(graph_dir).unwrap();
     }
 
@@ -402,27 +432,45 @@ mod tests {
             document.rdf_triple_count = index + 3;
             write_manifest_only(&graph_dir, &document).unwrap();
             // Poison every actual sidecar path: inventory must be cold.
-            fs::create_dir_all(document_ydoc_state_path(&graph_dir, &document.document_id)).unwrap();
+            fs::create_dir_all(document_ydoc_state_path(&graph_dir, &document.document_id))
+                .unwrap();
         }
         RECORD_READ_COUNTS.with(|counts| counts.set((0, 0)));
         let inventory = read_graph_document_inventory(&graph_dir).unwrap();
-        assert_eq!(RECORD_READ_COUNTS.with(std::cell::Cell::get), (4, 0),
-            "one actual cold reader dispatch per manifest, no hydration dispatch");
-        let expected = read_graph_documents_cold(&graph_dir).unwrap()
-            .into_iter().map(DocumentInventoryRecord::from).collect::<Vec<_>>();
-        assert_eq!(inventory, expected, "same sorted metadata as the previous full-record walk");
+        assert_eq!(
+            RECORD_READ_COUNTS.with(std::cell::Cell::get),
+            (4, 0),
+            "one actual cold reader dispatch per manifest, no hydration dispatch"
+        );
+        let expected = read_graph_documents_cold(&graph_dir)
+            .unwrap()
+            .into_iter()
+            .map(DocumentInventoryRecord::from)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            inventory, expected,
+            "same sorted metadata as the previous full-record walk"
+        );
         assert_eq!(inventory.len(), 4);
         assert_eq!(inventory[0].document_id, "doc-3");
         assert_eq!(inventory[0].rdf_triple_count, 6);
-        let retained_strings = inventory.iter().map(|record|
-            record.document_id.len() + record.title.len() + record.updated_at.len()
-        ).sum::<usize>();
-        assert!(retained_strings < 256, "only identity/title/time strings escape the walk");
+        let retained_strings = inventory
+            .iter()
+            .map(|record| record.document_id.len() + record.title.len() + record.updated_at.len())
+            .sum::<usize>();
+        assert!(
+            retained_strings < 256,
+            "only identity/title/time strings escape the walk"
+        );
 
         // The slice still scans and validates EVERY manifest, even a small
         // page's invisible document. It claims lower peak retention, not a
         // total-byte or parse budget.
-        fs::write(documents_dir(&graph_dir).join("doc-0/document.json"), b"{ malformed").unwrap();
+        fs::write(
+            documents_dir(&graph_dir).join("doc-0/document.json"),
+            b"{ malformed",
+        )
+        .unwrap();
         assert!(read_graph_document_inventory(&graph_dir).is_err());
         fs::remove_dir_all(graph_dir).unwrap();
     }

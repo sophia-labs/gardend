@@ -152,7 +152,10 @@ mod tests {
         }
     }
 
-    fn setup(graph_id: &str, jobs_dir: &Path) -> (crate::app_runtime::AppHandle, Arc<LocalJobRegistry>) {
+    fn setup(
+        graph_id: &str,
+        jobs_dir: &Path,
+    ) -> (crate::app_runtime::AppHandle, Arc<LocalJobRegistry>) {
         let app = crate::tauri_runtime::build_mock_app_for_tests(true);
         create_graph_service(
             &app,
@@ -164,9 +167,8 @@ mod tests {
             },
         )
         .expect("create graph");
-        let jobs = Arc::new(
-            LocalJobRegistry::new(jobs_dir.to_path_buf()).expect("create job registry"),
-        );
+        let jobs =
+            Arc::new(LocalJobRegistry::new(jobs_dir.to_path_buf()).expect("create job registry"));
         (app, jobs)
     }
 
@@ -219,9 +221,7 @@ mod tests {
             assert_eq!(seeded["rows"]["deps"], 1);
             assert_eq!(seeded["extras"], json!([]), "golden has no extras");
             assert_eq!(
-                seeded["derive"]["groupDeltas"]
-                    .as_array()
-                    .map(Vec::len),
+                seeded["derive"]["groupDeltas"].as_array().map(Vec::len),
                 Some(2),
                 "sys-avionics + sys-uav are the golden board's two groups: {seeded}"
             );
@@ -262,8 +262,7 @@ mod tests {
             // equality via Value equality).
             let mut got: Value = serde_json::from_str(live_json).expect("export parses");
             got.as_object_mut().expect("object").remove("sophia");
-            let mut want: Value =
-                serde_json::from_str(GOLDEN_BOARD_JSON).expect("golden parses");
+            let mut want: Value = serde_json::from_str(GOLDEN_BOARD_JSON).expect("golden parses");
             blank_system_extents(&mut got);
             blank_system_extents(&mut want);
             assert_eq!(

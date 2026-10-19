@@ -173,7 +173,9 @@ fn public_account_caller(
             // W6: a route the account's fence admitted lends it that route's
             // scopes, for this one request (`visitor_fence::rest_admission`).
             let mut scopes = public_scopes();
-            for scope in crate::visitor_fence::current_lent_scopes(&format!("cognito:{}", account.sub)) {
+            for scope in
+                crate::visitor_fence::current_lent_scopes(&format!("cognito:{}", account.sub))
+            {
                 if !scopes.contains(&scope) {
                     scopes.push(scope);
                 }
@@ -453,7 +455,11 @@ pub(crate) fn loopback_error_coded(
 
 pub(crate) fn loopback_error(status: StatusCode, message: &str) -> Response {
     if message.starts_with("source_body_unavailable:") {
-        return loopback_error_coded(StatusCode::CONFLICT, message, Some(crate::app_error_codes::SOURCE_BODY_UNAVAILABLE));
+        return loopback_error_coded(
+            StatusCode::CONFLICT,
+            message,
+            Some(crate::app_error_codes::SOURCE_BODY_UNAVAILABLE),
+        );
     }
     loopback_error_coded(status, message, None)
 }

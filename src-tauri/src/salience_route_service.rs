@@ -112,7 +112,8 @@ fn apply_user_valuation(
     now: &str,
 ) {
     record.user_importance = importance.map(|value| value as f64);
-    record.user_valence = valence.and_then(|value| if value == 0 { None } else { Some(value as f64) });
+    record.user_valence =
+        valence.and_then(|value| if value == 0 { None } else { Some(value as f64) });
     let affirms = importance.is_some_and(|value| value > 0)
         || (importance != Some(0) && record.user_valence.is_some());
     if affirms {
@@ -240,10 +241,18 @@ mod tests {
 
     #[test]
     fn forgetting_or_clearing_does_not_renew_freshness() {
-        for (importance, valence) in [(Some(0), None), (Some(0), Some(4)), (None, None), (None, Some(0))] {
+        for (importance, valence) in [
+            (Some(0), None),
+            (Some(0), Some(4)),
+            (None, None),
+            (None, Some(0)),
+        ] {
             let mut record = record_valued_at(EARLIER);
             apply_user_valuation(&mut record, importance, valence, NOW);
-            assert_eq!(record.last_valuated_at, EARLIER, "{importance:?}/{valence:?}");
+            assert_eq!(
+                record.last_valuated_at, EARLIER,
+                "{importance:?}/{valence:?}"
+            );
         }
     }
 

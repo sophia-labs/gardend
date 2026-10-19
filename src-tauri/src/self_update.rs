@@ -214,7 +214,9 @@ fn archive_service_ids(tarball: &[u8], prefix: &Path) -> Result<Vec<String>, Str
                 let id = id.to_string_lossy();
                 if !id.is_empty()
                     && id.len() <= 63
-                    && id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+                    && id
+                        .chars()
+                        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
                     && !id.starts_with('-')
                 {
                     ids.insert(id.into_owned());
@@ -1128,7 +1130,11 @@ mod tests {
             "{\"mine\":true}",
             "a service the archive does not carry is left alone"
         );
-        assert_eq!(names(&dir), ["gardend", "services", "ui"], "no staging debris");
+        assert_eq!(
+            names(&dir),
+            ["gardend", "services", "ui"],
+            "no staging debris"
+        );
         assert_eq!(names(&dir.join("services")), ["mine", "tools", "vehicle"]);
 
         let broken_root = tempdir("rel-svc-broken");
@@ -1149,7 +1155,10 @@ mod tests {
         ui_at(&dir, &[("index.html", "<title>old</title>")]);
         let err = install_release(&exe, &broken, &manifest).unwrap_err();
         assert!(err.contains("no service.json"), "{err}");
-        assert_eq!(std::fs::read_to_string(&exe).unwrap(), "#!/bin/sh\necho old\n");
+        assert_eq!(
+            std::fs::read_to_string(&exe).unwrap(),
+            "#!/bin/sh\necho old\n"
+        );
         assert_eq!(
             std::fs::read_to_string(dir.join("ui/index.html")).unwrap(),
             "<title>old</title>"

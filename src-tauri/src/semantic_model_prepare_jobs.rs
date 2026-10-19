@@ -75,9 +75,10 @@ fn spawn_prepare_semantic_model_job(app: AppHandle, jobs: Arc<LocalJobRegistry>,
         );
 
         let load_app = app.clone();
-        let load_result =
-            crate::app_runtime::async_runtime::spawn_blocking(move || ensure_semantic_embedder(&load_app, true))
-                .await;
+        let load_result = crate::app_runtime::async_runtime::spawn_blocking(move || {
+            ensure_semantic_embedder(&load_app, true)
+        })
+        .await;
         let load_outcome: AppResult<()> = match load_result {
             Ok(inner) => inner,
             Err(error) => Err(AppError::internal(format!(

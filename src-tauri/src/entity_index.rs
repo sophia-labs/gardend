@@ -78,7 +78,10 @@ pub(crate) fn entity_index_enabled(graph_dir: &Path) -> bool {
     read_entity_index_config(graph_dir).is_some_and(|config| config.enabled)
 }
 
-pub(crate) fn write_entity_index_config(graph_dir: &Path, config: &EntityIndexConfig) -> Result<(), String> {
+pub(crate) fn write_entity_index_config(
+    graph_dir: &Path,
+    config: &EntityIndexConfig,
+) -> Result<(), String> {
     entity_model_spec(config.model_id())?;
     let dir = entity_index_dir(graph_dir);
     std::fs::create_dir_all(&dir).map_err(|error| format!("create {}: {error}", dir.display()))?;
@@ -170,7 +173,11 @@ pub(crate) struct EntityIndexReport {
 
 impl EntityIndexReport {
     pub(crate) fn summary(&self) -> String {
-        let rate = if self.embed_seconds > 0.0 { self.embedded as f64 / self.embed_seconds } else { 0.0 };
+        let rate = if self.embed_seconds > 0.0 {
+            self.embedded as f64 / self.embed_seconds
+        } else {
+            0.0
+        };
         format!(
             "entity index {}: {} entities ({} embedded, {} reused) with {} on {} thread(s); verbalize {:.1} s, embed {:.1} s ({:.1}/s), total {:.1} s",
             self.graph_id, self.entities, self.embedded, self.reused, self.model_id, self.threads,
@@ -215,14 +222,23 @@ pub(crate) fn verbalize_graph(
                 let ctx = &ctx;
                 scope.spawn(move || {
                     let mut stats = VerbalizeStats::default();
-                    let records = slice.iter().filter_map(|iri| ctx.verbalize(iri, &mut stats)).collect();
+                    let records = slice
+                        .iter()
+                        .filter_map(|iri| ctx.verbalize(iri, &mut stats))
+                        .collect();
                     (records, stats)
                 })
             })
             .collect();
-        handles.into_iter().map(|handle| handle.join().expect("verbalize worker")).collect()
+        handles
+            .into_iter()
+            .map(|handle| handle.join().expect("verbalize worker"))
+            .collect()
     });
-    let mut stats = VerbalizeStats { candidates: candidates.len(), ..VerbalizeStats::default() };
+    let mut stats = VerbalizeStats {
+        candidates: candidates.len(),
+        ..VerbalizeStats::default()
+    };
     let mut records = Vec::new();
     for (mut part, part_stats) in parts {
         records.append(&mut part);
@@ -273,11 +289,16 @@ fn document_rows(graph_id: &str, graph_dir: &Path) -> Result<Vec<EntityRecord>, 
 /// licence is not the catalogue's).
 fn graph_provenance(store: &Store, graph_iri: &str) -> GraphProvenance {
     let mut provenance = GraphProvenance::default();
-    let Ok(graph) = NamedNodeRef::new(graph_iri) else { return provenance };
+    let Ok(graph) = NamedNodeRef::new(graph_iri) else {
+        return provenance;
+    };
     let graph_name = GraphNameRef::from(graph);
     let mut subjects: Vec<oxigraph::model::NamedNode> = vec![graph.into_owned()];
     let rdf_type = NamedNodeRef::new(crate::entity_verbalize::RDF_TYPE).expect("rdf:type");
-    for class in ["http://www.w3.org/ns/dcat#Catalog", "http://rdfs.org/ns/void#Dataset"] {
+    for class in [
+        "http://www.w3.org/ns/dcat#Catalog",
+        "http://rdfs.org/ns/void#Dataset",
+    ] {
         let class = NamedNodeRef::new(class).expect("class iri");
         for quad in store
             .quads_for_pattern(None, Some(rdf_type), Some(class.into()), Some(graph_name))
@@ -293,7 +314,12 @@ fn graph_provenance(store: &Store, graph_iri: &str) -> GraphProvenance {
         let predicate = NamedNodeRef::new(predicate).ok()?;
         subjects.iter().find_map(|subject| {
             store
-                .quads_for_pattern(Some(subject.as_ref().into()), Some(predicate), None, Some(graph_name))
+                .quads_for_pattern(
+                    Some(subject.as_ref().into()),
+                    Some(predicate),
+                    None,
+                    Some(graph_name),
+                )
                 .flatten()
                 .find_map(|quad| object_text(quad.object))
         })
@@ -315,15 +341,18 @@ fn object_text(object: Term) -> Option<String> {
 /// An entity's own licence: its `dct:license`, else its `dct:rights`.
 pub(crate) fn entity_license(store: &Store, iri: &str) -> Option<String> {
     let subject = NamedNodeRef::new(iri).ok()?;
-    ["http://purl.org/dc/terms/license", "http://purl.org/dc/terms/rights"]
-        .iter()
-        .find_map(|predicate| {
-            let predicate = NamedNodeRef::new(predicate).ok()?;
-            store
-                .quads_for_pattern(Some(subject.into()), Some(predicate), None, None)
-                .flatten()
-                .find_map(|quad| object_text(quad.object))
-        })
+    [
+        "http://purl.org/dc/terms/license",
+        "http://purl.org/dc/terms/rights",
+    ]
+    .iter()
+    .find_map(|predicate| {
+        let predicate = NamedNodeRef::new(predicate).ok()?;
+        store
+            .quads_for_pattern(Some(subject.into()), Some(predicate), None, None)
+            .flatten()
+            .find_map(|quad| object_text(quad.object))
+    })
 }
 
 /// Build or refresh a graph's entity index. Refuses unless enabled.
@@ -350,9 +379,17 @@ pub(crate) fn refresh_entity_index(
     let rows: Vec<EntityRow> = records
         .into_iter()
         .map(|record| EntityRow {
-            license: if record.kind == "document" { None } else { entity_license(store, &record.iri) },
+            license: if record.kind == "document" {
+                None
+            } else {
+                entity_license(store, &record.iri)
+            },
             hash: content_hash(spec.model_id, spec.passage_prefix, &record.text),
-            type_label: record.types.first().cloned().unwrap_or_else(|| record.kind.clone()),
+            type_label: record
+                .types
+                .first()
+                .cloned()
+                .unwrap_or_else(|| record.kind.clone()),
             graph: record.graphs.first().cloned().unwrap_or_default(),
             iri: record.iri,
             label: record.label,
@@ -383,17 +420,27 @@ pub(crate) fn refresh_entity_index(
     if !queue.is_empty() {
         let texts: Vec<String> = queue.iter().map(|&i| rows[i].text.clone()).collect();
         let embedded = with_entity_embedder(spec.model_id, Some(threads), |embedder| {
-            embedder.embed_passages(&texts, options.batch.unwrap_or(32), &mut |done| progress("embedding", done, total))
+            embedder.embed_passages(&texts, options.batch.unwrap_or(32), &mut |done| {
+                progress("embedding", done, total)
+            })
         })?;
         for (&i, vector) in queue.iter().zip(embedded) {
             if vector.len() != spec.dimensions {
-                return Err(format!("{} returned {} dimensions, expected {}", spec.model_id, vector.len(), spec.dimensions));
+                return Err(format!(
+                    "{} returned {} dimensions, expected {}",
+                    spec.model_id,
+                    vector.len(),
+                    spec.dimensions
+                ));
             }
             vectors[i] = Some(vector);
         }
     }
     let embed_seconds = embed_started.elapsed().as_secs_f64();
-    let vectors: Vec<Vec<f32>> = vectors.into_iter().map(|v| v.expect("every row has a vector")).collect();
+    let vectors: Vec<Vec<f32>> = vectors
+        .into_iter()
+        .map(|v| v.expect("every row has a vector"))
+        .collect();
 
     progress("writing", rows.len(), rows.len())?;
     let mut kinds: BTreeMap<String, usize> = BTreeMap::new();
@@ -454,14 +501,22 @@ pub(crate) fn refresh_entity_index(
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let tmp = path.with_extension("tmp");
     {
-        let mut file = std::fs::File::create(&tmp).map_err(|error| format!("write {}: {error}", tmp.display()))?;
-        file.write_all(bytes).map_err(|error| format!("write {}: {error}", tmp.display()))?;
-        file.sync_all().map_err(|error| format!("sync {}: {error}", tmp.display()))?;
+        let mut file = std::fs::File::create(&tmp)
+            .map_err(|error| format!("write {}: {error}", tmp.display()))?;
+        file.write_all(bytes)
+            .map_err(|error| format!("write {}: {error}", tmp.display()))?;
+        file.sync_all()
+            .map_err(|error| format!("sync {}: {error}", tmp.display()))?;
     }
     std::fs::rename(&tmp, path).map_err(|error| format!("rename {}: {error}", path.display()))
 }
 
-fn write_index_files(graph_dir: &Path, rows: &[EntityRow], vectors: &[Vec<f32>], dims: usize) -> Result<f32, String> {
+fn write_index_files(
+    graph_dir: &Path,
+    rows: &[EntityRow],
+    vectors: &[Vec<f32>],
+    dims: usize,
+) -> Result<f32, String> {
     let dir = entity_index_dir(graph_dir);
     std::fs::create_dir_all(&dir).map_err(|error| format!("create {}: {error}", dir.display()))?;
     let mut jsonl = Vec::with_capacity(rows.len() * 400);
@@ -499,17 +554,28 @@ fn read_rows(graph_dir: &Path) -> Result<Vec<EntityRow>, String> {
         .map_err(|error| format!("read entities.jsonl: {error}"))?;
     raw.split(|b| *b == b'\n')
         .filter(|line| !line.is_empty())
-        .map(|line| serde_json::from_slice(line).map_err(|error| format!("entities.jsonl: {error}")))
+        .map(|line| {
+            serde_json::from_slice(line).map_err(|error| format!("entities.jsonl: {error}"))
+        })
         .collect()
 }
 
-fn read_previous_vectors(graph_dir: &Path, model_id: &str, dims: usize) -> HashMap<(String, String), Vec<f32>> {
+fn read_previous_vectors(
+    graph_dir: &Path,
+    model_id: &str,
+    dims: usize,
+) -> HashMap<(String, String), Vec<f32>> {
     let mut out = HashMap::new();
-    let Some(manifest) = read_entity_index_manifest(graph_dir) else { return out };
+    let Some(manifest) = read_entity_index_manifest(graph_dir) else {
+        return out;
+    };
     if manifest.model_id != model_id || manifest.dimensions != dims {
         return out;
     }
-    let (Ok(rows), Ok(bytes)) = (read_rows(graph_dir), std::fs::read(entity_index_dir(graph_dir).join("vectors.f32"))) else {
+    let (Ok(rows), Ok(bytes)) = (
+        read_rows(graph_dir),
+        std::fs::read(entity_index_dir(graph_dir).join("vectors.f32")),
+    ) else {
         return out;
     };
     if bytes.len() != rows.len() * dims * 4 {
@@ -545,9 +611,14 @@ fn forget_loaded(graph_dir: &Path) {
 
 /// The index of a graph, loaded once per build (re-read when its manifest changes).
 pub(crate) fn load_entity_index(graph_dir: &Path) -> Result<Arc<LoadedEntityIndex>, String> {
-    let manifest = read_entity_index_manifest(graph_dir).ok_or_else(|| "the entity index has not been built yet".to_string())?;
+    let manifest = read_entity_index_manifest(graph_dir)
+        .ok_or_else(|| "the entity index has not been built yet".to_string())?;
     let cache = LOADED.get_or_init(|| Mutex::new(HashMap::new()));
-    if let Some(index) = cache.lock().map_err(|_| "entity index cache poisoned")?.get(graph_dir) {
+    if let Some(index) = cache
+        .lock()
+        .map_err(|_| "entity index cache poisoned")?
+        .get(graph_dir)
+    {
         if index.manifest.built_at == manifest.built_at && index.manifest.count == manifest.count {
             return Ok(index.clone());
         }
@@ -566,9 +637,22 @@ pub(crate) fn load_entity_index(graph_dir: &Path) -> Result<Arc<LoadedEntityInde
             manifest.dimensions
         ));
     }
-    let by_iri = rows.iter().enumerate().map(|(i, row)| (row.iri.clone(), i)).collect();
-    let bm25 = Bm25::build(rows.iter().map(|row| (row.label.as_str(), row.text.as_str())));
-    let index = Arc::new(LoadedEntityIndex { manifest, rows, codes, by_iri, bm25 });
+    let by_iri = rows
+        .iter()
+        .enumerate()
+        .map(|(i, row)| (row.iri.clone(), i))
+        .collect();
+    let bm25 = Bm25::build(
+        rows.iter()
+            .map(|row| (row.label.as_str(), row.text.as_str())),
+    );
+    let index = Arc::new(LoadedEntityIndex {
+        manifest,
+        rows,
+        codes,
+        by_iri,
+        bm25,
+    });
     cache
         .lock()
         .map_err(|_| "entity index cache poisoned")?
@@ -604,15 +688,26 @@ pub(crate) struct RankedHit {
 impl LoadedEntityIndex {
     fn allowed(&self, i: usize, filter: &FindFilter) -> bool {
         let row = &self.rows[i];
-        (filter.kinds.is_empty() || filter.kinds.iter().any(|k| k.eq_ignore_ascii_case(&row.kind)))
-            && (filter.types.is_empty() || filter.types.iter().any(|t| t.eq_ignore_ascii_case(&row.type_label)))
+        (filter.kinds.is_empty()
+            || filter
+                .kinds
+                .iter()
+                .any(|k| k.eq_ignore_ascii_case(&row.kind)))
+            && (filter.types.is_empty()
+                || filter
+                    .types
+                    .iter()
+                    .any(|t| t.eq_ignore_ascii_case(&row.type_label)))
             && (filter.graphs.is_empty() || filter.graphs.iter().any(|g| *g == row.graph))
     }
 
     fn vector_candidates(&self, query: &[f32], filter: &FindFilter, k: usize) -> Vec<(u32, f32)> {
         let dims = self.manifest.dimensions;
         let scale = self.manifest.vector_scale;
-        let q: Vec<i8> = query.iter().map(|x| (x * scale).round().clamp(-127.0, 127.0) as i8).collect();
+        let q: Vec<i8> = query
+            .iter()
+            .map(|x| (x * scale).round().clamp(-127.0, 127.0) as i8)
+            .collect();
         let inv = 1.0 / (scale * scale);
         let mut top = TopK::new(k);
         for (i, row) in self.codes.chunks_exact(dims).enumerate() {
@@ -655,8 +750,15 @@ impl LoadedEntityIndex {
         let mut hits: Vec<RankedHit> = Vec::new();
         for (i, score) in fused {
             let i = i as usize;
-            let asked_for_parts = filter.kinds.iter().any(|k| k.eq_ignore_ascii_case(&self.rows[i].kind));
-            let parent = self.rows[i].parent.as_ref().and_then(|p| self.by_iri.get(p)).filter(|_| !asked_for_parts);
+            let asked_for_parts = filter
+                .kinds
+                .iter()
+                .any(|k| k.eq_ignore_ascii_case(&self.rows[i].kind));
+            let parent = self.rows[i]
+                .parent
+                .as_ref()
+                .and_then(|p| self.by_iri.get(p))
+                .filter(|_| !asked_for_parts);
             let (row, via) = match parent {
                 Some(&parent) => (parent, Some(i)),
                 None => (i, None),
@@ -676,9 +778,16 @@ impl LoadedEntityIndex {
     pub(crate) fn hit_json(&self, hit: &RankedHit, default_graph: &str) -> Value {
         let row = &self.rows[hit.row];
         let says = {
-            let rest = row.text.split_once(". ").map_or(row.text.as_str(), |(_, rest)| rest);
+            let rest = row
+                .text
+                .split_once(". ")
+                .map_or(row.text.as_str(), |(_, rest)| rest);
             let cut: String = rest.chars().take(140).collect();
-            if rest.chars().count() > 140 { format!("{cut}…") } else { cut }
+            if rest.chars().count() > 140 {
+                format!("{cut}…")
+            } else {
+                cut
+            }
         };
         let mut out = json!({
             "iri": row.iri,
@@ -728,7 +837,10 @@ struct TopK {
 
 impl TopK {
     fn new(k: usize) -> Self {
-        Self { k: k.max(1), items: Vec::with_capacity(k + 1) }
+        Self {
+            k: k.max(1),
+            items: Vec::with_capacity(k + 1),
+        }
     }
     fn push(&mut self, id: u32, score: f32) {
         if self.items.len() == self.k {
@@ -782,10 +894,11 @@ unsafe fn dot_i8_avx2(a: &[i8], b: &[i8]) -> i32 {
 // ---------------------------------------------------------------- BM25
 
 const STOPWORDS: &[&str] = &[
-    "a", "al", "an", "and", "are", "as", "at", "be", "by", "con", "de", "del", "el", "en", "es", "for", "from", "how",
-    "in", "is", "it", "la", "las", "lo", "los", "of", "on", "or", "para", "por", "que", "se", "su", "sus", "the", "to",
-    "un", "una", "what", "where", "which", "who", "with", "y", "o", "u", "about", "find", "sobre", "busco", "quiero",
-    "cual", "donde", "como", "hay", "there", "any", "some", "me",
+    "a", "al", "an", "and", "are", "as", "at", "be", "by", "con", "de", "del", "el", "en", "es",
+    "for", "from", "how", "in", "is", "it", "la", "las", "lo", "los", "of", "on", "or", "para",
+    "por", "que", "se", "su", "sus", "the", "to", "un", "una", "what", "where", "which", "who",
+    "with", "y", "o", "u", "about", "find", "sobre", "busco", "quiero", "cual", "donde", "como",
+    "hay", "there", "any", "some", "me",
 ];
 
 fn fold(c: char) -> char {
@@ -836,7 +949,11 @@ impl Bm25 {
             }
         }
         let average = lengths.iter().map(|&n| n as f32).sum::<f32>() / lengths.len().max(1) as f32;
-        Self { postings, lengths, average }
+        Self {
+            postings,
+            lengths,
+            average,
+        }
     }
 
     fn search(&self, query: &str) -> Vec<(u32, f32)> {
@@ -846,7 +963,9 @@ impl Bm25 {
         tokens.sort();
         tokens.dedup();
         for token in tokens {
-            let Some(postings) = self.postings.get(&token) else { continue };
+            let Some(postings) = self.postings.get(&token) else {
+                continue;
+            };
             let df = postings.len() as f32;
             let idf = ((n - df + 0.5) / (df + 0.5) + 1.0).ln();
             for &(doc, tf) in postings {

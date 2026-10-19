@@ -158,7 +158,9 @@ fn workspace_snapshot_content_unchanged(
     snapshot: &serde_json::Value,
 ) -> bool {
     read_json::<serde_json::Value>(snapshot_path)
-        .map(|existing| workspace_snapshot_content(&existing) == workspace_snapshot_content(snapshot))
+        .map(|existing| {
+            workspace_snapshot_content(&existing) == workspace_snapshot_content(snapshot)
+        })
         .unwrap_or(false)
 }
 
@@ -219,7 +221,8 @@ pub(crate) fn save_workspace_with_lease(
         let snapshot_path = workspace_snapshot_path(&graph_dir);
         // Decide BEFORE overwriting whether the seed-materializable content
         // actually changed (volatile fields like materializedAt stripped).
-        workspace_content_changed = !workspace_snapshot_content_unchanged(&snapshot_path, &snapshot);
+        workspace_content_changed =
+            !workspace_snapshot_content_unchanged(&snapshot_path, &snapshot);
         // Always persist the full snapshot — the UI's view state (expanded
         // folders, materializedAt, etc.) lives here and must survive even a
         // content no-op.
@@ -723,10 +726,13 @@ mod tests {
             );
 
             // A genuine content change must bump it.
-            save(snapshot(3000, serde_json::json!([
-                {"id": "d1", "title": "One"},
-                {"id": "d2", "title": "Two"},
-            ])));
+            save(snapshot(
+                3000,
+                serde_json::json!([
+                    {"id": "d1", "title": "One"},
+                    {"id": "d2", "title": "Two"},
+                ]),
+            ));
             assert_ne!(
                 r1,
                 revision(),

@@ -108,10 +108,14 @@ impl RdfTriple {
             RdfObject::Uri(uri) => Some(uri.as_str()),
             RdfObject::Literal(_) => None,
         };
-        [Some(self.subject.as_str()), Some(self.predicate.as_str()), object]
-            .into_iter()
-            .flatten()
-            .find(|iri| !is_valid_iri(iri))
+        [
+            Some(self.subject.as_str()),
+            Some(self.predicate.as_str()),
+            object,
+        ]
+        .into_iter()
+        .flatten()
+        .find(|iri| !is_valid_iri(iri))
     }
 }
 

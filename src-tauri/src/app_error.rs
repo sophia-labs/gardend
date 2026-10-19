@@ -99,8 +99,11 @@ impl AppError {
     fn new(kind: AppErrorKind, message: impl Into<String>) -> Self {
         let message = message.into();
         if message.starts_with("source_body_unavailable:") {
-            return Self { kind: AppErrorKind::Conflict, message,
-                code: Some(crate::app_error_codes::SOURCE_BODY_UNAVAILABLE) };
+            return Self {
+                kind: AppErrorKind::Conflict,
+                message,
+                code: Some(crate::app_error_codes::SOURCE_BODY_UNAVAILABLE),
+            };
         }
         Self {
             kind,

@@ -47,7 +47,10 @@ pub(crate) fn start_restore(
     dry_run: bool,
 ) -> AppResult<Value> {
     let graph_dir = existing_graph_dir(app, graph_id).map_err(AppError::not_found)?;
-    if !crate::document_body_availability::unavailable_documents(&graph_dir).map_err(AppError::internal)?.is_empty() {
+    if !crate::document_body_availability::unavailable_documents(&graph_dir)
+        .map_err(AppError::internal)?
+        .is_empty()
+    {
         return Err(AppError::conflict("source_body_unavailable: graph retains missing current source bodies; historical restore cannot substitute current state"));
     }
     let manifest = read_manifest(&graph_dir, restore_point_id)?;

@@ -1068,7 +1068,8 @@ const XML_NODE_TAGS: &[(&str, &str)] = &[
     ("queryblock", "queryBlock"),
 ];
 
-const XML_INLINE_ATOM_TYPES: &[&str] = &["footnote", "wikilink", "tagChip", "mathInline", "hardBreak"];
+const XML_INLINE_ATOM_TYPES: &[&str] =
+    &["footnote", "wikilink", "tagChip", "mathInline", "hardBreak"];
 const XML_LEAF_BLOCK_TYPES: &[&str] = &["horizontalRule", "image", "mathBlock", "queryBlock"];
 const KNOWN_TIPTAP_NODE_TYPES: &[&str] = &[
     "doc",
@@ -1651,17 +1652,30 @@ mod tests {
             "<paragraph data-block-id=\"p\">before <tagChip name=\"todo\" date=\"2026-09-12\"></tagChip><wikilink label=\"Visible\" targetDocId=\"target\"></wikilink><footnote content=\"A &amp; B\"></footnote> after</paragraph>",
             Some("xml"),"parser-atoms").unwrap();
         assert!(parsed.warnings.is_empty());
-        let content = parsed.tiptap_json["content"][0]["content"].as_array().unwrap();
-        assert_eq!(content.len(),5);
-        assert_eq!(content[1],json!({"type":"tagChip","attrs":{"name":"todo","date":"2026-09-12"}}));
-        assert_eq!(content[2],json!({"type":"wikilink","attrs":{"label":"Visible","targetDocId":"target"}}));
-        assert_eq!(content[3],json!({"type":"footnote","attrs":{"content":"A & B"}}));
+        let content = parsed.tiptap_json["content"][0]["content"]
+            .as_array()
+            .unwrap();
+        assert_eq!(content.len(), 5);
+        assert_eq!(
+            content[1],
+            json!({"type":"tagChip","attrs":{"name":"todo","date":"2026-09-12"}})
+        );
+        assert_eq!(
+            content[2],
+            json!({"type":"wikilink","attrs":{"label":"Visible","targetDocId":"target"}})
+        );
+        assert_eq!(
+            content[3],
+            json!({"type":"footnote","attrs":{"content":"A & B"}})
+        );
         let literal = parse_write_content_for_operation(
             "<paragraph data-block-id=\"p\">&lt;tagChip name=\"todo\"&gt;&lt;/tagChip&gt;</paragraph>",
             Some("xml"),"parser-literal").unwrap();
         assert!(literal.warnings.is_empty());
-        assert_eq!(literal.tiptap_json["content"][0]["content"][0],
-            json!({"type":"text","text":"<tagChip name=\"todo\"></tagChip>"}));
+        assert_eq!(
+            literal.tiptap_json["content"][0]["content"][0],
+            json!({"type":"text","text":"<tagChip name=\"todo\"></tagChip>"})
+        );
     }
 
     #[test]

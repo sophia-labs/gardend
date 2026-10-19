@@ -36,7 +36,10 @@ fn editor_lease_for(sub: &str) -> String {
     let signed = format!("{header}.{payload}");
     let mut mac = Hmac::<Sha256>::new_from_slice(SECRET).unwrap();
     mac.update(signed.as_bytes());
-    format!("{signed}.{}", URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes()))
+    format!(
+        "{signed}.{}",
+        URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes())
+    )
 }
 
 fn state_for(profile: &std::path::Path) -> Arc<LoopbackState> {
@@ -120,8 +123,13 @@ async fn send_as(
     .unwrap_or_else(|_| panic!("POST {path} did not answer within {ANSWER_WITHIN:?}: {body}"))
     .unwrap();
     let status = response.status();
-    let bytes = axum::body::to_bytes(response.into_body(), 1_000_000).await.unwrap();
-    (status, serde_json::from_slice(&bytes).unwrap_or(Value::Null))
+    let bytes = axum::body::to_bytes(response.into_body(), 1_000_000)
+        .await
+        .unwrap();
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+    )
 }
 
 fn create_document_call(arguments: Value) -> Value {
@@ -184,8 +192,14 @@ fn a_refused_create_is_an_mcp_error_and_an_http_400_at_once() {
             )
             .await;
             assert_eq!(status, StatusCode::OK, "{reply}");
-            assert!(reply["error"].is_null(), "the graph takes the next write: {reply}");
-            assert_eq!(reply["result"]["structuredContent"]["title"], "Short enough", "{reply}");
+            assert!(
+                reply["error"].is_null(),
+                "the graph takes the next write: {reply}"
+            );
+            assert_eq!(
+                reply["result"]["structuredContent"]["title"], "Short enough",
+                "{reply}"
+            );
         })
     }));
     std::env::remove_var("GARDEN_PROFILE_DIR");
@@ -230,20 +244,46 @@ fn a_hosted_cell_refuses_a_takeover_and_signs_comments_by_the_lease() {
             let state = state_for(&profile);
             const VISITOR: &str = "user:a-visitor-20261014";
 
-            let (_, reply) = send(&state, "/mcp", tool_call("create_document",
-                json!({"graphId": GRAPH, "documentId": "the-guide", "title": "The Guide"}))).await;
+            let (_, reply) = send(
+                &state,
+                "/mcp",
+                tool_call(
+                    "create_document",
+                    json!({"graphId": GRAPH, "documentId": "the-guide", "title": "The Guide"}),
+                ),
+            )
+            .await;
             assert!(reply["error"].is_null(), "{reply}");
-            let (_, reply) = send_as(&state, VISITOR, "/mcp", tool_call("create_document",
-                json!({"graphId": GRAPH, "documentId": "the-guide", "title": "HIJACKED"}))).await;
+            let (_, reply) = send_as(
+                &state,
+                VISITOR,
+                "/mcp",
+                tool_call(
+                    "create_document",
+                    json!({"graphId": GRAPH, "documentId": "the-guide", "title": "HIJACKED"}),
+                ),
+            )
+            .await;
             assert!(
-                reply["error"]["message"].as_str().is_some_and(|message| message.contains("already exists")),
+                reply["error"]["message"]
+                    .as_str()
+                    .is_some_and(|message| message.contains("already exists")),
                 "{reply}"
             );
 
-            let (_, reply) = send(&state, "/mcp", tool_call("write_document",
-                json!({"graphId": GRAPH, "documentId": "the-guide", "content": "Hello world."}))).await;
+            let (_, reply) = send(
+                &state,
+                "/mcp",
+                tool_call(
+                    "write_document",
+                    json!({"graphId": GRAPH, "documentId": "the-guide", "content": "Hello world."}),
+                ),
+            )
+            .await;
             assert!(reply["error"].is_null(), "{reply}");
-            for (sub, comment_id, author) in [(VISITOR, "c-visitor", VISITOR), (OWNER, "c-owner", "Owner")] {
+            for (sub, comment_id, author) in
+                [(VISITOR, "c-visitor", VISITOR), (OWNER, "c-owner", "Owner")]
+            {
                 let (_, reply) = send_as(&state, sub, "/mcp", tool_call("edit_comment", json!({
                     "graphId": GRAPH, "documentId": "the-guide", "commentId": comment_id, "action": "set",
                     "text": "A comment", "author": "Vera (owner)", "authorId": "owner",

@@ -50,7 +50,12 @@ pub(crate) fn obj_of(term: &Term) -> Obj {
 
 fn load_view(store: &Store, graph: &NamedNode) -> Result<View, String> {
     let mut subjects: BTreeMap<String, Props> = BTreeMap::new();
-    for quad in store.quads_for_pattern(None, None, None, Some(GraphNameRef::NamedNode(graph.as_ref()))) {
+    for quad in store.quads_for_pattern(
+        None,
+        None,
+        None,
+        Some(GraphNameRef::NamedNode(graph.as_ref())),
+    ) {
         let quad = quad.map_err(|e| e.to_string())?;
         let NamedOrBlankNode::NamedNode(s) = quad.subject else {
             continue;
@@ -116,7 +121,11 @@ fn has_type(p: &Props, class: &str) -> bool {
 fn parse_rects(lexical: &str) -> Vec<Vec<f64>> {
     lexical
         .split(';')
-        .map(|r| r.split_whitespace().filter_map(|n| n.parse().ok()).collect::<Vec<f64>>())
+        .map(|r| {
+            r.split_whitespace()
+                .filter_map(|n| n.parse().ok())
+                .collect::<Vec<f64>>()
+        })
         .filter(|r| r.len() == 4)
         .collect()
 }
@@ -139,7 +148,8 @@ fn agrees(claim: (Option<f64>, Option<f64>), reading: (Option<f64>, Option<f64>)
 }
 
 fn record_id(iri: &str) -> String {
-    iri.split_once(":record:").map_or(iri.to_string(), |(_, r)| r.to_string())
+    iri.split_once(":record:")
+        .map_or(iri.to_string(), |(_, r)| r.to_string())
 }
 
 struct EditionHit<'a> {
@@ -211,7 +221,9 @@ fn claim_json(
     let upper = num(p, &eng("upperLimit"));
     let regime = iris(p, &eng("limitRegime")).first().map(|i| local(i));
     let page_index = uint(p, &de("pageIndex"));
-    let rects = text(p, &de("rectangles")).map(|r| parse_rects(&r)).unwrap_or_default();
+    let rects = text(p, &de("rectangles"))
+        .map(|r| parse_rects(&r))
+        .unwrap_or_default();
     let mut sources: Vec<String> = Vec::new();
     let readings_json: Vec<Value> = readings
         .iter()
@@ -321,7 +333,10 @@ fn edition_json(hit: &EditionHit<'_>, q: &FactsQuery) -> Value {
         if !has_type(p, &de("Assertion")) {
             continue;
         }
-        let kind = iris(p, &de("assertionKind")).first().map(|i| local(i)).unwrap_or_default();
+        let kind = iris(p, &de("assertionKind"))
+            .first()
+            .map(|i| local(i))
+            .unwrap_or_default();
         let ord = uint(p, &de("ordinal")).unwrap_or(0);
         match kind.as_str() {
             "derivation" => keyed.push((ord, iri, p)),
@@ -370,9 +385,16 @@ fn edition_json(hit: &EditionHit<'_>, q: &FactsQuery) -> Value {
         .find(|p| has_type(p, &de("ByteContent")));
     // How the document was read: the reader tools (name -> commit or version) and which tool read
     // which layer, from the import's ExtractionAttempt (`de:tool`, `de:usedTool`, `de:readers`).
-    let attempt = view.subjects.values().find(|p| has_type(p, &de("ExtractionAttempt")));
+    let attempt = view
+        .subjects
+        .values()
+        .find(|p| has_type(p, &de("ExtractionAttempt")));
     let mut tool_versions = serde_json::Map::new();
-    for p in view.subjects.values().filter(|p| has_type(p, &de("ToolProfile"))) {
+    for p in view
+        .subjects
+        .values()
+        .filter(|p| has_type(p, &de("ToolProfile")))
+    {
         if let Some(name) = text(p, &de("toolName")) {
             let v = text(p, &de("toolVersion")).or_else(|| text(p, &de("toolCommit")));
             tool_versions.insert(name, v.map_or(Value::Null, Value::String));
@@ -436,14 +458,27 @@ pub(crate) fn facts_from_store(store: &Store, graph_id: &str, q: &FactsQuery) ->
     }
     let hits: Vec<EditionHit<'_>> = views.iter().filter_map(edition_of).collect();
     let wanted_part = q.part.as_deref().map(norm_ident);
-    let wanted_artifact = q.artifact.as_deref().map(str::trim).map(str::to_ascii_lowercase);
+    let wanted_artifact = q
+        .artifact
+        .as_deref()
+        .map(str::trim)
+        .map(str::to_ascii_lowercase);
     let artifact_ok = |h: &EditionHit<'_>| -> bool {
-        let Some(a) = &wanted_artifact else { return true };
-        if h.artifact.as_deref().map(str::to_ascii_lowercase).as_deref() == Some(a.as_str()) {
+        let Some(a) = &wanted_artifact else {
+            return true;
+        };
+        if h.artifact
+            .as_deref()
+            .map(str::to_ascii_lowercase)
+            .as_deref()
+            == Some(a.as_str())
+        {
             return true;
         }
         h.view.subjects.values().any(|p| {
-            texts(p, &de("artifact")).iter().any(|x| x.eq_ignore_ascii_case(a))
+            texts(p, &de("artifact"))
+                .iter()
+                .any(|x| x.eq_ignore_ascii_case(a))
                 || (a.len() >= 8
                     && a.bytes().all(|b| b.is_ascii_hexdigit())
                     && text(p, &de("declaredSha256")).is_some_and(|s| s.starts_with(a.as_str())))
@@ -452,7 +487,11 @@ pub(crate) fn facts_from_store(store: &Store, graph_id: &str, q: &FactsQuery) ->
     let exact: Vec<&EditionHit<'_>> = hits
         .iter()
         .filter(|h| artifact_ok(h))
-        .filter(|h| wanted_part.as_ref().map_or(true, |w| h.families.iter().any(|f| f == w)))
+        .filter(|h| {
+            wanted_part
+                .as_ref()
+                .map_or(true, |w| h.families.iter().any(|f| f == w))
+        })
         .collect();
     let w = wanted_part.clone().unwrap_or_default();
     // Nothing exact: a family prefix (LM358 finds LM358B), and for a long
@@ -522,14 +561,20 @@ pub(crate) fn mcp_local_datasheet_facts(app: AppHandle, arguments: &Value) -> Ap
             .and_then(Value::as_u64)
             .map_or(DEFAULT_LIMIT, |n| (n as usize).clamp(1, 1000)),
     };
-    let graph_dir = crate::paths::existing_graph_dir(&app, &graph_id).map_err(AppError::not_found)?;
+    let graph_dir =
+        crate::paths::existing_graph_dir(&app, &graph_id).map_err(AppError::not_found)?;
     let store = crate::rdf_service::open_graph_store(&graph_dir).map_err(AppError::storage)?;
     let mut out = facts_from_store(&store, &graph_id, &q)?;
     // A miss on a part says where the part IS named (2026-10-14): a model that
     // reads "not found" alone stops there, though a document may give the value.
     if out["matched"] == json!(0) {
         if let Some(part) = &q.part {
-            match crate::file_search::part_mentions(&graph_id, &graph_dir, part, q.parameter.as_deref()) {
+            match crate::file_search::part_mentions(
+                &graph_id,
+                &graph_dir,
+                part,
+                q.parameter.as_deref(),
+            ) {
                 Ok(Some(mentions)) => {
                     out["note"] = json!(format!(
                         "not found: no imported datasheet matches; absence here is not zero. {}",

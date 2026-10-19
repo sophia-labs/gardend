@@ -1033,7 +1033,10 @@ pub(crate) async fn public_mode_middleware(
                     sparql: public.sparql,
                 };
                 PUBLIC_REQUEST
-                    .scope(visitor, crate::visitor_fence::within_context(context, next.run(request)))
+                    .scope(
+                        visitor,
+                        crate::visitor_fence::within_context(context, next.run(request)),
+                    )
                     .await
             }
             Err((status, code, message)) => public_error(status, code, &message),
@@ -1076,7 +1079,9 @@ pub(crate) async fn public_mode_middleware(
         }
     };
     // What is in the Trash is the owner's to see (W6, sealed exam C1).
-    if let Some(why) = crate::visitor_fence::trashed_route_refusal(&state.app, &matched_path, &path).await {
+    if let Some(why) =
+        crate::visitor_fence::trashed_route_refusal(&state.app, &matched_path, &path).await
+    {
         return public_error(StatusCode::NOT_FOUND, "not_found", &why);
     }
     let visitor = PublicRequest {

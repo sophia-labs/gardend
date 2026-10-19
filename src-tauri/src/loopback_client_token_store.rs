@@ -5,9 +5,7 @@ use crate::{
 };
 use std::path::Path;
 
-pub(crate) fn read_token_store_in(
-    profile_dir: &Path,
-) -> Result<LoopbackClientTokenStore, String> {
+pub(crate) fn read_token_store_in(profile_dir: &Path) -> Result<LoopbackClientTokenStore, String> {
     read_token_store_at(&profile_dir.join(LOOPBACK_CLIENT_TOKENS_FILE))
 }
 

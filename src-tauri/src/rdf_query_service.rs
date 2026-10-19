@@ -182,7 +182,9 @@ fn hide_named_graphs(
     dataset.set_available_named_graphs(
         available
             .into_iter()
-            .filter(|graph| !matches!(graph, NamedOrBlankNode::NamedNode(node) if hides(node.as_str())))
+            .filter(
+                |graph| !matches!(graph, NamedOrBlankNode::NamedNode(node) if hides(node.as_str())),
+            )
             .collect(),
     );
     if let Some(defaults) = dataset.default_graph_graphs() {
@@ -669,7 +671,13 @@ pub(super) fn dump_rdf_from_store(
     source_graph_iri: Option<&str>,
     graph_format_default_iri: Option<&str>,
 ) -> Result<RdfDumpResult, String> {
-    dump_rdf_from_store_limited(store, format_name, source_graph_iri, graph_format_default_iri, None)
+    dump_rdf_from_store_limited(
+        store,
+        format_name,
+        source_graph_iri,
+        graph_format_default_iri,
+        None,
+    )
 }
 
 pub(super) fn dump_rdf_from_store_limited(
@@ -679,19 +687,30 @@ pub(super) fn dump_rdf_from_store_limited(
     graph_format_default_iri: Option<&str>,
     max_bytes: Option<usize>,
 ) -> Result<RdfDumpResult, String> {
-    struct Output { bytes: Vec<u8>, limit: Option<usize> }
+    struct Output {
+        bytes: Vec<u8>,
+        limit: Option<usize>,
+    }
     impl std::io::Write for Output {
         fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
-            if self.limit.is_some_and(|limit| data.len() > limit.saturating_sub(self.bytes.len())) {
+            if self
+                .limit
+                .is_some_and(|limit| data.len() > limit.saturating_sub(self.bytes.len()))
+            {
                 return Err(std::io::Error::other("source_bundle_too_large"));
             }
             self.bytes.extend_from_slice(data);
             Ok(data.len())
         }
-        fn flush(&mut self) -> std::io::Result<()> { Ok(()) }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
     }
     let format = parse_rdf_format(format_name)?;
-    let mut buffer = Output { bytes: Vec::new(), limit: max_bytes };
+    let mut buffer = Output {
+        bytes: Vec::new(),
+        limit: max_bytes,
+    };
     let source_graph_iri = source_graph_iri
         .map(str::trim)
         .filter(|value| !value.is_empty());
@@ -748,12 +767,34 @@ mod tests {
     #[test]
     fn source_pull_bounded_dump_refuses_without_truncating_or_capping_shared_dump() {
         let store = Store::new().unwrap();
-        store.load_from_slice(RdfFormat::NQuads,
-            b"<urn:s> <urn:p> \"meaningful retained value\" <urn:g> .\n").unwrap();
+        store
+            .load_from_slice(
+                RdfFormat::NQuads,
+                b"<urn:s> <urn:p> \"meaningful retained value\" <urn:g> .\n",
+            )
+            .unwrap();
         let full = dump_rdf_from_store(&store, "nquads", None, None).unwrap();
-        assert!(dump_rdf_from_store_limited(&store, "nquads", None, None, Some(full.data.len()-1)).unwrap_err().contains("source_bundle_too_large"));
-        assert_eq!(dump_rdf_from_store_limited(&store, "nquads", None, None, Some(full.data.len())).unwrap().data, full.data);
-        assert_eq!(dump_rdf_from_store(&store, "nquads", None, None).unwrap().data, full.data);
+        assert!(dump_rdf_from_store_limited(
+            &store,
+            "nquads",
+            None,
+            None,
+            Some(full.data.len() - 1)
+        )
+        .unwrap_err()
+        .contains("source_bundle_too_large"));
+        assert_eq!(
+            dump_rdf_from_store_limited(&store, "nquads", None, None, Some(full.data.len()))
+                .unwrap()
+                .data,
+            full.data
+        );
+        assert_eq!(
+            dump_rdf_from_store(&store, "nquads", None, None)
+                .unwrap()
+                .data,
+            full.data
+        );
         assert_eq!(store.len().unwrap(), 1);
     }
 
@@ -832,17 +873,24 @@ mod tests {
 
         let cancelled_before_start = CancellationToken::new();
         cancelled_before_start.cancel();
-        let error =
-            execute_sparql_query_capped_with_control(&store, query, 5, 0, cancelled_before_start, &[])
-                .expect_err("a pre-cancelled engine token must abort query evaluation");
+        let error = execute_sparql_query_capped_with_control(
+            &store,
+            query,
+            5,
+            0,
+            cancelled_before_start,
+            &[],
+        )
+        .expect_err("a pre-cancelled engine token must abort query evaluation");
         assert!(
             error.to_ascii_lowercase().contains("cancel"),
             "Oxigraph cancellation must surface distinctly: {error}"
         );
 
         let cap_token = CancellationToken::new();
-        let capped = execute_sparql_query_capped_with_control(&store, query, 5, 0, cap_token.clone(), &[])
-            .expect("bounded query");
+        let capped =
+            execute_sparql_query_capped_with_control(&store, query, 5, 0, cap_token.clone(), &[])
+                .expect("bounded query");
         assert_eq!(capped.rows.len(), 5);
         assert!(
             cap_token.is_cancelled(),

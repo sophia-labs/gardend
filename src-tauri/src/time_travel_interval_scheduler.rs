@@ -56,7 +56,8 @@ async fn run_scheduler(app: AppHandle) {
             }
         };
         let tick_app = app.clone();
-        match crate::app_runtime::async_runtime::spawn_blocking(move || tick_once(&tick_app)).await {
+        match crate::app_runtime::async_runtime::spawn_blocking(move || tick_once(&tick_app)).await
+        {
             Ok(Ok(summary)) => {
                 if summary.captured > 0 || summary.skipped_unchanged > 0 {
                     log::debug!(

@@ -319,17 +319,12 @@ mod tests {
 
         // "omphalos" appears in 1/4 blocks, "garden" in 4/4: the rare-term
         // block must outrank every common-term-only block.
-        let hits = ranked_lexical_block_hits(
-            &documents,
-            &["omphalos garden".to_string()],
-            None,
-            false,
-        );
+        let hits =
+            ranked_lexical_block_hits(&documents, &["omphalos garden".to_string()], None, false);
         assert_eq!(hits[0].block_id, "rare");
 
         // Same term, doubled tf, same-ish length: more occurrences win.
-        let tf_hits =
-            ranked_lexical_block_hits(&documents, &["garden".to_string()], None, false);
+        let tf_hits = ranked_lexical_block_hits(&documents, &["garden".to_string()], None, false);
         assert_eq!(tf_hits[0].block_id, "common-3");
     }
 
@@ -389,8 +384,7 @@ mod tests {
         let block_two = test_block("", "settlement noisy ticks", 7.0);
         let documents = vec![test_document("doc-a", "Doc A", vec![block_one, block_two])];
 
-        let hits =
-            ranked_lexical_block_hits(&documents, &["settlement".to_string()], None, false);
+        let hits = ranked_lexical_block_hits(&documents, &["settlement".to_string()], None, false);
         assert_eq!(hits.len(), 2);
         let mut ids: Vec<&str> = hits.iter().map(|hit| hit.block_id.as_str()).collect();
         ids.sort();

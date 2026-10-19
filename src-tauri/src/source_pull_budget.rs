@@ -27,14 +27,29 @@ pub(crate) fn check_graph(root: &Path) -> AppResult<()> {
 /// a file growing after preflight must not turn into an unbounded allocation.
 pub(crate) fn read_bytes(path: &Path, used: &mut u64) -> AppResult<Vec<u8>> {
     use std::io::Read;
-    let remaining = MAX_SOURCE_PULL_BYTES.checked_sub(*used).ok_or_else(capacity_error)?;
-    let file = fs::File::open(path).map_err(|_| AppError::storage("Cannot read offline source input"))?;
-    let metadata = file.metadata().map_err(|_| AppError::storage("Cannot inspect open offline source input"))?;
-    if !metadata.is_file() { return Err(AppError::storage("Offline source input is not a regular file")); }
-    if metadata.len() > remaining { return Err(capacity_error()); }
+    let remaining = MAX_SOURCE_PULL_BYTES
+        .checked_sub(*used)
+        .ok_or_else(capacity_error)?;
+    let file =
+        fs::File::open(path).map_err(|_| AppError::storage("Cannot read offline source input"))?;
+    let metadata = file
+        .metadata()
+        .map_err(|_| AppError::storage("Cannot inspect open offline source input"))?;
+    if !metadata.is_file() {
+        return Err(AppError::storage(
+            "Offline source input is not a regular file",
+        ));
+    }
+    if metadata.len() > remaining {
+        return Err(capacity_error());
+    }
     let mut bytes = Vec::new();
-    file.take(remaining + 1).read_to_end(&mut bytes).map_err(|_| AppError::storage("Cannot read offline source input"))?;
-    if bytes.len() as u64 > remaining { return Err(capacity_error()); }
+    file.take(remaining + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| AppError::storage("Cannot read offline source input"))?;
+    if bytes.len() as u64 > remaining {
+        return Err(capacity_error());
+    }
     *used += bytes.len() as u64;
     Ok(bytes)
 }
@@ -52,7 +67,9 @@ fn check_graph_with_limit(root: &Path, limit: u64) -> AppResult<()> {
             Ok(()) => return Ok(()),
             Err(Walk::Vanished) if attempt < VANISHED_RETRIES => attempt += 1,
             Err(Walk::Vanished) => {
-                return Err(AppError::storage("Cannot inspect offline source transfer input"))
+                return Err(AppError::storage(
+                    "Cannot inspect offline source transfer input",
+                ))
             }
             Err(Walk::Refused(error)) => return Err(error),
         }
@@ -72,20 +89,45 @@ fn walk(root: &Path, limit: u64) -> Result<(), Walk> {
             Walk::Refused(AppError::storage(message))
         }
     }
-    fn visit(path: &Path, depth: usize, bytes: &mut u64, entries: &mut usize, limit: u64) -> Result<(), Walk> {
+    fn visit(
+        path: &Path,
+        depth: usize,
+        bytes: &mut u64,
+        entries: &mut usize,
+        limit: u64,
+    ) -> Result<(), Walk> {
         *entries += 1;
-        if depth > MAX_DEPTH || *entries > MAX_ENTRIES { return Err(Walk::Refused(capacity_error())); }
-        let metadata = fs::symlink_metadata(path).map_err(|error| vanished_or(error, "Cannot inspect offline source transfer input"))?;
-        if metadata.file_type().is_symlink() { return Err(Walk::Refused(AppError::storage("Offline source input contains a symbolic link"))); }
+        if depth > MAX_DEPTH || *entries > MAX_ENTRIES {
+            return Err(Walk::Refused(capacity_error()));
+        }
+        let metadata = fs::symlink_metadata(path)
+            .map_err(|error| vanished_or(error, "Cannot inspect offline source transfer input"))?;
+        if metadata.file_type().is_symlink() {
+            return Err(Walk::Refused(AppError::storage(
+                "Offline source input contains a symbolic link",
+            )));
+        }
         if metadata.is_dir() {
-            for entry in fs::read_dir(path).map_err(|error| vanished_or(error, "Cannot enumerate offline source transfer input"))? {
-                let entry = entry.map_err(|error| vanished_or(error, "Cannot inspect offline source transfer entry"))?;
+            for entry in fs::read_dir(path).map_err(|error| {
+                vanished_or(error, "Cannot enumerate offline source transfer input")
+            })? {
+                let entry = entry.map_err(|error| {
+                    vanished_or(error, "Cannot inspect offline source transfer entry")
+                })?;
                 visit(&entry.path(), depth + 1, bytes, entries, limit)?;
             }
         } else if metadata.is_file() {
-            *bytes = bytes.checked_add(metadata.len()).ok_or_else(|| Walk::Refused(capacity_error()))?;
-            if *bytes > limit { return Err(Walk::Refused(capacity_error())); }
-        } else { return Err(Walk::Refused(AppError::storage("Offline source input is not a regular file"))); }
+            *bytes = bytes
+                .checked_add(metadata.len())
+                .ok_or_else(|| Walk::Refused(capacity_error()))?;
+            if *bytes > limit {
+                return Err(Walk::Refused(capacity_error()));
+            }
+        } else {
+            return Err(Walk::Refused(AppError::storage(
+                "Offline source input is not a regular file",
+            )));
+        }
         Ok(())
     }
     visit(root, 0, &mut 0, &mut 0, limit)
@@ -97,12 +139,20 @@ mod tests {
     struct Fixture(std::path::PathBuf);
     impl Fixture {
         fn new() -> Self {
-            let path = std::env::temp_dir().join(format!("source-pull-budget-{}", uuid::Uuid::new_v4()));
-            fs::create_dir(&path).unwrap(); Self(path)
+            let path =
+                std::env::temp_dir().join(format!("source-pull-budget-{}", uuid::Uuid::new_v4()));
+            fs::create_dir(&path).unwrap();
+            Self(path)
         }
-        fn path(&self) -> &Path { &self.0 }
+        fn path(&self) -> &Path {
+            &self.0
+        }
     }
-    impl Drop for Fixture { fn drop(&mut self) { let _ = fs::remove_dir_all(&self.0); } }
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
     #[test]
     fn source_pull_budget_checks_accumulated_and_single_file_without_reading_payloads() {
         let root = Fixture::new();
@@ -113,7 +163,10 @@ mod tests {
         let file = fs::File::create(root.path().join("history.json")).unwrap();
         file.set_len(2_914_598_700).unwrap(); // sparse, actual incident scale; never deserialized
         let error = check_graph(root.path()).unwrap_err();
-        assert_eq!(error.code(), Some(crate::app_error_codes::SOURCE_BUNDLE_TOO_LARGE));
+        assert_eq!(
+            error.code(),
+            Some(crate::app_error_codes::SOURCE_BUNDLE_TOO_LARGE)
+        );
         assert_eq!(file.metadata().unwrap().len(), 2_914_598_700);
         assert!(!root.path().join("source-sync").exists());
     }
@@ -139,7 +192,8 @@ mod tests {
         use std::sync::atomic::{AtomicBool, Ordering};
         use std::sync::Arc;
         let root = Fixture::new();
-        let store = Arc::new(oxigraph::store::Store::open(root.path().join("store.oxigraph")).unwrap());
+        let store =
+            Arc::new(oxigraph::store::Store::open(root.path().join("store.oxigraph")).unwrap());
         let stop = Arc::new(AtomicBool::new(false));
         let writer = {
             let (store, stop) = (store.clone(), stop.clone());
@@ -151,7 +205,9 @@ mod tests {
                     let quads = (0..200)
                         .map(|index| {
                             oxigraph::model::Quad::new(
-                                oxigraph::model::NamedNode::new_unchecked(format!("urn:budget:s{round}-{index}")),
+                                oxigraph::model::NamedNode::new_unchecked(format!(
+                                    "urn:budget:s{round}-{index}"
+                                )),
                                 predicate.clone(),
                                 oxigraph::model::Literal::new_simple_literal("x".repeat(64)),
                                 oxigraph::model::GraphName::DefaultGraph,
@@ -192,7 +248,10 @@ mod tests {
         let root = Fixture::new();
         fs::write(root.path().join("a"), b"123456").unwrap();
         let mut used = MAX_SOURCE_PULL_BYTES - 6;
-        assert_eq!(read_bytes(&root.path().join("a"), &mut used).unwrap(), b"123456");
+        assert_eq!(
+            read_bytes(&root.path().join("a"), &mut used).unwrap(),
+            b"123456"
+        );
         assert!(read_bytes(&root.path().join("a"), &mut used).is_err());
         assert_eq!(used, MAX_SOURCE_PULL_BYTES);
     }

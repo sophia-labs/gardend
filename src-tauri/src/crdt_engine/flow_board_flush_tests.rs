@@ -157,9 +157,15 @@ fn flow_board_flush_projects_reconverges_reclaims_and_snapshots() {
             // continuously does in production): restore-point capture walks
             // the COLD workspace snapshot for its document roster, and the
             // workspace lane assertions below need the projection materialized.
-            persist_workspace(&app, graph_id, &graph_dir, &workspace_room, "ws-flush-initial")
-                .await
-                .expect("initial workspace flush");
+            persist_workspace(
+                &app,
+                graph_id,
+                &graph_dir,
+                &workspace_room,
+                "ws-flush-initial",
+            )
+            .await
+            .expect("initial workspace flush");
 
             // Board room: apply the golden board's Y.Doc update.
             let board_room = app
@@ -204,8 +210,15 @@ fn flow_board_flush_projects_reconverges_reclaims_and_snapshots() {
             let raw: Value = crate::storage::read_json(&manifest).expect("board document.json");
             assert_eq!(raw["documentKind"], FLOW_BOARD_KIND, "kind flag persisted");
             assert_eq!(raw["body"], "", "board body empty by construction");
-            assert_eq!(raw["tiptapXml"], "", "board tiptapXml empty by construction");
-            assert_eq!(raw["blocks"], json!([]), "board blocks empty by construction");
+            assert_eq!(
+                raw["tiptapXml"], "",
+                "board tiptapXml empty by construction"
+            );
+            assert_eq!(
+                raw["blocks"],
+                json!([]),
+                "board blocks empty by construction"
+            );
             assert_eq!(raw["tree"], Value::Null, "board tree empty by construction");
             assert!(
                 !raw["ydocUpdateBase64"]
@@ -246,11 +259,15 @@ fn flow_board_flush_projects_reconverges_reclaims_and_snapshots() {
             )
             .await
             .expect("converged board flush");
-            assert_eq!(reflushed["revision"], 1, "converged flush mints no revision");
+            assert_eq!(
+                reflushed["revision"], 1,
+                "converged flush mints no revision"
+            );
             let record = read_document_record(&graph_dir, &manifest).expect("board record");
-            let converged =
-                crate::flow_board_reconcile::reconcile_flow_board_record(&store, &graph_dir, &record)
-                    .expect("converged reconcile");
+            let converged = crate::flow_board_reconcile::reconcile_flow_board_record(
+                &store, &graph_dir, &record,
+            )
+            .expect("converged reconcile");
             assert_eq!(
                 converged.op_count(),
                 0,
@@ -295,7 +312,10 @@ fn flow_board_flush_projects_reconverges_reclaims_and_snapshots() {
             )
             .await
             .expect("post-delete board flush");
-            assert_eq!(after_delete["revision"], 2, "a board edit is a real revision");
+            assert_eq!(
+                after_delete["revision"], 2,
+                "a board edit is a real revision"
+            );
             let flow_lane = flow_projection_graph_iri(graph_id);
             let task2_subject = format!(
                 "{}:projection:flow:task:task-2",
@@ -325,8 +345,9 @@ fn flow_board_flush_projects_reconverges_reclaims_and_snapshots() {
                 .as_str()
                 .expect("restore point id")
                 .to_string();
-            let rp_manifest = crate::time_travel_store::read_manifest(&graph_dir, &restore_point_id)
-                .expect("restore point manifest");
+            let rp_manifest =
+                crate::time_travel_store::read_manifest(&graph_dir, &restore_point_id)
+                    .expect("restore point manifest");
             let board_ref = rp_manifest
                 .documents
                 .iter()
@@ -367,7 +388,11 @@ fn flow_board_flush_projects_reconverges_reclaims_and_snapshots() {
             // behavior, shared by capture and the currency matcher) — a board
             // record is content-empty by construction, so its snapshot
             // carries exactly that synthetic block and no real ones.
-            assert_eq!(payload.blocks.len(), 1, "only the synthetic empty-record block");
+            assert_eq!(
+                payload.blocks.len(),
+                1,
+                "only the synthetic empty-record block"
+            );
             assert_eq!(payload.blocks[0].id, "body");
             assert_eq!(payload.blocks[0].content, "Mission Board");
 

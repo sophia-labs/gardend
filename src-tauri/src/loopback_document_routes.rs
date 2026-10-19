@@ -4,8 +4,8 @@ use crate::{
         loopback_hosted_copy_document_snapshot, loopback_hosted_create_manual_document_snapshot,
         loopback_hosted_delete_document_snapshot, loopback_hosted_document_snapshot_count,
         loopback_hosted_document_snapshot_html, loopback_hosted_document_snapshot_text,
-        loopback_hosted_list_document_snapshots,
-        loopback_legacy_history_list, loopback_legacy_history_get,
+        loopback_hosted_list_document_snapshots, loopback_legacy_history_get,
+        loopback_legacy_history_list,
     },
     loopback_hosted_document_mutation_routes::{
         loopback_hosted_delete_document, loopback_hosted_duplicate_document,
@@ -36,10 +36,22 @@ use std::sync::Arc;
 
 pub(super) fn loopback_document_router() -> Router<Arc<LoopbackState>> {
     Router::new()
-        .route("/v1/graphs/{graph_id}/legacy-history",get(loopback_legacy_history_list))
-        .route("/v1/documents/{graph_id}/{doc_id}/legacy-history",get(loopback_legacy_history_list))
-        .route("/v1/documents/{graph_id}/{doc_id}/legacy-history/{snapshot_id}",get(loopback_legacy_history_get))
-        .route("/v1/documents/{graph_id}/{doc_id}/legacy-history/{snapshot_id}/{view}",get(loopback_legacy_history_get))
+        .route(
+            "/v1/graphs/{graph_id}/legacy-history",
+            get(loopback_legacy_history_list),
+        )
+        .route(
+            "/v1/documents/{graph_id}/{doc_id}/legacy-history",
+            get(loopback_legacy_history_list),
+        )
+        .route(
+            "/v1/documents/{graph_id}/{doc_id}/legacy-history/{snapshot_id}",
+            get(loopback_legacy_history_get),
+        )
+        .route(
+            "/v1/documents/{graph_id}/{doc_id}/legacy-history/{snapshot_id}/{view}",
+            get(loopback_legacy_history_get),
+        )
         .route(
             "/api/graphs/{graph_id}/documents",
             get(loopback_list_documents).post(loopback_create_workspace_document),

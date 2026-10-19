@@ -8,12 +8,25 @@ use std::{collections::BTreeMap, path::Path};
 
 // Source filenames are display data only. Storage always uses manifest.filename.
 fn disposition_value(manifest: &OriginalFileManifest, disposition: &str) -> String {
-    let Some(source) = manifest.source_filename.as_deref().filter(|s| s.len() <= 1024) else {
-        return format!("{disposition}; filename=\"{}\"", content_disposition_filename(&manifest.filename));
+    let Some(source) = manifest
+        .source_filename
+        .as_deref()
+        .filter(|s| s.len() <= 1024)
+    else {
+        return format!(
+            "{disposition}; filename=\"{}\"",
+            content_disposition_filename(&manifest.filename)
+        );
     };
     let safe = content_disposition_filename(source);
-    let ascii = safe.chars().map(|c| if c.is_ascii() { c } else { '_' }).collect::<String>();
-    format!("{disposition}; filename=\"{ascii}\"; filename*=UTF-8''{}", crate::ids::url_component(&safe))
+    let ascii = safe
+        .chars()
+        .map(|c| if c.is_ascii() { c } else { '_' })
+        .collect::<String>();
+    format!(
+        "{disposition}; filename=\"{ascii}\"; filename*=UTF-8''{}",
+        crate::ids::url_component(&safe)
+    )
 }
 
 pub(super) fn original_file_download_response(
@@ -168,20 +181,32 @@ mod tests {
     #[test]
     fn original_source_filename_is_safe_display_data_not_a_path() {
         let mut manifest = OriginalFileManifest {
-            filename: "source-digest.bin".into(), source_filename: Some("../café\r\n\".pdf".into()),
-            mime_type: "application/pdf".into(), size_bytes: 1, local_path: "/owned/source-digest.bin".into(),
-            created_at: "1".into(), updated_at: "1".into(),
+            filename: "source-digest.bin".into(),
+            source_filename: Some("../café\r\n\".pdf".into()),
+            mime_type: "application/pdf".into(),
+            size_bytes: 1,
+            local_path: "/owned/source-digest.bin".into(),
+            created_at: "1".into(),
+            updated_at: "1".into(),
         };
         let response = original_file_download_response(&manifest, vec![1], false).unwrap();
-        let header = response.headers()[header::CONTENT_DISPOSITION].to_str().unwrap();
+        let header = response.headers()[header::CONTENT_DISPOSITION]
+            .to_str()
+            .unwrap();
         assert!(header.contains("filename*=UTF-8''.._caf%C3%A9___.pdf"));
         assert!(!header.contains('\r') && !header.contains('\n') && !header.contains('/'));
-        assert_eq!(manifest.filename,"source-digest.bin");
+        assert_eq!(manifest.filename, "source-digest.bin");
         manifest.source_filename = Some("x".repeat(1025));
-        assert_eq!(disposition_value(&manifest,"attachment"),"attachment; filename=\"source-digest.bin\"");
+        assert_eq!(
+            disposition_value(&manifest, "attachment"),
+            "attachment; filename=\"source-digest.bin\""
+        );
         let mut value = serde_json::to_value(&manifest).unwrap();
         value.as_object_mut().unwrap().remove("sourceFilename");
-        assert!(serde_json::from_value::<OriginalFileManifest>(value).unwrap().source_filename.is_none());
+        assert!(serde_json::from_value::<OriginalFileManifest>(value)
+            .unwrap()
+            .source_filename
+            .is_none());
     }
 
     #[test]

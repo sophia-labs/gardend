@@ -5,14 +5,14 @@
 //! even for the same recovered operation. Partial effects require inspection.
 
 use crate::{app_runtime::AppHandle, crdt_queue::CrdtOperation};
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 use serde_json::{json, Value};
 use std::{
     fs,
     io::Write,
     path::{Path, PathBuf},
 };
+#[cfg(feature = "desktop")]
+use tauri::Manager;
 use yrs::{updates::decoder::Decode, Array, Doc, Map, ReadTxn, Transact, Update};
 
 use super::{
@@ -207,7 +207,10 @@ pub(crate) fn mcp_input(arguments: &Value) -> Result<(String, String, Value), St
     let graph_id = required_string(arguments, "graph_id")?.to_string();
     crate::ids::validate_local_id(&graph_id, "graph_id")?;
     let document_id = required_string(arguments, "document_id")?.to_string();
-    if arguments.get("requireDurable").is_some_and(|value| !value.is_boolean()) {
+    if arguments
+        .get("requireDurable")
+        .is_some_and(|value| !value.is_boolean())
+    {
         return Err("requireDurable must be a boolean".into());
     }
     if arguments.get("requireDurable") == Some(&Value::Bool(true))

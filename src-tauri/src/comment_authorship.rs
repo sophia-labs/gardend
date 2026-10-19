@@ -90,7 +90,11 @@ pub(crate) fn current_comment_author(app: &AppHandle) -> CommentAuthor {
     if let Some(fence) = crate::visitor_fence::current_fence() {
         let via = crate::request_actor::current_request_actor().and_then(|actor| actor.via);
         let name = match via.as_deref() {
-            Some(via) => format!("{} via {}", fence.name, via.strip_prefix("service:").unwrap_or(via)),
+            Some(via) => format!(
+                "{} via {}",
+                fence.name,
+                via.strip_prefix("service:").unwrap_or(via)
+            ),
             None => fence.name.clone(),
         };
         return CommentAuthor {
@@ -173,7 +177,13 @@ pub(crate) fn stamp_comment_author(app: &AppHandle, kind: &str, payload: &mut Va
 }
 
 /// The authorship fields of a stored comment.
-const AUTHORSHIP_FIELDS: [&str; 5] = ["author", "authorId", "author_id", "authorVia", "claimedAuthor"];
+const AUTHORSHIP_FIELDS: [&str; 5] = [
+    "author",
+    "authorId",
+    "author_id",
+    "authorVia",
+    "claimedAuthor",
+];
 
 /// Sign `data` (a comment about to be stored) by `author`. Whatever the
 /// caller put in the authorship fields is dropped; the name it claimed
@@ -257,7 +267,10 @@ mod tests {
             .as_object()
             .cloned()
             .unwrap();
-        let mut same = json!({ "text": "hello", "author": "Mallory" }).as_object().cloned().unwrap();
+        let mut same = json!({ "text": "hello", "author": "Mallory" })
+            .as_object()
+            .cloned()
+            .unwrap();
         let claimed = same.get("author").cloned();
         sign_comment(&mut same, &author(), claimed.as_ref(), Some(&stored));
         assert_eq!(same["authorId"], "owner");
@@ -272,7 +285,13 @@ mod tests {
 
     #[test]
     fn a_payload_without_the_server_stamp_is_signed_by_the_runtime() {
-        let payload = json!({ "author": "Vera (owner)" }).as_object().cloned().unwrap();
-        assert_eq!(CommentAuthor::from_payload(&payload), CommentAuthor::runtime());
+        let payload = json!({ "author": "Vera (owner)" })
+            .as_object()
+            .cloned()
+            .unwrap();
+        assert_eq!(
+            CommentAuthor::from_payload(&payload),
+            CommentAuthor::runtime()
+        );
     }
 }

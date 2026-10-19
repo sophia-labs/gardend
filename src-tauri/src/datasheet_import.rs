@@ -272,7 +272,9 @@ fn sha256_hex(bytes: &[u8]) -> String {
 }
 
 fn is_hex64(s: &str) -> bool {
-    s.len() == 64 && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    s.len() == 64
+        && s.bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 fn page_of(v: Option<&Value>) -> Option<u64> {
@@ -311,12 +313,19 @@ fn bit_pattern(width: u32, reset: &str) -> Option<String> {
     let w = width as usize;
     let mut lower = r.to_ascii_lowercase();
     // Trailing radix letters as the TI tables print them: `00b`, `8000h`.
-    if !lower.starts_with("0x") && !lower.starts_with("0b") && lower.len() > 1 && lower.ends_with('b') && lower[..lower.len() - 1].chars().all(|c| "01x".contains(c)) {
+    if !lower.starts_with("0x")
+        && !lower.starts_with("0b")
+        && lower.len() > 1
+        && lower.ends_with('b')
+        && lower[..lower.len() - 1].chars().all(|c| "01x".contains(c))
+    {
         lower = format!("0b{}", &lower[..lower.len() - 1]);
     } else if !lower.starts_with("0x")
         && lower.len() > 1
         && lower.ends_with('h')
-        && lower[..lower.len() - 1].chars().all(|c| c.is_ascii_hexdigit())
+        && lower[..lower.len() - 1]
+            .chars()
+            .all(|c| c.is_ascii_hexdigit())
     {
         lower = format!("0x{}", &lower[..lower.len() - 1]);
     }
@@ -510,7 +519,9 @@ fn admit(env: &Value, pdf: Option<&PdfCheck>) -> Vec<String> {
     let check_page = |errs: &mut Vec<String>, path: &str, v: Option<&Value>| -> Option<u64> {
         let p = page_of(v)?;
         if pages > 0 && p > pages {
-            errs.push(format!("{path}: page {p} is beyond the document's {pages} pages"));
+            errs.push(format!(
+                "{path}: page {p} is beyond the document's {pages} pages"
+            ));
         }
         Some(p)
     };
@@ -536,7 +547,9 @@ fn admit(env: &Value, pdf: Option<&PdfCheck>) -> Vec<String> {
         let key = p.get("key").and_then(Value::as_str).unwrap_or("");
         let path = format!("params[{i}] ({key})");
         if !PARAM_KEYS.contains(&key) {
-            errs.push(format!("{path}: key outside the closed set vin/vout/iout/fsw"));
+            errs.push(format!(
+                "{path}: key outside the closed set vin/vout/iout/fsw"
+            ));
         }
         match p.get("confidence").and_then(Value::as_str) {
             Some(c) if LEVELS.contains(&c) => {}
@@ -561,11 +574,16 @@ fn admit(env: &Value, pdf: Option<&PdfCheck>) -> Vec<String> {
                     other.unwrap_or("(missing)")
                 )),
             }
-            let has_file = r.get("file").and_then(Value::as_str).is_some_and(|f| !f.is_empty());
+            let has_file = r
+                .get("file")
+                .and_then(Value::as_str)
+                .is_some_and(|f| !f.is_empty());
             external |= has_file;
             let page = check_page(&mut errs, &rpath, r.get("page"));
             if page.is_none() && !has_file {
-                errs.push(format!("{rpath}: no page and no source file (no page, no value)"));
+                errs.push(format!(
+                    "{rpath}: no page and no source file (no page, no value)"
+                ));
             }
             num(&mut errs, &format!("{rpath}.min"), r.get("min"));
             num(&mut errs, &format!("{rpath}.max"), r.get("max"));
@@ -606,7 +624,10 @@ fn admit(env: &Value, pdf: Option<&PdfCheck>) -> Vec<String> {
         if r.get("name").and_then(Value::as_str).is_none() {
             errs.push(format!("{path}: name is missing"));
         }
-        let rp = r.get("page").filter(|v| !v.is_null()).or_else(|| r.get("source_page"));
+        let rp = r
+            .get("page")
+            .filter(|v| !v.is_null())
+            .or_else(|| r.get("source_page"));
         if rp.is_some_and(|v| !v.is_null()) {
             check_page(&mut errs, &path, rp);
         }
@@ -688,7 +709,9 @@ impl Budget {
 }
 
 fn s_of<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
-    v.get(key).and_then(Value::as_str).filter(|s| !s.trim().is_empty())
+    v.get(key)
+        .and_then(Value::as_str)
+        .filter(|s| !s.trim().is_empty())
 }
 
 fn f_of(v: &Value, key: &str) -> Option<f64> {
@@ -706,7 +729,11 @@ fn tool_ident(env: &Value) -> (String, String, String) {
     };
     let commit = get("datasheet-parser");
     let docling = get("docling");
-    (commit.clone(), docling.clone(), format!("tool-dsp-{}-{}", slug(&commit), slug(&docling)))
+    (
+        commit.clone(),
+        docling.clone(),
+        format!("tool-dsp-{}-{}", slug(&commit), slug(&docling)),
+    )
 }
 
 fn reader_concepts(extractor: &str) -> Vec<String> {
@@ -760,7 +787,12 @@ fn page_triples(g: &mut Grp, ctx: &Ctx, node: &str, page: Option<u64>, boxes: &[
 }
 
 fn flag_triples(g: &mut Grp, node: &str, v: &Value) {
-    for f in v.get("flags").and_then(Value::as_array).into_iter().flatten() {
+    for f in v
+        .get("flags")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
         if let Some(f) = f.as_str() {
             g.diag(node, f);
         }
@@ -790,7 +822,11 @@ fn map_param(ctx: &Ctx, idx: usize, p: &Value, diags: &mut Vec<String>) -> Grp {
     g.text(&base, eng("parameterKey"), key);
     g.int(&base, de("ordinal"), idx as u64);
     g.iri(&base, eng("limitRegime"), &eng("recommendedOperating"));
-    for (slot, k) in [("lowerLimit", "min"), ("typical", "typ"), ("upperLimit", "max")] {
+    for (slot, k) in [
+        ("lowerLimit", "min"),
+        ("typical", "typ"),
+        ("upperLimit", "max"),
+    ] {
         if let Some(v) = f_of(p, k) {
             g.dec(&base, eng(slot), v);
         }
@@ -801,7 +837,11 @@ fn map_param(ctx: &Ctx, idx: usize, p: &Value, diags: &mut Vec<String>) -> Grp {
     // The cards read one of high/medium/low/contested; Tom's own level is kept.
     let level = s_of(p, "confidence").unwrap_or("none");
     let contested = p.get("contested").and_then(Value::as_bool) == Some(true);
-    g.iri(&base, de("confidence"), &dsp(if contested { "contested" } else { level }));
+    g.iri(
+        &base,
+        de("confidence"),
+        &dsp(if contested { "contested" } else { level }),
+    );
     g.iri(&base, de("upstreamConfidence"), &dsp(level));
     g.int(&base, de("paramOrder"), idx as u64);
     if p.get("contested").and_then(Value::as_bool) == Some(true) {
@@ -814,7 +854,12 @@ fn map_param(ctx: &Ctx, idx: usize, p: &Value, diags: &mut Vec<String>) -> Grp {
     }
     let readings = p.get("readings").and_then(Value::as_array);
     let total = readings.map_or(0, Vec::len);
-    for (j, r) in readings.into_iter().flatten().take(MAX_READINGS).enumerate() {
+    for (j, r) in readings
+        .into_iter()
+        .flatten()
+        .take(MAX_READINGS)
+        .enumerate()
+    {
         let node = format!("{base}-r{j}");
         g.iri(&base, de("groundingRecords"), &node);
         g.ty(&node, de("Assertion"));
@@ -856,7 +901,10 @@ fn map_param(ctx: &Ctx, idx: usize, p: &Value, diags: &mut Vec<String>) -> Grp {
         }
     }
     if total > MAX_READINGS {
-        diags.push(format!("on demand: {} readings of params[{key}]", total - MAX_READINGS));
+        diags.push(format!(
+            "on demand: {} readings of params[{key}]",
+            total - MAX_READINGS
+        ));
     }
     // A person's check, as Tom's snapshot rule: the value they saw is pinned.
     if let Some(v) = p.get("verified").filter(|v| v.is_object()) {
@@ -890,10 +938,10 @@ fn map_param(ctx: &Ctx, idx: usize, p: &Value, diags: &mut Vec<String>) -> Grp {
                 g.dec(&node, de("snapshotUpper"), hi);
             }
         }
-        let changed = p
-            .get("flags")
-            .and_then(Value::as_array)
-            .is_some_and(|f| f.iter().any(|x| x.as_str() == Some("verified_value_changed")));
+        let changed = p.get("flags").and_then(Value::as_array).is_some_and(|f| {
+            f.iter()
+                .any(|x| x.as_str() == Some("verified_value_changed"))
+        });
         if changed {
             g.boolean(&node, de("changedSinceChecked"), true);
             if let Some(ev) = p.get("extracted_value").and_then(Value::as_array) {
@@ -919,7 +967,11 @@ fn map_row(ctx: &Ctx, idx: usize, r: &Value) -> Grp {
     g.iri(&node, de("assertionKind"), &de("sourceReport"));
     g.iri(&node, de("speaker"), &ctx.tool);
     g.iri(&node, de("subject"), &ctx.subject);
-    let named = if !parameter.is_empty() { parameter } else { symbol };
+    let named = if !parameter.is_empty() {
+        parameter
+    } else {
+        symbol
+    };
     g.iri(&node, de("predicate"), &format!("{EP}{}", camel(named)));
     g.iri(&node, de("semanticProfile"), PROFILE_SPEC);
     g.int(&node, de("ordinal"), idx as u64);
@@ -936,12 +988,21 @@ fn map_row(ctx: &Ctx, idx: usize, r: &Value) -> Grp {
     g.iri(&node, eng("limitRegime"), &regime_for(section));
     match s_of(r, "conditions") {
         Some(c) => {
-            g.typed(&node, de("conditions"), c.to_string(), &de("ProseCondition"));
+            g.typed(
+                &node,
+                de("conditions"),
+                c.to_string(),
+                &de("ProseCondition"),
+            );
             g.iri(&node, de("conditionsCompleteness"), &de("proseOnly"));
         }
         None => g.iri(&node, de("conditionsCompleteness"), &de("unknown")),
     }
-    let slots = [("min", "lower", "lowerLimit"), ("typ", "typical", "typical"), ("max", "upper", "upperLimit")];
+    let slots = [
+        ("min", "lower", "lowerLimit"),
+        ("typ", "typical", "typical"),
+        ("max", "upper", "upperLimit"),
+    ];
     for (k, slot, pred) in slots {
         if let Some(v) = f_of(r, k) {
             g.dec(&node, eng(pred), v);
@@ -952,7 +1013,12 @@ fn map_row(ctx: &Ctx, idx: usize, r: &Value) -> Grp {
             .and_then(Value::as_str)
             .filter(|c| !c.trim().is_empty())
         {
-            g.typed(&node, eng(&format!("{slot}Conditions")), c.to_string(), &de("ProseCondition"));
+            g.typed(
+                &node,
+                eng(&format!("{slot}Conditions")),
+                c.to_string(),
+                &de("ProseCondition"),
+            );
         }
         if let Some(c) = r
             .pointer(&format!("/slot_guarantee/{k}"))
@@ -1002,7 +1068,14 @@ fn camel_cap(s: &str) -> String {
 
 /// One key value derived from a spec row (datasheets slice 1b): the same
 /// derivation shape as a Tom key parameter, grounded in the row it came from.
-fn map_key_value(ctx: &Ctx, order: usize, key: &str, row_idx: Option<usize>, row: Option<&Value>, text: Option<&str>) -> Grp {
+fn map_key_value(
+    ctx: &Ctx,
+    order: usize,
+    key: &str,
+    row_idx: Option<usize>,
+    row: Option<&Value>,
+    text: Option<&str>,
+) -> Grp {
     let node = ctx.node(&format!("key-{key}"));
     let mut g = Grp::default();
     g.ty(&node, de("Assertion"));
@@ -1017,7 +1090,11 @@ fn map_key_value(ctx: &Ctx, order: usize, key: &str, row_idx: Option<usize>, row
     if let (Some(ri), Some(r)) = (row_idx, row) {
         let section = s_of(r, "section").unwrap_or("");
         g.iri(&node, eng("limitRegime"), &regime_for(section));
-        for (slot, k) in [("lowerLimit", "min"), ("typical", "typ"), ("upperLimit", "max")] {
+        for (slot, k) in [
+            ("lowerLimit", "min"),
+            ("typical", "typ"),
+            ("upperLimit", "max"),
+        ] {
             if let Some(v) = f_of(r, k) {
                 g.dec(&node, eng(slot), v);
             }
@@ -1025,20 +1102,43 @@ fn map_key_value(ctx: &Ctx, order: usize, key: &str, row_idx: Option<usize>, row
         unit_triples(&mut g, &node, s_of(r, "unit").unwrap_or(""));
         match s_of(r, "conditions") {
             Some(c) => {
-                g.typed(&node, de("conditions"), c.to_string(), &de("ProseCondition"));
+                g.typed(
+                    &node,
+                    de("conditions"),
+                    c.to_string(),
+                    &de("ProseCondition"),
+                );
                 g.iri(&node, de("conditionsCompleteness"), &de("proseOnly"));
             }
             None => g.iri(&node, de("conditionsCompleteness"), &de("unknown")),
         }
         page_triples(&mut g, ctx, &node, page_of(r.get("page")), &boxes_of(r));
-        g.iri(&node, de("groundingRecords"), &ctx.node(&format!("spec_rows-{ri}")));
-        g.iri(&node, de("confidence"), &dsp(s_of(r, "confidence").unwrap_or("none")));
-        g.diag(&node, &format!("derived from spec_rows[{ri}] ({} / {})", s_of(r, "symbol").unwrap_or(""), s_of(r, "parameter").unwrap_or("")));
+        g.iri(
+            &node,
+            de("groundingRecords"),
+            &ctx.node(&format!("spec_rows-{ri}")),
+        );
+        g.iri(
+            &node,
+            de("confidence"),
+            &dsp(s_of(r, "confidence").unwrap_or("none")),
+        );
+        g.diag(
+            &node,
+            &format!(
+                "derived from spec_rows[{ri}] ({} / {})",
+                s_of(r, "symbol").unwrap_or(""),
+                s_of(r, "parameter").unwrap_or("")
+            ),
+        );
     } else if let Some(t) = text {
         g.text(&node, de("valueText"), t);
         page_triples(&mut g, ctx, &node, Some(1), &[]);
         g.iri(&node, de("confidence"), &dsp("low"));
-        g.diag(&node, "read from the document title or part name, not from a table");
+        g.diag(
+            &node,
+            "read from the document title or part name, not from a table",
+        );
     }
     g
 }
@@ -1156,7 +1256,12 @@ pub(crate) fn map_envelope(
     g.int(&content, de("pageCount"), pages);
     match &input.pdf {
         Some(p) => {
-            g.typed(&content, de("digest"), format!("sha256:{}:{}", p.sha256, p.bytes), &de("Digest"));
+            g.typed(
+                &content,
+                de("digest"),
+                format!("sha256:{}:{}", p.sha256, p.bytes),
+                &de("Digest"),
+            );
             g.iri(&content, de("byteCheck"), &de("matched"));
         }
         None => g.iri(&content, de("byteCheck"), &de("unchecked")),
@@ -1234,7 +1339,10 @@ pub(crate) fn map_envelope(
         ("pdfplumber_sections", "pdfplumberSections"),
         ("unit_repairs", "unitRepairs"),
     ] {
-        if let Some(n) = env.pointer(&format!("/extraction/{k}")).and_then(Value::as_u64) {
+        if let Some(n) = env
+            .pointer(&format!("/extraction/{k}"))
+            .and_then(Value::as_u64)
+        {
             g.int(&attempt, de(pred), n);
         }
     }
@@ -1243,8 +1351,15 @@ pub(crate) fn map_envelope(
         .and_then(Value::as_array)
         .filter(|a| !a.is_empty())
     {
-        g.diag(&attempt, &format!("text readers disagree on pages {}", Value::Array(p.clone())));
-        g.text(&attempt, de("textDisagreementPages"), &Value::Array(p.clone()).to_string());
+        g.diag(
+            &attempt,
+            &format!("text readers disagree on pages {}", Value::Array(p.clone())),
+        );
+        g.text(
+            &attempt,
+            de("textDisagreementPages"),
+            &Value::Array(p.clone()).to_string(),
+        );
     }
     // Every other tool the run names (Docling and its version) is a ToolProfile of its own,
     // used by this attempt; `de:tool` stays the parser itself.
@@ -1277,9 +1392,17 @@ pub(crate) fn map_envelope(
     g.text(&tool, de("toolName"), "datasheet-parser");
     g.text(&tool, de("toolCommit"), &commit);
     g.text(&tool, de("doclingVersion"), &docling_version);
-    g.text(&tool, de("sourceRepository"), "https://github.com/NomDeTom/datasheet-parser");
+    g.text(
+        &tool,
+        de("sourceRepository"),
+        "https://github.com/NomDeTom/datasheet-parser",
+    );
     g.text(&tool, de("credit"), "NomDeTom");
-    let custody = g.0.iter().map(|t| t.s.clone()).collect::<BTreeSet<_>>().len();
+    let custody =
+        g.0.iter()
+            .map(|t| t.s.clone())
+            .collect::<BTreeSet<_>>()
+            .len();
     count(&mut counts, "custodyNodes", custody);
     budget.try_commit(g, false);
 
@@ -1311,10 +1434,15 @@ pub(crate) fn map_envelope(
     let mut parts: Vec<String> = ident.parts.clone();
     diags.extend(ident.diagnostics.iter().cloned());
     if input.renditions.contains_key("text") && input.text.is_none() {
-        diags.push("the text rendition could not be read; identity is from the other witnesses".into());
+        diags.push(
+            "the text rendition could not be read; identity is from the other witnesses".into(),
+        );
     }
     if parts.len() > MAX_FAMILIES {
-        diags.push(format!("on demand: {} parts beyond {MAX_FAMILIES}", parts.len() - MAX_FAMILIES));
+        diags.push(format!(
+            "on demand: {} parts beyond {MAX_FAMILIES}",
+            parts.len() - MAX_FAMILIES
+        ));
         parts.truncate(MAX_FAMILIES);
     }
     let mut families: Vec<String> = Vec::new();
@@ -1334,9 +1462,14 @@ pub(crate) fn map_envelope(
         g.iri(&ctx.edition, de("namesFamily"), &handle);
         families.push(handle);
     }
-    ctx.subject = families.first().cloned().unwrap_or_else(|| ctx.edition.clone());
+    ctx.subject = families
+        .first()
+        .cloned()
+        .unwrap_or_else(|| ctx.edition.clone());
     if families.is_empty() {
-        diags.push("no part resolved to a component family; statements are about the edition".into());
+        diags.push(
+            "no part resolved to a component family; statements are about the edition".into(),
+        );
     }
     count(&mut counts, "families", families.len());
     let ed = ctx.edition.clone();
@@ -1354,7 +1487,10 @@ pub(crate) fn map_envelope(
         let params_json = env.get("params").and_then(Value::as_array);
         let nrows = rows_json.map_or(0, Vec::len);
         let nparams_json = params_json.map_or(0, Vec::len);
-        let nregs_json = env.get("registers").and_then(Value::as_array).map_or(0, Vec::len);
+        let nregs_json = env
+            .get("registers")
+            .and_then(Value::as_array)
+            .map_or(0, Vec::len);
         // To check: key values that are contested or weakly read and not cleanly
         // checked by a person, plus weakly read rows.
         let to_check = params_json
@@ -1365,7 +1501,8 @@ pub(crate) fn map_envelope(
                     || p.get("contested").and_then(Value::as_bool) == Some(true);
                 let checked = p.get("verified").is_some_and(Value::is_object)
                     && !p.get("flags").and_then(Value::as_array).is_some_and(|f| {
-                        f.iter().any(|x| x.as_str() == Some("verified_value_changed"))
+                        f.iter()
+                            .any(|x| x.as_str() == Some("verified_value_changed"))
                     });
                 weak && !checked
             })
@@ -1430,7 +1567,12 @@ pub(crate) fn map_envelope(
     if let Some(paper) = doc.get("paper").filter(|p| p.is_object()) {
         g.text(&ed, de("paperMetadata"), &paper.to_string());
     }
-    for f in env.get("flags").and_then(Value::as_array).into_iter().flatten() {
+    for f in env
+        .get("flags")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
         if let Some(f) = f.as_str() {
             g.diag(&ed, f);
         }
@@ -1460,7 +1602,10 @@ pub(crate) fn map_envelope(
             count(&mut counts, "readings", readings);
             count(&mut counts, "checks", checks);
         } else {
-            diags.push(format!("on demand: params[{}]", s_of(p, "key").unwrap_or("?")));
+            diags.push(format!(
+                "on demand: params[{}]",
+                s_of(p, "key").unwrap_or("?")
+            ));
         }
     }
     if nparams > MAX_PARAMS {
@@ -1471,7 +1616,9 @@ pub(crate) fn map_envelope(
     // ---- registers and bit fields
     let regs = env.get("registers").and_then(Value::as_array);
     let nregs = regs.map_or(0, Vec::len);
-    let reg_reader = env.pointer("/extraction/readers/registers").and_then(Value::as_str);
+    let reg_reader = env
+        .pointer("/extraction/readers/registers")
+        .and_then(Value::as_str);
     let (mut kept_regs, mut kept_fields, mut skipped_fields) = (0usize, 0usize, 0usize);
     for (i, r) in regs.into_iter().flatten().take(MAX_REGISTERS).enumerate() {
         let (g, nfields) = map_register(&ctx, i, r, reg_reader);
@@ -1500,12 +1647,20 @@ pub(crate) fn map_envelope(
             g.iri(&node, de("assertionKind"), &de("correction"));
             g.text(&node, de("speakerLabel"), "card (a person's fix)");
             g.iri(&node, de("subject"), &ctx.edition);
-            g.iri(&node, de("predicate"), &dsp(&format!("field-{}", slug(field))));
+            g.iri(
+                &node,
+                de("predicate"),
+                &dsp(&format!("field-{}", slug(field))),
+            );
             let lexical = match value {
                 Value::String(s) => s.clone(),
                 Value::Array(a) => a
                     .iter()
-                    .map(|x| x.as_str().map(str::to_string).unwrap_or_else(|| x.to_string()))
+                    .map(|x| {
+                        x.as_str()
+                            .map(str::to_string)
+                            .unwrap_or_else(|| x.to_string())
+                    })
                     .collect::<Vec<_>>()
                     .join(", "),
                 other => other.to_string(),
@@ -1530,7 +1685,10 @@ pub(crate) fn map_envelope(
         !has_docling || s_of(r, "extractor").is_some_and(|e| e.starts_with("docling"))
     });
     if !secondary.is_empty() {
-        diags.push(format!("on demand: {} alternative-reader rows", secondary.len()));
+        diags.push(format!(
+            "on demand: {} alternative-reader rows",
+            secondary.len()
+        ));
     }
     // ---- key values for every part type, derived from the rows (slice 1b).
     // The rows they cite are committed first, so no key value dangles.
@@ -1551,7 +1709,9 @@ pub(crate) fn map_envelope(
         let candidates: Vec<(usize, &Value)> = primary.iter().take(MAX_ROWS).cloned().collect();
         for pick in crate::datasheet_keyvalues::select(kind, doc, &candidates, &have) {
             let order = nparams + key_values;
-            let row = pick.row.and_then(|ri| candidates.iter().find(|(i, _)| *i == ri).map(|(_, r)| *r));
+            let row = pick
+                .row
+                .and_then(|ri| candidates.iter().find(|(i, _)| *i == ri).map(|(_, r)| *r));
             if let (Some(ri), Some(r)) = (pick.row, row) {
                 if !committed_rows.contains(&ri) {
                     if !budget.try_commit(map_row(&ctx, ri, r), true) {
@@ -1561,7 +1721,10 @@ pub(crate) fn map_envelope(
                     committed_rows.insert(ri);
                 }
             }
-            if budget.try_commit(map_key_value(&ctx, order, pick.key, pick.row, row, pick.text.as_deref()), true) {
+            if budget.try_commit(
+                map_key_value(&ctx, order, pick.key, pick.row, row, pick.text.as_deref()),
+                true,
+            ) {
                 key_values += 1;
             } else {
                 diags.push(format!("on demand: key value {}", pick.key));
@@ -1629,7 +1792,10 @@ pub(crate) fn to_term(o: &Obj) -> Result<Term, ImportError> {
 }
 
 fn graph_prefix(graph_id: &str) -> String {
-    format!("{}:projection:datasheet:", crate::rdf::graph_subject(graph_id))
+    format!(
+        "{}:projection:datasheet:",
+        crate::rdf::graph_subject(graph_id)
+    )
 }
 
 /// A handle the graph already holds for a normalized identifier.
@@ -1768,7 +1934,9 @@ fn hash_file(path: &std::path::Path) -> AppResult<(String, u64)> {
     let mut buf = vec![0u8; 1 << 20];
     let mut total = 0u64;
     loop {
-        let n = file.read(&mut buf).map_err(|e| AppError::storage(e.to_string()))?;
+        let n = file
+            .read(&mut buf)
+            .map_err(|e| AppError::storage(e.to_string()))?;
         if n == 0 {
             break;
         }
@@ -1801,7 +1969,8 @@ fn bound_text(t: &str) -> String {
 /// the identity rules. An unreadable rendition is not an error: identity falls back to the
 /// other witnesses and says so.
 fn read_text_rendition(app: &AppHandle, graph_id: &str, id: &str) -> Option<String> {
-    let (_, path) = crate::original_file_service::open_artifact_original_file(app, graph_id, id).ok()?;
+    let (_, path) =
+        crate::original_file_service::open_artifact_original_file(app, graph_id, id).ok()?;
     let mut buf = Vec::new();
     std::fs::File::open(path)
         .ok()?
@@ -1824,24 +1993,27 @@ fn read_text_rendition(app: &AppHandle, graph_id: &str, id: &str) -> Option<Stri
 pub(crate) fn mcp_local_datasheet_import(app: AppHandle, arguments: &Value) -> AppResult<Value> {
     let graph_id = mcp_required_graph_id(arguments).map_err(AppError::validation)?;
     crate::ids::validate_local_id(&graph_id, "graph_id").map_err(AppError::validation)?;
-    let envelope_artifact_id = artifact_arg(arguments, &["envelope_artifact_id", "envelopeArtifactId"])?;
+    let envelope_artifact_id =
+        artifact_arg(arguments, &["envelope_artifact_id", "envelopeArtifactId"])?;
     let pdf_artifact_id = artifact_arg(arguments, &["pdf_artifact_id", "pdfArtifactId"])?;
-    let (envelope_bytes, envelope_artifact_id) = match (&envelope_artifact_id, arguments.get("envelope")) {
-        (Some(id), None) => {
-            let (_, bytes) = crate::original_file_service::read_artifact_original_file(&app, &graph_id, id)?;
-            (bytes, Some(id.clone()))
-        }
-        (None, Some(Value::String(s))) => (s.as_bytes().to_vec(), None),
-        (None, Some(v)) if v.is_object() => (
-            serde_json::to_vec(v).map_err(|e| AppError::serialization(e.to_string()))?,
-            None,
-        ),
-        _ => {
-            return Err(AppError::validation(
-                "give exactly one of envelope_artifact_id or envelope",
-            ))
-        }
-    };
+    let (envelope_bytes, envelope_artifact_id) =
+        match (&envelope_artifact_id, arguments.get("envelope")) {
+            (Some(id), None) => {
+                let (_, bytes) =
+                    crate::original_file_service::read_artifact_original_file(&app, &graph_id, id)?;
+                (bytes, Some(id.clone()))
+            }
+            (None, Some(Value::String(s))) => (s.as_bytes().to_vec(), None),
+            (None, Some(v)) if v.is_object() => (
+                serde_json::to_vec(v).map_err(|e| AppError::serialization(e.to_string()))?,
+                None,
+            ),
+            _ => {
+                return Err(AppError::validation(
+                    "give exactly one of envelope_artifact_id or envelope",
+                ))
+            }
+        };
     if envelope_bytes.len() as u64 > MAX_ENVELOPE_BYTES {
         return Err(AppError::capacity("the envelope exceeds 64 MiB"));
     }
@@ -1849,7 +2021,8 @@ pub(crate) fn mcp_local_datasheet_import(app: AppHandle, arguments: &Value) -> A
         .map_err(|e| AppError::validation(format!("the envelope is not valid JSON: {e}")))?;
     let pdf = match &pdf_artifact_id {
         Some(id) => {
-            let (_, path) = crate::original_file_service::open_artifact_original_file(&app, &graph_id, id)?;
+            let (_, path) =
+                crate::original_file_service::open_artifact_original_file(&app, &graph_id, id)?;
             let (sha256, bytes) = hash_file(&path)?;
             Some(PdfCheck {
                 artifact_id: Some(id.clone()),
@@ -1863,7 +2036,9 @@ pub(crate) fn mcp_local_datasheet_import(app: AppHandle, arguments: &Value) -> A
     if let Some(obj) = arguments.get("renditions").and_then(Value::as_object) {
         for (role, v) in obj {
             if !["text", "regions", "docling", "audit"].contains(&role.as_str()) {
-                return Err(AppError::validation(format!("unknown rendition role {role}")));
+                return Err(AppError::validation(format!(
+                    "unknown rendition role {role}"
+                )));
             }
             if let Some(id) = v.as_str() {
                 crate::ids::validate_local_id(id, role).map_err(AppError::validation)?;
@@ -1894,8 +2069,10 @@ pub(crate) fn mcp_local_datasheet_import(app: AppHandle, arguments: &Value) -> A
         text,
         text_inline,
     };
-    let graph_dir = crate::paths::existing_graph_dir(&app, &graph_id).map_err(AppError::not_found)?;
+    let graph_dir =
+        crate::paths::existing_graph_dir(&app, &graph_id).map_err(AppError::not_found)?;
     let store = crate::rdf_service::open_graph_store(&graph_dir).map_err(AppError::storage)?;
-    let report = import_into_store(&store, &graph_id, &input).map_err(ImportError::into_app_error)?;
+    let report =
+        import_into_store(&store, &graph_id, &input).map_err(ImportError::into_app_error)?;
     Ok(report.to_json())
 }

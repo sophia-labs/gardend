@@ -341,7 +341,8 @@ fn honor_flush_boundary(
     graph_id: &str,
     flush_boundary: SemanticRefreshFlushBoundary,
 ) -> Result<(), String> {
-    let result = crate::app_runtime::async_runtime::block_on(flush_graph_projection(app.clone(), graph_id));
+    let result =
+        crate::app_runtime::async_runtime::block_on(flush_graph_projection(app.clone(), graph_id));
     match (flush_boundary, result) {
         (_, Ok(())) => Ok(()),
         (SemanticRefreshFlushBoundary::BestEffort, Err(error)) => {

@@ -3,9 +3,9 @@
 
 use super::{
     default_profile_dir, default_ui_dir, ensure_profile_dir, ensure_profile_key, link_host,
-    open_url, process_env, read_running_manifest, resolve_host, resolve_port,
-    resolve_profile_dir, serving_now, Env, KeySource, ServeArgs, ENV_PORT, ENV_PROFILE_DIR,
-    ENV_TOKEN, ENV_UI_DIR, KEY_FILE,
+    open_url, process_env, read_running_manifest, resolve_host, resolve_port, resolve_profile_dir,
+    serving_now, Env, KeySource, ServeArgs, ENV_PORT, ENV_PROFILE_DIR, ENV_TOKEN, ENV_UI_DIR,
+    KEY_FILE,
 };
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
@@ -39,7 +39,13 @@ pub struct ServePlan {
 /// Decide how to serve from the real process environment and binary path.
 pub fn prepare_serve(args: &ServeArgs) -> Result<ServeStart, String> {
     let exe = std::env::current_exe().ok();
-    plan_serve(args, std::env::consts::OS, &process_env, exe.as_deref(), true)
+    plan_serve(
+        args,
+        std::env::consts::OS,
+        &process_env,
+        exe.as_deref(),
+        true,
+    )
 }
 
 pub(crate) fn plan_serve(
@@ -61,7 +67,11 @@ pub(crate) fn plan_serve(
             "Sophia is already running for {} (gardend pid {}).\n  Open Sophia: {}",
             profile_dir.display(),
             running.pid,
-            shown_url(&url, std::io::IsTerminal::is_terminal(&std::io::stderr()), &url_command),
+            shown_url(
+                &url,
+                std::io::IsTerminal::is_terminal(&std::io::stderr()),
+                &url_command
+            ),
         )));
     }
 
@@ -84,7 +94,10 @@ pub(crate) fn plan_serve(
         None => (default_ui_dir(exe), false),
     };
     let mut engine_env = vec![
-        (ENV_PROFILE_DIR.to_string(), profile_dir.display().to_string()),
+        (
+            ENV_PROFILE_DIR.to_string(),
+            profile_dir.display().to_string(),
+        ),
         (ENV_PORT.to_string(), port.to_string()),
         (ENV_TOKEN.to_string(), key.clone()),
     ];
@@ -130,7 +143,9 @@ pub(crate) fn shown_url(url: &str, interactive: bool, url_command: &str) -> Stri
         return url.to_string();
     }
     match url.split_once("#key=") {
-        Some((base, _)) => format!("{base}#key=… (key withheld from logs; `{url_command}` prints the full link)"),
+        Some((base, _)) => {
+            format!("{base}#key=… (key withheld from logs; `{url_command}` prints the full link)")
+        }
         None => url.to_string(),
     }
 }
@@ -192,7 +207,9 @@ impl ServePlan {
         ));
         out.push_str(&format!("  profile  {}\n", self.profile_dir.display()));
         out.push_str(&format!("  ui       {ui}\n"));
-        out.push_str(&format!("  mcp      {base}/mcp (Authorization: Bearer <key>)\n"));
+        out.push_str(&format!(
+            "  mcp      {base}/mcp (Authorization: Bearer <key>)\n"
+        ));
         out.push_str(&format!("  key      {key}\n\n"));
         out.push_str(
             "The key in that link opens everything in this profile; keep it to yourself.\n\
@@ -237,18 +254,29 @@ mod tests {
         assert_eq!(plan.profile_dir, profile);
         assert_eq!(plan.port, super::super::DEFAULT_PORT);
         assert_eq!(plan.key_source, KeySource::Minted);
-        assert_eq!(env_value(&plan, "GARDEN_PROFILE_DIR"), Some(profile.to_str().unwrap()));
+        assert_eq!(
+            env_value(&plan, "GARDEN_PROFILE_DIR"),
+            Some(profile.to_str().unwrap())
+        );
         assert_eq!(env_value(&plan, "GARDEN_LOOPBACK_PORT"), Some("7674"));
-        let key = env_value(&plan, "GARDEN_LOOPBACK_TOKEN").unwrap().to_string();
+        let key = env_value(&plan, "GARDEN_LOOPBACK_TOKEN")
+            .unwrap()
+            .to_string();
         assert!(key.starts_with("sophia-key-"));
-        assert_eq!(plan.open_url(7674), format!("http://127.0.0.1:7674/#key={key}"));
+        assert_eq!(
+            plan.open_url(7674),
+            format!("http://127.0.0.1:7674/#key={key}")
+        );
         assert!(env_value(&plan, "GARDEN_UI_DIR").is_none());
         assert_eq!(env_value(&plan, "RUST_LOG"), Some("warn,gardend=info"));
 
         // A restart keeps the link.
         let again = boot(plan_serve(&args, "linux", &env, None, false).unwrap());
         assert_eq!(again.key_source, KeySource::ProfileFile);
-        assert_eq!(env_value(&again, "GARDEN_LOOPBACK_TOKEN"), Some(key.as_str()));
+        assert_eq!(
+            env_value(&again, "GARDEN_LOOPBACK_TOKEN"),
+            Some(key.as_str())
+        );
     }
 
     #[test]
@@ -264,7 +292,10 @@ mod tests {
         assert_eq!(plan.profile_dir, profile);
         assert_eq!(plan.port, 7801);
         assert_eq!(plan.key_source, KeySource::Environment);
-        assert_eq!(plan.open_url(7801), "http://127.0.0.1:7801/#key=operator-chosen");
+        assert_eq!(
+            plan.open_url(7801),
+            "http://127.0.0.1:7801/#key=operator-chosen"
+        );
         assert!(!profile.join(KEY_FILE).exists());
     }
 
@@ -303,9 +334,13 @@ mod tests {
             port: Some(7803),
         };
         let plan = boot(plan_serve(&args, "linux", &env, None, false).unwrap());
-        let key = env_value(&plan, "GARDEN_LOOPBACK_TOKEN").unwrap().to_string();
+        let key = env_value(&plan, "GARDEN_LOOPBACK_TOKEN")
+            .unwrap()
+            .to_string();
         let terminal = plan.ready_banner(true);
-        assert!(terminal.contains(&format!("  Open Sophia: http://127.0.0.1:7803/#key={key}\n")));
+        assert!(terminal.contains(&format!(
+            "  Open Sophia: http://127.0.0.1:7803/#key={key}\n"
+        )));
         assert!(terminal.contains("none found: API and MCP only"));
         assert!(
             terminal.contains("gardend token create --label <name> --grant member\n"),
@@ -320,14 +355,19 @@ mod tests {
     #[test]
     fn a_non_loopback_bind_warns_in_the_banner() {
         let root = tempdir("host");
-        let env = env_of(&[("HOME", "/nonexistent-home"), ("GARDEN_LOOPBACK_HOST", "0.0.0.0")]);
+        let env = env_of(&[
+            ("HOME", "/nonexistent-home"),
+            ("GARDEN_LOOPBACK_HOST", "0.0.0.0"),
+        ]);
         let args = ServeArgs {
             profile: Some(root.join("p").display().to_string()),
             port: Some(7804),
         };
         let plan = boot(plan_serve(&args, "linux", &env, None, false).unwrap());
         assert_eq!(plan.warnings.len(), 1);
-        assert!(plan.ready_banner(true).starts_with("WARNING: GARDEN_LOOPBACK_HOST=0.0.0.0"));
+        assert!(plan
+            .ready_banner(true)
+            .starts_with("WARNING: GARDEN_LOOPBACK_HOST=0.0.0.0"));
         assert!(plan.open_url(7804).starts_with("http://127.0.0.1:7804/"));
     }
 

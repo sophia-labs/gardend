@@ -1,14 +1,11 @@
 #![recursion_limit = "512"]
 
 mod active_documents;
+mod agent_self_image;
+mod agent_status;
 mod app_error;
 mod app_error_codes;
 pub mod app_runtime;
-pub mod self_update;
-/// `gardend serve|url|token|service`: running your own Sophia.
-#[cfg(not(feature = "desktop"))]
-pub mod selfhost;
-pub mod storage_format;
 mod artifact_ingest_payloads;
 mod artifact_ingest_service;
 mod artifact_ingest_title;
@@ -16,14 +13,6 @@ mod artifact_kinds;
 mod artifact_mcp_service;
 mod artifact_revisions;
 mod artifact_text_service;
-mod agent_status;
-mod agent_self_image;
-mod custom_css;
-mod datasheet_facts;
-mod datasheet_identity;
-mod datasheet_import;
-mod datasheet_keyvalues;
-mod loopback_custom_css_routes;
 mod artifact_upload_service;
 #[cfg(feature = "headless")]
 mod capture_event;
@@ -34,11 +23,9 @@ mod cell_lease;
 mod cell_lifecycle;
 mod cell_registry_authority;
 mod chat_persistence;
-pub mod conversation_archive;
 mod clock;
 mod comment_authorship;
-#[cfg(test)]
-mod integrity_mcp_tests;
+pub mod conversation_archive;
 pub mod crdt_engine;
 mod crdt_operation_audit;
 mod crdt_operation_journal;
@@ -47,8 +34,14 @@ mod crdt_operation_types;
 mod crdt_projection_flush;
 mod crdt_queue;
 mod crdt_timing;
+mod custom_css;
+mod datasheet_facts;
+mod datasheet_identity;
+mod datasheet_import;
+mod datasheet_keyvalues;
 mod document_block_projection;
 mod document_block_rendering;
+mod document_create_once_mcp;
 mod document_delete_service;
 mod document_digest_connections;
 mod document_digest_service;
@@ -56,7 +49,6 @@ mod document_export_http;
 mod document_export_rendering;
 mod document_history_file_store;
 mod document_history_hosted;
-mod document_legacy_history;
 mod document_history_mcp;
 mod document_history_persistence;
 mod document_history_projection;
@@ -65,18 +57,25 @@ mod document_history_store;
 mod document_hosted_projection;
 mod document_hosted_write_payloads;
 mod document_incarnation_store;
+mod document_legacy_history;
 mod document_mcp_blocks;
 mod document_mcp_service;
 mod document_mcp_write_payloads;
-mod document_create_once_mcp;
+#[cfg(test)]
+mod integrity_mcp_tests;
+mod loopback_custom_css_routes;
+pub mod self_update;
+/// `gardend serve|url|token|service`: running your own Sophia.
+#[cfg(not(feature = "desktop"))]
+pub mod selfhost;
+pub mod storage_format;
 // ADDITIVE Meaningful-Object projection path — a parallel, tested alternative to
 // the production materializer. `save_document` does NOT call it (it is exercised
 // by the parity tests + is the drop-in a future switch would use), so its public
 // API reads as dead code in non-test builds; that is by design.
+mod document_body_availability;
 #[allow(dead_code)]
 mod document_meaningful_object;
-mod pdf_source;
-mod pdf_source_wire;
 mod document_mutation_service;
 mod document_paths;
 mod document_persistence_service;
@@ -87,7 +86,6 @@ mod document_service;
 mod document_sidecar_store;
 mod document_tombstone_store;
 mod document_trash_service;
-mod document_body_availability;
 mod document_types;
 mod document_ydoc_projection;
 mod emporium;
@@ -163,6 +161,8 @@ mod loopback_artifact_ingest_routes;
 mod loopback_artifact_routes;
 mod loopback_audit_log;
 mod loopback_batch_routes;
+mod pdf_source;
+mod pdf_source_wire;
 // `pub` (not plain `mod`, unlike every sibling here): `tests/observatory_authority.rs`
 // is a separate integration-test crate and needs a real path to the harness
 // functions inside. See `observatory/mod.rs` for why this is safe (a
@@ -245,7 +245,6 @@ mod mcp_rpc_protocol;
 mod mcp_search_service;
 mod mcp_tool_dispatch;
 mod mcp_tool_registry;
-mod service_mcp;
 mod mcp_utils;
 mod mcp_wire_payloads;
 mod mcp_wire_read_service;
@@ -260,10 +259,18 @@ mod meaningful_objects_fixture;
 mod memory_semantic_recall_service;
 mod model_setup_paths;
 mod multipart_pending_upload;
+mod service_mcp;
 // First-launch onboarding (welcome-graph seed). Desktop-only: the seed command
 // is wired through the native invoke-handler and the bundled archive
 // (`include_bytes!` of onboarding-v2.tar.gz) has no role in a headless cell,
 // which is seeded by the platform rather than a bundled welcome graph.
+#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
+mod block_contract_store_tests;
+mod graph_incarnation_admission;
+#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
+mod json_text_face_store_tests;
+#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
+mod markdown_fidelity_store_tests;
 mod omphalos;
 #[cfg(feature = "desktop")]
 mod onboarding_archive;
@@ -306,6 +313,7 @@ mod profile_metadata_db;
 mod profile_paths;
 mod profile_rdf_store_service;
 mod profile_service;
+mod public_mode;
 mod rdf;
 mod rdf_authority;
 mod rdf_document_tree;
@@ -322,11 +330,9 @@ mod rdf_wire_materializer;
 mod rdf_workspace_entity_triples;
 mod rdf_workspace_materializer;
 mod rdf_workspace_store_materializer;
-mod public_mode;
-mod request_actor;
-mod visitor_fence;
 mod rdf_workspace_terms;
 mod rdf_workspace_values;
+mod request_actor;
 mod restore_guard;
 mod runtime_capabilities;
 mod runtime_config;
@@ -346,6 +352,8 @@ mod salience_value_store;
 mod salience_wire_context;
 mod search_lexical_projection;
 mod search_projection_service;
+#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
+mod selfhost_sparql_paging_tests;
 mod semantic_embedder;
 mod semantic_embedder_backend;
 mod semantic_index;
@@ -371,21 +379,10 @@ mod semantic_scaffold_rdf;
 mod semantic_search_projection;
 mod semantic_search_service;
 mod semantic_service;
-mod source_sync;
 mod source_pull_budget;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod source_pull_tree_tests;
-#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
-mod block_contract_store_tests;
-#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
-mod selfhost_sparql_paging_tests;
-#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
-mod markdown_fidelity_store_tests;
-#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
-mod json_text_face_store_tests;
-#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
-mod write_placement_store_tests;
-mod graph_incarnation_admission;
+mod source_sync;
 mod sparql_admission;
 mod sparql_cursor;
 mod storage;
@@ -401,7 +398,10 @@ mod time_travel_service;
 mod time_travel_store;
 mod time_travel_types;
 mod verbalize;
+mod visitor_fence;
 mod web_fetch;
+#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
+mod write_placement_store_tests;
 // Native title-bar appearance (macOS overlay/frameless modes). GUI-only: pulls
 // Tauri webview/window APIs (WebviewWindowBuilder, ns_window, objc2), so it is
 // excluded from the headless cell build.
@@ -523,7 +523,8 @@ pub mod headless {
     /// nothing configured it does nothing.
     /// Returns one line per service for the log. Call once the API is ready.
     pub fn autostart_local_services(handle: &crate::app_runtime::AppHandle) -> Vec<String> {
-        let Some(state) = handle.try_state::<std::sync::Arc<crate::loopback_state::LoopbackState>>()
+        let Some(state) =
+            handle.try_state::<std::sync::Arc<crate::loopback_state::LoopbackState>>()
         else {
             return Vec::new();
         };

@@ -191,7 +191,11 @@ pub(crate) async fn mcp_read(app: AppHandle, args: &Value) -> AppResult<Value> {
     Ok(value)
 }
 pub(crate) async fn mcp_capability(app: AppHandle, args: &Value) -> AppResult<Value> {
-    match args.get("action").and_then(Value::as_str).unwrap_or("guide") {
+    match args
+        .get("action")
+        .and_then(Value::as_str)
+        .unwrap_or("guide")
+    {
         "guide" => Ok(guide()),
         "read" => mcp_read(app, args).await,
         "replace" | "reset" => {
@@ -200,13 +204,17 @@ pub(crate) async fn mcp_capability(app: AppHandle, args: &Value) -> AppResult<Va
             if let Some(object) = value.as_object_mut() {
                 object.remove("action");
                 if reset {
-                    if object.contains_key("cssText") { return Err(AppError::validation("reset must not include cssText")); }
+                    if object.contains_key("cssText") {
+                        return Err(AppError::validation("reset must not include cssText"));
+                    }
                     object.insert("cssText".into(), json!(""));
                 }
             }
             mcp_write(app, &value).await
         }
-        _ => Err(AppError::validation("action must be guide, read, replace or reset")),
+        _ => Err(AppError::validation(
+            "action must be guide, read, replace or reset",
+        )),
     }
 }
 pub(crate) async fn mcp_write(app: AppHandle, args: &Value) -> AppResult<Value> {

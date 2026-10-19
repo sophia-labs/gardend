@@ -872,7 +872,9 @@ pub(crate) async fn emporium_retract_with_identity(
     }
     let target_graph = graphs.into_iter().next().expect("checked non-empty above");
     if target_graph == crate::pdf_source::sink(graph_id) {
-        return Err(ObjectError::BadRequest("PDF source projection is read-only; edit its document".into()));
+        return Err(ObjectError::BadRequest(
+            "PDF source projection is read-only; edit its document".into(),
+        ));
     }
 
     let already_retracted =

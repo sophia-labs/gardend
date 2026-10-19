@@ -238,10 +238,19 @@ fn remote_prefixes(model_id: &str) -> (&'static str, &'static str, &'static str)
 pub(crate) const LEGACY_PREFIX_SCHEME: &str = "legacy-task";
 
 /// (query, passage) prefixes for an index built with `scheme`.
-pub(crate) fn semantic_prefixes_for(spec: &SemanticModelSpec, scheme: Option<&str>) -> (String, String) {
+pub(crate) fn semantic_prefixes_for(
+    spec: &SemanticModelSpec,
+    scheme: Option<&str>,
+) -> (String, String) {
     match scheme {
-        Some(scheme) if scheme == spec.prefix_scheme => (spec.query_prefix.to_string(), spec.passage_prefix.to_string()),
-        _ => ("search_query: ".to_string(), "search_document: ".to_string()),
+        Some(scheme) if scheme == spec.prefix_scheme => (
+            spec.query_prefix.to_string(),
+            spec.passage_prefix.to_string(),
+        ),
+        _ => (
+            "search_query: ".to_string(),
+            "search_document: ".to_string(),
+        ),
     }
 }
 

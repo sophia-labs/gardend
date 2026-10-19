@@ -3,6 +3,7 @@ use crate::{
     crdt_queue::{enqueue_crdt_operation_outcome, EnqueueCrdtOperationInput},
     hosted_navigation_projection::hosted_navigation_parts,
     json_utils::json_string,
+    loopback_files_routes::{loopback_files_patch, loopback_files_trash},
     loopback_http::{loopback_error, require_loopback_scope, require_loopback_scopes},
     loopback_navigation_payloads::{
         apply_artifact_original_manifest, normalize_navigation_artifact_payload,
@@ -13,7 +14,6 @@ use crate::{
         loopback_hosted_navigation_artifacts, loopback_hosted_navigation_folder,
         loopback_hosted_navigation_folders, loopback_hosted_navigation_job_result,
     },
-    loopback_files_routes::{loopback_files_patch, loopback_files_trash},
     loopback_state::LoopbackState,
     original_file_service::save_artifact_original_file,
 };
@@ -202,7 +202,14 @@ pub(super) async fn loopback_hosted_delete_navigation_artifact(
     // workspace and keeps its bytes and entry in the trash until a purge
     // (`DELETE /navigation/{graph_id}/trash/{artifact_id}`). This route used
     // to remove the bytes for good.
-    loopback_files_trash(state, headers, graph_id, artifact_id, params.get("kind").cloned()).await
+    loopback_files_trash(
+        state,
+        headers,
+        graph_id,
+        artifact_id,
+        params.get("kind").cloned(),
+    )
+    .await
 }
 
 /// `DELETE /navigation/{graph_id}/documents/{document_id}`: a document to the
@@ -213,5 +220,12 @@ pub(super) async fn loopback_hosted_trash_navigation_document(
     headers: HeaderMap,
     AxumPath((graph_id, document_id)): AxumPath<(String, String)>,
 ) -> Response {
-    loopback_files_trash(state, headers, graph_id, document_id, Some("document".to_string())).await
+    loopback_files_trash(
+        state,
+        headers,
+        graph_id,
+        document_id,
+        Some("document".to_string()),
+    )
+    .await
 }

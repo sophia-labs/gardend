@@ -524,11 +524,11 @@ pub(crate) async fn create_graph_service_async(
         None => None,
     };
     let app = app.clone();
-    crate::app_runtime::async_runtime::spawn_blocking(move || create_graph_service_inner(&app, input))
-        .await
-        .map_err(|error| {
-            AppError::internal(format!("create graph blocking task failed: {error}"))
-        })?
+    crate::app_runtime::async_runtime::spawn_blocking(move || {
+        create_graph_service_inner(&app, input)
+    })
+    .await
+    .map_err(|error| AppError::internal(format!("create graph blocking task failed: {error}")))?
 }
 
 /// Create a graph under a client-minted lifetime identity. This is the
@@ -775,10 +775,15 @@ pub(crate) fn replace_graph_under_test_lease(
     _lease: &crate::crdt_engine::persistence_coordinator::ExclusiveLease,
 ) -> AppResult<GraphRecord> {
     soft_delete_graph_service_with_lease(app, graph_id.to_string(), true)?;
-    create_graph_service_inner(app, CreateGraphInput {
-        graph_id: Some(graph_id.to_string()), title: "Successor fixture graph".into(),
-        description: None, operation_id: None,
-    })
+    create_graph_service_inner(
+        app,
+        CreateGraphInput {
+            graph_id: Some(graph_id.to_string()),
+            title: "Successor fixture graph".into(),
+            description: None,
+            operation_id: None,
+        },
+    )
 }
 
 fn read_graph_record_including_deleted(

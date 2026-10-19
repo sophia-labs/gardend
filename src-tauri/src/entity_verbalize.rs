@@ -211,14 +211,25 @@ impl<'a> Ctx<'a> {
             }
         }
         let generation = GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        Self { store, cfg, deny, always, dataset_types, direct_claim, generation }
+        Self {
+            store,
+            cfg,
+            deny,
+            always,
+            dataset_types,
+            direct_claim,
+            generation,
+        }
     }
 
     fn graph_ok(&self, g: &oxigraph::model::GraphName) -> bool {
         match g {
             oxigraph::model::GraphName::NamedNode(n) => {
                 self.cfg.graph_id.is_empty()
-                    || !crate::rdf_authority::is_reserved_rdf_graph_iri(&self.cfg.graph_id, n.as_str())
+                    || !crate::rdf_authority::is_reserved_rdf_graph_iri(
+                        &self.cfg.graph_id,
+                        n.as_str(),
+                    )
             }
             _ => true,
         }
@@ -230,8 +241,14 @@ impl<'a> Ctx<'a> {
         let mut preds: Vec<&str> = LABEL_PREDS.to_vec();
         preds.extend_from_slice(DESC_PREDS);
         for p in preds {
-            let Ok(p) = NamedNodeRef::new(p) else { continue };
-            for q in self.store.quads_for_pattern(None, Some(p), None, None).flatten() {
+            let Ok(p) = NamedNodeRef::new(p) else {
+                continue;
+            };
+            for q in self
+                .store
+                .quads_for_pattern(None, Some(p), None, None)
+                .flatten()
+            {
                 if let oxigraph::model::NamedOrBlankNode::NamedNode(s) = &q.subject {
                     if self.graph_ok(&q.graph_name) && !set.contains(s.as_str()) {
                         set.insert(s.as_str().to_string());
@@ -241,8 +258,14 @@ impl<'a> Ctx<'a> {
         }
         let ty = NamedNodeRef::new(RDF_TYPE).unwrap();
         for t in &self.always {
-            let Ok(t) = NamedNodeRef::new(t) else { continue };
-            for q in self.store.quads_for_pattern(None, Some(ty), Some(t.into()), None).flatten() {
+            let Ok(t) = NamedNodeRef::new(t) else {
+                continue;
+            };
+            for q in self
+                .store
+                .quads_for_pattern(None, Some(ty), Some(t.into()), None)
+                .flatten()
+            {
                 if let oxigraph::model::NamedOrBlankNode::NamedNode(s) = &q.subject {
                     if self.graph_ok(&q.graph_name) && !set.contains(s.as_str()) {
                         set.insert(s.as_str().to_string());
@@ -259,7 +282,11 @@ impl<'a> Ctx<'a> {
     pub(crate) fn label_of(&self, iri: &str) -> Option<(String, String)> {
         if let Some(hit) = LABEL_CACHE.with(|c| {
             let c = c.borrow();
-            if c.0 == self.generation { c.1.get(iri).cloned() } else { None }
+            if c.0 == self.generation {
+                c.1.get(iri).cloned()
+            } else {
+                None
+            }
         }) {
             return hit;
         }
@@ -281,7 +308,9 @@ impl<'a> Ctx<'a> {
     }
 
     fn label_lookup(&self, iri: &str) -> Option<(String, String)> {
-        let Ok(s) = NamedNodeRef::new(iri) else { return None };
+        let Ok(s) = NamedNodeRef::new(iri) else {
+            return None;
+        };
         for p in LABEL_PREDS {
             let p = NamedNodeRef::new(p).unwrap();
             let lits: Vec<(String, String)> = self
@@ -308,7 +337,11 @@ impl<'a> Ctx<'a> {
     /// Label, or a humanized local name if it reads like words; never an opaque id.
     fn name_of(&self, iri: &str) -> Option<String> {
         if let Some((l, _)) = self.label_of(iri) {
-            return Some(if self.cfg.normalize_names { text_name(&l) } else { l });
+            return Some(if self.cfg.normalize_names {
+                text_name(&l)
+            } else {
+                l
+            });
         }
         let h = humanize(local_name(iri));
         word_like(&h).then_some(h)
@@ -357,7 +390,10 @@ impl<'a> Ctx<'a> {
                 continue;
             }
             if let Term::Literal(l) = &q.object {
-                let lv = (l.value().to_string(), l.language().unwrap_or("").to_string());
+                let lv = (
+                    l.value().to_string(),
+                    l.language().unwrap_or("").to_string(),
+                );
                 if LABEL_PREDS.contains(&p) {
                     labels.push(lv);
                     continue;
@@ -378,7 +414,9 @@ impl<'a> Ctx<'a> {
             if SKIP_PREDS.contains(&p) {
                 continue;
             }
-            rels.entry(p.to_string()).or_default().push(q.object.clone());
+            rels.entry(p.to_string())
+                .or_default()
+                .push(q.object.clone());
         }
         if !any_ok_graph {
             stats.skipped_excluded_graph += 1;
@@ -400,8 +438,12 @@ impl<'a> Ctx<'a> {
             None => {
                 let schema = types.iter().any(|t| self.always.contains(t));
                 // a code-like label ("0101") or local name ("2025") of a typed instance reads as "<type> <code>"
-                let code_label = pick_lang(&labels, &self.cfg.langs).map(|l| l.0).filter(|l| l.chars().count() <= 12);
-                let h = code_label.clone().unwrap_or_else(|| humanize(local_name(iri)));
+                let code_label = pick_lang(&labels, &self.cfg.langs)
+                    .map(|l| l.0)
+                    .filter(|l| l.chars().count() <= 12);
+                let h = code_label
+                    .clone()
+                    .unwrap_or_else(|| humanize(local_name(iri)));
                 let schema = schema || (code_label.is_some() && !types.is_empty());
                 let typed = types
                     .iter()
@@ -439,7 +481,13 @@ impl<'a> Ctx<'a> {
             }
         }
         alt_out.truncate(self.cfg.max_alt_labels);
-        let nm = |l: &str| if self.cfg.normalize_names { text_name(l) } else { l.to_string() };
+        let nm = |l: &str| {
+            if self.cfg.normalize_names {
+                text_name(l)
+            } else {
+                l.to_string()
+            }
+        };
         let alt_out: Vec<String> = alt_out.iter().map(|a| nm(a)).collect();
         let mut head = clean(&nm(&label.0), 160);
         if !alt_out.is_empty() {
@@ -449,7 +497,10 @@ impl<'a> Ctx<'a> {
             head.push_str(&format!(" [code {}]", clean(n, 24)));
         }
         let mut type_names: Vec<String> = Vec::new();
-        for t in types.iter().filter(|t| !GENERIC_TYPES.contains(&t.as_str())) {
+        for t in types
+            .iter()
+            .filter(|t| !GENERIC_TYPES.contains(&t.as_str()))
+        {
             if type_names.len() >= self.cfg.max_types {
                 break;
             }
@@ -490,14 +541,19 @@ impl<'a> Ctx<'a> {
         // relations: IRI-valued first (they carry meaning through labels), then short literals.
         let mut rendered: Vec<(bool, String)> = Vec::new();
         for (p, objs) in &rels {
-            let Some(pname) = self.name_of(p) else { continue };
+            let Some(pname) = self.name_of(p) else {
+                continue;
+            };
             let mut vals: Vec<String> = Vec::new();
             let mut more = 0usize;
             let mut has_iri = false;
             let lit_objs: Vec<(String, String)> = objs
                 .iter()
                 .filter_map(|o| match o {
-                    Term::Literal(l) => Some((l.value().to_string(), l.language().unwrap_or("").to_string())),
+                    Term::Literal(l) => Some((
+                        l.value().to_string(),
+                        l.language().unwrap_or("").to_string(),
+                    )),
                     _ => None,
                 })
                 .collect();
@@ -561,7 +617,11 @@ impl<'a> Ctx<'a> {
         let mut text = String::new();
         for part in parts.iter().map(|p| p.trim()).filter(|p| !p.is_empty()) {
             if !text.is_empty() {
-                text.push_str(if text.ends_with(['.', '…', '!', '?']) { " " } else { ". " });
+                text.push_str(if text.ends_with(['.', '…', '!', '?']) {
+                    " "
+                } else {
+                    ". "
+                });
             }
             text.push_str(part);
         }
@@ -588,7 +648,10 @@ impl<'a> Ctx<'a> {
             "dataset".into()
         } else if has(&["http://www.w3.org/ns/dcat#Distribution"]) {
             "distribution".into()
-        } else if has(&["http://www.w3.org/2002/07/owl#Class", "http://www.w3.org/2000/01/rdf-schema#Class"]) {
+        } else if has(&[
+            "http://www.w3.org/2002/07/owl#Class",
+            "http://www.w3.org/2000/01/rdf-schema#Class",
+        ]) {
             "class".into()
         } else if has(&[
             "http://www.w3.org/2002/07/owl#ObjectProperty",
@@ -656,7 +719,11 @@ impl<'a> Ctx<'a> {
                 Term::BlankNode(b) => oxigraph::model::NamedOrBlankNode::BlankNode(b),
                 _ => continue,
             };
-            for q in self.store.quads_for_pattern(Some(c.as_ref()), None, None, None).flatten() {
+            for q in self
+                .store
+                .quads_for_pattern(Some(c.as_ref()), None, None, None)
+                .flatten()
+            {
                 let target = match q.predicate.as_str() {
                     "http://purl.org/linked-data/cube#dimension" => &mut dims,
                     "http://purl.org/linked-data/cube#measure" => &mut meas,
@@ -674,7 +741,11 @@ impl<'a> Ctx<'a> {
         if dims.is_empty() && meas.is_empty() {
             return None;
         }
-        Some(format!("dimensions: {}; measures: {}", dims.join(", "), meas.join(", ")))
+        Some(format!(
+            "dimensions: {}; measures: {}",
+            dims.join(", "),
+            meas.join(", ")
+        ))
     }
 }
 
@@ -683,7 +754,9 @@ pub(crate) fn subclass_closure(store: &Store, roots: &[&str]) -> HashSet<String>
     let mut out: HashSet<String> = roots.iter().map(|s| s.to_string()).collect();
     let mut frontier: Vec<String> = out.iter().cloned().collect();
     while let Some(c) = frontier.pop() {
-        let Ok(cn) = NamedNodeRef::new(&c) else { continue };
+        let Ok(cn) = NamedNodeRef::new(&c) else {
+            continue;
+        };
         for q in store
             .quads_for_pattern(None, Some(sub), Some(TermRef::from(cn)), None)
             .flatten()
@@ -711,7 +784,16 @@ fn pick_lang(lits: &[(String, String)], langs: &[String]) -> Option<(String, Str
 }
 
 fn order_by_lang(lits: &[(String, String)], langs: &[String]) -> Vec<(String, String)> {
-    let rank = |g: &str| langs.iter().position(|x| x == g).unwrap_or(if g.is_empty() { langs.len() } else { langs.len() + 1 });
+    let rank = |g: &str| {
+        langs
+            .iter()
+            .position(|x| x == g)
+            .unwrap_or(if g.is_empty() {
+                langs.len()
+            } else {
+                langs.len() + 1
+            })
+    };
     let mut v = lits.to_vec();
     v.sort_by_key(|(_, g)| rank(g));
     v
@@ -754,7 +836,11 @@ pub(crate) fn humanize(s: &str) -> String {
 /// The UUID guard: does this string read as words (not an id, hash, code or URL)?
 pub(crate) fn word_like(s: &str) -> bool {
     let s = s.trim();
-    if s.is_empty() || s.starts_with("http://") || s.starts_with("https://") || s.starts_with("urn:") {
+    if s.is_empty()
+        || s.starts_with("http://")
+        || s.starts_with("https://")
+        || s.starts_with("urn:")
+    {
         return false;
     }
     let letters = s.chars().filter(|c| c.is_alphabetic()).count();
@@ -792,7 +878,11 @@ fn literal_text(v: &str, datatype: &str) -> Option<String> {
     if v.is_empty() || v.chars().count() > 120 {
         return None;
     }
-    if v.starts_with("http://") || v.starts_with("https://") || v.starts_with("urn:") || v.starts_with("data:") {
+    if v.starts_with("http://")
+        || v.starts_with("https://")
+        || v.starts_with("urn:")
+        || v.starts_with("data:")
+    {
         return None;
     }
     match datatype {
@@ -801,9 +891,11 @@ fn literal_text(v: &str, datatype: &str) -> Option<String> {
             Some(d.get(..10).unwrap_or(d).to_string())
         }
         "http://www.w3.org/2001/XMLSchema#boolean" => None,
-        "http://www.w3.org/2001/XMLSchema#base64Binary" | "http://www.w3.org/2001/XMLSchema#hexBinary" => None,
+        "http://www.w3.org/2001/XMLSchema#base64Binary"
+        | "http://www.w3.org/2001/XMLSchema#hexBinary" => None,
         dt if dt.ends_with("wktLiteral") || dt.ends_with("geoJSONLiteral") => None,
-        "http://www.w3.org/2001/XMLSchema#string" | "http://www.w3.org/1999/02/22-rdf-syntax-ns#langString" => {
+        "http://www.w3.org/2001/XMLSchema#string"
+        | "http://www.w3.org/1999/02/22-rdf-syntax-ns#langString" => {
             // an opaque code in a string literal says nothing
             if !word_like(v) {
                 None
@@ -827,7 +919,16 @@ pub(crate) fn text_name(s: &str) -> String {
     if i > 0 && i < b.len() && b[i].is_ascii_lowercase() {
         i += 1;
     }
-    let t = if i > 0 && i < b.len() && (b[i] == b')' || b[i] == b'.') && t[i + 1..].trim_start().chars().next().map(|c| c.is_alphabetic()).unwrap_or(false) {
+    let t = if i > 0
+        && i < b.len()
+        && (b[i] == b')' || b[i] == b'.')
+        && t[i + 1..]
+            .trim_start()
+            .chars()
+            .next()
+            .map(|c| c.is_alphabetic())
+            .unwrap_or(false)
+    {
         t[i + 1..].trim_start()
     } else {
         t
@@ -835,7 +936,10 @@ pub(crate) fn text_name(s: &str) -> String {
     let letters: Vec<char> = t.chars().filter(|c| c.is_alphabetic()).collect();
     let upper = letters.iter().filter(|c| c.is_uppercase()).count();
     // short single words stay as written: they are usually acronyms (ANCAP, MIDES, UTE)
-    let words: Vec<&str> = t.split(|c: char| !c.is_alphabetic()).filter(|w| !w.is_empty()).collect();
+    let words: Vec<&str> = t
+        .split(|c: char| !c.is_alphabetic())
+        .filter(|w| !w.is_empty())
+        .collect();
     let shouting = words.len() >= 2 || words.iter().any(|w| w.chars().count() >= 6);
     if letters.len() >= 4 && upper * 10 >= letters.len() * 8 && shouting {
         let mut out = String::with_capacity(t.len());
@@ -870,7 +974,6 @@ fn truncate_words(s: &str, max: usize) -> String {
         _ => format!("{cut}…"),
     }
 }
-
 
 #[cfg(test)]
 #[path = "entity_verbalize_tests.rs"]

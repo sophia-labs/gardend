@@ -234,7 +234,8 @@ fn run_round_trip_scenario() {
     );
 
     // ── apply ──
-    let report = crate::app_runtime::async_runtime::block_on(apply_plan(&app, graph_id, &plan, contract));
+    let report =
+        crate::app_runtime::async_runtime::block_on(apply_plan(&app, graph_id, &plan, contract));
     assert!(report.ok, "apply ok; report: {report:?}");
     assert!(report.halted_at.is_none(), "no halt: {report:?}");
 
@@ -320,7 +321,9 @@ fn run_round_trip_scenario() {
         observer: String::new(),
         planned_at_ms: 0,
     };
-    let halt = crate::app_runtime::async_runtime::block_on(apply_plan(&app, graph_id, &bad_plan, contract));
+    let halt = crate::app_runtime::async_runtime::block_on(apply_plan(
+        &app, graph_id, &bad_plan, contract,
+    ));
     assert!(!halt.ok, "doomed plan halts: {halt:?}");
     assert_eq!(halt.halted_at, Some(0), "halted at step 0: {halt:?}");
     let halted_step = &halt.steps[0];
@@ -365,7 +368,8 @@ fn run_stability_scenario() {
     let planned1 = gather_and_plan(&app, graph_id, &request).expect("first gather_and_plan");
     let plan1 = planned1.plan;
     assert_eq!(plan1.mode, "new", "first plan is a fresh mint");
-    let report1 = crate::app_runtime::async_runtime::block_on(apply_plan(&app, graph_id, &plan1, contract));
+    let report1 =
+        crate::app_runtime::async_runtime::block_on(apply_plan(&app, graph_id, &plan1, contract));
     assert!(report1.ok, "first apply ok: {report1:?}");
     let script_block_1 = report1
         .script_block
@@ -403,7 +407,8 @@ fn run_stability_scenario() {
         .expect("scriptBlock present before re-apply");
 
     // ── apply #2: re-apply the SAME (converged) plan ──
-    let report2 = crate::app_runtime::async_runtime::block_on(apply_plan(&app, graph_id, &plan2, contract));
+    let report2 =
+        crate::app_runtime::async_runtime::block_on(apply_plan(&app, graph_id, &plan2, contract));
     assert!(report2.ok, "second apply ok: {report2:?}");
     assert!(
         !report2.steps.iter().any(|s| s.op == "write_doc"),

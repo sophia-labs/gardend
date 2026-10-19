@@ -67,7 +67,9 @@ async fn seed_board(
     let json_text = payload
         .get("json")
         .and_then(Value::as_str)
-        .ok_or_else(|| "flow.seed: json (the Flow board file, as a string) is required".to_string())?
+        .ok_or_else(|| {
+            "flow.seed: json (the Flow board file, as a string) is required".to_string()
+        })?
         .to_string();
     // A recovered replay of a committed seed re-runs against the board it
     // already seeded; treating it as replace keeps recovery idempotent
@@ -186,9 +188,7 @@ async fn seed_board(
 
     // ── Persistence tail: record + history + `:projection:flow` reconcile ─
     let title = ws_room
-        .with_doc(|doc| {
-            super::workspace_ops::document_title_in_workspace(doc, BOARD_DOCUMENT_ID)
-        })
+        .with_doc(|doc| super::workspace_ops::document_title_in_workspace(doc, BOARD_DOCUMENT_ID))
         .await
         .unwrap_or_else(|| "Flow board".to_string());
     let flushed = super::document_ops::persist_room_document(

@@ -21,7 +21,6 @@ pub(crate) mod chamber;
 pub(crate) mod chamber_ontology;
 pub(crate) mod class_dispatch;
 pub(crate) mod content;
-pub(crate) mod folder_views;
 pub(crate) mod contract;
 #[cfg(test)]
 #[path = "../datasheet_identity_tests.rs"]
@@ -35,6 +34,7 @@ mod domain_kit_tests;
 mod fixtures;
 #[cfg(test)]
 mod flow_projection_tests;
+pub(crate) mod folder_views;
 pub(crate) mod ingest_routes;
 #[cfg(all(test, feature = "headless"))]
 mod lex_scotus_core_tests;

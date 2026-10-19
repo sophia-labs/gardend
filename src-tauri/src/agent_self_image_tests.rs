@@ -467,7 +467,10 @@ fn agent_self_image_real_mcp_generate_variant_cache_and_staleness() {
                 let error = tool(&ctx, &call(json!({"action":"generate","prompt":"me"})))
                     .await
                     .unwrap_err();
-                assert!(error.to_string().contains("SOPHIA_OPENROUTER_API_KEY"), "{error}");
+                assert!(
+                    error.to_string().contains("SOPHIA_OPENROUTER_API_KEY"),
+                    "{error}"
+                );
             }
         });
     });

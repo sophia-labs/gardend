@@ -66,7 +66,8 @@ fn with_gardend(name: &str, test: impl FnOnce(Arc<LoopbackState>)) {
     let _serial = crate::tauri_runtime::profile_env_serial()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let root = std::env::temp_dir().join(format!("garden-integrity-{name}-{}", uuid::Uuid::new_v4()));
+    let root =
+        std::env::temp_dir().join(format!("garden-integrity-{name}-{}", uuid::Uuid::new_v4()));
     let profile = root.join("profile");
     std::fs::create_dir_all(&profile).unwrap();
     let previous = std::env::var_os("GARDEN_PROFILE_DIR");
@@ -117,8 +118,13 @@ async fn send(
         .await
         .unwrap();
     let status = response.status();
-    let bytes = axum::body::to_bytes(response.into_body(), 10_000_000).await.unwrap();
-    (status, serde_json::from_slice(&bytes).unwrap_or(Value::Null))
+    let bytes = axum::body::to_bytes(response.into_body(), 10_000_000)
+        .await
+        .unwrap();
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+    )
 }
 
 /// One MCP `tools/call`: the tool's value, or its error message.
@@ -144,9 +150,10 @@ fn graph_dir(state: &Arc<LoopbackState>) -> std::path::PathBuf {
 
 /// The workspace row of `document_id`, as the workspace Y.Doc holds it.
 async fn workspace_row(state: &Arc<LoopbackState>, document_id: &str) -> Option<Value> {
-    let room = crate::crdt_engine::workspace_ops::workspace_room(&state.app, GRAPH, &graph_dir(state))
-        .await
-        .unwrap();
+    let room =
+        crate::crdt_engine::workspace_ops::workspace_room(&state.app, GRAPH, &graph_dir(state))
+            .await
+            .unwrap();
     let id = document_id.to_string();
     room.with_doc(move |doc| {
         let txn = doc.transact();
@@ -161,8 +168,8 @@ async fn workspace_row(state: &Arc<LoopbackState>, document_id: &str) -> Option<
 
 /// The stored comments of `document_id`, as its document Y.Doc holds them.
 async fn stored_comments(state: &Arc<LoopbackState>, document_id: &str) -> Value {
-    let path =
-        crate::ydoc_paths::checked_document_ydoc_state_path(&graph_dir(state), document_id).unwrap();
+    let path = crate::ydoc_paths::checked_document_ydoc_state_path(&graph_dir(state), document_id)
+        .unwrap();
     let room = state
         .app
         .state::<RoomRegistry>()
@@ -187,14 +194,22 @@ async fn stored_comments(state: &Arc<LoopbackState>, document_id: &str) -> Value
 fn create_document_never_takes_over_an_existing_document() {
     with_gardend("hijack", |state| {
         crate::app_runtime::async_runtime::block_on(async {
-            tool(&state, MASTER, "create_document",
-                json!({ "graphId": GRAPH, "documentId": "the-guide", "title": "The Guide" }))
-                .await
-                .unwrap();
-            tool(&state, MASTER, "create_folder",
-                json!({ "graphId": GRAPH, "folderId": "visitors", "name": "Visitors" }))
-                .await
-                .unwrap();
+            tool(
+                &state,
+                MASTER,
+                "create_document",
+                json!({ "graphId": GRAPH, "documentId": "the-guide", "title": "The Guide" }),
+            )
+            .await
+            .unwrap();
+            tool(
+                &state,
+                MASTER,
+                "create_folder",
+                json!({ "graphId": GRAPH, "folderId": "visitors", "name": "Visitors" }),
+            )
+            .await
+            .unwrap();
 
             let refused = tool(&state, MASTER, "create_document", json!({
                 "graphId": GRAPH, "documentId": "the-guide", "title": "HIJACKED", "parentId": "visitors",
@@ -202,7 +217,10 @@ fn create_document_never_takes_over_an_existing_document() {
             .await
             .expect_err("a create over an existing document is refused");
             assert!(refused.contains("already exists"), "{refused}");
-            assert!(refused.contains("write_document"), "the refusal points to the right tools: {refused}");
+            assert!(
+                refused.contains("write_document"),
+                "the refusal points to the right tools: {refused}"
+            );
             let row = workspace_row(&state, "the-guide").await.unwrap();
             assert_eq!(row["title"], "The Guide", "{row}");
             assert!(row["parentId"].is_null(), "not moved into visitors: {row}");
@@ -213,14 +231,24 @@ fn create_document_never_takes_over_an_existing_document() {
                 "payload": { "documentId": "the-guide", "title": "HIJACKED", "parentId": "visitors" },
             })))
             .await;
-            assert!(body.to_string().contains("already exists"), "{status} {body}");
+            assert!(
+                body.to_string().contains("already exists"),
+                "{status} {body}"
+            );
             let raw = tool(&state, MASTER, "crdt_operation", json!({
                 "kind": "workspace.createDocument", "graphId": GRAPH,
                 "payload": { "documentId": "the-guide", "title": "HIJACKED", "parentId": "visitors" },
             }))
             .await;
-            assert!(raw.as_ref().is_err_and(|error| error.contains("already exists")), "{raw:?}");
-            assert_eq!(workspace_row(&state, "the-guide").await.unwrap()["title"], "The Guide");
+            assert!(
+                raw.as_ref()
+                    .is_err_and(|error| error.contains("already exists")),
+                "{raw:?}"
+            );
+            assert_eq!(
+                workspace_row(&state, "the-guide").await.unwrap()["title"],
+                "The Guide"
+            );
 
             // Opt-ins.
             let kept = tool(&state, MASTER, "create_document", json!({
@@ -234,24 +262,42 @@ fn create_document_never_takes_over_an_existing_document() {
             let row = workspace_row(&state, "the-guide").await.unwrap();
             assert_eq!(row["title"], "The Guide");
             assert!(row["parentId"].is_null(), "{row}");
-            let updated = tool(&state, MASTER, "create_document", json!({
-                "graphId": GRAPH, "documentId": "the-guide", "title": "The Guide, revised",
-                "ifExists": "update",
-            }))
+            let updated = tool(
+                &state,
+                MASTER,
+                "create_document",
+                json!({
+                    "graphId": GRAPH, "documentId": "the-guide", "title": "The Guide, revised",
+                    "ifExists": "update",
+                }),
+            )
             .await
             .unwrap();
             assert_eq!(updated["existed"], true, "{updated}");
-            assert_eq!(workspace_row(&state, "the-guide").await.unwrap()["title"], "The Guide, revised");
+            assert_eq!(
+                workspace_row(&state, "the-guide").await.unwrap()["title"],
+                "The Guide, revised"
+            );
             let unknown = tool(&state, MASTER, "create_document", json!({
                 "graphId": GRAPH, "documentId": "the-guide", "title": "x", "ifExists": "replace",
             }))
             .await;
-            assert!(unknown.as_ref().is_err_and(|error| error.contains("ifExists")), "{unknown:?}");
+            assert!(
+                unknown
+                    .as_ref()
+                    .is_err_and(|error| error.contains("ifExists")),
+                "{unknown:?}"
+            );
 
             // A document in the Trash.
-            let (status, body) =
-                send(&state, "DELETE", &format!("/navigation/{GRAPH}/documents/the-guide"), MASTER, None)
-                    .await;
+            let (status, body) = send(
+                &state,
+                "DELETE",
+                &format!("/navigation/{GRAPH}/documents/the-guide"),
+                MASTER,
+                None,
+            )
+            .await;
             assert!(status.is_success(), "trash: {status} {body}");
             for if_exists in [Value::Null, json!("update")] {
                 let refused = tool(&state, MASTER, "create_document", json!({
@@ -261,9 +307,14 @@ fn create_document_never_takes_over_an_existing_document() {
                 .expect_err("a document in the Trash is not rewritten");
                 assert!(refused.contains("in the Trash"), "{refused}");
             }
-            let kept = tool(&state, MASTER, "create_document", json!({
-                "graphId": GRAPH, "documentId": "the-guide", "title": "x", "ifExists": "keep",
-            }))
+            let kept = tool(
+                &state,
+                MASTER,
+                "create_document",
+                json!({
+                    "graphId": GRAPH, "documentId": "the-guide", "title": "x", "ifExists": "keep",
+                }),
+            )
             .await
             .unwrap();
             assert_eq!(kept["trashed"], true, "{kept}");
@@ -277,11 +328,24 @@ fn create_document_never_takes_over_an_existing_document() {
                 .await
                 .unwrap();
             assert!(fresh.get("existed").is_none(), "{fresh}");
-            assert_eq!(workspace_row(&state, "a-new-note").await.unwrap()["parentId"], "visitors");
-            let minted = tool(&state, MASTER, "create_document", json!({ "graphId": GRAPH, "title": "Minted" }))
-                .await
-                .unwrap();
-            assert!(minted["documentId"].as_str().is_some_and(|id| id.starts_with("doc-")), "{minted}");
+            assert_eq!(
+                workspace_row(&state, "a-new-note").await.unwrap()["parentId"],
+                "visitors"
+            );
+            let minted = tool(
+                &state,
+                MASTER,
+                "create_document",
+                json!({ "graphId": GRAPH, "title": "Minted" }),
+            )
+            .await
+            .unwrap();
+            assert!(
+                minted["documentId"]
+                    .as_str()
+                    .is_some_and(|id| id.starts_with("doc-")),
+                "{minted}"
+            );
             // A write to an existing document is not a create: it still works.
             tool(&state, MASTER, "write_document",
                 json!({ "graphId": GRAPH, "documentId": "a-new-note", "content": "Still writable." }))
@@ -302,32 +366,75 @@ fn write_document_never_resurrects_a_deleted_document() {
                 json!({ "graphId": GRAPH, "documentId": "doomed", "title": "Doomed", "content": "The original." }))
                 .await
                 .unwrap();
-            tool(&state, MASTER, "delete_document", json!({ "graphId": GRAPH, "documentId": "doomed" }))
-                .await
-                .unwrap();
+            tool(
+                &state,
+                MASTER,
+                "delete_document",
+                json!({ "graphId": GRAPH, "documentId": "doomed" }),
+            )
+            .await
+            .unwrap();
             let dir = graph_dir(&state);
-            assert!(crate::document_tombstone_store::document_is_tombstoned(&dir, "doomed").unwrap());
+            assert!(
+                crate::document_tombstone_store::document_is_tombstoned(&dir, "doomed").unwrap()
+            );
 
-            let refused = tool(&state, MASTER, "write_document",
-                json!({ "graphId": GRAPH, "documentId": "doomed", "content": "visitor content" }))
-                .await
-                .expect_err("a write to a deleted document is refused");
+            let refused = tool(
+                &state,
+                MASTER,
+                "write_document",
+                json!({ "graphId": GRAPH, "documentId": "doomed", "content": "visitor content" }),
+            )
+            .await
+            .expect_err("a write to a deleted document is refused");
             assert!(refused.contains("was deleted"), "{refused}");
-            assert!(refused.contains("recreate"), "it points to the explicit restore: {refused}");
+            assert!(
+                refused.contains("recreate"),
+                "it points to the explicit restore: {refused}"
+            );
             // The server-only marker, claimed by a caller, is dropped.
-            let forged = tool(&state, MASTER, "crdt_operation", json!({
-                "kind": "document.write", "graphId": GRAPH, "documentId": "doomed",
-                "payload": { "documentId": "doomed", "content": "visitor content",
-                    "__gardenTrustedRecreation": true },
-            }))
+            let forged = tool(
+                &state,
+                MASTER,
+                "crdt_operation",
+                json!({
+                    "kind": "document.write", "graphId": GRAPH, "documentId": "doomed",
+                    "payload": { "documentId": "doomed", "content": "visitor content",
+                        "__gardenTrustedRecreation": true },
+                }),
+            )
             .await;
-            assert!(forged.as_ref().is_err_and(|error| error.contains("was deleted")), "{forged:?}");
+            assert!(
+                forged
+                    .as_ref()
+                    .is_err_and(|error| error.contains("was deleted")),
+                "{forged:?}"
+            );
 
-            assert!(crate::document_tombstone_store::document_is_tombstoned(&dir, "doomed").unwrap());
-            assert!(workspace_row(&state, "doomed").await.is_none(), "no row came back");
-            assert!(!dir.join("documents/doomed/document.json").exists(), "no body came back");
-            let read = tool(&state, MASTER, "read_document", json!({ "graphId": GRAPH, "documentId": "doomed" })).await;
-            assert!(!read.as_ref().is_ok_and(|read| read.to_string().contains("visitor content")), "{read:?}");
+            assert!(
+                crate::document_tombstone_store::document_is_tombstoned(&dir, "doomed").unwrap()
+            );
+            assert!(
+                workspace_row(&state, "doomed").await.is_none(),
+                "no row came back"
+            );
+            assert!(
+                !dir.join("documents/doomed/document.json").exists(),
+                "no body came back"
+            );
+            let read = tool(
+                &state,
+                MASTER,
+                "read_document",
+                json!({ "graphId": GRAPH, "documentId": "doomed" }),
+            )
+            .await;
+            assert!(
+                !read
+                    .as_ref()
+                    .is_ok_and(|read| read.to_string().contains("visitor content")),
+                "{read:?}"
+            );
         });
     });
 }
@@ -372,11 +479,17 @@ fn comment_authors_are_signed_by_the_authenticated_principal() {
             .await
             .unwrap();
 
-            let (status, body) = send(&state, "POST", "/api/crdt/operations", &lucy.token, Some(json!({
-                "kind": "document.editComment", "graphId": GRAPH, "documentId": "guide",
-                "payload": { "documentId": "guide", "commentId": "c-rest", "action": "set",
-                    "text": "Through REST", "author": "Vera (owner)", "authorId": "owner" },
-            })))
+            let (status, body) = send(
+                &state,
+                "POST",
+                "/api/crdt/operations",
+                &lucy.token,
+                Some(json!({
+                    "kind": "document.editComment", "graphId": GRAPH, "documentId": "guide",
+                    "payload": { "documentId": "guide", "commentId": "c-rest", "action": "set",
+                        "text": "Through REST", "author": "Vera (owner)", "authorId": "owner" },
+                })),
+            )
             .await;
             assert!(status.is_success(), "{status} {body}");
 
@@ -394,7 +507,10 @@ fn comment_authors_are_signed_by_the_authenticated_principal() {
                 let comment = &comments[id];
                 assert_eq!(comment["authorId"], lucy_id.as_str(), "{id}: {comment}");
                 assert_eq!(comment["author"], "Lucy's laptop", "{id}: {comment}");
-                assert_eq!(comment["claimedAuthor"], forged["author"], "{id}: {comment}");
+                assert_eq!(
+                    comment["claimedAuthor"], forged["author"],
+                    "{id}: {comment}"
+                );
                 assert!(comment.get("authorVia").is_none(), "{id}: {comment}");
             }
 
@@ -420,16 +536,32 @@ fn comment_authors_are_signed_by_the_authenticated_principal() {
             let comments = stored_comments(&state, "guide").await;
             assert_eq!(comments["c-owner"]["authorId"], "owner", "{comments}");
             assert_eq!(comments["c-owner"]["author"], "Owner", "{comments}");
-            assert!(comments["c-owner"].get("claimedAuthor").is_none(), "{comments}");
+            assert!(
+                comments["c-owner"].get("claimedAuthor").is_none(),
+                "{comments}"
+            );
             assert_eq!(comments["c-edit"]["resolved"], true, "{comments}");
-            assert_eq!(comments["c-edit"]["authorId"], lucy_id.as_str(), "{comments}");
-            assert_eq!(comments["c-write"]["authorId"], lucy_id.as_str(), "{comments}");
+            assert_eq!(
+                comments["c-edit"]["authorId"],
+                lucy_id.as_str(),
+                "{comments}"
+            );
+            assert_eq!(
+                comments["c-write"]["authorId"],
+                lucy_id.as_str(),
+                "{comments}"
+            );
 
             // Rewriting another's comment makes it the writer's.
-            tool(&state, MASTER, "edit_comment", json!({
-                "graphId": GRAPH, "documentId": "guide", "commentId": "c-rest", "action": "set",
-                "text": "Rewritten by the owner",
-            }))
+            tool(
+                &state,
+                MASTER,
+                "edit_comment",
+                json!({
+                    "graphId": GRAPH, "documentId": "guide", "commentId": "c-rest", "action": "set",
+                    "text": "Rewritten by the owner",
+                }),
+            )
             .await
             .unwrap();
             let comments = stored_comments(&state, "guide").await;
@@ -445,7 +577,8 @@ fn comment_authors_are_signed_by_the_authenticated_principal() {
 #[test]
 fn a_deleted_document_comes_back_only_through_the_ledger_recreate() {
     with_gardend("recreate", |state| {
-        let graph_incarnation = crate::graph_record_store::ensure_graph_incarnation(&state.app, GRAPH).unwrap();
+        let graph_incarnation =
+            crate::graph_record_store::ensure_graph_incarnation(&state.app, GRAPH).unwrap();
         crate::app_runtime::async_runtime::block_on(async {
             let push = |operation: Value| {
                 let state = state.clone();
@@ -466,16 +599,26 @@ fn a_deleted_document_comes_back_only_through_the_ledger_recreate() {
                 .await
                 .unwrap();
             let dir = graph_dir(&state);
-            let first = crate::document_incarnation_store::ensure_document_incarnation_id(&dir, "lc-doc").unwrap();
-            push(json!({ "kind": "documentLifecycle", "operationId": "lc-delete", "action": "delete",
-                "documentId": "lc-doc", "expectedDocumentIncarnation": first }))
-                .await
-                .unwrap();
-            assert!(crate::document_tombstone_store::document_is_tombstoned(&dir, "lc-doc").unwrap());
-            let refused = tool(&state, MASTER, "write_document",
-                json!({ "graphId": GRAPH, "documentId": "lc-doc", "content": "Sneaking back." }))
-                .await
-                .expect_err("a plain write does not bring it back");
+            let first =
+                crate::document_incarnation_store::ensure_document_incarnation_id(&dir, "lc-doc")
+                    .unwrap();
+            push(
+                json!({ "kind": "documentLifecycle", "operationId": "lc-delete", "action": "delete",
+                "documentId": "lc-doc", "expectedDocumentIncarnation": first }),
+            )
+            .await
+            .unwrap();
+            assert!(
+                crate::document_tombstone_store::document_is_tombstoned(&dir, "lc-doc").unwrap()
+            );
+            let refused = tool(
+                &state,
+                MASTER,
+                "write_document",
+                json!({ "graphId": GRAPH, "documentId": "lc-doc", "content": "Sneaking back." }),
+            )
+            .await
+            .expect_err("a plain write does not bring it back");
             assert!(refused.contains("was deleted"), "{refused}");
 
             push(json!({ "kind": "documentLifecycle", "operationId": "lc-recreate", "action": "recreate",
@@ -483,13 +626,20 @@ fn a_deleted_document_comes_back_only_through_the_ledger_recreate() {
                 "newDocumentIncarnation": uuid::Uuid::new_v4().to_string() }))
                 .await
                 .unwrap();
-            assert!(!crate::document_tombstone_store::document_is_tombstoned(&dir, "lc-doc").unwrap());
-            assert!(workspace_row(&state, "lc-doc").await.is_some(), "back in the tree");
+            assert!(
+                !crate::document_tombstone_store::document_is_tombstoned(&dir, "lc-doc").unwrap()
+            );
+            assert!(
+                workspace_row(&state, "lc-doc").await.is_some(),
+                "back in the tree"
+            );
             tool(&state, MASTER, "write_document",
                 json!({ "graphId": GRAPH, "documentId": "lc-doc", "content": "After the recreate." }))
                 .await
                 .unwrap();
-            let second = crate::document_incarnation_store::ensure_document_incarnation_id(&dir, "lc-doc").unwrap();
+            let second =
+                crate::document_incarnation_store::ensure_document_incarnation_id(&dir, "lc-doc")
+                    .unwrap();
             assert_ne!(first, second, "a new incarnation");
         });
     });

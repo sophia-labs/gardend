@@ -316,7 +316,11 @@ fn a_visitor_reads_the_public_graphs_and_nothing_else() {
             let (status, _) = client.get("/graphs/uruguay-cows/summary", &[]).await;
             assert_eq!(status, 200);
             let (status, graph) = client.get("/graphs/uruguay-cows", &[]).await;
-            assert_eq!((status, graph["graph_id"].as_str(), graph["role"].as_str()), (200, Some("uruguay-cows"), Some("viewer")), "{graph}");
+            assert_eq!(
+                (status, graph["graph_id"].as_str(), graph["role"].as_str()),
+                (200, Some("uruguay-cows"), Some("viewer")),
+                "{graph}"
+            );
             let (status, _) = client.get("/graphs/vera-private", &[]).await;
             assert_eq!(status, 404);
             let (status, _) = client.get("/navigation/uruguay-cows/trash", &[]).await;

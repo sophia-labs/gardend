@@ -42,23 +42,23 @@ use std::{
 const POLICY_JSON: &str = include_str!("cell_graph_boundary_policy.json");
 
 #[cfg(all(test, feature = "headless"))]
-#[path = "owned_restore_tests.rs"]
-mod owned_restore_tests;
-#[cfg(all(test, feature = "headless"))]
-#[path = "loopback_manifest_secret_redaction_cell_tests.rs"]
-mod loopback_manifest_secret_redaction_cell_tests;
+#[path = "create_document_refusal_cell_tests.rs"]
+mod create_document_refusal_cell_tests;
 #[cfg(all(test, feature = "headless"))]
 #[path = "files_rudiments_tests.rs"]
 mod files_rudiments_tests;
 #[cfg(all(test, feature = "headless"))]
-#[path = "create_document_refusal_cell_tests.rs"]
-mod create_document_refusal_cell_tests;
-#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
-#[path = "upload_ingest_refusal_cell_tests.rs"]
-mod upload_ingest_refusal_cell_tests;
+#[path = "loopback_manifest_secret_redaction_cell_tests.rs"]
+mod loopback_manifest_secret_redaction_cell_tests;
+#[cfg(all(test, feature = "headless"))]
+#[path = "owned_restore_tests.rs"]
+mod owned_restore_tests;
 #[cfg(all(test, feature = "headless"))]
 #[path = "source_authority_direct_writes_tests.rs"]
 mod source_authority_direct_writes_tests;
+#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
+#[path = "upload_ingest_refusal_cell_tests.rs"]
+mod upload_ingest_refusal_cell_tests;
 const MCP_CATALOG_JSON: &str = include_str!("mcp_tool_catalog.json");
 const EFFECT_REGISTRY_JSON: &str = include_str!("../../parity/local-loopback-surface.json");
 
@@ -816,7 +816,8 @@ impl CellGraphBoundary {
         !policy.mcp_profile_denied.contains(tool_name)
             && !policy.mcp_job_graph.contains(tool_name)
             && !policy.mcp_operation_guarded.contains(tool_name)
-            && (policy.mcp_graph_scoped.contains(tool_name) || policy.mcp_global.contains(tool_name))
+            && (policy.mcp_graph_scoped.contains(tool_name)
+                || policy.mcp_global.contains(tool_name))
     }
 
     /// A tool that reaches no graph (`mcpGlobal`).
@@ -1250,8 +1251,9 @@ pub(crate) struct PublicRoute {
 /// policy and effect registry a hosted cell enforces (parsed once). `None`
 /// for a route either of them does not know: public mode refuses it.
 pub(crate) fn public_route(method: &Method, matched_path: &str) -> Option<PublicRoute> {
-    static TABLES: std::sync::OnceLock<Option<(CellGraphBoundaryPolicy, BTreeMap<String, EffectEntry>)>> =
-        std::sync::OnceLock::new();
+    static TABLES: std::sync::OnceLock<
+        Option<(CellGraphBoundaryPolicy, BTreeMap<String, EffectEntry>)>,
+    > = std::sync::OnceLock::new();
     let (policy, effects) = TABLES
         .get_or_init(|| {
             let policy: CellGraphBoundaryPolicy = serde_json::from_str(POLICY_JSON).ok()?;
@@ -1316,7 +1318,9 @@ pub(crate) fn json_graph_selectors(
                         "graphid" | "sourcegraphid" | "targetgraphid" | "scenegraphid" => {
                             found.push(require_selector_string(key, nested)?.to_string());
                         }
-                        _ if normalized.ends_with("graphid") || normalized.ends_with("graphids") => {
+                        _ if normalized.ends_with("graphid")
+                            || normalized.ends_with("graphids") =>
+                        {
                             return Err(CellGraphBoundaryError::InvalidRequest(format!(
                                 "unsupported graph selector {key}"
                             )));
@@ -1592,9 +1596,11 @@ fn authorize_crdt_operation_for_owner(
         let preservation_v2 = match object.get("formatVersion") {
             None => false,
             Some(value) if value.as_u64() == Some(2) => true,
-            _ => return Err(CellGraphBoundaryError::InvalidRequest(
-                "graph.restoreArchive unsupported explicit formatVersion".to_string(),
-            )),
+            _ => {
+                return Err(CellGraphBoundaryError::InvalidRequest(
+                    "graph.restoreArchive unsupported explicit formatVersion".to_string(),
+                ))
+            }
         };
         if object
             .get("includesArtifacts")
@@ -1602,14 +1608,18 @@ fn authorize_crdt_operation_for_owner(
             != Some(preservation_v2)
         {
             return Err(CellGraphBoundaryError::InvalidRequest(
-                "graph.restoreArchive artifacts require explicit preservation formatVersion 2".to_string(),
+                "graph.restoreArchive artifacts require explicit preservation formatVersion 2"
+                    .to_string(),
             ));
         }
         // Consume exactly the validated top-level target. Descendants and
         // aliases still pass through the closed, recursive selector policy.
         let mut remainder = object.clone();
         remainder.remove("newGraphId");
-        return authorize_json_graph_selectors(owner_graph_id, &serde_json::Value::Object(remainder));
+        return authorize_json_graph_selectors(
+            owner_graph_id,
+            &serde_json::Value::Object(remainder),
+        );
     }
     authorize_json_graph_selectors(owner_graph_id, payload)
 }
@@ -2079,56 +2089,151 @@ mod tests {
 
     #[test]
     fn artifact_text_signed_roles_and_exact_graph_authority() {
-        let secret=b"html-lease-test-secret-at-least-32-bytes".to_vec();
-        let cell=CellGraphBoundary::new_with_binding(Some("graph-a".into()),Some("user:owner".into()),Some(3),Some(9),Some(secret.clone())).unwrap();
-        let now=SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-        for role in [CellRole::Viewer,CellRole::Editor,CellRole::Owner] {
-            let claims=serde_json::json!({"iss":"pn-gateway","aud":"gardend-cell","sub":"user:html","owner":"user:owner","graphId":"graph-a","generation":3,"cellId":bound_cell_id("user:owner","graph-a",3),"role":role,"policyRevision":7,"registryRevision":9,"sessionId":"html-native-test","iat":now,"exp":now+60});
-            let verified=cell.verify_cell_lease(&sign_test_lease(&secret,&claims)).unwrap();
-            assert!(cell.authorize_mcp_role("read_artifact",verified.role).is_ok());
-            for tool in ["create_artifact_text","write_artifact_text"] {assert_eq!(cell.authorize_mcp_role(tool,verified.role).is_ok(),role>=CellRole::Editor);}
-            let mut wrong=claims.clone();wrong["graphId"]=serde_json::json!("foreign");
-            assert!(cell.verify_cell_lease(&sign_test_lease(&secret,&wrong)).is_err());
+        let secret = b"html-lease-test-secret-at-least-32-bytes".to_vec();
+        let cell = CellGraphBoundary::new_with_binding(
+            Some("graph-a".into()),
+            Some("user:owner".into()),
+            Some(3),
+            Some(9),
+            Some(secret.clone()),
+        )
+        .unwrap();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        for role in [CellRole::Viewer, CellRole::Editor, CellRole::Owner] {
+            let claims = serde_json::json!({"iss":"pn-gateway","aud":"gardend-cell","sub":"user:html","owner":"user:owner","graphId":"graph-a","generation":3,"cellId":bound_cell_id("user:owner","graph-a",3),"role":role,"policyRevision":7,"registryRevision":9,"sessionId":"html-native-test","iat":now,"exp":now+60});
+            let verified = cell
+                .verify_cell_lease(&sign_test_lease(&secret, &claims))
+                .unwrap();
+            assert!(cell
+                .authorize_mcp_role("read_artifact", verified.role)
+                .is_ok());
+            for tool in ["create_artifact_text", "write_artifact_text"] {
+                assert_eq!(
+                    cell.authorize_mcp_role(tool, verified.role).is_ok(),
+                    role >= CellRole::Editor
+                );
+            }
+            let mut wrong = claims.clone();
+            wrong["graphId"] = serde_json::json!("foreign");
+            assert!(cell
+                .verify_cell_lease(&sign_test_lease(&secret, &wrong))
+                .is_err());
         }
-        assert!(matches!(cell.rest_policy(&Method::GET,"/artifacts/{graph_id}/{artifact_id}/text"),Ok(RestPolicy::PathGraph)));
-        assert!(cell.authorize_crdt_operation("artifact.mutateText","foreign",&serde_json::json!({})).is_err());
+        assert!(matches!(
+            cell.rest_policy(&Method::GET, "/artifacts/{graph_id}/{artifact_id}/text"),
+            Ok(RestPolicy::PathGraph)
+        ));
+        assert!(cell
+            .authorize_crdt_operation("artifact.mutateText", "foreign", &serde_json::json!({}))
+            .is_err());
     }
 
     #[test]
     fn agent_status_signed_role_and_graph_refusals() {
-        let secret=b"status-synthetic-lease-secret-at-least-32".to_vec();
-        let cell=CellGraphBoundary::new_with_binding(Some("graph-a".into()),Some("user:owner".into()),Some(3),Some(9),Some(secret.clone())).unwrap();
-        let now=SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-        for role in [CellRole::Viewer,CellRole::Editor,CellRole::Owner] {
-            let claims=serde_json::json!({"iss":"pn-gateway","aud":"gardend-cell","sub":"user:status","owner":"user:owner","graphId":"graph-a","generation":3,"cellId":bound_cell_id("user:owner","graph-a",3),"role":role,"policyRevision":7,"registryRevision":9,"sessionId":"status-native-test","iat":now,"exp":now+60});
-            let verified=cell.verify_cell_lease(&sign_test_lease(&secret,&claims)).unwrap();
-            assert_eq!(verified.principal,"user:status");
-            assert!(cell.authorize_mcp_role("agent_status",verified.role).is_ok());
-            assert_eq!(cell.authorize_mcp_role("status",verified.role).is_ok(),role>=CellRole::Editor);
-            assert_eq!(cell.mcp_tool_visible_for_role("status",verified.role),role>=CellRole::Editor);
-            let mut foreign=claims.clone(); foreign["graphId"]=serde_json::json!("foreign");
-            assert!(cell.verify_cell_lease(&sign_test_lease(&secret,&foreign)).is_err());
+        let secret = b"status-synthetic-lease-secret-at-least-32".to_vec();
+        let cell = CellGraphBoundary::new_with_binding(
+            Some("graph-a".into()),
+            Some("user:owner".into()),
+            Some(3),
+            Some(9),
+            Some(secret.clone()),
+        )
+        .unwrap();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        for role in [CellRole::Viewer, CellRole::Editor, CellRole::Owner] {
+            let claims = serde_json::json!({"iss":"pn-gateway","aud":"gardend-cell","sub":"user:status","owner":"user:owner","graphId":"graph-a","generation":3,"cellId":bound_cell_id("user:owner","graph-a",3),"role":role,"policyRevision":7,"registryRevision":9,"sessionId":"status-native-test","iat":now,"exp":now+60});
+            let verified = cell
+                .verify_cell_lease(&sign_test_lease(&secret, &claims))
+                .unwrap();
+            assert_eq!(verified.principal, "user:status");
+            assert!(cell
+                .authorize_mcp_role("agent_status", verified.role)
+                .is_ok());
+            assert_eq!(
+                cell.authorize_mcp_role("status", verified.role).is_ok(),
+                role >= CellRole::Editor
+            );
+            assert_eq!(
+                cell.mcp_tool_visible_for_role("status", verified.role),
+                role >= CellRole::Editor
+            );
+            let mut foreign = claims.clone();
+            foreign["graphId"] = serde_json::json!("foreign");
+            assert!(cell
+                .verify_cell_lease(&sign_test_lease(&secret, &foreign))
+                .is_err());
         }
-        let jobs=LocalJobRegistry::new(std::env::temp_dir().join(format!("garden-status-jobs-{}",uuid::Uuid::new_v4()))).unwrap();
-        assert!(cell.scope_mcp_arguments("status",serde_json::json!({"graphId":"foreign"}),&jobs).is_err());
-        assert!(cell.scope_mcp_arguments("agent_status",serde_json::json!({"graphId":"graph-a","graph_id":"foreign"}),&jobs).is_err());
+        let jobs = LocalJobRegistry::new(
+            std::env::temp_dir().join(format!("garden-status-jobs-{}", uuid::Uuid::new_v4())),
+        )
+        .unwrap();
+        assert!(cell
+            .scope_mcp_arguments("status", serde_json::json!({"graphId":"foreign"}), &jobs)
+            .is_err());
+        assert!(cell
+            .scope_mcp_arguments(
+                "agent_status",
+                serde_json::json!({"graphId":"graph-a","graph_id":"foreign"}),
+                &jobs
+            )
+            .is_err());
     }
 
     #[test]
     fn agent_self_image_is_editor_gated_and_graph_bound() {
-        let secret=b"self-image-synthetic-lease-secret-at-least-32".to_vec();
-        let cell=CellGraphBoundary::new_with_binding(Some("graph-a".into()),Some("user:owner".into()),Some(3),Some(9),Some(secret.clone())).unwrap();
-        let now=SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-        for role in [CellRole::Viewer,CellRole::Editor,CellRole::Owner] {
-            let claims=serde_json::json!({"iss":"pn-gateway","aud":"gardend-cell","sub":"user:self-image","owner":"user:owner","graphId":"graph-a","generation":3,"cellId":bound_cell_id("user:owner","graph-a",3),"role":role,"policyRevision":7,"registryRevision":9,"sessionId":"self-image-native-test","iat":now,"exp":now+60});
-            let verified=cell.verify_cell_lease(&sign_test_lease(&secret,&claims)).unwrap();
+        let secret = b"self-image-synthetic-lease-secret-at-least-32".to_vec();
+        let cell = CellGraphBoundary::new_with_binding(
+            Some("graph-a".into()),
+            Some("user:owner".into()),
+            Some(3),
+            Some(9),
+            Some(secret.clone()),
+        )
+        .unwrap();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        for role in [CellRole::Viewer, CellRole::Editor, CellRole::Owner] {
+            let claims = serde_json::json!({"iss":"pn-gateway","aud":"gardend-cell","sub":"user:self-image","owner":"user:owner","graphId":"graph-a","generation":3,"cellId":bound_cell_id("user:owner","graph-a",3),"role":role,"policyRevision":7,"registryRevision":9,"sessionId":"self-image-native-test","iat":now,"exp":now+60});
+            let verified = cell
+                .verify_cell_lease(&sign_test_lease(&secret, &claims))
+                .unwrap();
             // It writes artifact bytes + RDF: Viewers neither see nor call it.
-            assert_eq!(cell.authorize_mcp_role("agent_self_image",verified.role).is_ok(),role>=CellRole::Editor);
-            assert_eq!(cell.mcp_tool_visible_for_role("agent_self_image",verified.role),role>=CellRole::Editor);
+            assert_eq!(
+                cell.authorize_mcp_role("agent_self_image", verified.role)
+                    .is_ok(),
+                role >= CellRole::Editor
+            );
+            assert_eq!(
+                cell.mcp_tool_visible_for_role("agent_self_image", verified.role),
+                role >= CellRole::Editor
+            );
         }
-        let jobs=LocalJobRegistry::new(std::env::temp_dir().join(format!("garden-self-image-jobs-{}",uuid::Uuid::new_v4()))).unwrap();
-        assert!(cell.scope_mcp_arguments("agent_self_image",serde_json::json!({"graphId":"foreign"}),&jobs).is_err());
-        assert!(cell.scope_mcp_arguments("agent_self_image",serde_json::json!({"graphId":"graph-a","graph_id":"foreign"}),&jobs).is_err());
+        let jobs = LocalJobRegistry::new(
+            std::env::temp_dir().join(format!("garden-self-image-jobs-{}", uuid::Uuid::new_v4())),
+        )
+        .unwrap();
+        assert!(cell
+            .scope_mcp_arguments(
+                "agent_self_image",
+                serde_json::json!({"graphId":"foreign"}),
+                &jobs
+            )
+            .is_err());
+        assert!(cell
+            .scope_mcp_arguments(
+                "agent_self_image",
+                serde_json::json!({"graphId":"graph-a","graph_id":"foreign"}),
+                &jobs
+            )
+            .is_err());
     }
 
     #[test]
@@ -2259,8 +2364,14 @@ mod tests {
                 assert_eq!(cell.mcp_policy(tool), Ok(McpPolicy::GraphScoped));
                 assert_eq!(minimum_role_for_effect(effect), Some(CellRole::Editor));
                 let permitted = role >= CellRole::Editor;
-                assert_eq!(cell.mcp_tool_visible_for_role(tool, verified.role), permitted);
-                assert_eq!(cell.authorize_mcp_role(tool, verified.role).is_ok(), permitted);
+                assert_eq!(
+                    cell.mcp_tool_visible_for_role(tool, verified.role),
+                    permitted
+                );
+                assert_eq!(
+                    cell.authorize_mcp_role(tool, verified.role).is_ok(),
+                    permitted
+                );
             }
 
             // Making sources reachable must not turn a valid signature for
@@ -2299,36 +2410,79 @@ mod tests {
     #[test]
     fn create_once_signed_roles_graph_binding_and_closed_surface_negatives() {
         let secret = b"create-once-role-test-secret-at-least-32-bytes".to_vec();
-        let cell = CellGraphBoundary::new_with_binding(Some("graph-a".into()), Some("user:test-owner".into()), Some(3), Some(9), Some(secret.clone())).unwrap();
+        let cell = CellGraphBoundary::new_with_binding(
+            Some("graph-a".into()),
+            Some("user:test-owner".into()),
+            Some(3),
+            Some(9),
+            Some(secret.clone()),
+        )
+        .unwrap();
         assert!(cell.surface_drift.is_empty());
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
         for role in [CellRole::Viewer, CellRole::Editor, CellRole::Owner] {
             let claims = serde_json::json!({
                 "iss":"pn-gateway", "aud":"gardend-cell", "sub":"user:caller", "owner":"user:test-owner",
                 "graphId":"graph-a", "generation":3, "cellId":bound_cell_id("user:test-owner","graph-a",3),
                 "role":role, "policyRevision":7, "registryRevision":9, "sessionId":"create-once-test", "iat":now, "exp":now+60,
             });
-            let verified = cell.verify_cell_lease(&sign_test_lease(&secret,&claims)).unwrap();
-            assert_eq!(cell.authorize_mcp_role("create_document_once",verified.role).is_ok(), role >= CellRole::Editor);
-            assert_eq!(cell.mcp_tool_visible_for_role("create_document_once",verified.role), role >= CellRole::Editor);
-            let mut foreign = claims.clone(); foreign["graphId"] = serde_json::json!("graph-b");
-            assert!(cell.verify_cell_lease(&sign_test_lease(&secret,&foreign)).is_err());
+            let verified = cell
+                .verify_cell_lease(&sign_test_lease(&secret, &claims))
+                .unwrap();
+            assert_eq!(
+                cell.authorize_mcp_role("create_document_once", verified.role)
+                    .is_ok(),
+                role >= CellRole::Editor
+            );
+            assert_eq!(
+                cell.mcp_tool_visible_for_role("create_document_once", verified.role),
+                role >= CellRole::Editor
+            );
+            let mut foreign = claims.clone();
+            foreign["graphId"] = serde_json::json!("graph-b");
+            assert!(cell
+                .verify_cell_lease(&sign_test_lease(&secret, &foreign))
+                .is_err());
         }
-        let jobs_dir = std::env::temp_dir().join(format!("garden-create-once-boundary-{}", uuid::Uuid::new_v4()));
+        let jobs_dir = std::env::temp_dir().join(format!(
+            "garden-create-once-boundary-{}",
+            uuid::Uuid::new_v4()
+        ));
         let jobs = crate::local_jobs::LocalJobRegistry::new(jobs_dir.clone()).unwrap();
-        assert!(cell.scope_mcp_arguments("create_document_once",serde_json::json!({"graph_id":"graph-b"}),&jobs).is_err());
-        assert!(cell.authorize_crdt_operation("document.createOnce","graph-b",&serde_json::json!({})).is_err());
-        assert!(cell.authorize_mcp_role("create_document_once_future",CellRole::Owner).is_err());
-        assert!(crate::loopback_scopes::crdt_operation_scopes("document.createOnceFuture").is_none());
+        assert!(cell
+            .scope_mcp_arguments(
+                "create_document_once",
+                serde_json::json!({"graph_id":"graph-b"}),
+                &jobs
+            )
+            .is_err());
+        assert!(cell
+            .authorize_crdt_operation("document.createOnce", "graph-b", &serde_json::json!({}))
+            .is_err());
+        assert!(cell
+            .authorize_mcp_role("create_document_once_future", CellRole::Owner)
+            .is_err());
+        assert!(
+            crate::loopback_scopes::crdt_operation_scopes("document.createOnceFuture").is_none()
+        );
         let mut policy: CellGraphBoundaryPolicy = serde_json::from_str(POLICY_JSON).unwrap();
         policy.effect_registry_sha256 = "stale".into();
         assert!(validate_effect_registry(&policy).is_err());
         let mut policy: CellGraphBoundaryPolicy = serde_json::from_str(POLICY_JSON).unwrap();
         policy.mcp_surface_sha256 = "stale".into();
-        assert!(validate_and_classify_mcp_catalog(&policy,&cell.mcp_effects).is_err());
+        assert!(validate_and_classify_mcp_catalog(&policy, &cell.mcp_effects).is_err());
         let mut unclassified = cell.clone();
-        Arc::make_mut(&mut unclassified.mcp_effects).get_mut("create_document_once").unwrap().scopes.push("future.unknown".into());
-        assert!(unclassified.authorize_mcp_role("create_document_once",CellRole::Owner).is_err());
+        Arc::make_mut(&mut unclassified.mcp_effects)
+            .get_mut("create_document_once")
+            .unwrap()
+            .scopes
+            .push("future.unknown".into());
+        assert!(unclassified
+            .authorize_mcp_role("create_document_once", CellRole::Owner)
+            .is_err());
         drop(jobs);
         let _ = std::fs::remove_dir_all(jobs_dir);
     }
@@ -2443,7 +2597,12 @@ mod tests {
         let jobs = LocalJobRegistry::new(jobs_dir.clone()).expect("job registry");
         let cell = CellGraphBoundary::for_test(Some("graph-a"));
 
-        for tool in ["read_document", "source_pull", "source_push", "source_rebuild"] {
+        for tool in [
+            "read_document",
+            "source_pull",
+            "source_push",
+            "source_rebuild",
+        ] {
             assert_eq!(
                 cell.scope_mcp_arguments(tool, serde_json::json!({}), &jobs)
                     .unwrap()
@@ -2451,11 +2610,7 @@ mod tests {
                 Some(&serde_json::json!("graph-a"))
             );
             assert_eq!(
-                cell.scope_mcp_arguments(
-                    tool,
-                    serde_json::json!({"graph_id": "graph-b"}),
-                    &jobs,
-                ),
+                cell.scope_mcp_arguments(tool, serde_json::json!({"graph_id": "graph-b"}), &jobs,),
                 Err(CellGraphBoundaryError::GraphMismatch)
             );
         }
@@ -2522,7 +2677,10 @@ mod tests {
         };
 
         let bound = bind("search_documents", serde_json::json!({"query": "buck"})).unwrap();
-        assert_eq!(bound, serde_json::json!({"query": "buck", "graphId": "notes"}));
+        assert_eq!(
+            bound,
+            serde_json::json!({"query": "buck", "graphId": "notes"})
+        );
         let bound = bind("create_artifact_text", serde_json::json!({"text": "x"})).unwrap();
         assert_eq!(
             bound,
@@ -2532,8 +2690,11 @@ mod tests {
         assert_eq!(catalog_graph_argument("create_artifact_text"), "graph_id");
         assert_eq!(catalog_graph_argument("write_document"), "graphId");
         assert_eq!(
-            bind("read_document", serde_json::json!({"graphId": "notes", "documentId": "d"}))
-                .unwrap()["graphId"],
+            bind(
+                "read_document",
+                serde_json::json!({"graphId": "notes", "documentId": "d"})
+            )
+            .unwrap()["graphId"],
             "notes",
             "naming the bound graph is fine"
         );
@@ -2548,7 +2709,13 @@ mod tests {
                 "{foreign}"
             );
         }
-        for wide in ["list_graphs", "create_graph", "manage_graph", "upload_artifact", "workflow_run_start"] {
+        for wide in [
+            "list_graphs",
+            "create_graph",
+            "manage_graph",
+            "upload_artifact",
+            "workflow_run_start",
+        ] {
             assert!(
                 matches!(
                     bind(wide, serde_json::json!({})),
@@ -2559,11 +2726,18 @@ mod tests {
             assert!(!gardend.mcp_tool_bindable(wide), "{wide}");
         }
         assert!(matches!(
-            bind("delete", serde_json::json!({"type": "graph", "id": "notes"})),
+            bind(
+                "delete",
+                serde_json::json!({"type": "graph", "id": "notes"})
+            ),
             Err(CellGraphBoundaryError::ProfileWideOperation(_))
         ));
         assert_eq!(
-            bind("delete", serde_json::json!({"type": "wires", "wireId": "w-1"})).unwrap()["graphId"],
+            bind(
+                "delete",
+                serde_json::json!({"type": "wires", "wireId": "w-1"})
+            )
+            .unwrap()["graphId"],
             "notes"
         );
         assert_eq!(
@@ -2572,14 +2746,23 @@ mod tests {
             "a global tool is left as it is"
         );
         assert_eq!(
-            bind("get_job_status", serde_json::json!({"jobId": "job-of-nobody"})),
+            bind(
+                "get_job_status",
+                serde_json::json!({"jobId": "job-of-nobody"})
+            ),
             Err(CellGraphBoundaryError::JobNotOwned)
         );
         assert!(matches!(
             bind("no_such_tool", serde_json::json!({})),
             Err(CellGraphBoundaryError::UnclassifiedMcpTool(_))
         ));
-        for reader in ["read_document", "datasheet_facts", "search_blocks", "delete", "get_job_status"] {
+        for reader in [
+            "read_document",
+            "datasheet_facts",
+            "search_blocks",
+            "delete",
+            "get_job_status",
+        ] {
             assert!(gardend.mcp_tool_bindable(reader), "{reader}");
         }
         let _ = fs::remove_dir_all(jobs_dir);

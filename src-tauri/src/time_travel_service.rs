@@ -35,11 +35,10 @@ pub(crate) fn capture_restore_point(
     trigger: RestorePointTrigger,
     label: Option<String>,
 ) -> AppResult<Value> {
-    let lease =
-        crate::crdt_engine::persistence_coordinator::acquire_hot_write_blocking_if_managed(
-            app, graph_id,
-        )
-        .map_err(AppError::storage)?;
+    let lease = crate::crdt_engine::persistence_coordinator::acquire_hot_write_blocking_if_managed(
+        app, graph_id,
+    )
+    .map_err(AppError::storage)?;
     let result = capture_restore_point_with_lease(app, graph_id, trigger, label);
     if result.is_ok() {
         if let Some(lease) = lease.as_ref() {
@@ -717,9 +716,10 @@ mod tests {
             let registry = app.state::<crate::crdt_engine::rooms::RoomRegistry>();
             registry.evict_graph(graph_id);
             let doc_prefix = format!("doc:{graph_id}:");
-            assert!(
-                crate::app_runtime::async_runtime::block_on(registry.rooms_with_prefix(&doc_prefix)).is_empty()
-            );
+            assert!(crate::app_runtime::async_runtime::block_on(
+                registry.rooms_with_prefix(&doc_prefix)
+            )
+            .is_empty());
 
             let summary =
                 capture_restore_point(&app, graph_id, RestorePointTrigger::Interval, None)
@@ -731,12 +731,17 @@ mod tests {
 
             // (a) NO rooms hydrated by the capture sweep.
             assert!(
-                crate::app_runtime::async_runtime::block_on(registry.rooms_with_prefix(&doc_prefix)).is_empty(),
+                crate::app_runtime::async_runtime::block_on(
+                    registry.rooms_with_prefix(&doc_prefix)
+                )
+                .is_empty(),
                 "capture must never decode documents into the room registry"
             );
             assert!(
-                crate::app_runtime::async_runtime::block_on(registry.peek(&format!("workspace:{graph_id}")))
-                    .is_none(),
+                crate::app_runtime::async_runtime::block_on(
+                    registry.peek(&format!("workspace:{graph_id}"))
+                )
+                .is_none(),
                 "capture reads the workspace from its files, not a room"
             );
 
@@ -773,9 +778,10 @@ mod tests {
                 "the fallback runs the ordinary legacy backfill for that one document"
             );
             // …and the fallback stayed cold with respect to rooms too.
-            assert!(
-                crate::app_runtime::async_runtime::block_on(registry.rooms_with_prefix(&doc_prefix)).is_empty()
-            );
+            assert!(crate::app_runtime::async_runtime::block_on(
+                registry.rooms_with_prefix(&doc_prefix)
+            )
+            .is_empty());
 
             // FAIL CLOSED: when the legacy fallback cannot recover a
             // document's real update payload, the capture must FAIL — never

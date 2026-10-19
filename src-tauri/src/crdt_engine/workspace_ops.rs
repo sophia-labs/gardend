@@ -645,10 +645,9 @@ async fn sync_workspace_document_titles(
             ));
         }
         let Some(record) = crate::document_record_store::read_document_record_if_title_changed(
-            graph_dir,
-            &manifest,
-            title,
-        )? else {
+            graph_dir, &manifest, title,
+        )?
+        else {
             continue;
         };
         // Invariant: the workspace snapshot is the title authority, and this
@@ -857,7 +856,11 @@ async fn admit_document_create(
                         "existed": true,
                     }),
                 ),
-                _ => (false, None, json!({ "documentId": row_id, "id": row_id, "existed": true })),
+                _ => (
+                    false,
+                    None,
+                    json!({ "documentId": row_id, "id": row_id, "existed": true }),
+                ),
             })
         })
         .await;
@@ -948,8 +951,16 @@ pub(super) fn write_workspace_document(
     // read), and only when the document is new.
     if !existed {
         if let Some(fence) = crate::visitor_fence::fence_of(payload) {
-            document_map.insert(txn, crate::visitor_fence::CREATED_BY_FIELD, fence.account.as_str());
-            document_map.insert(txn, crate::visitor_fence::CREATED_BY_NAME_FIELD, fence.name.as_str());
+            document_map.insert(
+                txn,
+                crate::visitor_fence::CREATED_BY_FIELD,
+                fence.account.as_str(),
+            );
+            document_map.insert(
+                txn,
+                crate::visitor_fence::CREATED_BY_NAME_FIELD,
+                fence.name.as_str(),
+            );
         }
     }
     // Optional kind discriminator (unit G4; interfaces.md §A): the workspace
@@ -1439,7 +1450,9 @@ fn snapshot_parent_map(
         // Refusing a stray key here failed the recovered cascade after its
         // hot commit, retried forever (2026-10-14).
         if id.is_empty() {
-            return Err(format!("recovered workspace {field} entry: {id_label} cannot be empty"));
+            return Err(format!(
+                "recovered workspace {field} entry: {id_label} cannot be empty"
+            ));
         }
         let parent = match object.get("parentId") {
             None | Some(Value::Null) => None,
@@ -1748,7 +1761,9 @@ fn patch_workspace_artifact(
         None => None,
         Some(Value::String(status)) if !status.trim().is_empty() => Some(status.trim().to_string()),
         Some(_) => {
-            return Err("workspace.putArtifact patch: status must be a non-empty string".to_string())
+            return Err(
+                "workspace.putArtifact patch: status must be a non-empty string".to_string(),
+            )
         }
     };
     let error_message = match value.get("errorMessage") {
@@ -1786,7 +1801,11 @@ fn patch_workspace_artifact(
     }
     artifact_map.insert(txn, "updatedAt", epoch_ms_to_iso(updated_at_ms).as_str());
     let data = artifact_data_from_map(&*txn, &artifact_map);
-    Ok(create_hosted_artifact_response(graph_id, artifact_id, &data))
+    Ok(create_hosted_artifact_response(
+        graph_id,
+        artifact_id,
+        &data,
+    ))
 }
 
 fn delete_workspace_artifact_in_doc(
@@ -3249,9 +3268,11 @@ mod tests {
     #[test]
     fn workspace_inventory_title_sweep_skips_equal_history_and_preserves_real_rename() {
         let _serial = crate::tauri_runtime::profile_env_serial()
-            .lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let profile = std::env::temp_dir().join(format!(
-            "garden-workspace-inventory-sweep-{}", Uuid::new_v4()
+            "garden-workspace-inventory-sweep-{}",
+            Uuid::new_v4()
         ));
         let previous_profile = std::env::var_os("GARDEN_PROFILE_DIR");
         let previous_app_data = std::env::var_os("GARDEN_HEADLESS_APP_DATA_DIR");
@@ -3262,19 +3283,34 @@ mod tests {
                 let app = crate::tauri_runtime::build_mock_app_for_tests(true);
                 let graph_id = "workspace-inventory-sweep";
                 let document_id = "doc-a";
-                crate::graph_service::create_graph_service(&app, crate::graph_service::CreateGraphInput {
-                    title: "Inventory fixture".into(), graph_id: Some(graph_id.into()),
-                    description: None, operation_id: None,
-                }).unwrap();
-                crate::document_service::create_document(app.clone(), crate::document_service::CreateDocumentInput {
-                    graph_id: graph_id.into(), title: "Same title".into(),
-                    document_id: Some(document_id.into()),
-                }).unwrap();
+                crate::graph_service::create_graph_service(
+                    &app,
+                    crate::graph_service::CreateGraphInput {
+                        title: "Inventory fixture".into(),
+                        graph_id: Some(graph_id.into()),
+                        description: None,
+                        operation_id: None,
+                    },
+                )
+                .unwrap();
+                crate::document_service::create_document(
+                    app.clone(),
+                    crate::document_service::CreateDocumentInput {
+                        graph_id: graph_id.into(),
+                        title: "Same title".into(),
+                        document_id: Some(document_id.into()),
+                    },
+                )
+                .unwrap();
                 let graph_dir = crate::graph_paths::existing_graph_dir(&app, graph_id).unwrap();
-                let manifest = crate::document_paths::document_dir(&graph_dir, document_id).unwrap().join("document.json");
+                let manifest = crate::document_paths::document_dir(&graph_dir, document_id)
+                    .unwrap()
+                    .join("document.json");
                 let sidecar = crate::ydoc_paths::document_ydoc_state_path(&graph_dir, document_id);
                 let sidecar_before = std::fs::read(&sidecar).unwrap();
-                let mut record = crate::document_record_store::read_document_record(&graph_dir, &manifest).unwrap();
+                let mut record =
+                    crate::document_record_store::read_document_record(&graph_dir, &manifest)
+                        .unwrap();
                 // A real legacy-inline record whose sidecar path cannot accept
                 // backfill exposes an accidental hydrating unchanged-title read.
                 record.body = "File-authored body must survive the rename".into();
@@ -3287,22 +3323,49 @@ mod tests {
                     {"id": document_id, "title": "Same title", "parentId": "folder-a", "extra": {"keep": true}},
                     {"id": "missing", "title": "Missing manifest remains skipped"}
                 ]});
-                sync_workspace_document_titles(&app, graph_id, &graph_dir, &snapshot, "equal-title").await.unwrap();
+                sync_workspace_document_titles(
+                    &app,
+                    graph_id,
+                    &graph_dir,
+                    &snapshot,
+                    "equal-title",
+                )
+                .await
+                .unwrap();
                 assert_eq!(std::fs::read(&manifest).unwrap(), manifest_before);
-                assert!(sidecar.is_dir(), "no backfill or replacement for equal titles");
-                assert!(app.state::<RoomRegistry>().peek(&format!("doc:{graph_id}:{document_id}")).await.is_none());
+                assert!(
+                    sidecar.is_dir(),
+                    "no backfill or replacement for equal titles"
+                );
+                assert!(app
+                    .state::<RoomRegistry>()
+                    .peek(&format!("doc:{graph_id}:{document_id}"))
+                    .await
+                    .is_none());
 
                 std::fs::remove_dir(&sidecar).unwrap();
                 std::fs::rename(&retained_sidecar, &sidecar).unwrap();
-                sync_workspace_document_titles(&app, graph_id, &graph_dir,
+                sync_workspace_document_titles(
+                    &app,
+                    graph_id,
+                    &graph_dir,
                     &json!({"documents": [{"id": document_id, "title": "Actual rename"}]}),
-                    "changed-title").await.unwrap();
-                let renamed = crate::document_record_store::read_document_record(&graph_dir, &manifest).unwrap();
+                    "changed-title",
+                )
+                .await
+                .unwrap();
+                let renamed =
+                    crate::document_record_store::read_document_record(&graph_dir, &manifest)
+                        .unwrap();
                 assert_eq!(renamed.title, "Actual rename");
                 assert_eq!(renamed.body, record.body);
                 assert_eq!(renamed.revision, record.revision + 1);
                 assert_eq!(std::fs::read(&sidecar).unwrap(), sidecar_before);
-                assert!(app.state::<RoomRegistry>().peek(&format!("doc:{graph_id}:{document_id}")).await.is_none());
+                assert!(app
+                    .state::<RoomRegistry>()
+                    .peek(&format!("doc:{graph_id}:{document_id}"))
+                    .await
+                    .is_none());
             });
         });
         match previous_profile {
@@ -3316,7 +3379,9 @@ mod tests {
         if result.is_ok() {
             let _ = std::fs::remove_dir_all(&profile);
         }
-        if let Err(payload) = result { std::panic::resume_unwind(payload); }
+        if let Err(payload) = result {
+            std::panic::resume_unwind(payload);
+        }
     }
 
     #[test]
@@ -3378,7 +3443,10 @@ mod tests {
         })
         .expect("create folder");
         assert_eq!(folder["folderId"], "folder-a");
-        assert!(folder.get("section").is_none(), "new folders write no section");
+        assert!(
+            folder.get("section").is_none(),
+            "new folders write no section"
+        );
         assert_eq!(folder["order"], 1);
 
         // createDocument inside the folder + one at root
@@ -4025,8 +4093,7 @@ mod tests {
                     },
                 )
                 .expect("create document");
-                let real_body =
-                    "Real file-authored content that must survive a title rename.";
+                let real_body = "Real file-authored content that must survive a title rename.";
                 crate::document_persistence_service::save_document(
                     app.clone(),
                     serde_json::from_value(json!({

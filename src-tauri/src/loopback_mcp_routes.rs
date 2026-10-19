@@ -19,8 +19,8 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use std::sync::Arc;
 use serde_json::Value;
+use std::sync::Arc;
 
 pub(super) fn loopback_mcp_router() -> Router<Arc<LoopbackState>> {
     Router::new().route("/mcp", get(loopback_mcp_info).post(loopback_mcp))
@@ -75,7 +75,9 @@ fn mcp_caller(
     entry_scope: &str,
 ) -> Result<McpCaller, Response> {
     if !state.cell_graph.is_enabled() {
-        if let Some(delegation) = bearer_token(headers).and_then(|token| state.services.delegation(token)) {
+        if let Some(delegation) =
+            bearer_token(headers).and_then(|token| state.services.delegation(token))
+        {
             if !origin_allowed(headers, state) {
                 return Err(loopback_error(StatusCode::FORBIDDEN, "invalid origin"));
             }
@@ -102,7 +104,9 @@ fn mcp_caller(
                     via: Some(format!("service:{}", delegation.service_id)),
                 }),
                 home_graph: public_delegation.then(|| delegation.graph_id.clone()),
-                visitor: public_delegation.then(|| delegation.visitor.clone()).flatten(),
+                visitor: public_delegation
+                    .then(|| delegation.visitor.clone())
+                    .flatten(),
                 graph: (!public_delegation).then_some(delegation),
                 public: public_delegation,
                 public_delegation,
@@ -162,9 +166,13 @@ pub(super) async fn loopback_mcp(
     let role = lease
         .map(|Extension(lease)| lease.role)
         .unwrap_or(crate::cell_graph_boundary::CellRole::Owner);
-    let audit = caller.graph.as_ref().zip(caller.actor.as_ref()).and_then(|(graph, actor)| {
-        write_tool_named(&request).map(|tool| (tool, graph.clone(), actor.clone()))
-    });
+    let audit = caller
+        .graph
+        .as_ref()
+        .zip(caller.actor.as_ref())
+        .and_then(|(graph, actor)| {
+            write_tool_named(&request).map(|tool| (tool, graph.clone(), actor.clone()))
+        });
     let user_id = caller.actor.as_ref().map(|actor| actor.user_id.clone());
     let handled = acting_for(
         caller.actor,
@@ -228,7 +236,11 @@ fn audit_delegated_write(
         "mcp.tools.call",
         tool,
         &actor.user_id,
-        if response.is_error() { "failed" } else { "succeeded" },
+        if response.is_error() {
+            "failed"
+        } else {
+            "succeeded"
+        },
         Some(delegation.graph_id.clone()),
         serde_json::json!({
             "graphId": delegation.graph_id,
@@ -290,8 +302,18 @@ async fn handle_mcp_request(
             }
             let optional = match request.params.get("optionalCapabilities") {
                 None => false,
-                Some(Value::Array(values)) if values.iter().all(|v| v.as_str() == Some("custom-css")) => !values.is_empty(),
-                Some(_) => return mcp_error(request.id, -32602, "optionalCapabilities must be an array containing only custom-css"),
+                Some(Value::Array(values))
+                    if values.iter().all(|v| v.as_str() == Some("custom-css")) =>
+                {
+                    !values.is_empty()
+                }
+                Some(_) => {
+                    return mcp_error(
+                        request.id,
+                        -32602,
+                        "optionalCapabilities must be an array containing only custom-css",
+                    )
+                }
             };
             if public.is_some() {
                 let mut result = public_tools_list(state, token_scopes);
@@ -312,10 +334,19 @@ async fn handle_mcp_request(
                 return mcp_success(request.id, result);
             }
             let listed = match bound {
-                Some(_) => crate::mcp_tool_registry::mcp_tools_list_result_for_bound_graph(&state.cell_graph, token_scopes, optional),
-                None => crate::mcp_tool_registry::mcp_tools_list_result_with_optional(&state.cell_graph, role, optional),
+                Some(_) => crate::mcp_tool_registry::mcp_tools_list_result_for_bound_graph(
+                    &state.cell_graph,
+                    token_scopes,
+                    optional,
+                ),
+                None => crate::mcp_tool_registry::mcp_tools_list_result_with_optional(
+                    &state.cell_graph,
+                    role,
+                    optional,
+                ),
             };
-            let mut result = serde_json::to_value(listed).expect("McpToolsListResult always serializes");
+            let mut result =
+                serde_json::to_value(listed).expect("McpToolsListResult always serializes");
             // Tools lent by local services (`service_mcp`): none unless a
             // service.json declares `mcp`, never in a hosted cell.
             let lent = crate::service_mcp::listed_service_tools(
@@ -357,7 +388,16 @@ async fn handle_mcp_request(
             }
             let mut params = request.params;
             if let Some(home) = public {
-                return public_tool_call(state, request.id, params, token_scopes, role, home, visitor).await;
+                return public_tool_call(
+                    state,
+                    request.id,
+                    params,
+                    token_scopes,
+                    role,
+                    home,
+                    visitor,
+                )
+                .await;
             }
             if let Some(delegation) = bound {
                 if let Err(error) = bind_call(state, &delegation.graph_id, &mut params) {
@@ -376,7 +416,11 @@ async fn handle_mcp_request(
 
 /// Bind a `tools/call` to the delegation's graph
 /// (`CellGraphBoundary::bind_mcp_call_to_graph`), in place.
-fn bind_call(state: &LoopbackState, graph_id: &str, params: &mut Value) -> Result<(), (i64, String)> {
+fn bind_call(
+    state: &LoopbackState,
+    graph_id: &str,
+    params: &mut Value,
+) -> Result<(), (i64, String)> {
     let name = params
         .get("name")
         .and_then(Value::as_str)
@@ -398,11 +442,15 @@ fn bind_call(state: &LoopbackState, graph_id: &str, params: &mut Value) -> Resul
         }
         Err(CellGraphBoundaryError::GraphMismatch) => Err((
             -32004,
-            format!("this token is bound to the graph \"{graph_id}\"; the call names another graph"),
+            format!(
+                "this token is bound to the graph \"{graph_id}\"; the call names another graph"
+            ),
         )),
         Err(CellGraphBoundaryError::JobNotOwned) => Err((
             -32004,
-            format!("this token is bound to the graph \"{graph_id}\"; that job is not one of its jobs"),
+            format!(
+                "this token is bound to the graph \"{graph_id}\"; that job is not one of its jobs"
+            ),
         )),
         Err(CellGraphBoundaryError::ProfileWideOperation(operation)) => Err((
             -32004,
@@ -433,7 +481,9 @@ fn public_tools_list(state: &LoopbackState, scopes: &[String]) -> Value {
         tools.retain(|tool| {
             tool.get("name")
                 .and_then(Value::as_str)
-                .is_some_and(|name| name == "list_graphs" || public_tool_callable(state, name, scopes))
+                .is_some_and(|name| {
+                    name == "list_graphs" || public_tool_callable(state, name, scopes)
+                })
         });
     }
     result["_meta"] = serde_json::json!({
@@ -448,7 +498,9 @@ fn public_tools_list(state: &LoopbackState, scopes: &[String]) -> Value {
 fn public_tool_callable(state: &LoopbackState, name: &str, scopes: &[String]) -> bool {
     let needed = crate::loopback_scopes::mcp_tool_scopes(name);
     !needed.is_empty()
-        && needed.iter().all(|scope| scopes.iter().any(|held| held == scope))
+        && needed
+            .iter()
+            .all(|scope| scopes.iter().any(|held| held == scope))
         && state.cell_graph.mcp_tool_public(name)
 }
 
@@ -473,7 +525,8 @@ async fn public_tool_call(
         .unwrap_or_default()
         .to_string();
     if name == "list_graphs" {
-        return match crate::graph_catalog_projection::hosted_graph_entries_service(&state.app, true) {
+        return match crate::graph_catalog_projection::hosted_graph_entries_service(&state.app, true)
+        {
             Ok(entries) => {
                 let graphs = crate::public_mode::public_graph_entries(public, entries);
                 let value = serde_json::json!({ "graphs": graphs, "count": graphs.len() });
@@ -503,7 +556,10 @@ async fn public_tool_call(
             format!("{name} is not open to visitors: this Sophia is open to read, and only its read tools are"),
         );
     }
-    let arguments = params.get("arguments").cloned().unwrap_or_else(|| serde_json::json!({}));
+    let arguments = params
+        .get("arguments")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
     let named = ["graphId", "graph_id"]
         .iter()
         .find_map(|key| arguments.get(*key).and_then(Value::as_str))
@@ -513,14 +569,21 @@ async fn public_tool_call(
         Some(graph) if public.is_public_graph(&graph) => graph,
         Some(_) => return mcp_error(id, -32004, "graph not found"),
         None if state.cell_graph.mcp_tool_global(&name) => String::new(),
-        None if home.is_some_and(|home| public.is_public_graph(home)) => home.unwrap_or_default().to_string(),
+        None if home.is_some_and(|home| public.is_public_graph(home)) => {
+            home.unwrap_or_default().to_string()
+        }
         None => {
             return mcp_error(
                 id,
                 -32602,
                 format!(
                     "name the graph (graphId): one of {}",
-                    public.graphs().iter().cloned().collect::<Vec<_>>().join(", ")
+                    public
+                        .graphs()
+                        .iter()
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 ),
             )
         }
@@ -534,7 +597,10 @@ async fn public_tool_call(
         if !named.is_empty() {
             match crate::visitor_fence::trashed_documents(&state.app, &graph).await {
                 Ok(trashed) => {
-                    if let Some(document) = named.iter().find(|document| trashed.contains(document.as_str())) {
+                    if let Some(document) = named
+                        .iter()
+                        .find(|document| trashed.contains(document.as_str()))
+                    {
                         return mcp_error(id, -32004, format!("no document {document} in {graph}"));
                     }
                 }
@@ -612,8 +678,15 @@ async fn fenced_tool_call(
     let Some(public) = state.self_host.public() else {
         return mcp_error(id, -32004, "graph not found");
     };
-    let name = params.get("name").and_then(Value::as_str).unwrap_or_default().to_string();
-    let arguments = params.get("arguments").cloned().unwrap_or_else(|| serde_json::json!({}));
+    let name = params
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let arguments = params
+        .get("arguments")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
     let named = ["graphId", "graph_id"]
         .iter()
         .find_map(|key| arguments.get(*key).and_then(Value::as_str))
@@ -622,13 +695,21 @@ async fn fenced_tool_call(
     let graph = match named.or_else(|| home.map(str::to_string)) {
         Some(graph) if public.is_public_graph(&graph) => graph,
         Some(_) => return mcp_error(id, -32004, "graph not found"),
-        None => return mcp_error(id, -32602, "name the graph (graphId) of the visitors' folder"),
+        None => {
+            return mcp_error(
+                id,
+                -32602,
+                "name the graph (graphId) of the visitors' folder",
+            )
+        }
     };
     let fence = match crate::visitor_fence::fence_for(Some(public), visitor, &graph) {
         Ok(fence) => fence,
         Err(why) => return mcp_error(id, -32003, why.message(&graph)),
     };
-    let folders = public.visitor_folders().expect("a fence comes from a visitor folder");
+    let folders = public
+        .visitor_folders()
+        .expect("a fence comes from a visitor folder");
     if let Err(retry) = folders.take_write(&fence.account, &fence.quotas) {
         return mcp_error(id, -32003, format!("slow down: try again in {retry} s"));
     }

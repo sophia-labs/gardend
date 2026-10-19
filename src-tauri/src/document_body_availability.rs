@@ -198,7 +198,13 @@ mod tests {
         rt.block_on(async {
             let registry = crate::crdt_engine::rooms::RoomRegistry::default();
             let error = crate::loopback_hocuspocus_routes::document_exists_for_room_connection(
-                &registry, "fixture-graph", &root, "missing-slot").await.unwrap_err();
+                &registry,
+                "fixture-graph",
+                &root,
+                "missing-slot",
+            )
+            .await
+            .unwrap_err();
             assert!(error.starts_with("source_body_unavailable:"));
             let path = crate::paths::document_ydoc_state_path(&root, "missing-slot");
             assert!(registry
@@ -213,43 +219,71 @@ mod tests {
 
     #[test]
     fn unavailable_body_batch_refuses_before_workspace_mutation() {
-        use yrs::{Doc, Transact, ReadTxn, StateVector};
+        use yrs::{Doc, ReadTxn, StateVector, Transact};
         let root = fixture();
         for missing_first in [false, true] {
             let doc = Doc::new();
-            let before = doc.transact().encode_state_as_update_v1(&StateVector::default());
-            let mut rows = vec![json!({"documentId":"present-empty"}), json!({"documentId":"missing-slot"})];
-            if missing_first { rows.reverse(); }
+            let before = doc
+                .transact()
+                .encode_state_as_update_v1(&StateVector::default());
+            let mut rows = vec![
+                json!({"documentId":"present-empty"}),
+                json!({"documentId":"missing-slot"}),
+            ];
+            if missing_first {
+                rows.reverse();
+            }
             let result = crate::crdt_engine::workspace_ops::batch_register_in_doc(
-                &mut doc.transact_mut(), &root, &json!({"batchId":"batch","documents":rows}), "1789150000000");
+                &mut doc.transact_mut(),
+                &root,
+                &json!({"batchId":"batch","documents":rows}),
+                "1789150000000",
+            );
             assert!(result.unwrap_err().starts_with("source_body_unavailable:"));
-            assert_eq!(before, doc.transact().encode_state_as_update_v1(&StateVector::default()));
+            assert_eq!(
+                before,
+                doc.transact()
+                    .encode_state_as_update_v1(&StateVector::default())
+            );
         }
     }
 
     #[test]
     fn unavailable_body_folder_cascade_refuses_before_any_removal() {
-        use yrs::{Doc, Transact, ReadTxn, StateVector, Map, MapPrelim};
+        use yrs::{Doc, Map, MapPrelim, ReadTxn, StateVector, Transact};
         let root = fixture();
         let doc = Doc::new();
-        let folders=doc.get_or_insert_map("folders");
-        let documents=doc.get_or_insert_map("documents");
-        let _artifacts=doc.get_or_insert_map("artifacts");
+        let folders = doc.get_or_insert_map("folders");
+        let documents = doc.get_or_insert_map("documents");
+        let _artifacts = doc.get_or_insert_map("artifacts");
         {
-            let mut txn=doc.transact_mut();
-            let folder=folders.insert(&mut txn,"folder",MapPrelim::default());
-            folder.insert(&mut txn,"name","Folder");
-            for id in ["present-empty","missing-slot"] {
-                let row=documents.insert(&mut txn,id,MapPrelim::default());
-                row.insert(&mut txn,"parentId","folder");
+            let mut txn = doc.transact_mut();
+            let folder = folders.insert(&mut txn, "folder", MapPrelim::default());
+            folder.insert(&mut txn, "name", "Folder");
+            for id in ["present-empty", "missing-slot"] {
+                let row = documents.insert(&mut txn, id, MapPrelim::default());
+                row.insert(&mut txn, "parentId", "folder");
             }
         }
-        let before=doc.transact().encode_state_as_update_v1(&StateVector::default());
-        let result=crate::crdt_engine::workspace_ops::delete_workspace_folder_in_doc_checked(
-            &mut doc.transact_mut(),"folder",true,Some(&root));
+        let before = doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        let result = crate::crdt_engine::workspace_ops::delete_workspace_folder_in_doc_checked(
+            &mut doc.transact_mut(),
+            "folder",
+            true,
+            Some(&root),
+        );
         assert!(result.unwrap_err().starts_with("source_body_unavailable:"));
-        assert_eq!(before,doc.transact().encode_state_as_update_v1(&StateVector::default()));
-        assert!(!crate::document_tombstone_store::document_is_tombstoned(&root,"missing-slot").unwrap());
+        assert_eq!(
+            before,
+            doc.transact()
+                .encode_state_as_update_v1(&StateVector::default())
+        );
+        assert!(
+            !crate::document_tombstone_store::document_is_tombstoned(&root, "missing-slot")
+                .unwrap()
+        );
     }
 
     #[cfg(feature = "headless")]
@@ -310,10 +344,21 @@ mod tests {
                 false
             );
             assert_eq!(listing[0]["readOnly"], true);
-            assert!(crate::document_delete_service::delete_document_for_operation(
-                app.clone(), "fixture-graph".into(), "missing-slot".into(), Some("refused-delete"))
-                .unwrap_err().starts_with("source_body_unavailable:"));
-            assert!(!crate::document_tombstone_store::document_is_tombstoned(&root, "missing-slot").unwrap());
+            assert!(
+                crate::document_delete_service::delete_document_for_operation(
+                    app.clone(),
+                    "fixture-graph".into(),
+                    "missing-slot".into(),
+                    Some("refused-delete")
+                )
+                .unwrap_err()
+                .starts_with("source_body_unavailable:")
+            );
+            assert!(!crate::document_tombstone_store::document_is_tombstoned(
+                &root,
+                "missing-slot"
+            )
+            .unwrap());
             for cold in [false, true] {
                 let result = if cold {
                     crate::document_service::read_document_cold(

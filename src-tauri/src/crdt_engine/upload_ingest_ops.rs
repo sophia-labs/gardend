@@ -101,8 +101,15 @@ fn pool_detail(text: &str) -> String {
                                     .join(".")
                             })
                             .unwrap_or_default();
-                        let message = error.get("msg").and_then(Value::as_str).unwrap_or("invalid");
-                        if at.is_empty() { message.to_string() } else { format!("{at}: {message}") }
+                        let message = error
+                            .get("msg")
+                            .and_then(Value::as_str)
+                            .unwrap_or("invalid");
+                        if at.is_empty() {
+                            message.to_string()
+                        } else {
+                            format!("{at}: {message}")
+                        }
                     })
                     .collect::<Vec<_>>()
                     .join("; "),
@@ -156,14 +163,17 @@ fn parse_via_pool(
             error => PoolRefusal::Transient(format!("parser pool request failed ({url}): {error}")),
         })?;
     let status = response.status().as_u16();
-    let text = response.body_mut().read_to_string().map_err(|error| match error {
-        ureq::Error::BodyExceedsLimit(limit) => PoolRefusal::Final(format!(
+    let text = response
+        .body_mut()
+        .read_to_string()
+        .map_err(|error| match error {
+            ureq::Error::BodyExceedsLimit(limit) => PoolRefusal::Final(format!(
             "the parser pool's answer for {filename} is larger than the {limit} bytes a cell reads"
         )),
-        error => PoolRefusal::Transient(format!(
-            "parser pool answer could not be read ({url}, HTTP {status}): {error}"
-        )),
-    })?;
+            error => PoolRefusal::Transient(format!(
+                "parser pool answer could not be read ({url}, HTTP {status}): {error}"
+            )),
+        })?;
     match status {
         200..=299 => {}
         408 | 429 => {
@@ -504,7 +514,12 @@ async fn apply_steps_classified(
 #[cfg(test)]
 mod pool_timeout_tests {
     use super::*;
-    use std::{net::TcpListener, sync::mpsc, thread, time::{Duration, Instant}};
+    use std::{
+        net::TcpListener,
+        sync::mpsc,
+        thread,
+        time::{Duration, Instant},
+    };
 
     /// A pool that accepts the connection and never answers: the call gives up at its timeout (transient, so the
     /// queue retries it later) instead of holding the operation forever.
@@ -519,15 +534,30 @@ mod pool_timeout_tests {
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
             let started = Instant::now();
-            let result = parse_via_pool(&endpoint, "a.pdf", "application/pdf", "auto", "", Duration::from_millis(500));
-            let _ = tx.send((result.err().map(|refusal| match refusal {
-                PoolRefusal::Transient(message) => format!("transient: {message}"),
-                PoolRefusal::Final(message) => format!("final: {message}"),
-            }), started.elapsed()));
+            let result = parse_via_pool(
+                &endpoint,
+                "a.pdf",
+                "application/pdf",
+                "auto",
+                "",
+                Duration::from_millis(500),
+            );
+            let _ = tx.send((
+                result.err().map(|refusal| match refusal {
+                    PoolRefusal::Transient(message) => format!("transient: {message}"),
+                    PoolRefusal::Final(message) => format!("final: {message}"),
+                }),
+                started.elapsed(),
+            ));
         });
-        let (refusal, elapsed) = rx.recv_timeout(Duration::from_secs(10)).expect("the call returned (it did not hang)");
+        let (refusal, elapsed) = rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("the call returned (it did not hang)");
         let refusal = refusal.expect("a silent pool is a refusal");
-        assert!(refusal.starts_with("transient: the parser pool did not answer within 0.5 s"), "{refusal}");
+        assert!(
+            refusal.starts_with("transient: the parser pool did not answer within 0.5 s"),
+            "{refusal}"
+        );
         assert!(elapsed < Duration::from_secs(5), "{elapsed:?}");
     }
 }

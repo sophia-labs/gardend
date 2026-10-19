@@ -19,7 +19,10 @@ pub(super) fn mcp_local_list_documents(
     arguments: &serde_json::Value,
 ) -> Result<serde_json::Value, String> {
     let graph_dir = existing_graph_dir(&app, &mcp_graph_id_argument(arguments))?;
-    let mut documents: Vec<_> = read_graph_documents_cold(&graph_dir)?.iter().map(document_summary).collect();
+    let mut documents: Vec<_> = read_graph_documents_cold(&graph_dir)?
+        .iter()
+        .map(document_summary)
+        .collect();
     for row in crate::document_body_availability::unavailable_documents(&graph_dir)? {
         documents.push(serde_json::json!({"documentId":row["documentId"],
             "title":row["metadata"]["title"],"createdAt":row["metadata"]["createdAt"],
@@ -28,10 +31,16 @@ pub(super) fn mcp_local_list_documents(
                 "inventorySha256":row["inventorySha256"]}}));
     }
     documents.sort_by(|left, right| {
-        left["title"].as_str().unwrap_or("")
+        left["title"]
+            .as_str()
+            .unwrap_or("")
             .to_lowercase()
             .cmp(&right["title"].as_str().unwrap_or("").to_lowercase())
-            .then_with(|| left["documentId"].as_str().cmp(&right["documentId"].as_str()))
+            .then_with(|| {
+                left["documentId"]
+                    .as_str()
+                    .cmp(&right["documentId"].as_str())
+            })
     });
     let cursor = decimal_cursor(arguments, "document")?;
     let limit = mcp_arg_usize(arguments, &["limit"], DEFAULT_LIST_LIMIT).clamp(1, MAX_LIST_LIMIT);

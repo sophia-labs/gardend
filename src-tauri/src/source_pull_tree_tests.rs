@@ -237,7 +237,10 @@ fn collaborator_frame(folder_id: &str, folder: &str, document_id: &str, title: &
     txn.encode_state_as_update_v1(&StateVector::default())
 }
 
-fn with_disposable_profile(label: &str, test: impl FnOnce(&std::path::Path) + std::panic::UnwindSafe) {
+fn with_disposable_profile(
+    label: &str,
+    test: impl FnOnce(&std::path::Path) + std::panic::UnwindSafe,
+) {
     let _serial = crate::tauri_runtime::profile_env_serial()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -487,9 +490,8 @@ where
     F: Fn(usize) -> Fut,
     Fut: std::future::Future<Output = crate::app_error::AppResult<Value>>,
 {
-    let jobs = Arc::new(
-        crate::local_jobs::LocalJobRegistry::new(profile.join("jobs")).expect("jobs"),
-    );
+    let jobs =
+        Arc::new(crate::local_jobs::LocalJobRegistry::new(profile.join("jobs")).expect("jobs"));
     let context = crate::mcp_dispatch_registry::McpCallCtx {
         app: app.clone(),
         jobs: &jobs,
@@ -666,10 +668,14 @@ fn record_title(app: &AppHandle, graph_id: &str, document_id: &str) -> String {
 }
 
 /// One call of a tool from gardend's MCP table, as `/mcp` dispatches it.
-async fn mcp_once(app: &AppHandle, profile: &std::path::Path, tool: &'static str, args: Value) -> Value {
-    let jobs = Arc::new(
-        crate::local_jobs::LocalJobRegistry::new(profile.join("jobs")).expect("jobs"),
-    );
+async fn mcp_once(
+    app: &AppHandle,
+    profile: &std::path::Path,
+    tool: &'static str,
+    args: Value,
+) -> Value {
+    let jobs =
+        Arc::new(crate::local_jobs::LocalJobRegistry::new(profile.join("jobs")).expect("jobs"));
     let context = crate::mcp_dispatch_registry::McpCallCtx {
         app: app.clone(),
         jobs: &jobs,
@@ -695,7 +701,10 @@ fn a_push_while_a_collaborators_rename_waits_for_its_flush_keeps_the_rename() {
             )
             .await;
             until_clean(&room, "the create").await;
-            assert_eq!(record_title(&app, graph_id, document_id), "Before the rename");
+            assert_eq!(
+                record_title(&app, graph_id, document_id),
+                "Before the rename"
+            );
 
             // The executor is busy, so the frame's debounced flush waits while
             // the push lands (as in the pull's socket test).
@@ -703,7 +712,10 @@ fn a_push_while_a_collaborators_rename_waits_for_its_flush_keeps_the_rename() {
             let busy = queue.lock_drain().await;
             let frame = rename_frame(&room, document_id, "After the rename").await;
             apply_as_the_socket_does(&app, graph_id, &room, &frame).await;
-            assert!(room.needs_projection_flush(), "premise: the rename's flush is pending");
+            assert!(
+                room.needs_projection_flush(),
+                "premise: the rename's flush is pending"
+            );
             let pushed = tokio::time::timeout(
                 BOUND,
                 crate::source_sync::mcp_local_source_push(
@@ -765,7 +777,10 @@ fn a_rebuild_while_a_collaborators_frame_waits_for_its_flush_reports_no_drift() 
                 .await
                 .expect("bounded")
                 .expect("source_rebuild");
-            assert_eq!(clean["ok"], true, "premise: a rebuild of a clean graph reports no drift: {clean}");
+            assert_eq!(
+                clean["ok"], true,
+                "premise: a rebuild of a clean graph reports no drift: {clean}"
+            );
 
             let queue = app.state::<CrdtOperationQueue>();
             let busy = queue.lock_drain().await;
@@ -776,7 +791,10 @@ fn a_rebuild_while_a_collaborators_frame_waits_for_its_flush_reports_no_drift() 
                 &collaborator_frame("drift-folder", "Drift folder", "drift-note", "Drift note"),
             )
             .await;
-            assert!(room.needs_projection_flush(), "premise: the frame's flush is pending");
+            assert!(
+                room.needs_projection_flush(),
+                "premise: the frame's flush is pending"
+            );
             let rebuilt = tokio::time::timeout(BOUND, rebuild())
                 .await
                 .expect("bounded")

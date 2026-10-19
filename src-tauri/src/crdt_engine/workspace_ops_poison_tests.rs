@@ -72,7 +72,9 @@ async fn create(
     )
     .await
     .unwrap_or_else(|_| {
-        panic!("create_document {arguments} did not answer within {ANSWER_WITHIN:?}: parked for retry")
+        panic!(
+            "create_document {arguments} did not answer within {ANSWER_WITHIN:?}: parked for retry"
+        )
     })
 }
 
@@ -88,7 +90,9 @@ async fn delete(
     )
     .await
     .unwrap_or_else(|_| {
-        panic!("delete_document {arguments} did not answer within {ANSWER_WITHIN:?}: parked for retry")
+        panic!(
+            "delete_document {arguments} did not answer within {ANSWER_WITHIN:?}: parked for retry"
+        )
     })
 }
 
@@ -99,11 +103,17 @@ async fn workspace_rows(app: &crate::app_runtime::AppHandle, graph_id: &str) -> 
     )
     .await
     .unwrap();
-    workspace["documents"].as_array().cloned().unwrap_or_default()
+    workspace["documents"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
 }
 
 fn row_id(row: &Value) -> &str {
-    row["documentId"].as_str().or_else(|| row["id"].as_str()).unwrap_or_default()
+    row["documentId"]
+        .as_str()
+        .or_else(|| row["id"].as_str())
+        .unwrap_or_default()
 }
 
 /// Nothing pending in the journal, nothing in flight, no retry barrier.
@@ -113,11 +123,22 @@ fn assert_queue_free(app: &crate::app_runtime::AppHandle) {
     assert!(
         pending.is_empty(),
         "operations left pending in the journal: {:?}",
-        pending.iter().map(|op| (&op.operation_id, &op.kind)).collect::<Vec<_>>()
+        pending
+            .iter()
+            .map(|op| (&op.operation_id, &op.kind))
+            .collect::<Vec<_>>()
     );
     let queue = app.state::<crate::crdt_queue::CrdtOperationQueue>();
-    assert_eq!(queue.counts_for_test().unwrap(), (0, 0), "pending, in flight");
-    assert_eq!(queue.retry_wait_count_for_test().unwrap(), 0, "retry barriers");
+    assert_eq!(
+        queue.counts_for_test().unwrap(),
+        (0, 0),
+        "pending, in flight"
+    );
+    assert_eq!(
+        queue.retry_wait_count_for_test().unwrap(),
+        0,
+        "retry barriers"
+    );
 }
 
 #[test]
@@ -128,40 +149,69 @@ fn a_title_over_96_characters_is_refused_at_once_and_blocks_nothing() {
         let refused = create(&app, GRAPH, json!({ "title": LONG_TITLE }))
             .await
             .expect_err("a 107-character title is refused");
-        assert!(refused.contains("title must be 96 characters or fewer"), "{refused}");
+        assert!(
+            refused.contains("title must be 96 characters or fewer"),
+            "{refused}"
+        );
         assert_queue_free(&app);
 
         // The same refusal for a document named by the caller, and for an
         // existing document whose create is sent again with a long title.
-        let refused = create(&app, GRAPH, json!({ "documentId": "doc-named", "title": LONG_TITLE }))
-            .await
-            .expect_err("refused with an id too");
+        let refused = create(
+            &app,
+            GRAPH,
+            json!({ "documentId": "doc-named", "title": LONG_TITLE }),
+        )
+        .await
+        .expect_err("refused with an id too");
         assert!(refused.contains("96 characters"), "{refused}");
-        create(&app, GRAPH, json!({ "documentId": "doc-kept", "title": "Kept" }))
-            .await
-            .expect("a short title is created");
-        let refused = create(&app, GRAPH, json!({ "documentId": "doc-kept", "title": LONG_TITLE }))
-            .await
-            .expect_err("an upsert with a long title is refused");
+        create(
+            &app,
+            GRAPH,
+            json!({ "documentId": "doc-kept", "title": "Kept" }),
+        )
+        .await
+        .expect("a short title is created");
+        let refused = create(
+            &app,
+            GRAPH,
+            json!({ "documentId": "doc-kept", "title": LONG_TITLE }),
+        )
+        .await
+        .expect_err("an upsert with a long title is refused");
         assert!(refused.contains("96 characters"), "{refused}");
         assert_queue_free(&app);
 
         // 96 is allowed, and the graph takes writes at once.
         let ninety_six = "x".repeat(96);
-        let created = create(&app, GRAPH, json!({ "documentId": "doc-96", "title": ninety_six }))
-            .await
-            .expect("96 characters is the limit, not past it");
+        let created = create(
+            &app,
+            GRAPH,
+            json!({ "documentId": "doc-96", "title": ninety_six }),
+        )
+        .await
+        .expect("96 characters is the limit, not past it");
         assert_eq!(created["documentId"], "doc-96", "{created}");
         assert_queue_free(&app);
 
         let rows = workspace_rows(&app, GRAPH).await;
         assert!(
-            !rows.iter().any(|row| row["title"] == LONG_TITLE || row_id(row) == "doc-named"),
+            !rows
+                .iter()
+                .any(|row| row["title"] == LONG_TITLE || row_id(row) == "doc-named"),
             "a refused create left a row in the tree: {rows:?}"
         );
-        let kept = rows.iter().find(|row| row_id(row) == "doc-kept").expect("doc-kept listed");
-        assert_eq!(kept["title"], "Kept", "the refused upsert renamed it: {kept}");
-        assert!(rows.iter().any(|row| row_id(row) == "doc-96" && row["title"] == ninety_six));
+        let kept = rows
+            .iter()
+            .find(|row| row_id(row) == "doc-kept")
+            .expect("doc-kept listed");
+        assert_eq!(
+            kept["title"], "Kept",
+            "the refused upsert renamed it: {kept}"
+        );
+        assert!(rows
+            .iter()
+            .any(|row| row_id(row) == "doc-96" && row["title"] == ninety_six));
     });
 }
 
@@ -169,16 +219,30 @@ fn a_title_over_96_characters_is_refused_at_once_and_blocks_nothing() {
 fn a_document_id_that_is_not_a_local_id_is_refused_at_once() {
     const GRAPH: &str = "poison-create-id";
     with_graph(GRAPH, |app| async move {
-        let refused = create(&app, GRAPH, json!({ "documentId": "not a local id", "title": "Fine" }))
-            .await
-            .expect_err("an id with spaces is refused");
-        assert!(refused.contains("document_id contains invalid characters"), "{refused}");
+        let refused = create(
+            &app,
+            GRAPH,
+            json!({ "documentId": "not a local id", "title": "Fine" }),
+        )
+        .await
+        .expect_err("an id with spaces is refused");
+        assert!(
+            refused.contains("document_id contains invalid characters"),
+            "{refused}"
+        );
         assert_queue_free(&app);
-        create(&app, GRAPH, json!({ "documentId": "doc-after", "title": "After" }))
-            .await
-            .expect("the graph takes the next write");
+        create(
+            &app,
+            GRAPH,
+            json!({ "documentId": "doc-after", "title": "After" }),
+        )
+        .await
+        .expect("the graph takes the next write");
         let rows = workspace_rows(&app, GRAPH).await;
-        assert!(!rows.iter().any(|row| row_id(row) == "not a local id"), "{rows:?}");
+        assert!(
+            !rows.iter().any(|row| row_id(row) == "not a local id"),
+            "{rows:?}"
+        );
     });
 }
 
@@ -186,20 +250,38 @@ fn a_document_id_that_is_not_a_local_id_is_refused_at_once() {
 fn creating_over_a_deleted_document_is_refused_at_once() {
     const GRAPH: &str = "poison-tombstone";
     with_graph(GRAPH, |app| async move {
-        create(&app, GRAPH, json!({ "documentId": "doc-gone", "title": "Gone" }))
-            .await
-            .expect("created");
+        create(
+            &app,
+            GRAPH,
+            json!({ "documentId": "doc-gone", "title": "Gone" }),
+        )
+        .await
+        .expect("created");
         delete(&app, GRAPH, "doc-gone").await.expect("deleted");
-        let refused = create(&app, GRAPH, json!({ "documentId": "doc-gone", "title": "Back" }))
-            .await
-            .expect_err("a deleted id is not created again");
-        assert!(refused.contains("document tombstoned: doc-gone"), "{refused}");
+        let refused = create(
+            &app,
+            GRAPH,
+            json!({ "documentId": "doc-gone", "title": "Back" }),
+        )
+        .await
+        .expect_err("a deleted id is not created again");
+        assert!(
+            refused.contains("document tombstoned: doc-gone"),
+            "{refused}"
+        );
         assert_queue_free(&app);
-        create(&app, GRAPH, json!({ "documentId": "doc-other", "title": "Other" }))
-            .await
-            .expect("the graph takes the next write");
+        create(
+            &app,
+            GRAPH,
+            json!({ "documentId": "doc-other", "title": "Other" }),
+        )
+        .await
+        .expect("the graph takes the next write");
         let rows = workspace_rows(&app, GRAPH).await;
-        assert!(!rows.iter().any(|row| row_id(row) == "doc-gone"), "{rows:?}");
+        assert!(
+            !rows.iter().any(|row| row_id(row) == "doc-gone"),
+            "{rows:?}"
+        );
     });
 }
 
@@ -210,11 +292,18 @@ fn deleting_an_id_that_is_not_a_local_id_is_refused_at_once() {
         let refused = delete(&app, GRAPH, "not a local id")
             .await
             .expect_err("an id with spaces is refused");
-        assert!(refused.contains("document_id contains invalid characters"), "{refused}");
+        assert!(
+            refused.contains("document_id contains invalid characters"),
+            "{refused}"
+        );
         assert_queue_free(&app);
-        create(&app, GRAPH, json!({ "documentId": "doc-after", "title": "After" }))
-            .await
-            .expect("the graph takes the next write");
+        create(
+            &app,
+            GRAPH,
+            json!({ "documentId": "doc-after", "title": "After" }),
+        )
+        .await
+        .expect("the graph takes the next write");
     });
 }
 
@@ -248,7 +337,10 @@ fn a_create_whose_body_cannot_be_written_for_a_while_is_retried_until_it_lands()
         tokio::time::timeout(ANSWER_WITHIN, parked)
             .await
             .expect("the failed tail is kept for retry");
-        assert!(!caller.is_finished(), "the caller still waits for its document");
+        assert!(
+            !caller.is_finished(),
+            "the caller still waits for its document"
+        );
         assert_eq!(
             crate::crdt_operation_journal::recover_pending_crdt_operations(&app)
                 .unwrap()
@@ -300,7 +392,9 @@ async fn enqueue(
         ),
     )
     .await
-    .unwrap_or_else(|_| panic!("{described} did not answer within {ANSWER_WITHIN:?}: parked for retry"))
+    .unwrap_or_else(|_| {
+        panic!("{described} did not answer within {ANSWER_WITHIN:?}: parked for retry")
+    })
 }
 
 fn ingest_payload(document_id: &str) -> Value {
@@ -333,7 +427,9 @@ async fn client_writes_workspace_row(
         entry.insert(
             &mut txn,
             "parentId",
-            parent_id.map(|parent| Any::String(parent.into())).unwrap_or(Any::Null),
+            parent_id
+                .map(|parent| Any::String(parent.into()))
+                .unwrap_or(Any::Null),
         );
         entry.insert(&mut txn, "section", "documents");
         entry.insert(&mut txn, "order", 7.0);
@@ -348,16 +444,23 @@ async fn client_writes_workspace_row(
     let room = super::workspace_ops::workspace_room(app, graph_id, &graph_dir)
         .await
         .unwrap();
-    assert!(room.apply_client_update(&update).await.unwrap(), "the row was applied");
+    assert!(
+        room.apply_client_update(&update).await.unwrap(),
+        "the row was applied"
+    );
 }
 
 #[test]
 fn an_ingest_over_a_deleted_document_is_refused_at_once() {
     const GRAPH: &str = "poison-ingest-tombstone";
     with_graph(GRAPH, |app| async move {
-        create(&app, GRAPH, json!({ "documentId": "doc-gone", "title": "Gone" }))
-            .await
-            .expect("created");
+        create(
+            &app,
+            GRAPH,
+            json!({ "documentId": "doc-gone", "title": "Gone" }),
+        )
+        .await
+        .expect("created");
         delete(&app, GRAPH, "doc-gone").await.expect("deleted");
         let refused = enqueue(
             &app,
@@ -368,13 +471,23 @@ fn an_ingest_over_a_deleted_document_is_refused_at_once() {
         )
         .await
         .expect_err("a deleted id is not ingested over");
-        assert!(refused.contains("document tombstoned: doc-gone"), "{refused}");
+        assert!(
+            refused.contains("document tombstoned: doc-gone"),
+            "{refused}"
+        );
         assert_queue_free(&app);
-        create(&app, GRAPH, json!({ "documentId": "doc-after", "title": "After" }))
-            .await
-            .expect("the graph takes the next write");
+        create(
+            &app,
+            GRAPH,
+            json!({ "documentId": "doc-after", "title": "After" }),
+        )
+        .await
+        .expect("the graph takes the next write");
         let rows = workspace_rows(&app, GRAPH).await;
-        assert!(!rows.iter().any(|row| row_id(row) == "doc-gone"), "{rows:?}");
+        assert!(
+            !rows.iter().any(|row| row_id(row) == "doc-gone"),
+            "{rows:?}"
+        );
     });
 }
 
@@ -391,11 +504,18 @@ fn an_ingest_whose_document_id_is_not_a_local_id_is_refused_at_once() {
         )
         .await
         .expect_err("an id with spaces is refused");
-        assert!(refused.contains("document_id contains invalid characters"), "{refused}");
+        assert!(
+            refused.contains("document_id contains invalid characters"),
+            "{refused}"
+        );
         assert_queue_free(&app);
-        create(&app, GRAPH, json!({ "documentId": "doc-after", "title": "After" }))
-            .await
-            .expect("the graph takes the next write");
+        create(
+            &app,
+            GRAPH,
+            json!({ "documentId": "doc-after", "title": "After" }),
+        )
+        .await
+        .expect("the graph takes the next write");
     });
 }
 
@@ -432,7 +552,10 @@ fn an_ingest_whose_body_cannot_be_written_for_a_while_is_retried_until_it_lands(
         tokio::time::timeout(ANSWER_WITHIN, parked)
             .await
             .expect("the failed create is kept for retry");
-        assert!(!caller.is_finished(), "the caller still waits for its document");
+        assert!(
+            !caller.is_finished(),
+            "the caller still waits for its document"
+        );
 
         std::fs::remove_file(&blocker).unwrap();
         let ingested = tokio::time::timeout(ANSWER_WITHIN, caller)
@@ -443,7 +566,10 @@ fn an_ingest_whose_body_cannot_be_written_for_a_while_is_retried_until_it_lands(
         assert_eq!(ingested["documentId"], "doc-ingest-tail", "{ingested}");
         assert_queue_free(&app);
         let rows = workspace_rows(&app, GRAPH).await;
-        assert!(rows.iter().any(|row| row_id(row) == "doc-ingest-tail"), "{rows:?}");
+        assert!(
+            rows.iter().any(|row| row_id(row) == "doc-ingest-tail"),
+            "{rows:?}"
+        );
     });
 }
 
@@ -451,14 +577,22 @@ fn an_ingest_whose_body_cannot_be_written_for_a_while_is_retried_until_it_lands(
 fn a_workspace_row_whose_id_is_not_a_local_id_blocks_no_other_write() {
     const GRAPH: &str = "poison-stray-row";
     with_graph(GRAPH, |app| async move {
-        create(&app, GRAPH, json!({ "documentId": "doc-before", "title": "Before" }))
-            .await
-            .expect("created");
+        create(
+            &app,
+            GRAPH,
+            json!({ "documentId": "doc-before", "title": "Before" }),
+        )
+        .await
+        .expect("created");
         client_writes_workspace_row(&app, GRAPH, "stray row", None).await;
 
-        create(&app, GRAPH, json!({ "documentId": "doc-after", "title": "After" }))
-            .await
-            .expect("a create beside the stray row lands");
+        create(
+            &app,
+            GRAPH,
+            json!({ "documentId": "doc-after", "title": "After" }),
+        )
+        .await
+        .expect("a create beside the stray row lands");
         enqueue(
             &app,
             "workspace.updateDocument",
@@ -470,13 +604,23 @@ fn a_workspace_row_whose_id_is_not_a_local_id_blocks_no_other_write() {
         .expect("a rename beside the stray row lands");
         assert_queue_free(&app);
         let rows = workspace_rows(&app, GRAPH).await;
-        assert!(rows.iter().any(|row| row_id(row) == "doc-after"), "{rows:?}");
-        let renamed = rows.iter().find(|row| row_id(row) == "doc-before").expect("listed");
+        assert!(
+            rows.iter().any(|row| row_id(row) == "doc-after"),
+            "{rows:?}"
+        );
+        let renamed = rows
+            .iter()
+            .find(|row| row_id(row) == "doc-before")
+            .expect("listed");
         assert_eq!(renamed["title"], "Before, renamed", "{renamed}");
     });
 }
 
-async fn delete_folder_hard(app: &crate::app_runtime::AppHandle, graph_id: &str, folder_id: &str) -> Result<Value, String> {
+async fn delete_folder_hard(
+    app: &crate::app_runtime::AppHandle,
+    graph_id: &str,
+    folder_id: &str,
+) -> Result<Value, String> {
     tokio::time::timeout(
         ANSWER_WITHIN,
         crate::mcp_delete_service::mcp_local_delete(
@@ -494,25 +638,49 @@ async fn delete_folder_hard(app: &crate::app_runtime::AppHandle, graph_id: &str,
 fn deleting_a_row_whose_id_is_not_a_local_id_removes_just_that_row() {
     const GRAPH: &str = "poison-stray-delete";
     with_graph(GRAPH, |app| async move {
-        create(&app, GRAPH, json!({ "documentId": "doc-kept", "title": "Kept" }))
-            .await
-            .expect("created");
+        create(
+            &app,
+            GRAPH,
+            json!({ "documentId": "doc-kept", "title": "Kept" }),
+        )
+        .await
+        .expect("created");
         client_writes_workspace_row(&app, GRAPH, "stray row", None).await;
-        assert!(workspace_rows(&app, GRAPH).await.iter().any(|row| row_id(row) == "stray row"));
+        assert!(workspace_rows(&app, GRAPH)
+            .await
+            .iter()
+            .any(|row| row_id(row) == "stray row"));
 
-        let removed = delete(&app, GRAPH, "stray row").await.expect("the stray row is removed");
+        let removed = delete(&app, GRAPH, "stray row")
+            .await
+            .expect("the stray row is removed");
         assert_eq!(removed["deleted"], true, "{removed}");
-        assert_eq!(removed["removedStrayRowIds"], json!(["stray row"]), "{removed}");
+        assert_eq!(
+            removed["removedStrayRowIds"],
+            json!(["stray row"]),
+            "{removed}"
+        );
         assert_queue_free(&app);
         let rows = workspace_rows(&app, GRAPH).await;
-        assert!(!rows.iter().any(|row| row_id(row) == "stray row"), "{rows:?}");
+        assert!(
+            !rows.iter().any(|row| row_id(row) == "stray row"),
+            "{rows:?}"
+        );
         assert!(rows.iter().any(|row| row_id(row) == "doc-kept"), "{rows:?}");
         let graph_dir = crate::graph_paths::existing_graph_dir(&app, GRAPH).unwrap();
-        assert!(!crate::document_tombstone_store::document_is_tombstoned(&graph_dir, "doc-kept").unwrap());
+        assert!(
+            !crate::document_tombstone_store::document_is_tombstoned(&graph_dir, "doc-kept")
+                .unwrap()
+        );
 
         // Once it is gone, the same id names nothing and is refused, at once.
-        let refused = delete(&app, GRAPH, "stray row").await.expect_err("nothing left to remove");
-        assert!(refused.contains("document_id contains invalid characters"), "{refused}");
+        let refused = delete(&app, GRAPH, "stray row")
+            .await
+            .expect_err("nothing left to remove");
+        assert!(
+            refused.contains("document_id contains invalid characters"),
+            "{refused}"
+        );
         assert_queue_free(&app);
 
         // The `delete` tool takes the same path.
@@ -527,11 +695,22 @@ fn deleting_a_row_whose_id_is_not_a_local_id_removes_just_that_row() {
         .await
         .expect("answered")
         .expect("the delete tool removes a stray row");
-        assert_eq!(deleted["deleted"][0]["value"]["removedStrayRowIds"], json!(["stray two"]), "{deleted}");
-        assert!(!workspace_rows(&app, GRAPH).await.iter().any(|row| row_id(row) == "stray two"));
-        create(&app, GRAPH, json!({ "documentId": "doc-after", "title": "After" }))
+        assert_eq!(
+            deleted["deleted"][0]["value"]["removedStrayRowIds"],
+            json!(["stray two"]),
+            "{deleted}"
+        );
+        assert!(!workspace_rows(&app, GRAPH)
             .await
-            .expect("the graph takes the next write");
+            .iter()
+            .any(|row| row_id(row) == "stray two"));
+        create(
+            &app,
+            GRAPH,
+            json!({ "documentId": "doc-after", "title": "After" }),
+        )
+        .await
+        .expect("the graph takes the next write");
         assert_queue_free(&app);
     });
 }
@@ -561,9 +740,13 @@ fn a_hard_folder_delete_removes_rows_whose_id_is_not_a_local_id_with_the_folder(
         )
         .await
         .expect("a document in the folder");
-        create(&app, GRAPH, json!({ "documentId": "doc-outside", "title": "Outside" }))
-            .await
-            .expect("a document outside the folder");
+        create(
+            &app,
+            GRAPH,
+            json!({ "documentId": "doc-outside", "title": "Outside" }),
+        )
+        .await
+        .expect("a document outside the folder");
         client_writes_workspace_row(&app, GRAPH, "stray row", Some("folder-held")).await;
         client_writes_workspace_row(&app, GRAPH, "stray inner", Some("folder-inner")).await;
         client_writes_workspace_row(&app, GRAPH, "stray outside", None).await;
@@ -571,28 +754,53 @@ fn a_hard_folder_delete_removes_rows_whose_id_is_not_a_local_id_with_the_folder(
         let deleted = delete_folder_hard(&app, GRAPH, "folder-held")
             .await
             .expect("the folder goes, stray rows and all");
-        assert_eq!(deleted["value"]["deletedDocumentIds"], json!(["doc-sibling"]), "{deleted}");
+        assert_eq!(
+            deleted["value"]["deletedDocumentIds"],
+            json!(["doc-sibling"]),
+            "{deleted}"
+        );
         assert_eq!(
             deleted["value"]["removedStrayRowIds"],
             json!(["stray inner", "stray row"]),
             "{deleted}"
         );
-        assert_eq!(deleted["value"]["deletedFolderIds"], json!(["folder-inner"]), "{deleted}");
+        assert_eq!(
+            deleted["value"]["deletedFolderIds"],
+            json!(["folder-inner"]),
+            "{deleted}"
+        );
         assert_queue_free(&app);
 
         let rows = workspace_rows(&app, GRAPH).await;
         for gone in ["doc-sibling", "stray row", "stray inner"] {
-            assert!(!rows.iter().any(|row| row_id(row) == gone), "{gone} still listed: {rows:?}");
+            assert!(
+                !rows.iter().any(|row| row_id(row) == gone),
+                "{gone} still listed: {rows:?}"
+            );
         }
         for kept in ["doc-outside", "stray outside"] {
-            assert!(rows.iter().any(|row| row_id(row) == kept), "{kept} not listed: {rows:?}");
+            assert!(
+                rows.iter().any(|row| row_id(row) == kept),
+                "{kept} not listed: {rows:?}"
+            );
         }
         let graph_dir = crate::graph_paths::existing_graph_dir(&app, GRAPH).unwrap();
-        assert!(crate::document_tombstone_store::document_is_tombstoned(&graph_dir, "doc-sibling").unwrap());
-        assert!(!crate::document_tombstone_store::document_is_tombstoned(&graph_dir, "doc-outside").unwrap());
-        create(&app, GRAPH, json!({ "documentId": "doc-after", "title": "After" }))
-            .await
-            .expect("the graph takes the next write");
+        assert!(
+            crate::document_tombstone_store::document_is_tombstoned(&graph_dir, "doc-sibling")
+                .unwrap()
+        );
+        assert!(!crate::document_tombstone_store::document_is_tombstoned(
+            &graph_dir,
+            "doc-outside"
+        )
+        .unwrap());
+        create(
+            &app,
+            GRAPH,
+            json!({ "documentId": "doc-after", "title": "After" }),
+        )
+        .await
+        .expect("the graph takes the next write");
         assert_queue_free(&app);
     });
 }
@@ -618,9 +826,13 @@ fn an_upload_ingest_whose_staged_file_is_not_there_is_refused_at_once() {
         .expect_err("a staged file that is not there is refused");
         assert!(refused.contains("pending upload"), "{refused}");
         assert_queue_free(&app);
-        create(&app, GRAPH, json!({ "documentId": "doc-after", "title": "After" }))
-            .await
-            .expect("the graph takes the next write");
+        create(
+            &app,
+            GRAPH,
+            json!({ "documentId": "doc-after", "title": "After" }),
+        )
+        .await
+        .expect("the graph takes the next write");
     });
 }
 
@@ -637,11 +849,18 @@ fn a_write_whose_document_id_is_not_a_local_id_is_refused_at_once() {
         )
         .await
         .expect_err("an id with spaces is refused");
-        assert!(refused.contains("document_id contains invalid characters"), "{refused}");
+        assert!(
+            refused.contains("document_id contains invalid characters"),
+            "{refused}"
+        );
         assert_queue_free(&app);
-        create(&app, GRAPH, json!({ "documentId": "doc-after", "title": "After" }))
-            .await
-            .expect("the graph takes the next write");
+        create(
+            &app,
+            GRAPH,
+            json!({ "documentId": "doc-after", "title": "After" }),
+        )
+        .await
+        .expect("the graph takes the next write");
     });
 }
 
@@ -714,7 +933,9 @@ impl RecordedPool {
                 let mut request = Vec::new();
                 let mut buffer = [0u8; 8192];
                 let header_end = loop {
-                    let Ok(read) = stream.read(&mut buffer) else { break None };
+                    let Ok(read) = stream.read(&mut buffer) else {
+                        break None;
+                    };
                     if read == 0 {
                         break None;
                     }
@@ -723,7 +944,9 @@ impl RecordedPool {
                         break Some(end + 4);
                     }
                 };
-                let Some(header_end) = header_end else { continue };
+                let Some(header_end) = header_end else {
+                    continue;
+                };
                 let headers = String::from_utf8_lossy(&request[..header_end]).to_ascii_lowercase();
                 let length = headers
                     .lines()
@@ -753,7 +976,13 @@ impl RecordedPool {
                 let _ = stream.flush();
             }
         });
-        Self { url: format!("http://{address}"), answer, requests, stop, address }
+        Self {
+            url: format!("http://{address}"),
+            answer,
+            requests,
+            stop,
+            address,
+        }
     }
 
     pub(crate) fn answer(&self, answer: (u16, &'static str, &'static str)) {
@@ -814,9 +1043,24 @@ fn an_upload_the_parser_pool_refuses_is_refused_at_once_and_blocks_nothing() {
         let pool = RecordedPool::answering(pool_answers::NOT_FOUND);
         let _env = ParserPoolEnv::set(&pool.url);
         let cases = [
-            ("doc-pool-404", pool_answers::NOT_FOUND, "HTTP 404", "Not Found"),
-            ("doc-pool-422", pool_answers::UNPROCESSABLE, "HTTP 422", "Field required"),
-            ("doc-pool-empty", pool_answers::NO_MARKDOWN, "all parse approaches failed", "Failed to open stream"),
+            (
+                "doc-pool-404",
+                pool_answers::NOT_FOUND,
+                "HTTP 404",
+                "Not Found",
+            ),
+            (
+                "doc-pool-422",
+                pool_answers::UNPROCESSABLE,
+                "HTTP 422",
+                "Field required",
+            ),
+            (
+                "doc-pool-empty",
+                pool_answers::NO_MARKDOWN,
+                "all parse approaches failed",
+                "Failed to open stream",
+            ),
         ];
         for (document_id, answer, first, second) in cases {
             pool.answer(answer);
@@ -831,15 +1075,25 @@ fn an_upload_the_parser_pool_refuses_is_refused_at_once_and_blocks_nothing() {
             .await
             .expect_err("a file the pool will never parse is refused");
             assert!(refused.contains("specimen.pdf"), "{refused}");
-            assert!(refused.contains(first) && refused.contains(second), "{refused}");
+            assert!(
+                refused.contains(first) && refused.contains(second),
+                "{refused}"
+            );
             assert_eq!(pool.requests(), before + 1, "asked once, not retried");
             assert_queue_free(&app);
         }
         let rows = workspace_rows(&app, GRAPH).await;
-        assert!(!rows.iter().any(|row| row_id(row).starts_with("doc-pool-")), "{rows:?}");
-        create(&app, GRAPH, json!({ "documentId": "doc-after", "title": "After" }))
-            .await
-            .expect("the graph takes the next write");
+        assert!(
+            !rows.iter().any(|row| row_id(row).starts_with("doc-pool-")),
+            "{rows:?}"
+        );
+        create(
+            &app,
+            GRAPH,
+            json!({ "documentId": "doc-after", "title": "After" }),
+        )
+        .await
+        .expect("the graph takes the next write");
     });
 }
 
@@ -891,7 +1145,10 @@ fn an_upload_whose_parser_pool_fails_for_a_while_is_retried_until_it_lands() {
         tokio::time::timeout(ANSWER_WITHIN, asked_twice)
             .await
             .expect("a 500 is asked again");
-        assert!(!caller.is_finished(), "the caller still waits through the pool's 500s");
+        assert!(
+            !caller.is_finished(),
+            "the caller still waits through the pool's 500s"
+        );
         assert_eq!(
             crate::crdt_operation_journal::recover_pending_crdt_operations(&app)
                 .unwrap()
@@ -909,7 +1166,10 @@ fn an_upload_whose_parser_pool_fails_for_a_while_is_retried_until_it_lands() {
         assert_eq!(ingested["documentId"], "doc-pool-tail", "{ingested}");
         assert_queue_free(&app);
         let rows = workspace_rows(&app, GRAPH).await;
-        assert!(rows.iter().any(|row| row_id(row) == "doc-pool-tail"), "{rows:?}");
+        assert!(
+            rows.iter().any(|row| row_id(row) == "doc-pool-tail"),
+            "{rows:?}"
+        );
     });
 }
 
@@ -933,9 +1193,13 @@ fn an_upload_whose_base64_does_not_decode_is_refused_before_the_parser_pool() {
         assert!(refused.contains("invalid base64"), "{refused}");
         assert_eq!(pool.requests(), 0, "never sent to the pool");
         assert_queue_free(&app);
-        create(&app, GRAPH, json!({ "documentId": "doc-after", "title": "After" }))
-            .await
-            .expect("the graph takes the next write");
+        create(
+            &app,
+            GRAPH,
+            json!({ "documentId": "doc-after", "title": "After" }),
+        )
+        .await
+        .expect("the graph takes the next write");
     });
 }
 
@@ -971,7 +1235,10 @@ async fn client_writes_workspace_entry(
     let room = super::workspace_ops::workspace_room(app, graph_id, &graph_dir)
         .await
         .unwrap();
-    assert!(room.apply_client_update(&update).await.unwrap(), "the entry was applied");
+    assert!(
+        room.apply_client_update(&update).await.unwrap(),
+        "the entry was applied"
+    );
 }
 
 fn projected_subjects(app: &crate::app_runtime::AppHandle, graph_id: &str) -> Vec<String> {
@@ -994,46 +1261,78 @@ fn folder_artifact_and_wire_keys_that_make_no_iri_block_no_other_write() {
     const GRAPH: &str = "poison-stray-keys";
     use yrs::Any;
     with_graph(GRAPH, |app| async move {
-        create(&app, GRAPH, json!({ "documentId": "doc-before", "title": "Before" }))
-            .await
-            .expect("created");
-        client_writes_workspace_entry(&app, GRAPH, "folders", "stray folder", vec![
-            ("name", Any::from("Stray folder")),
-            ("parentId", Any::Null),
-            ("order", Any::Number(1.0)),
-        ])
+        create(
+            &app,
+            GRAPH,
+            json!({ "documentId": "doc-before", "title": "Before" }),
+        )
+        .await
+        .expect("created");
+        client_writes_workspace_entry(
+            &app,
+            GRAPH,
+            "folders",
+            "stray folder",
+            vec![
+                ("name", Any::from("Stray folder")),
+                ("parentId", Any::Null),
+                ("order", Any::Number(1.0)),
+            ],
+        )
         .await;
-        client_writes_workspace_entry(&app, GRAPH, "artifacts", "stray artifact", vec![
-            ("name", Any::from("Stray artifact")),
-            ("parentId", Any::Null),
-            ("order", Any::Number(2.0)),
-            ("fileType", Any::from("pdf")),
-            ("status", Any::from("ready")),
-            ("mimeType", Any::from("application/pdf")),
-        ])
+        client_writes_workspace_entry(
+            &app,
+            GRAPH,
+            "artifacts",
+            "stray artifact",
+            vec![
+                ("name", Any::from("Stray artifact")),
+                ("parentId", Any::Null),
+                ("order", Any::Number(2.0)),
+                ("fileType", Any::from("pdf")),
+                ("status", Any::from("ready")),
+                ("mimeType", Any::from("application/pdf")),
+            ],
+        )
         .await;
-        client_writes_workspace_entry(&app, GRAPH, "wires", "stray wire", vec![
-            ("sourceDocumentId", Any::from("doc-before")),
-            ("targetDocumentId", Any::from("doc-before")),
-            ("targetGraphId", Any::from(GRAPH)),
-            ("predicate", Any::from("isWiredTo")),
-        ])
+        client_writes_workspace_entry(
+            &app,
+            GRAPH,
+            "wires",
+            "stray wire",
+            vec![
+                ("sourceDocumentId", Any::from("doc-before")),
+                ("targetDocumentId", Any::from("doc-before")),
+                ("targetGraphId", Any::from(GRAPH)),
+                ("predicate", Any::from("isWiredTo")),
+            ],
+        )
         .await;
         // A row with a good id inside the stray folder: its parent makes no IRI.
-        client_writes_workspace_entry(&app, GRAPH, "documents", "doc-in-stray", vec![
-            ("title", Any::from("In the stray folder")),
-            ("parentId", Any::from("stray folder")),
-            ("section", Any::from("documents")),
-            ("order", Any::Number(3.0)),
-            ("createdAt", Any::Number(1.0)),
-            ("updatedAt", Any::Number(1.0)),
-            ("readOnly", Any::Bool(false)),
-        ])
+        client_writes_workspace_entry(
+            &app,
+            GRAPH,
+            "documents",
+            "doc-in-stray",
+            vec![
+                ("title", Any::from("In the stray folder")),
+                ("parentId", Any::from("stray folder")),
+                ("section", Any::from("documents")),
+                ("order", Any::Number(3.0)),
+                ("createdAt", Any::Number(1.0)),
+                ("updatedAt", Any::Number(1.0)),
+                ("readOnly", Any::Bool(false)),
+            ],
+        )
         .await;
 
-        create(&app, GRAPH, json!({ "documentId": "doc-after", "title": "After" }))
-            .await
-            .expect("a create beside the stray keys lands");
+        create(
+            &app,
+            GRAPH,
+            json!({ "documentId": "doc-after", "title": "After" }),
+        )
+        .await
+        .expect("a create beside the stray keys lands");
         enqueue(
             &app,
             "workspace.updateDocument",
@@ -1047,16 +1346,26 @@ fn folder_artifact_and_wire_keys_that_make_no_iri_block_no_other_write() {
 
         let subjects = projected_subjects(&app, GRAPH);
         assert!(
-            subjects.iter().any(|subject| subject.ends_with(":document:doc-after>")),
+            subjects
+                .iter()
+                .any(|subject| subject.ends_with(":document:doc-after>")),
             "{subjects:?}"
         );
         assert!(
-            subjects.iter().any(|subject| subject.ends_with(":document:doc-in-stray>")),
+            subjects
+                .iter()
+                .any(|subject| subject.ends_with(":document:doc-in-stray>")),
             "the row in the stray folder is projected, without its parent: {subjects:?}"
         );
-        assert!(!subjects.iter().any(|subject| subject.contains("stray ")), "{subjects:?}");
+        assert!(
+            !subjects.iter().any(|subject| subject.contains("stray ")),
+            "{subjects:?}"
+        );
         let rows = workspace_rows(&app, GRAPH).await;
-        let renamed = rows.iter().find(|row| row_id(row) == "doc-before").expect("listed");
+        let renamed = rows
+            .iter()
+            .find(|row| row_id(row) == "doc-before")
+            .expect("listed");
         assert_eq!(renamed["title"], "Before, renamed", "{renamed}");
     });
 }
@@ -1065,29 +1374,64 @@ fn folder_artifact_and_wire_keys_that_make_no_iri_block_no_other_write() {
 fn creating_a_folder_artifact_or_wire_that_makes_no_iri_is_refused_at_once() {
     const GRAPH: &str = "poison-create-keys";
     with_graph(GRAPH, |app| async move {
-        create(&app, GRAPH, json!({ "documentId": "doc-source", "title": "Source" }))
-            .await
-            .expect("created");
+        create(
+            &app,
+            GRAPH,
+            json!({ "documentId": "doc-source", "title": "Source" }),
+        )
+        .await
+        .expect("created");
         let refusals = [
-            ("workspace.createFolder", None, json!({ "folderId": "stray folder", "name": "Stray" }), "stray folder"),
-            ("workspace.createFolder", None, json!({ "folderId": "folder-ok", "name": "Ok", "parentId": "stray folder" }), "stray folder"),
-            ("workspace.putArtifact", Some("stray artifact"), json!({ "label": "Stray", "mimeType": "application/pdf" }), "stray artifact"),
-            ("workspace.createWire", Some("doc-source"), json!({ "wireId": "stray wire", "targetDocumentId": "doc-source" }), "stray wire"),
-            ("workspace.createWire", Some("doc-source"), json!({ "targetDocumentId": "doc-source", "predicate": "has part" }), "has part"),
+            (
+                "workspace.createFolder",
+                None,
+                json!({ "folderId": "stray folder", "name": "Stray" }),
+                "stray folder",
+            ),
+            (
+                "workspace.createFolder",
+                None,
+                json!({ "folderId": "folder-ok", "name": "Ok", "parentId": "stray folder" }),
+                "stray folder",
+            ),
+            (
+                "workspace.putArtifact",
+                Some("stray artifact"),
+                json!({ "label": "Stray", "mimeType": "application/pdf" }),
+                "stray artifact",
+            ),
+            (
+                "workspace.createWire",
+                Some("doc-source"),
+                json!({ "wireId": "stray wire", "targetDocumentId": "doc-source" }),
+                "stray wire",
+            ),
+            (
+                "workspace.createWire",
+                Some("doc-source"),
+                json!({ "targetDocumentId": "doc-source", "predicate": "has part" }),
+                "has part",
+            ),
         ];
         for (kind, document_id, payload, named) in refusals {
             let refused = enqueue(&app, kind, GRAPH, document_id, payload.clone())
                 .await
                 .expect_err(&format!("{kind} {payload} is refused"));
-            assert!(refused.contains("not an IRI") && refused.contains(named), "{kind}: {refused}");
+            assert!(
+                refused.contains("not an IRI") && refused.contains(named),
+                "{kind}: {refused}"
+            );
             assert_queue_free(&app);
         }
         let graph_dir = crate::graph_paths::existing_graph_dir(&app, GRAPH).unwrap();
         let snapshot: Value =
-            crate::storage::read_json(&crate::ydoc_paths::workspace_snapshot_path(&graph_dir)).unwrap();
+            crate::storage::read_json(&crate::ydoc_paths::workspace_snapshot_path(&graph_dir))
+                .unwrap();
         for map in ["folders", "artifacts", "wires"] {
             assert!(
-                snapshot[map].as_array().map_or(true, |entries| entries.is_empty()),
+                snapshot[map]
+                    .as_array()
+                    .map_or(true, |entries| entries.is_empty()),
                 "nothing was written to {map}: {}",
                 snapshot[map]
             );
@@ -1138,11 +1482,20 @@ fn ids_that_make_no_iri_are_left_out_of_the_workspace_projection() {
     let has = |needle: &str| lines.iter().any(|line| line.contains(needle));
     assert!(has(":folder:folder-a>"));
     assert!(!has("folder>b"), "{lines:#?}");
-    assert!(has(":document:doc-a>"), "the document stays, without its parent");
+    assert!(
+        has(":document:doc-a>"),
+        "the document stays, without its parent"
+    );
     assert!(!has("artifact a"));
-    assert!(has(":artifact:artifact-b>"), "the artifact stays, without its link");
+    assert!(
+        has(":artifact:artifact-b>"),
+        "the artifact stays, without its link"
+    );
     assert!(!has("doc b"));
-    assert!(has(":wire:wire-a>"), "the wire stays, without its predicate");
+    assert!(
+        has(":wire:wire-a>"),
+        "the wire stays, without its predicate"
+    );
     assert!(!has("has part"));
     assert!(!has("wire b"));
     // Every line now converts without panicking.

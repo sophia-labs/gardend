@@ -20,7 +20,6 @@ pub(crate) use content_parse::block_contract;
 #[cfg(test)]
 mod block_contract_tests;
 pub(crate) mod create_once;
-pub(crate) mod markdown_export;
 #[doc(hidden)]
 pub mod document_ops;
 pub(crate) mod executor;
@@ -29,6 +28,7 @@ pub(crate) mod flush_ops;
 #[doc(hidden)]
 pub mod import_archive_ops;
 pub(crate) mod import_vault_ops;
+pub(crate) mod markdown_export;
 pub(crate) mod persistence_coordinator;
 pub mod projection;
 pub mod rooms;

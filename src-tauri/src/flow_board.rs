@@ -67,8 +67,7 @@ pub(crate) const FLOW_BOARD_KIND: &str = "flow-board";
 /// counts by the file's own JSON spelling). Each row is
 /// `(json_key, ddl_table, kebab_class, pascal_class)` — see
 /// [`columns::TABLE_ORDER`].
-pub(crate) fn table_order() -> &'static [(&'static str, &'static str, &'static str, &'static str)]
-{
+pub(crate) fn table_order() -> &'static [(&'static str, &'static str, &'static str, &'static str)] {
     &columns::TABLE_ORDER
 }
 

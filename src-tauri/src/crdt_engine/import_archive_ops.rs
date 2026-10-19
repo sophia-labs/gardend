@@ -24,8 +24,6 @@
 use super::executor::{ApplyOperationError, ApplyOperationResult};
 use crate::app_runtime::AppHandle;
 use crate::crdt_queue::CrdtOperation;
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 use base64::Engine;
 use flate2::read::GzDecoder;
 use oxigraph::io::{RdfFormat, RdfParser};
@@ -37,6 +35,8 @@ use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
+#[cfg(feature = "desktop")]
+use tauri::Manager;
 use yrs::updates::decoder::Decode;
 use yrs::{Any, Doc, Map as YMap, MapRef, Out, ReadTxn, StateVector, Transact, Update, WriteTxn};
 
@@ -50,8 +50,8 @@ const MAX_EXTRACTED_SIZE: usize = 500 * 1024 * 1024;
 // and bounded conventional terminal zero padding. This bounds *all* inflated
 // bytes, including unsupported members and data after the first zero header.
 const MAX_TAR_TRAILING_BYTES: usize = 64 * 1024;
-const MAX_TAR_CONTAINER_BYTES: usize = MAX_EXTRACTED_SIZE
-    + MAX_ARCHIVE_FILES * TAR_BLOCK_SIZE * 2 + MAX_TAR_TRAILING_BYTES;
+const MAX_TAR_CONTAINER_BYTES: usize =
+    MAX_EXTRACTED_SIZE + MAX_ARCHIVE_FILES * TAR_BLOCK_SIZE * 2 + MAX_TAR_TRAILING_BYTES;
 const CELL_RESTORE_MARKER_DIR: &str = ".migration";
 const CELL_RESTORE_MARKER_FILE: &str = "archive-restore-v1.json";
 const CELL_RESTORE_MARKER_STORAGE_ERROR: &str = "graph.restoreArchive: marker storage unavailable:";
@@ -208,13 +208,18 @@ fn read_gzip_bounded(bytes: &[u8], limit: usize) -> Result<Vec<u8>, String> {
     loop {
         // Read at most the remaining budget and a single overflow witness.
         let read_limit = (limit - result.len()).saturating_add(1).min(chunk.len());
-        let count = decoder.read(&mut chunk[..read_limit])
-            .map_err(|_| "Invalid or corrupt archive: expected gzip-compressed tar data".to_string())?;
-        if count == 0 { return Ok(result); }
+        let count = decoder.read(&mut chunk[..read_limit]).map_err(|_| {
+            "Invalid or corrupt archive: expected gzip-compressed tar data".to_string()
+        })?;
+        if count == 0 {
+            return Ok(result);
+        }
         if count > limit - result.len() {
             return Err(format!("Decompressed tar container exceeds {limit} bytes"));
         }
-        result.try_reserve_exact(count).map_err(|error| format!("Cannot allocate bounded archive buffer: {error}"))?;
+        result
+            .try_reserve_exact(count)
+            .map_err(|error| format!("Cannot allocate bounded archive buffer: {error}"))?;
         result.extend_from_slice(&chunk[..count]);
     }
 }
@@ -383,16 +388,22 @@ fn read_tar_entries(tar_bytes: &[u8]) -> Result<Vec<(String, Vec<u8>)>, String> 
         let size = tar_octal(header, 124, 12)?;
         let typeflag = header[156];
         let data_offset = offset + TAR_BLOCK_SIZE;
-        let padded_size = size.div_ceil(TAR_BLOCK_SIZE).checked_mul(TAR_BLOCK_SIZE)
+        let padded_size = size
+            .div_ceil(TAR_BLOCK_SIZE)
+            .checked_mul(TAR_BLOCK_SIZE)
             .ok_or("Invalid tar member size overflow")?;
-        let next_offset = data_offset.checked_add(padded_size).ok_or("Invalid tar offset overflow")?;
+        let next_offset = data_offset
+            .checked_add(padded_size)
+            .ok_or("Invalid tar offset overflow")?;
         if next_offset > tar_bytes.len() {
             return Err(format!(
                 "Invalid or corrupt archive: truncated entry {path}"
             ));
         }
 
-        extracted_size = extracted_size.checked_add(size).ok_or("Invalid extracted size overflow")?;
+        extracted_size = extracted_size
+            .checked_add(size)
+            .ok_or("Invalid extracted size overflow")?;
         if extracted_size > MAX_EXTRACTED_SIZE {
             return Err(format!(
                 "Archive too large. Maximum size: {}MB",
@@ -652,19 +663,34 @@ fn archive_sha256(bytes: &[u8]) -> String {
 // Bind semantic intent, not a transient upload path or a retry's wall clock.
 fn restore_envelope_hash(app: &AppHandle, operation: &CrdtOperation) -> Result<String, String> {
     let payload = obj(&operation.payload);
-    let boundary = app.try_state::<std::sync::Arc<crate::cell_graph_boundary::CellGraphBoundary>>()
+    let boundary = app
+        .try_state::<std::sync::Arc<crate::cell_graph_boundary::CellGraphBoundary>>()
         .ok_or("graph.restoreArchive: managed cell boundary is required")?;
-    boundary.authorize_crdt_operation(&operation.kind, &operation.graph_id, &operation.payload)
+    boundary
+        .authorize_crdt_operation(&operation.kind, &operation.graph_id, &operation.payload)
         .map_err(|error| format!("graph.restoreArchive: {error:?}"))?;
     if boundary.owner_graph_id() != Some(operation.graph_id.as_str())
         || boundary.graph_generation() != payload.get("targetGeneration").and_then(Value::as_u64)
-        || boundary.owner_principal().and_then(|owner| owner.strip_prefix("user:"))
-            != payload.get("sourceUserId").and_then(Value::as_str) {
+        || boundary
+            .owner_principal()
+            .and_then(|owner| owner.strip_prefix("user:"))
+            != payload.get("sourceUserId").and_then(Value::as_str)
+    {
         return Err("graph.restoreArchive: envelope does not match the cell binding".into());
     }
     let mut intent = JsonMap::new();
-    for key in ["newGraphId", "archiveSha256", "sourceGraphId", "sourceUserId", "targetGeneration",
-        "planDigest", "expectedDocumentCount", "expectedRdfTripleCount", "includesArtifacts", "graphIncarnation"] {
+    for key in [
+        "newGraphId",
+        "archiveSha256",
+        "sourceGraphId",
+        "sourceUserId",
+        "targetGeneration",
+        "planDigest",
+        "expectedDocumentCount",
+        "expectedRdfTripleCount",
+        "includesArtifacts",
+        "graphIncarnation",
+    ] {
         intent.insert(key.into(), payload.get(key).cloned().unwrap_or(Value::Null));
     }
     intent.insert("operationId".into(), json!(operation.operation_id));
@@ -680,7 +706,9 @@ fn restore_envelope_hash(app: &AppHandle, operation: &CrdtOperation) -> Result<S
     if let Some(parity) = payload.get("contentParity") {
         intent.insert("contentParity".into(), parity.clone());
     }
-    Ok(archive_sha256(&serde_json::to_vec(&intent).map_err(|error| error.to_string())?))
+    Ok(archive_sha256(
+        &serde_json::to_vec(&intent).map_err(|error| error.to_string())?,
+    ))
 }
 
 struct CellArchivePreflight {
@@ -694,31 +722,84 @@ struct CellArchivePreflight {
 /// Pure preflight. No target graph, room, marker or RDF store is opened here.
 /// Projection testimony is consumed only when the full mapped RDF statement
 /// exactly agrees with the native projector's output from archived Y.Doc state.
-fn preflight_cell_archive(parsed: &ParsedGraphArchive, target: &str) -> Result<CellArchivePreflight, String> {
+fn preflight_cell_archive(
+    parsed: &ParsedGraphArchive,
+    target: &str,
+) -> Result<CellArchivePreflight, String> {
     preflight_cell_archive_with_legacy_timestamps(parsed, target, false, &HashMap::new())
 }
 
-fn preflight_cell_archive_with_legacy_timestamps(parsed: &ParsedGraphArchive, target: &str, legacy_timestamps: bool, original_assertions: &HashMap<String,Value>) -> Result<CellArchivePreflight, String> {
-    preflight_cell_archive_with_availability(parsed, target, legacy_timestamps, original_assertions, &std::collections::BTreeSet::new())
+fn preflight_cell_archive_with_legacy_timestamps(
+    parsed: &ParsedGraphArchive,
+    target: &str,
+    legacy_timestamps: bool,
+    original_assertions: &HashMap<String, Value>,
+) -> Result<CellArchivePreflight, String> {
+    preflight_cell_archive_with_availability(
+        parsed,
+        target,
+        legacy_timestamps,
+        original_assertions,
+        &std::collections::BTreeSet::new(),
+    )
 }
 
-fn preflight_cell_archive_with_availability(parsed: &ParsedGraphArchive, target: &str, legacy_timestamps: bool, original_assertions: &HashMap<String,Value>, unavailable: &std::collections::BTreeSet<String>) -> Result<CellArchivePreflight, String> {
-    preflight_cell_archive_with_source_evidence(parsed,target,legacy_timestamps,original_assertions,unavailable,None)
+fn preflight_cell_archive_with_availability(
+    parsed: &ParsedGraphArchive,
+    target: &str,
+    legacy_timestamps: bool,
+    original_assertions: &HashMap<String, Value>,
+    unavailable: &std::collections::BTreeSet<String>,
+) -> Result<CellArchivePreflight, String> {
+    preflight_cell_archive_with_source_evidence(
+        parsed,
+        target,
+        legacy_timestamps,
+        original_assertions,
+        unavailable,
+        None,
+    )
 }
 
-fn preflight_cell_archive_with_source_evidence(parsed: &ParsedGraphArchive, target: &str, legacy_timestamps: bool, original_assertions: &HashMap<String,Value>, unavailable: &std::collections::BTreeSet<String>, evidence_archive_sha256: Option<&str>) -> Result<CellArchivePreflight, String> {
-    preflight_cell_archive_with_content_parity(parsed, target, legacy_timestamps, original_assertions,
-        unavailable, evidence_archive_sha256, &super::content_parity::Concessions::none())
+fn preflight_cell_archive_with_source_evidence(
+    parsed: &ParsedGraphArchive,
+    target: &str,
+    legacy_timestamps: bool,
+    original_assertions: &HashMap<String, Value>,
+    unavailable: &std::collections::BTreeSet<String>,
+    evidence_archive_sha256: Option<&str>,
+) -> Result<CellArchivePreflight, String> {
+    preflight_cell_archive_with_content_parity(
+        parsed,
+        target,
+        legacy_timestamps,
+        original_assertions,
+        unavailable,
+        evidence_archive_sha256,
+        &super::content_parity::Concessions::none(),
+    )
 }
 
-fn preflight_cell_archive_with_content_parity(parsed: &ParsedGraphArchive, target: &str, legacy_timestamps: bool, original_assertions: &HashMap<String,Value>, unavailable: &std::collections::BTreeSet<String>, evidence_archive_sha256: Option<&str>, concessions: &super::content_parity::Concessions) -> Result<CellArchivePreflight, String> {
+fn preflight_cell_archive_with_content_parity(
+    parsed: &ParsedGraphArchive,
+    target: &str,
+    legacy_timestamps: bool,
+    original_assertions: &HashMap<String, Value>,
+    unavailable: &std::collections::BTreeSet<String>,
+    evidence_archive_sha256: Option<&str>,
+    concessions: &super::content_parity::Concessions,
+) -> Result<CellArchivePreflight, String> {
+    use super::content_parity as parity;
     use oxigraph::model::{GraphName, NamedNode, NamedOrBlankNode, Term};
     use std::collections::HashSet;
-    use super::content_parity as parity;
     let manifest = &parsed.manifest;
-    let source = format!("urn:mnemosyne:user:{}:graph:{}", manifest.source_user_id, manifest.source_graph_id);
+    let source = format!(
+        "urn:mnemosyne:user:{}:graph:{}",
+        manifest.source_user_id, manifest.source_graph_id
+    );
     let destination = crate::rdf::graph_subject(target);
-    let user_graph = NamedNode::new(crate::rdf_authority::user_rdf_graph_iri(target)).map_err(|error| error.to_string())?;
+    let user_graph = NamedNode::new(crate::rdf_authority::user_rdf_graph_iri(target))
+        .map_err(|error| error.to_string())?;
     let mut document_ids = HashSet::new();
     for (id, bytes) in &parsed.documents {
         crate::ids::validate_local_id(id, "document_id")?;
@@ -741,96 +822,191 @@ fn preflight_cell_archive_with_content_parity(parsed: &ParsedGraphArchive, targe
         apply_full_update(&workspace, bytes, "workspace preflight")?;
         if legacy_timestamps {
             let txn = workspace.transact();
-            for (root,kind) in [("documents","document"),("folders","folder"),("artifacts","artifact"),("wires","wire")] {
-                let Some(rows) = txn.get_map(root) else { continue; };
-                for (id,row) in rows.iter(&txn) {
-                    let Out::YMap(row) = row else { continue; };
-                    let subject = if kind == "document" { crate::rdf::document_subject(id) }
-                        else { format!("{}:{kind}:{id}",crate::rdf::graph_subject(target)) };
-                    let mut fields=serde_json::Map::new();
-                    for key in ["title","updatedAt","createdAt","deletedAt","snapshotAt","sourceSnippet","targetSnippet","lastAccessedAt","inverseOf","bidirectional","readOnly",
-                        "sourceStorageKey","sourceOriginalFilename","sourceMimeType","sourceFileType","sourceContentSize"] {
-                        let (presence,value)=match row.get(&txn,key) {
-                            None => ("absent",Value::Null),
-                            Some(Out::Any(Any::Null)) => ("null",Value::Null),
-                            Some(Out::Any(Any::String(v))) => ("present",json!(v.as_ref())),
-                            Some(Out::Any(Any::Number(v))) if v.is_finite() => ("present",json!(v)),
-                            Some(Out::Any(Any::Bool(v))) => ("present",json!(v)),
+            for (root, kind) in [
+                ("documents", "document"),
+                ("folders", "folder"),
+                ("artifacts", "artifact"),
+                ("wires", "wire"),
+            ] {
+                let Some(rows) = txn.get_map(root) else {
+                    continue;
+                };
+                for (id, row) in rows.iter(&txn) {
+                    let Out::YMap(row) = row else {
+                        continue;
+                    };
+                    let subject = if kind == "document" {
+                        crate::rdf::document_subject(id)
+                    } else {
+                        format!("{}:{kind}:{id}", crate::rdf::graph_subject(target))
+                    };
+                    let mut fields = serde_json::Map::new();
+                    for key in [
+                        "title",
+                        "updatedAt",
+                        "createdAt",
+                        "deletedAt",
+                        "snapshotAt",
+                        "sourceSnippet",
+                        "targetSnippet",
+                        "lastAccessedAt",
+                        "inverseOf",
+                        "bidirectional",
+                        "readOnly",
+                        "sourceStorageKey",
+                        "sourceOriginalFilename",
+                        "sourceMimeType",
+                        "sourceFileType",
+                        "sourceContentSize",
+                    ] {
+                        let (presence, value) = match row.get(&txn, key) {
+                            None => ("absent", Value::Null),
+                            Some(Out::Any(Any::Null)) => ("null", Value::Null),
+                            Some(Out::Any(Any::String(v))) => ("present", json!(v.as_ref())),
+                            Some(Out::Any(Any::Number(v))) if v.is_finite() => {
+                                ("present", json!(v))
+                            }
+                            Some(Out::Any(Any::Bool(v))) => ("present", json!(v)),
                             _ => continue,
                         };
                         fields.insert(key.into(),json!({"root":root,"entityId":id,"key":key,"presence":presence,"value":value}));
                     }
-                    scalar_authorities.insert(subject.clone(),Value::Object(fields));
-                    if root=="wires" { continue; }
-                    if row.get(&txn,"lastAccessedAt").is_none() {
+                    scalar_authorities.insert(subject.clone(), Value::Object(fields));
+                    if root == "wires" {
+                        continue;
+                    }
+                    if row.get(&txn, "lastAccessedAt").is_none() {
                         absent_access_authorities.insert(subject.clone(),json!({"root":root,"entityId":id,"key":"lastAccessedAt","presence":"absent"}));
                     }
-                    let Some(Out::Any(Any::Number(value))) = row.get(&txn,"order") else { continue; };
-                    if !value.is_finite() { continue; }
-                    order_authorities.insert(subject,json!({"root":root,"entityId":id,"key":"order","value":value}));
+                    let Some(Out::Any(Any::Number(value))) = row.get(&txn, "order") else {
+                        continue;
+                    };
+                    if !value.is_finite() {
+                        continue;
+                    }
+                    order_authorities.insert(
+                        subject,
+                        json!({"root":root,"entityId":id,"key":"order","value":value}),
+                    );
                 }
             }
         }
         rewrite_graph_archive_workspace(&workspace, manifest, target);
         super::workspace_ops::materialize_workspace_snapshot_json(target, &workspace)?
-    } else { json!({}) };
+    } else {
+        json!({})
+    };
     let mut workspace_titles = HashMap::new();
     if let Some(entries) = snapshot.get("documents").and_then(Value::as_array) {
         for entry in entries {
-            if let (Some(id), Some(title)) = (entry.get("id").and_then(Value::as_str), entry.get("title").and_then(Value::as_str)) {
+            if let (Some(id), Some(title)) = (
+                entry.get("id").and_then(Value::as_str),
+                entry.get("title").and_then(Value::as_str),
+            ) {
                 workspace_titles.insert(id, title);
             }
         }
     }
-    if unavailable.iter().any(|id| !workspace_titles.contains_key(id.as_str())) {
+    if unavailable
+        .iter()
+        .any(|id| !workspace_titles.contains_key(id.as_str()))
+    {
         return Err("unavailable document absent from workspace metadata".into());
     }
     for (id, _) in &parsed.documents {
-        let title = workspace_titles.get(id.as_str()).copied().unwrap_or(id.as_str());
-        let normalized = crate::ids::normalize_stored_title(title)
-            .map_err(|error| format!("graph.restoreArchive: unsupported source document title for {id}: {error}"))?;
+        let title = workspace_titles
+            .get(id.as_str())
+            .copied()
+            .unwrap_or(id.as_str());
+        let normalized = crate::ids::normalize_stored_title(title).map_err(|error| {
+            format!("graph.restoreArchive: unsupported source document title for {id}: {error}")
+        })?;
         if normalized != title {
             return Err(format!("graph.restoreArchive: unsupported source document title for {id}: exact preservation would require normalization"));
         }
     }
     let projected = crate::rdf_workspace_materializer::workspace_entity_triples(target, &snapshot)
-        .iter().map(crate::rdf::format_rdf_triple).collect::<Vec<_>>().join("\n");
+        .iter()
+        .map(crate::rdf::format_rdf_triple)
+        .collect::<Vec<_>>()
+        .join("\n");
     let mut projection_statements = HashSet::new();
     let mut projection_subjects = HashSet::new();
     for quad in RdfParser::from_format(RdfFormat::NTriples).for_slice(projected.as_bytes()) {
         let quad = quad.map_err(|error| error.to_string())?;
         projection_subjects.insert(quad.subject.to_string());
-        projection_statements.insert(format!("{} {} {}", quad.subject, quad.predicate, quad.object));
+        projection_statements.insert(format!(
+            "{} {} {}",
+            quad.subject, quad.predicate, quad.object
+        ));
     }
     let evidence_wires = if legacy_timestamps && evidence_archive_sha256.is_some() {
-        legacy_source_only_wire_subjects(&parsed.rdf_n_quads,&snapshot,&projection_subjects,
-            &manifest.source_user_id,&manifest.source_graph_id,target)?
-    } else { std::collections::HashSet::new() };
-    let evidence_graph = evidence_archive_sha256.map(|sha|legacy_source_evidence_graph(
-        &manifest.source_user_id,&manifest.source_graph_id,target,sha,&source));
-    let parity_graph = evidence_archive_sha256.map(|sha|content_parity_evidence_graph(
-        &manifest.source_user_id,&manifest.source_graph_id,target,sha,&source));
+        legacy_source_only_wire_subjects(
+            &parsed.rdf_n_quads,
+            &snapshot,
+            &projection_subjects,
+            &manifest.source_user_id,
+            &manifest.source_graph_id,
+            target,
+        )?
+    } else {
+        std::collections::HashSet::new()
+    };
+    let evidence_graph = evidence_archive_sha256.map(|sha| {
+        legacy_source_evidence_graph(
+            &manifest.source_user_id,
+            &manifest.source_graph_id,
+            target,
+            sha,
+            &source,
+        )
+    });
+    let parity_graph = evidence_archive_sha256.map(|sha| {
+        content_parity_evidence_graph(
+            &manifest.source_user_id,
+            &manifest.source_graph_id,
+            target,
+            sha,
+            &source,
+        )
+    });
     // A source document reference the archive cannot account for: neither a present
     // body nor a declared unavailable one. Strictly terminal, because `rewrite` has no
     // native subject to produce; conceded, retained as source evidence with the
     // dangling id recorded. Checked before the rewrite so the quad is still intact.
     let unresolved_doc = |node: &NamedNode| -> Option<String> {
-        node.as_str().strip_prefix(&format!("{source}:doc:"))
-            .map(|document| document.split_once('#').map_or(document, |(id, _)| id).to_string())
+        node.as_str()
+            .strip_prefix(&format!("{source}:doc:"))
+            .map(|document| {
+                document
+                    .split_once('#')
+                    .map_or(document, |(id, _)| id)
+                    .to_string()
+            })
             .filter(|id| !document_ids.contains(id.as_str()))
     };
     let rewrite = |node: NamedNode| -> Result<NamedNode, String> {
         if let Some(document) = node.as_str().strip_prefix(&format!("{source}:doc:")) {
-            let (id, fragment) = document.split_once('#').map(|(id, tail)| (id, format!("#{tail}")))
+            let (id, fragment) = document
+                .split_once('#')
+                .map(|(id, tail)| (id, format!("#{tail}")))
                 .unwrap_or((document, String::new()));
             if !document_ids.contains(id) {
-                return Err(format!("graph.restoreArchive: unresolved source document identity {id}"));
+                return Err(format!(
+                    "graph.restoreArchive: unresolved source document identity {id}"
+                ));
             }
-            return NamedNode::new(format!("{}{fragment}", crate::rdf::document_subject(id))).map_err(|error| error.to_string());
+            return NamedNode::new(format!("{}{fragment}", crate::rdf::document_subject(id)))
+                .map_err(|error| error.to_string());
         }
         if let Some(suffix) = node.as_str().strip_prefix(&source) {
-            if suffix.is_empty() || suffix.starts_with(':') || suffix.starts_with('/') || suffix.starts_with('#') {
-                return NamedNode::new(format!("{destination}{suffix}")).map_err(|error| error.to_string());
+            if suffix.is_empty()
+                || suffix.starts_with(':')
+                || suffix.starts_with('/')
+                || suffix.starts_with('#')
+            {
+                return NamedNode::new(format!("{destination}{suffix}"))
+                    .map_err(|error| error.to_string());
             }
         }
         Ok(node)
@@ -838,11 +1014,18 @@ fn preflight_cell_archive_with_content_parity(parsed: &ParsedGraphArchive, targe
     // This is an existence check over already admitted original testimony. Keep
     // the exact lexical comparison, but build it once rather than formatting
     // every captured original for every authored source statement.
-    let captured_original_subjects: HashSet<String> = original_assertions.values()
+    let captured_original_subjects: HashSet<String> = original_assertions
+        .values()
         .filter_map(|row| row["subject"].as_str())
         .map(|subject| format!("<{subject}>"))
         .collect();
-    let mut result = CellArchivePreflight { user_rdf: String::new(), regenerated_statements: 0, authored_statements: 0, legacy_timestamp_normalizations: Vec::new(), retained_derived_assertions: Vec::new() };
+    let mut result = CellArchivePreflight {
+        user_rdf: String::new(),
+        regenerated_statements: 0,
+        authored_statements: 0,
+        legacy_timestamp_normalizations: Vec::new(),
+        retained_derived_assertions: Vec::new(),
+    };
     let mut projection_conflicts = std::collections::BTreeMap::new();
     for quad in RdfParser::from_format(RdfFormat::NQuads).for_slice(parsed.rdf_n_quads.as_bytes()) {
         let mut quad = quad.map_err(|error| error.to_string())?;
@@ -850,9 +1033,12 @@ fn preflight_cell_archive_with_content_parity(parsed: &ParsedGraphArchive, targe
             return Err("graph.restoreArchive: only the exact source main RDF graph is admitted by this core contract".into());
         }
         let source_quad_canonical_sha256 = archive_sha256(format!("{quad} .\n").as_bytes());
-        if matches!(&quad.subject,NamedOrBlankNode::NamedNode(node) if evidence_wires.contains(node.as_str())) {
-            let source_quad=format!("{quad} .\n");
-            let graph=evidence_graph.as_ref().ok_or("source evidence context missing")?;
+        if matches!(&quad.subject,NamedOrBlankNode::NamedNode(node) if evidence_wires.contains(node.as_str()))
+        {
+            let source_quad = format!("{quad} .\n");
+            let graph = evidence_graph
+                .as_ref()
+                .ok_or("source evidence context missing")?;
             result.retained_derived_assertions.push(json!({
                 "subject":quad.subject.to_string().trim_start_matches('<').trim_end_matches('>'),
                 "predicate":quad.predicate.as_str(),"sourceQuad":source_quad,
@@ -863,42 +1049,74 @@ fn preflight_cell_archive_with_content_parity(parsed: &ParsedGraphArchive, targe
                 "reason":"source-only-wire-anatomy-v1","disposition":"retained-queryable-source-evidence",
                 "referenceOnly":true,"currentEntityExistenceAsserted":false,"fetchAuthority":false,
                 "rawSourceRetained":true}));
-            quad.graph_name=NamedNode::new(graph).map_err(|e|e.to_string())?.into();
+            quad.graph_name = NamedNode::new(graph).map_err(|e| e.to_string())?.into();
             result.user_rdf.push_str(&format!("{quad} .\n"));
             continue;
         }
         let dangling = [
-            match &quad.subject { NamedOrBlankNode::NamedNode(node) => unresolved_doc(node), _ => None },
+            match &quad.subject {
+                NamedOrBlankNode::NamedNode(node) => unresolved_doc(node),
+                _ => None,
+            },
             unresolved_doc(&quad.predicate),
-            match &quad.object { Term::NamedNode(node) => unresolved_doc(node), _ => None },
-        ].into_iter().flatten().next();
+            match &quad.object {
+                Term::NamedNode(node) => unresolved_doc(node),
+                _ => None,
+            },
+        ]
+        .into_iter()
+        .flatten()
+        .next();
         if let Some(id) = dangling {
-            let terminal = || format!("graph.restoreArchive: unresolved source document identity {id}");
-            if !concessions.allows(parity::UNRESOLVED_SOURCE_DOCUMENT_IDENTITY) { return Err(terminal()); }
+            let terminal =
+                || format!("graph.restoreArchive: unresolved source document identity {id}");
+            if !concessions.allows(parity::UNRESOLVED_SOURCE_DOCUMENT_IDENTITY) {
+                return Err(terminal());
+            }
             // No evidence graph means nowhere to retain it, and a concession that dropped
             // content would invert the meaning of content parity. Strict error stands.
             let graph = parity_graph.as_ref().ok_or_else(terminal)?;
             let source_quad = format!("{quad} .\n");
-            let mut row = parity::disposition(parity::UNRESOLVED_SOURCE_DOCUMENT_IDENTITY,
+            let mut row = parity::disposition(
+                parity::UNRESOLVED_SOURCE_DOCUMENT_IDENTITY,
                 "unresolved-source-document-identity-v1",
-                quad.subject.to_string().trim_start_matches('<').trim_end_matches('>'),
-                quad.predicate.as_str(), &source_quad, &source_quad_canonical_sha256,
-                &source, evidence_archive_sha256, graph, Value::Null);
+                quad.subject
+                    .to_string()
+                    .trim_start_matches('<')
+                    .trim_end_matches('>'),
+                quad.predicate.as_str(),
+                &source_quad,
+                &source_quad_canonical_sha256,
+                &source,
+                evidence_archive_sha256,
+                graph,
+                Value::Null,
+            );
             row["unresolvedDocumentId"] = json!(id);
             result.retained_derived_assertions.push(row);
-            quad.graph_name = NamedNode::new(graph).map_err(|e|e.to_string())?.into();
+            quad.graph_name = NamedNode::new(graph).map_err(|e| e.to_string())?.into();
             result.user_rdf.push_str(&format!("{quad} .\n"));
             continue;
         }
-        if let NamedOrBlankNode::NamedNode(node) = quad.subject { quad.subject = rewrite(node)?.into(); }
+        if let NamedOrBlankNode::NamedNode(node) = quad.subject {
+            quad.subject = rewrite(node)?.into();
+        }
         quad.predicate = rewrite(quad.predicate)?;
         if let Term::NamedNode(node) = &quad.object {
             let mapped = rewrite(node.clone());
-            let already_exact = mapped.as_ref().ok().is_some_and(|object|
-                projection_statements.contains(&format!("{} {} {}",quad.subject,quad.predicate,object)));
+            let already_exact = mapped.as_ref().ok().is_some_and(|object| {
+                projection_statements
+                    .contains(&format!("{} {} {}", quad.subject, quad.predicate, object))
+            });
             if legacy_timestamps && !already_exact {
-                if let Some(mut evidence) = legacy_saved_wire_endpoint(&quad,&snapshot,
-                    &projection_statements,&manifest.source_user_id,&manifest.source_graph_id,target) {
+                if let Some(mut evidence) = legacy_saved_wire_endpoint(
+                    &quad,
+                    &snapshot,
+                    &projection_statements,
+                    &manifest.source_user_id,
+                    &manifest.source_graph_id,
+                    target,
+                ) {
                     evidence["sourceQuadCanonicalSha256"] = json!(source_quad_canonical_sha256);
                     result.legacy_timestamp_normalizations.push(evidence);
                     result.regenerated_statements += 1;
@@ -917,77 +1135,140 @@ fn preflight_cell_archive_with_content_parity(parsed: &ParsedGraphArchive, targe
         // v2.3 only: independently emitted workspace projection may differ in
         // datatype or exact Cloud-1 timestamp-emitter representation. The named
         // rule records both values; it does not alter the captured workspace.
-        if let Some(normalization) = legacy_timestamps.then(|| legacy_projection_normalization(&quad, &projection_statements)).flatten() {
+        if let Some(normalization) = legacy_timestamps
+            .then(|| legacy_projection_normalization(&quad, &projection_statements))
+            .flatten()
+        {
             result.regenerated_statements += 1;
             result.legacy_timestamp_normalizations.push(normalization);
             continue;
         }
-        if let Some(normalization) = legacy_timestamps.then(|| legacy_boolean_normalization(&quad,&projection_statements,&scalar_authorities)).flatten() {
+        if let Some(normalization) = legacy_timestamps
+            .then(|| {
+                legacy_boolean_normalization(&quad, &projection_statements, &scalar_authorities)
+            })
+            .flatten()
+        {
             result.regenerated_statements += 1;
             result.legacy_timestamp_normalizations.push(normalization);
             continue;
         }
-        if let Some(normalization) = legacy_timestamps.then(|| legacy_epoch_decimal_normalization(&quad,&projection_statements,&scalar_authorities)).flatten() {
+        if let Some(normalization) = legacy_timestamps
+            .then(|| {
+                legacy_epoch_decimal_normalization(
+                    &quad,
+                    &projection_statements,
+                    &scalar_authorities,
+                )
+            })
+            .flatten()
+        {
             result.regenerated_statements += 1;
             result.legacy_timestamp_normalizations.push(normalization);
             continue;
         }
-        if let Some(mut disposition) = legacy_timestamps.then(|| legacy_order_disposition(&quad,&projection_statements,&order_authorities)).flatten() {
+        if let Some(mut disposition) = legacy_timestamps
+            .then(|| legacy_order_disposition(&quad, &projection_statements, &order_authorities))
+            .flatten()
+        {
             disposition["sourceQuadCanonicalSha256"] = json!(source_quad_canonical_sha256);
             result.retained_derived_assertions.push(disposition);
             // Retained in raw source custody, NOT counted as equivalent,
             // regenerated testimony or newly authored current RDF.
             continue;
         }
-        if let Some(mut disposition) = legacy_timestamps.then(|| legacy_absent_access_disposition(&quad,&projection_statements,&absent_access_authorities)).flatten() {
+        if let Some(mut disposition) = legacy_timestamps
+            .then(|| {
+                legacy_absent_access_disposition(
+                    &quad,
+                    &projection_statements,
+                    &absent_access_authorities,
+                )
+            })
+            .flatten()
+        {
             disposition["sourceQuadCanonicalSha256"] = json!(source_quad_canonical_sha256);
             result.retained_derived_assertions.push(disposition);
             continue;
         }
-        if let Some(mut disposition) = legacy_timestamps.then(|| legacy_saved_title_disposition(&quad,&projection_statements,&scalar_authorities)).flatten() {
+        if let Some(mut disposition) = legacy_timestamps
+            .then(|| {
+                legacy_saved_title_disposition(&quad, &projection_statements, &scalar_authorities)
+            })
+            .flatten()
+        {
             disposition["sourceQuadCanonicalSha256"] = json!(source_quad_canonical_sha256);
             result.retained_derived_assertions.push(disposition);
             continue;
         }
-        if let Some(mut disposition) = legacy_timestamps.then(|| legacy_saved_scalar_disposition(&quad,&projection_statements,&scalar_authorities)).flatten() {
+        if let Some(mut disposition) = legacy_timestamps
+            .then(|| {
+                legacy_saved_scalar_disposition(&quad, &projection_statements, &scalar_authorities)
+            })
+            .flatten()
+        {
             disposition["sourceQuadCanonicalSha256"] = json!(source_quad_canonical_sha256);
             result.retained_derived_assertions.push(disposition);
             continue;
         }
-        if let Some(disposition) = original_assertions.get(&statement).filter(|_|legacy_timestamps) {
-            let prefix=format!("{} {} ",quad.subject,quad.predicate);
-            if disposition["rule"]=="owned-artifact-storage-key-rewrite-v1" {
-                if !legacy_owned_artifact_projection(disposition,&quad,&projection_statements) {
+        if let Some(disposition) = original_assertions
+            .get(&statement)
+            .filter(|_| legacy_timestamps)
+        {
+            let prefix = format!("{} {} ", quad.subject, quad.predicate);
+            if disposition["rule"] == "owned-artifact-storage-key-rewrite-v1" {
+                if !legacy_owned_artifact_projection(disposition, &quad, &projection_statements) {
                     return Err("graph.restoreArchive: owned artifact storage key differs from native projection".into());
                 }
-                let mut normalization=disposition.clone();
-                normalization["sourceQuadCanonicalSha256"]=json!(source_quad_canonical_sha256);
-                result.regenerated_statements+=1;
+                let mut normalization = disposition.clone();
+                normalization["sourceQuadCanonicalSha256"] = json!(source_quad_canonical_sha256);
+                result.regenerated_statements += 1;
                 result.legacy_timestamp_normalizations.push(normalization);
                 continue;
             }
-            if projection_statements.iter().any(|row|row.starts_with(&prefix)) {
+            if projection_statements
+                .iter()
+                .any(|row| row.starts_with(&prefix))
+            {
                 return Err("graph.restoreArchive: legacy original metadata conflicts with current native projection".into());
             }
-            let mut disposition=disposition.clone();
-            disposition["sourceQuadCanonicalSha256"]=json!(source_quad_canonical_sha256);
-            result.retained_derived_assertions.push(disposition);
-            continue;
-        }
-        let captured_original_subject = captured_original_subjects.contains(&quad.subject.to_string());
-        if let Some(mut disposition) = (legacy_timestamps && !captured_original_subject).then(|| legacy_absent_original_reference(&quad, &projection_statements, &scalar_authorities)).flatten() {
+            let mut disposition = disposition.clone();
             disposition["sourceQuadCanonicalSha256"] = json!(source_quad_canonical_sha256);
             result.retained_derived_assertions.push(disposition);
             continue;
         }
-        let known_projection_vocabulary = [crate::runtime_config::DCTERMS_NS, crate::runtime_config::MDOC_NS,
-            crate::runtime_config::WIRE_NS, crate::runtime_config::MNEMO_NS, crate::runtime_config::NFO_NS,
-            crate::runtime_config::NIE_NS, "http://www.w3.org/1999/02/22-rdf-syntax-ns#"]
-            .iter().any(|prefix| quad.predicate.as_str().starts_with(*prefix));
-        if projection_subjects.contains(&quad.subject.to_string()) && known_projection_vocabulary
-            && !(legacy_timestamps && legacy_authored_workflow_type(&quad)) {
-            let prefix=format!("{} {} ",quad.subject,quad.predicate);
-            let native:Vec<_>=projection_statements.iter().filter(|row|row.starts_with(&prefix)).collect();
+        let captured_original_subject =
+            captured_original_subjects.contains(&quad.subject.to_string());
+        if let Some(mut disposition) = (legacy_timestamps && !captured_original_subject)
+            .then(|| {
+                legacy_absent_original_reference(&quad, &projection_statements, &scalar_authorities)
+            })
+            .flatten()
+        {
+            disposition["sourceQuadCanonicalSha256"] = json!(source_quad_canonical_sha256);
+            result.retained_derived_assertions.push(disposition);
+            continue;
+        }
+        let known_projection_vocabulary = [
+            crate::runtime_config::DCTERMS_NS,
+            crate::runtime_config::MDOC_NS,
+            crate::runtime_config::WIRE_NS,
+            crate::runtime_config::MNEMO_NS,
+            crate::runtime_config::NFO_NS,
+            crate::runtime_config::NIE_NS,
+            "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+        ]
+        .iter()
+        .any(|prefix| quad.predicate.as_str().starts_with(*prefix));
+        if projection_subjects.contains(&quad.subject.to_string())
+            && known_projection_vocabulary
+            && !(legacy_timestamps && legacy_authored_workflow_type(&quad))
+        {
+            let prefix = format!("{} {} ", quad.subject, quad.predicate);
+            let native: Vec<_> = projection_statements
+                .iter()
+                .filter(|row| row.starts_with(&prefix))
+                .collect();
             // The native projection owns this field and the source may disagree. Strictly
             // terminal; conceded, the source's version is retained as evidence ALONGSIDE the
             // native statements rather than promoted over them, so the projection stays
@@ -998,17 +1279,29 @@ fn preflight_cell_archive_with_content_parity(parsed: &ParsedGraphArchive, targe
                     result.retained_derived_assertions.push(parity::disposition(
                         parity::SOURCE_ASSERTION_OUTSIDE_PROJECTION_AUTHORITY,
                         "source-assertion-outside-projection-authority-v1",
-                        quad.subject.to_string().trim_start_matches('<').trim_end_matches('>'),
-                        quad.predicate.as_str(), &source_quad, &source_quad_canonical_sha256,
-                        &source, evidence_archive_sha256, graph,
-                        json!(native.iter().map(|row|row.to_string()).collect::<Vec<_>>())));
-                    quad.graph_name = NamedNode::new(graph.as_str()).map_err(|e|e.to_string())?.into();
+                        quad.subject
+                            .to_string()
+                            .trim_start_matches('<')
+                            .trim_end_matches('>'),
+                        quad.predicate.as_str(),
+                        &source_quad,
+                        &source_quad_canonical_sha256,
+                        &source,
+                        evidence_archive_sha256,
+                        graph,
+                        json!(native.iter().map(|row| row.to_string()).collect::<Vec<_>>()),
+                    ));
+                    quad.graph_name = NamedNode::new(graph.as_str())
+                        .map_err(|e| e.to_string())?
+                        .into();
                     result.user_rdf.push_str(&format!("{quad} .\n"));
                     continue;
                 }
             }
             if projection_conflicts.len() < 16 {
-                projection_conflicts.entry(quad.predicate.to_string()).or_insert_with(||format!("{statement}; native={native:?}"));
+                projection_conflicts
+                    .entry(quad.predicate.to_string())
+                    .or_insert_with(|| format!("{statement}; native={native:?}"));
             }
             continue;
         }
@@ -1019,53 +1312,113 @@ fn preflight_cell_archive_with_content_parity(parsed: &ParsedGraphArchive, targe
     if !projection_conflicts.is_empty() {
         return Err(format!("graph.restoreArchive: source assertions conflict with or are not covered by native projection authority (first sixteen predicates): {}",projection_conflicts.into_values().collect::<Vec<_>>().join(" | ")));
     }
-    result.legacy_timestamp_normalizations.sort_by_key(|row| row.to_string());
+    result
+        .legacy_timestamp_normalizations
+        .sort_by_key(|row| row.to_string());
     result.legacy_timestamp_normalizations.dedup();
-    result.retained_derived_assertions.sort_by_key(|row| row.to_string());
+    result
+        .retained_derived_assertions
+        .sort_by_key(|row| row.to_string());
     result.retained_derived_assertions.dedup();
-    crate::rdf_query_service::validate_rdf_dataset_graph_targets(target, &result.user_rdf, "application/n-quads", None)?;
+    crate::rdf_query_service::validate_rdf_dataset_graph_targets(
+        target,
+        &result.user_rdf,
+        "application/n-quads",
+        None,
+    )?;
     Ok(result)
 }
 
-fn legacy_saved_wire_endpoint(quad: &oxigraph::model::Quad, snapshot: &Value,
-    projected: &std::collections::HashSet<String>, source_user: &str, source_graph: &str, target_graph: &str)
-    -> Option<Value> {
-    use oxigraph::model::{NamedNode,NamedOrBlankNode,Term};
-    let NamedOrBlankNode::NamedNode(subject) = &quad.subject else { return None; };
-    let Term::NamedNode(source_object) = &quad.object else { return None; };
-    let id = subject.as_str().strip_prefix(&format!("{}:wire:",crate::rdf::graph_subject(target_graph)))?;
-    let name = quad.predicate.as_str().strip_prefix(crate::runtime_config::WIRE_NS)?;
-    let (doc_field,block_field,is_target) = match name {
-        "sourceDocument" => ("sourceDocumentId",None,false),
-        "targetDocument" => ("targetDocumentId",None,true),
-        "sourceBlock" => ("sourceDocumentId",Some("sourceBlockId"),false),
-        "targetBlock" => ("targetDocumentId",Some("targetBlockId"),true),
+fn legacy_saved_wire_endpoint(
+    quad: &oxigraph::model::Quad,
+    snapshot: &Value,
+    projected: &std::collections::HashSet<String>,
+    source_user: &str,
+    source_graph: &str,
+    target_graph: &str,
+) -> Option<Value> {
+    use oxigraph::model::{NamedNode, NamedOrBlankNode, Term};
+    let NamedOrBlankNode::NamedNode(subject) = &quad.subject else {
+        return None;
+    };
+    let Term::NamedNode(source_object) = &quad.object else {
+        return None;
+    };
+    let id = subject.as_str().strip_prefix(&format!(
+        "{}:wire:",
+        crate::rdf::graph_subject(target_graph)
+    ))?;
+    let name = quad
+        .predicate
+        .as_str()
+        .strip_prefix(crate::runtime_config::WIRE_NS)?;
+    let (doc_field, block_field, is_target) = match name {
+        "sourceDocument" => ("sourceDocumentId", None, false),
+        "targetDocument" => ("targetDocumentId", None, true),
+        "sourceBlock" => ("sourceDocumentId", Some("sourceBlockId"), false),
+        "targetBlock" => ("targetDocumentId", Some("targetBlockId"), true),
         _ => return None,
     };
     let wires = snapshot["wires"].as_array()?;
-    let mut matching = wires.iter().filter(|wire|wire["id"] == id);
-    let wire = matching.next()?; if matching.next().is_some() { return None; }
+    let mut matching = wires.iter().filter(|wire| wire["id"] == id);
+    let wire = matching.next()?;
+    if matching.next().is_some() {
+        return None;
+    }
     let document = wire[doc_field].as_str()?;
-    if document.starts_with("urn:") || document.contains(['#','/'])
-        || crate::ids::validate_local_id(document,"wire document reference").is_err() { return None; }
-    let endpoint_graph = if is_target { wire["targetGraphId"].as_str().filter(|s|!s.is_empty()).unwrap_or(source_graph) } else { source_graph };
-    if crate::ids::validate_local_id(endpoint_graph,"wire graph reference").is_err() { return None; }
+    if document.starts_with("urn:")
+        || document.contains(['#', '/'])
+        || crate::ids::validate_local_id(document, "wire document reference").is_err()
+    {
+        return None;
+    }
+    let endpoint_graph = if is_target {
+        wire["targetGraphId"]
+            .as_str()
+            .filter(|s| !s.is_empty())
+            .unwrap_or(source_graph)
+    } else {
+        source_graph
+    };
+    if crate::ids::validate_local_id(endpoint_graph, "wire graph reference").is_err() {
+        return None;
+    }
     let suffix = match block_field {
         None => String::new(),
         Some(field) => {
             let block = wire[field].as_str()?;
-            if block.starts_with("urn:") || block.contains(['#','/'])
-                || crate::ids::validate_local_id(block,"wire block reference").is_err() { return None; }
+            if block.starts_with("urn:")
+                || block.contains(['#', '/'])
+                || crate::ids::validate_local_id(block, "wire block reference").is_err()
+            {
+                return None;
+            }
             format!("#block-{block}")
-        },
+        }
     };
-    let expected_source = format!("urn:mnemosyne:user:{source_user}:graph:{endpoint_graph}:doc:{document}{suffix}");
-    if source_object.as_str() != expected_source { return None; }
-    let native = NamedNode::new(format!("{}{suffix}",crate::rdf::document_subject(document))).ok()?;
-    let statement = format!("{} {} {}",quad.subject,quad.predicate,native);
-    if !projected.contains(&statement) || !projected.contains(&format!("{} <{}> <{}Wire>",
-        quad.subject,crate::runtime_config::RDF_TYPE,crate::runtime_config::WIRE_NS)) { return None; }
-    Some(json!({"subject":subject.as_str(),"predicate":quad.predicate.as_str(),
+    let expected_source =
+        format!("urn:mnemosyne:user:{source_user}:graph:{endpoint_graph}:doc:{document}{suffix}");
+    if source_object.as_str() != expected_source {
+        return None;
+    }
+    let native = NamedNode::new(format!(
+        "{}{suffix}",
+        crate::rdf::document_subject(document)
+    ))
+    .ok()?;
+    let statement = format!("{} {} {}", quad.subject, quad.predicate, native);
+    if !projected.contains(&statement)
+        || !projected.contains(&format!(
+            "{} <{}> <{}Wire>",
+            quad.subject,
+            crate::runtime_config::RDF_TYPE,
+            crate::runtime_config::WIRE_NS
+        ))
+    {
+        return None;
+    }
+    Some(
+        json!({"subject":subject.as_str(),"predicate":quad.predicate.as_str(),
         "source":{"iri":source_object.as_str()},"native":{"iri":native.as_str()},
         "rule":"saved-wire-qualified-endpoint-reference-v1","authority":"captured-workspace-yjs",
         "sourceUserId":source_user,"sourceGraphId":source_graph,
@@ -1073,14 +1426,28 @@ fn legacy_saved_wire_endpoint(quad: &oxigraph::model::Quad, snapshot: &Value,
         "blockField":block_field,"blockValue":block_field.map(|field|wire[field].clone()),
         "endpointGraphId":endpoint_graph,"savedTargetGraphId":wire["targetGraphId"],
         "referenceOnly":true,"endpointExistenceAsserted":false,"fetchAuthority":false,
-        "rawSourceRetained":true}))
+        "rawSourceRetained":true}),
+    )
 }
 
-fn legacy_source_evidence_graph(source_user: &str, source_graph: &str, target_graph: &str,
-    archive_sha256_value: &str, source_graph_iri: &str) -> String {
-    let context=json!([source_user,source_graph,archive_sha256_value,source_graph_iri]);
-    format!("{}:user:legacy-evidence:{}",crate::rdf::graph_subject(target_graph),
-        archive_sha256(context.to_string().as_bytes()))
+fn legacy_source_evidence_graph(
+    source_user: &str,
+    source_graph: &str,
+    target_graph: &str,
+    archive_sha256_value: &str,
+    source_graph_iri: &str,
+) -> String {
+    let context = json!([
+        source_user,
+        source_graph,
+        archive_sha256_value,
+        source_graph_iri
+    ]);
+    format!(
+        "{}:user:legacy-evidence:{}",
+        crate::rdf::graph_subject(target_graph),
+        archive_sha256(context.to_string().as_bytes())
+    )
 }
 
 // Conceded material gets its own NAMESPACE, not merely its own graph: the
@@ -1093,434 +1460,945 @@ fn legacy_source_evidence_graph(source_user: &str, source_graph: &str, target_gr
 // else. That contract is verified quad-for-quad ("complete source-only quad coverage,
 // not sampled claims"), and a concession that quietly widened what lives there would
 // make a verified invariant merely true-so-far.
-fn content_parity_evidence_graph(source_user: &str, source_graph: &str, target_graph: &str,
-    archive_sha256_value: &str, source_graph_iri: &str) -> String {
-    let context=json!([source_user,source_graph,archive_sha256_value,source_graph_iri,
-        crate::crdt_engine::content_parity::RULING]);
-    format!("{}:user:content-parity:{}",crate::rdf::graph_subject(target_graph),
-        archive_sha256(context.to_string().as_bytes()))
+fn content_parity_evidence_graph(
+    source_user: &str,
+    source_graph: &str,
+    target_graph: &str,
+    archive_sha256_value: &str,
+    source_graph_iri: &str,
+) -> String {
+    let context = json!([
+        source_user,
+        source_graph,
+        archive_sha256_value,
+        source_graph_iri,
+        crate::crdt_engine::content_parity::RULING
+    ]);
+    format!(
+        "{}:user:content-parity:{}",
+        crate::rdf::graph_subject(target_graph),
+        archive_sha256(context.to_string().as_bytes())
+    )
 }
 
 // A complete, source-owned RDF wire that is absent from captured current state
 // is retained as a legacy assertion, NOT mapped into native wire/document IDs.
 // This is deliberately disjoint from authored document/tree recovery.
-fn legacy_source_only_wire_subjects(rdf: &str, snapshot: &Value,
-    native_subjects: &std::collections::HashSet<String>, source_user: &str,
-    source_graph: &str, target_graph: &str) -> Result<std::collections::HashSet<String>,String> {
-    use oxigraph::model::{NamedOrBlankNode,Term,GraphName};
-    let source=format!("urn:mnemosyne:user:{source_user}:graph:{source_graph}");
-    let prefix=format!("{source}:wire:");
-    let saved=snapshot["wires"].as_array().ok_or("source wire evidence requires workspace wire inventory")?;
-    let saved_ids:std::collections::HashSet<_>=saved.iter().filter_map(|r|r["id"].as_str()).collect();
-    let mut groups:std::collections::BTreeMap<String,Vec<oxigraph::model::Quad>>=std::collections::BTreeMap::new();
+fn legacy_source_only_wire_subjects(
+    rdf: &str,
+    snapshot: &Value,
+    native_subjects: &std::collections::HashSet<String>,
+    source_user: &str,
+    source_graph: &str,
+    target_graph: &str,
+) -> Result<std::collections::HashSet<String>, String> {
+    use oxigraph::model::{GraphName, NamedOrBlankNode, Term};
+    let source = format!("urn:mnemosyne:user:{source_user}:graph:{source_graph}");
+    let prefix = format!("{source}:wire:");
+    let saved = snapshot["wires"]
+        .as_array()
+        .ok_or("source wire evidence requires workspace wire inventory")?;
+    let saved_ids: std::collections::HashSet<_> =
+        saved.iter().filter_map(|r| r["id"].as_str()).collect();
+    let mut groups: std::collections::BTreeMap<String, Vec<oxigraph::model::Quad>> =
+        std::collections::BTreeMap::new();
     for q in RdfParser::from_format(RdfFormat::NQuads).for_slice(rdf.as_bytes()) {
-        let q=q.map_err(|e|e.to_string())?;
-        let NamedOrBlankNode::NamedNode(subject)=&q.subject else {continue;};
-        let Some(id)=subject.as_str().strip_prefix(&prefix) else {continue;};
-        if saved_ids.contains(id) {continue;}
+        let q = q.map_err(|e| e.to_string())?;
+        let NamedOrBlankNode::NamedNode(subject) = &q.subject else {
+            continue;
+        };
+        let Some(id) = subject.as_str().strip_prefix(&prefix) else {
+            continue;
+        };
+        if saved_ids.contains(id) {
+            continue;
+        }
         if !matches!(&q.graph_name,GraphName::NamedNode(n) if n.as_str()==source)
-            || crate::ids::validate_local_id(id,"source evidence wire ID").is_err()
-            || native_subjects.contains(&format!("<{}:wire:{id}>",crate::rdf::graph_subject(target_graph))) {
+            || crate::ids::validate_local_id(id, "source evidence wire ID").is_err()
+            || native_subjects.contains(&format!(
+                "<{}:wire:{id}>",
+                crate::rdf::graph_subject(target_graph)
+            ))
+        {
             return Err("source-only wire evidence scope or current identity conflict".into());
         }
         groups.entry(subject.as_str().into()).or_default().push(q);
     }
-    let fail=||"source-only wire evidence unsupported or incomplete anatomy".to_string();
+    let fail = || "source-only wire evidence unsupported or incomplete anatomy".to_string();
     for quads in groups.values() {
-        let mut fields=std::collections::BTreeMap::new();
+        let mut fields = std::collections::BTreeMap::new();
         for q in quads {
-            if fields.insert(q.predicate.as_str(),&q.object).is_some() {return Err(fail());}
+            if fields.insert(q.predicate.as_str(), &q.object).is_some() {
+                return Err(fail());
+            }
         }
-        let type_key=crate::runtime_config::RDF_TYPE;
-        let Some(Term::NamedNode(kind))=fields.get(type_key).copied() else {return Err(fail());};
-        if kind.as_str()!=format!("{}Wire",crate::runtime_config::WIRE_NS) {return Err(fail());}
-        let target_graph_key=format!("{}targetGraph",crate::runtime_config::WIRE_NS);
-        let Some(Term::Literal(target_graph))=fields.get(target_graph_key.as_str()).copied() else {return Err(fail());};
-        if target_graph.datatype().as_str()!="http://www.w3.org/2001/XMLSchema#string"
-            || crate::ids::validate_local_id(target_graph.value(),"source wire target graph").is_err() {return Err(fail());}
-        for required in ["sourceDocument","targetDocument","predicate","bidirectional"] {
-            if !fields.contains_key(format!("{}{required}",crate::runtime_config::WIRE_NS).as_str()) {return Err(fail());}
+        let type_key = crate::runtime_config::RDF_TYPE;
+        let Some(Term::NamedNode(kind)) = fields.get(type_key).copied() else {
+            return Err(fail());
+        };
+        if kind.as_str() != format!("{}Wire", crate::runtime_config::WIRE_NS) {
+            return Err(fail());
         }
-        for (predicate,value) in &fields {
-            if *predicate==type_key {continue;}
-            let key=if *predicate==format!("{}createdAt",crate::runtime_config::MDOC_NS) {"createdAt"}
-                else {predicate.strip_prefix(crate::runtime_config::WIRE_NS).ok_or_else(fail)?};
+        let target_graph_key = format!("{}targetGraph", crate::runtime_config::WIRE_NS);
+        let Some(Term::Literal(target_graph)) = fields.get(target_graph_key.as_str()).copied()
+        else {
+            return Err(fail());
+        };
+        if target_graph.datatype().as_str() != "http://www.w3.org/2001/XMLSchema#string"
+            || crate::ids::validate_local_id(target_graph.value(), "source wire target graph")
+                .is_err()
+        {
+            return Err(fail());
+        }
+        for required in [
+            "sourceDocument",
+            "targetDocument",
+            "predicate",
+            "bidirectional",
+        ] {
+            if !fields
+                .contains_key(format!("{}{required}", crate::runtime_config::WIRE_NS).as_str())
+            {
+                return Err(fail());
+            }
+        }
+        for (predicate, value) in &fields {
+            if *predicate == type_key {
+                continue;
+            }
+            let key = if *predicate == format!("{}createdAt", crate::runtime_config::MDOC_NS) {
+                "createdAt"
+            } else {
+                predicate
+                    .strip_prefix(crate::runtime_config::WIRE_NS)
+                    .ok_or_else(fail)?
+            };
             match key {
-                "sourceDocument"|"targetDocument"|"sourceBlock"|"targetBlock"=>{
-                    let Term::NamedNode(node)=value else {return Err(fail());};
-                    let endpoint_graph=if key.starts_with("target") {target_graph.value()} else {source_graph};
-                    let endpoint_prefix=format!("urn:mnemosyne:user:{source_user}:graph:{endpoint_graph}:doc:");
-                    let tail=node.as_str().strip_prefix(&endpoint_prefix).ok_or_else(fail)?;
-                    let (id,fragment)=tail.split_once('#').map(|(id,f)|(id,Some(f))).unwrap_or((tail,None));
-                    if crate::ids::validate_local_id(id,"source wire document reference").is_err()
-                        || id.contains(['/',':']) {return Err(fail());}
+                "sourceDocument" | "targetDocument" | "sourceBlock" | "targetBlock" => {
+                    let Term::NamedNode(node) = value else {
+                        return Err(fail());
+                    };
+                    let endpoint_graph = if key.starts_with("target") {
+                        target_graph.value()
+                    } else {
+                        source_graph
+                    };
+                    let endpoint_prefix =
+                        format!("urn:mnemosyne:user:{source_user}:graph:{endpoint_graph}:doc:");
+                    let tail = node
+                        .as_str()
+                        .strip_prefix(&endpoint_prefix)
+                        .ok_or_else(fail)?;
+                    let (id, fragment) = tail
+                        .split_once('#')
+                        .map(|(id, f)| (id, Some(f)))
+                        .unwrap_or((tail, None));
+                    if crate::ids::validate_local_id(id, "source wire document reference").is_err()
+                        || id.contains(['/', ':'])
+                    {
+                        return Err(fail());
+                    }
                     if key.ends_with("Block") {
-                        let block=fragment.and_then(|f|f.strip_prefix("block-")).ok_or_else(fail)?;
-                        if crate::ids::validate_local_id(block,"source wire block reference").is_err() || block.contains(['/',':','#']) {return Err(fail());}
-                        let doc_key=format!("{}{}Document",crate::runtime_config::WIRE_NS,if key.starts_with("target") {"target"} else {"source"});
-                        let Some(Term::NamedNode(document))=fields.get(doc_key.as_str()).copied() else {return Err(fail());};
-                        if document.as_str()!=format!("{endpoint_prefix}{id}") {return Err(fail());}
-                    } else if fragment.is_some() {return Err(fail());}
-                },
-                "predicate"=>{let Term::NamedNode(node)=value else{return Err(fail());};
-                    if node.as_str().starts_with("urn:mnemosyne:user:") || node.as_str().starts_with("urn:mnemosyne:local:") {return Err(fail());}},
-                "inverseOf"=>{let Term::NamedNode(node)=value else{return Err(fail());};
-                    let id=node.as_str().strip_prefix(&prefix).ok_or_else(fail)?;
-                    if crate::ids::validate_local_id(id,"source inverse wire").is_err() {return Err(fail());}},
-                "targetGraph"|"sourceSnippet"|"targetSnippet"|"sourceTitle"|"targetTitle"=>{
-                    let Term::Literal(lit)=value else {return Err(fail());};
-                    if lit.datatype().as_str()!="http://www.w3.org/2001/XMLSchema#string" {return Err(fail());}
-                },
-                "createdAt"|"snapshotAt"|"deletedAt"=>{
-                    let Term::Literal(lit)=value else {return Err(fail());};
-                    let numeric=preservation_v2::legacy_decimal_attribute(lit.value()).is_some()
-                        && lit.value().parse::<f64>().is_ok_and(|n|n.is_finite()&&n>=0.0);
-                    if lit.datatype().as_str()!="http://www.w3.org/2001/XMLSchema#dateTime"
-                        || (!numeric&&chrono::DateTime::parse_from_rfc3339(lit.value()).is_err()) {return Err(fail());}
-                },
-                "bidirectional"=>{let Term::Literal(lit)=value else{return Err(fail());};
-                    if lit.datatype().as_str()!="http://www.w3.org/2001/XMLSchema#boolean"
-                        || !matches!(lit.value(),"true"|"false"|"True"|"False"|"1"|"0") {return Err(fail());}},
-                _=>return Err(fail()),
+                        let block = fragment
+                            .and_then(|f| f.strip_prefix("block-"))
+                            .ok_or_else(fail)?;
+                        if crate::ids::validate_local_id(block, "source wire block reference")
+                            .is_err()
+                            || block.contains(['/', ':', '#'])
+                        {
+                            return Err(fail());
+                        }
+                        let doc_key = format!(
+                            "{}{}Document",
+                            crate::runtime_config::WIRE_NS,
+                            if key.starts_with("target") {
+                                "target"
+                            } else {
+                                "source"
+                            }
+                        );
+                        let Some(Term::NamedNode(document)) = fields.get(doc_key.as_str()).copied()
+                        else {
+                            return Err(fail());
+                        };
+                        if document.as_str() != format!("{endpoint_prefix}{id}") {
+                            return Err(fail());
+                        }
+                    } else if fragment.is_some() {
+                        return Err(fail());
+                    }
+                }
+                "predicate" => {
+                    let Term::NamedNode(node) = value else {
+                        return Err(fail());
+                    };
+                    if node.as_str().starts_with("urn:mnemosyne:user:")
+                        || node.as_str().starts_with("urn:mnemosyne:local:")
+                    {
+                        return Err(fail());
+                    }
+                }
+                "inverseOf" => {
+                    let Term::NamedNode(node) = value else {
+                        return Err(fail());
+                    };
+                    let id = node.as_str().strip_prefix(&prefix).ok_or_else(fail)?;
+                    if crate::ids::validate_local_id(id, "source inverse wire").is_err() {
+                        return Err(fail());
+                    }
+                }
+                "targetGraph" | "sourceSnippet" | "targetSnippet" | "sourceTitle"
+                | "targetTitle" => {
+                    let Term::Literal(lit) = value else {
+                        return Err(fail());
+                    };
+                    if lit.datatype().as_str() != "http://www.w3.org/2001/XMLSchema#string" {
+                        return Err(fail());
+                    }
+                }
+                "createdAt" | "snapshotAt" | "deletedAt" => {
+                    let Term::Literal(lit) = value else {
+                        return Err(fail());
+                    };
+                    let numeric = preservation_v2::legacy_decimal_attribute(lit.value()).is_some()
+                        && lit
+                            .value()
+                            .parse::<f64>()
+                            .is_ok_and(|n| n.is_finite() && n >= 0.0);
+                    if lit.datatype().as_str() != "http://www.w3.org/2001/XMLSchema#dateTime"
+                        || (!numeric && chrono::DateTime::parse_from_rfc3339(lit.value()).is_err())
+                    {
+                        return Err(fail());
+                    }
+                }
+                "bidirectional" => {
+                    let Term::Literal(lit) = value else {
+                        return Err(fail());
+                    };
+                    if lit.datatype().as_str() != "http://www.w3.org/2001/XMLSchema#boolean"
+                        || !matches!(lit.value(), "true" | "false" | "True" | "False" | "1" | "0")
+                    {
+                        return Err(fail());
+                    }
+                }
+                _ => return Err(fail()),
             }
         }
     }
-    let subjects:std::collections::HashSet<_>=groups.into_keys().collect();
+    let subjects: std::collections::HashSet<_> = groups.into_keys().collect();
     // No half-rewritten incoming relation to a phantom native wire. Connected
     // RDF outside this fully qualified source-only component remains held.
     for q in RdfParser::from_format(RdfFormat::NQuads).for_slice(rdf.as_bytes()) {
-        let q=q.map_err(|e|e.to_string())?;
-        if subjects.contains(q.predicate.as_str()) {return Err("source-only wire evidence used as predicate".into());}
-        let internal_inverse=q.predicate.as_str()==format!("{}inverseOf",crate::runtime_config::WIRE_NS)
+        let q = q.map_err(|e| e.to_string())?;
+        if subjects.contains(q.predicate.as_str()) {
+            return Err("source-only wire evidence used as predicate".into());
+        }
+        let internal_inverse = q.predicate.as_str()
+            == format!("{}inverseOf", crate::runtime_config::WIRE_NS)
             && matches!(&q.graph_name,GraphName::NamedNode(node) if node.as_str()==source)
             && matches!(&q.subject,NamedOrBlankNode::NamedNode(node) if subjects.contains(node.as_str())
                 || node.as_str().strip_prefix(&prefix).is_some_and(|id|saved_ids.contains(id)));
-        if matches!(&q.object,Term::NamedNode(node) if subjects.contains(node.as_str())) && !internal_inverse {
+        if matches!(&q.object,Term::NamedNode(node) if subjects.contains(node.as_str()))
+            && !internal_inverse
+        {
             return Err("source-only wire evidence has unsupported incoming relation".into());
         }
     }
     Ok(subjects)
 }
 
-fn legacy_projection_normalization(quad: &oxigraph::model::Quad, projected: &std::collections::HashSet<String>) -> Option<Value> {
-    use oxigraph::model::{NamedOrBlankNode,Term};
-    let NamedOrBlankNode::NamedNode(subject) = &quad.subject else { return None; };
-    let Term::Literal(source) = &quad.object else { return None; };
+fn legacy_projection_normalization(
+    quad: &oxigraph::model::Quad,
+    projected: &std::collections::HashSet<String>,
+) -> Option<Value> {
+    use oxigraph::model::{NamedOrBlankNode, Term};
+    let NamedOrBlankNode::NamedNode(subject) = &quad.subject else {
+        return None;
+    };
+    let Term::Literal(source) = &quad.object else {
+        return None;
+    };
     let predicate = quad.predicate.as_str();
-    let is_wire = projected.contains(&format!("{} <{}> <{}Wire>",quad.subject,crate::runtime_config::RDF_TYPE,crate::runtime_config::WIRE_NS));
-    let name = if let Some(name)=predicate.strip_prefix(crate::runtime_config::MDOC_NS) {
-        if !matches!(name,"createdAt"|"updatedAt"|"lastAccessedAt"|"describedAt"|"order") { return None; }
+    let is_wire = projected.contains(&format!(
+        "{} <{}> <{}Wire>",
+        quad.subject,
+        crate::runtime_config::RDF_TYPE,
+        crate::runtime_config::WIRE_NS
+    ));
+    let name = if let Some(name) = predicate.strip_prefix(crate::runtime_config::MDOC_NS) {
+        if !matches!(
+            name,
+            "createdAt" | "updatedAt" | "lastAccessedAt" | "describedAt" | "order"
+        ) {
+            return None;
+        }
         name
     } else if is_wire {
-        let name=predicate.strip_prefix(crate::runtime_config::WIRE_NS)?;
-        if !matches!(name,"deletedAt"|"snapshotAt") { return None; }
+        let name = predicate.strip_prefix(crate::runtime_config::WIRE_NS)?;
+        if !matches!(name, "deletedAt" | "snapshotAt") {
+            return None;
+        }
         name
-    } else { return None; };
+    } else {
+        return None;
+    };
     // Only the independently generated workspace value for this exact subject
     // and predicate is eligible. No authored/foreign graph or generic literal
     // value-space matching is introduced.
-    let prefix = format!("{} {} ",quad.subject,quad.predicate);
-    let values: Vec<_> = projected.iter().filter(|s| s.starts_with(&prefix)).collect();
-    if values.len() != 1 { return None; }
-    let line = format!("{} .",values[0]);
-    let native_quad = RdfParser::from_format(RdfFormat::NTriples).for_slice(line.as_bytes()).next()?.ok()?;
-    let Term::Literal(native) = native_quad.object else { return None; };
+    let prefix = format!("{} {} ", quad.subject, quad.predicate);
+    let values: Vec<_> = projected
+        .iter()
+        .filter(|s| s.starts_with(&prefix))
+        .collect();
+    if values.len() != 1 {
+        return None;
+    }
+    let line = format!("{} .", values[0]);
+    let native_quad = RdfParser::from_format(RdfFormat::NTriples)
+        .for_slice(line.as_bytes())
+        .next()?
+        .ok()?;
+    let Term::Literal(native) = native_quad.object else {
+        return None;
+    };
     let xsd = "http://www.w3.org/2001/XMLSchema#";
     let rule = if name == "order" {
-        if source.datatype().as_str() != format!("{xsd}float") || native.datatype().as_str() != format!("{xsd}float") { return None; }
+        if source.datatype().as_str() != format!("{xsd}float")
+            || native.datatype().as_str() != format!("{xsd}float")
+        {
+            return None;
+        }
         let a = source.value().parse::<f32>().ok()?;
         let b = native.value().parse::<f32>().ok()?;
-        if !a.is_finite() || !b.is_finite() || a != b { return None; }
+        if !a.is_finite() || !b.is_finite() || a != b {
+            return None;
+        }
         "xsd-float-value-space"
     } else {
-        let wire_timestamp = is_wire && matches!(name,"createdAt"|"deletedAt"|"snapshotAt")
+        let wire_timestamp = is_wire
+            && matches!(name, "createdAt" | "deletedAt" | "snapshotAt")
             && native.datatype().as_str() == format!("{xsd}dateTime");
         if source.datatype().as_str() != format!("{xsd}dateTime")
-            || (native.datatype().as_str() != format!("{xsd}string") && !wire_timestamp) { return None; }
-        if source.value() == native.value() && (preservation_v2::legacy_decimal_attribute(source.value()).is_some()
-            || chrono::DateTime::parse_from_rfc3339(source.value()).is_ok()) {
+            || (native.datatype().as_str() != format!("{xsd}string") && !wire_timestamp)
+        {
+            return None;
+        }
+        if source.value() == native.value()
+            && (preservation_v2::legacy_decimal_attribute(source.value()).is_some()
+                || chrono::DateTime::parse_from_rfc3339(source.value()).is_ok())
+        {
             "timestamp-datatype-only"
-        } else if chrono::DateTime::parse_from_rfc3339(source.value()).ok().zip(chrono::DateTime::parse_from_rfc3339(native.value()).ok())
-            .is_some_and(|(a,b)|a.offset().local_minus_utc()==0 && b.offset().local_minus_utc()==0 && a==b) {
+        } else if chrono::DateTime::parse_from_rfc3339(source.value())
+            .ok()
+            .zip(chrono::DateTime::parse_from_rfc3339(native.value()).ok())
+            .is_some_and(|(a, b)| {
+                a.offset().local_minus_utc() == 0 && b.offset().local_minus_utc() == 0 && a == b
+            })
+        {
             "rfc3339-equal-utc-instant"
         } else {
             // Exact Cloud-1 rdf_materializer.py::_format_datetime_literal
             // numeric path and CPython datetime.fromtimestamp microsecond
             // rounding. This reproduces a source emitter, not an epsilon test.
             let milliseconds = native.value().parse::<f64>().ok()?;
-            if !milliseconds.is_finite() || milliseconds < 1e12 { return None; }
+            if !milliseconds.is_finite() || milliseconds < 1e12 {
+                return None;
+            }
             let seconds = milliseconds / 1000.0;
-            if seconds >= i64::MAX as f64 { return None; }
+            if seconds >= i64::MAX as f64 {
+                return None;
+            }
             let mut whole = seconds.trunc() as i64;
             let mut micros = (seconds.fract() * 1_000_000.0).round_ties_even() as u32;
-            if micros == 1_000_000 { whole = whole.checked_add(1)?; micros = 0; }
+            if micros == 1_000_000 {
+                whole = whole.checked_add(1)?;
+                micros = 0;
+            }
             let dt = chrono::DateTime::parse_from_rfc3339(source.value()).ok()?;
-            if dt.offset().local_minus_utc() != 0 || dt.timestamp() != whole || dt.timestamp_subsec_nanos() != micros * 1000 { return None; }
+            if dt.offset().local_minus_utc() != 0
+                || dt.timestamp() != whole
+                || dt.timestamp_subsec_nanos() != micros * 1000
+            {
+                return None;
+            }
             "cloud1-python-epoch-to-rfc3339"
         }
     };
-    Some(json!({"subject":subject.as_str(),"predicate":predicate,"rule":rule,
+    Some(
+        json!({"subject":subject.as_str(),"predicate":predicate,"rule":rule,
         "source":{"lexical":source.value(),"datatype":source.datatype().as_str()},
-        "native":{"lexical":native.value(),"datatype":native.datatype().as_str()}}))
+        "native":{"lexical":native.value(),"datatype":native.datatype().as_str()}}),
+    )
 }
 
 fn legacy_authored_workflow_type(quad: &oxigraph::model::Quad) -> bool {
-    if quad.predicate.as_str() != crate::runtime_config::RDF_TYPE { return false; }
-    let oxigraph::model::Term::NamedNode(kind) = &quad.object else { return false; };
+    if quad.predicate.as_str() != crate::runtime_config::RDF_TYPE {
+        return false;
+    }
+    let oxigraph::model::Term::NamedNode(kind) = &quad.object else {
+        return false;
+    };
     // These retained workflow-domain assertions are not workspace anatomy.
     // They remain ordinary authored RDF, not a live workflow registration.
-    matches!(kind.as_str().strip_prefix("http://mnemosyne.dev/workflow#"),
-        Some("AgentNode"|"AgentRun"|"Run"|"Variant"|"Archetype"|"Phase"|"Workflow"|"Contract"|"Adapter"))
+    matches!(
+        kind.as_str().strip_prefix("http://mnemosyne.dev/workflow#"),
+        Some(
+            "AgentNode"
+                | "AgentRun"
+                | "Run"
+                | "Variant"
+                | "Archetype"
+                | "Phase"
+                | "Workflow"
+                | "Contract"
+                | "Adapter"
+        )
+    )
 }
 
 // Original admission already joined the captured bytes and workspace metadata.
 // Qualify only its existing local storage-key representation and exact projection.
-fn legacy_owned_artifact_projection(entry: &Value, quad: &oxigraph::model::Quad,
-    projected: &std::collections::HashSet<String>) -> bool {
-    let Some(user)=entry["sourceUserId"].as_str() else{return false};
-    let Some(graph)=entry["sourceGraphId"].as_str() else{return false};
-    let Some(id)=entry["original"]["id"].as_str() else{return false};
-    let Some(source)=entry["source"]["lexical"].as_str() else{return false};
-    let Some(native)=entry["native"]["lexical"].as_str() else{return false};
-    let datatype="http://www.w3.org/2001/XMLSchema#string";
-    if entry["original"]["ownerKind"]!="artifact" ||
-        entry["source"]["datatype"]!=datatype || entry["native"]["datatype"]!=datatype ||
-        entry["subject"]!=format!("urn:mnemosyne:local:graph:{graph}:artifact:{id}") ||
-        quad.subject.to_string()!=format!("<{}>",entry["subject"].as_str().unwrap_or("")) ||
-        quad.predicate.as_str()!="http://mnemosyne.dev/doc#storageKey" ||
-        quad.object!=oxigraph::model::Term::Literal(oxigraph::model::Literal::new_simple_literal(source)) ||
-        !source.starts_with(&format!("users/{user}/graphs/{graph}/")) ||
-        native!=source.replace(&format!("users/{user}/"),"users/default/") || native==source ||
-        entry["authoritativeProjectionField"]!=json!({"root":"artifacts","entityId":id,"key":"storageKey","presence":"present","value":source}) {
+fn legacy_owned_artifact_projection(
+    entry: &Value,
+    quad: &oxigraph::model::Quad,
+    projected: &std::collections::HashSet<String>,
+) -> bool {
+    let Some(user) = entry["sourceUserId"].as_str() else {
+        return false;
+    };
+    let Some(graph) = entry["sourceGraphId"].as_str() else {
+        return false;
+    };
+    let Some(id) = entry["original"]["id"].as_str() else {
+        return false;
+    };
+    let Some(source) = entry["source"]["lexical"].as_str() else {
+        return false;
+    };
+    let Some(native) = entry["native"]["lexical"].as_str() else {
+        return false;
+    };
+    let datatype = "http://www.w3.org/2001/XMLSchema#string";
+    if entry["original"]["ownerKind"] != "artifact"
+        || entry["source"]["datatype"] != datatype
+        || entry["native"]["datatype"] != datatype
+        || entry["subject"] != format!("urn:mnemosyne:local:graph:{graph}:artifact:{id}")
+        || quad.subject.to_string() != format!("<{}>", entry["subject"].as_str().unwrap_or(""))
+        || quad.predicate.as_str() != "http://mnemosyne.dev/doc#storageKey"
+        || quad.object
+            != oxigraph::model::Term::Literal(oxigraph::model::Literal::new_simple_literal(source))
+        || !source.starts_with(&format!("users/{user}/graphs/{graph}/"))
+        || native != source.replace(&format!("users/{user}/"), "users/default/")
+        || native == source
+        || entry["authoritativeProjectionField"]
+            != json!({"root":"artifacts","entityId":id,"key":"storageKey","presence":"present","value":source})
+    {
         return false;
     }
-    let prefix=format!("{} {} ",quad.subject,quad.predicate);
-    let expected=format!("{prefix}{}",oxigraph::model::Literal::new_simple_literal(native));
-    let actual:Vec<_>=projected.iter().filter(|row|row.starts_with(&prefix)).collect();
-    actual.len()==1 && *actual[0]==expected
+    let prefix = format!("{} {} ", quad.subject, quad.predicate);
+    let expected = format!(
+        "{prefix}{}",
+        oxigraph::model::Literal::new_simple_literal(native)
+    );
+    let actual: Vec<_> = projected
+        .iter()
+        .filter(|row| row.starts_with(&prefix))
+        .collect();
+    actual.len() == 1 && *actual[0] == expected
 }
 
 // Copied legacy graphs can retain informational original-file RDF without a
 // captured original. This is an inert source reference, never a fetch grant or
 // a current original-file claim. Saved workspace and native absence both gate it.
-fn legacy_absent_original_reference(quad: &oxigraph::model::Quad, projected: &std::collections::HashSet<String>, authorities: &HashMap<String,Value>) -> Option<Value> {
-    use oxigraph::model::{NamedOrBlankNode,Term};
-    let NamedOrBlankNode::NamedNode(subject) = &quad.subject else { return None; };
-    let key = quad.predicate.as_str().strip_prefix(crate::runtime_config::MDOC_NS)?;
-    if !matches!(key,"sourceStorageKey"|"sourceOriginalFilename"|"sourceMimeType"|"sourceFileType"|"sourceContentSize") { return None; }
+fn legacy_absent_original_reference(
+    quad: &oxigraph::model::Quad,
+    projected: &std::collections::HashSet<String>,
+    authorities: &HashMap<String, Value>,
+) -> Option<Value> {
+    use oxigraph::model::{NamedOrBlankNode, Term};
+    let NamedOrBlankNode::NamedNode(subject) = &quad.subject else {
+        return None;
+    };
+    let key = quad
+        .predicate
+        .as_str()
+        .strip_prefix(crate::runtime_config::MDOC_NS)?;
+    if !matches!(
+        key,
+        "sourceStorageKey"
+            | "sourceOriginalFilename"
+            | "sourceMimeType"
+            | "sourceFileType"
+            | "sourceContentSize"
+    ) {
+        return None;
+    }
     let field = &authorities.get(subject.as_str())?[key];
-    if field["root"] != "documents" || field["key"] != key || field["presence"] != "absent"
-        || field["entityId"].as_str().is_none_or(str::is_empty) { return None; }
-    let Term::Literal(source) = &quad.object else { return None; };
+    if field["root"] != "documents"
+        || field["key"] != key
+        || field["presence"] != "absent"
+        || field["entityId"].as_str().is_none_or(str::is_empty)
+    {
+        return None;
+    }
+    let Term::Literal(source) = &quad.object else {
+        return None;
+    };
     if key == "sourceContentSize" {
         if source.datatype().as_str() != "http://www.w3.org/2001/XMLSchema#integer"
-            || preservation_v2::legacy_nonnegative_integral_lexical(source.value()).is_none() { return None; }
-    } else if source.datatype().as_str() != "http://www.w3.org/2001/XMLSchema#string" || source.value().is_empty() { return None; }
-    let prefix = format!("{} {} ",quad.subject,quad.predicate);
-    if projected.iter().any(|row| row.starts_with(&prefix)) { return None; }
-    Some(json!({"subject":subject.as_str(),"predicate":quad.predicate.as_str(),
+            || preservation_v2::legacy_nonnegative_integral_lexical(source.value()).is_none()
+        {
+            return None;
+        }
+    } else if source.datatype().as_str() != "http://www.w3.org/2001/XMLSchema#string"
+        || source.value().is_empty()
+    {
+        return None;
+    }
+    let prefix = format!("{} {} ", quad.subject, quad.predicate);
+    if projected.iter().any(|row| row.starts_with(&prefix)) {
+        return None;
+    }
+    Some(
+        json!({"subject":subject.as_str(),"predicate":quad.predicate.as_str(),
         "source":{"lexical":source.value(),"datatype":source.datatype().as_str()},"native":null,
         "authoritativeProjectionField":field,"authority":"captured-workspace-yjs",
         "reason":"original-reference-absent-from-captured-workspace",
         "disposition":"retained-not-rematerialized","rawSourceRetained":true,
-        "originalAvailability":"not-established","fetchAuthority":false}))
+        "originalAvailability":"not-established","fetchAuthority":false}),
+    )
 }
 
-fn legacy_boolean_normalization(quad: &oxigraph::model::Quad, projected: &std::collections::HashSet<String>, authorities: &HashMap<String,Value>) -> Option<Value> {
-    use oxigraph::model::{NamedOrBlankNode,Term,Literal,NamedNode};
-    let NamedOrBlankNode::NamedNode(subject)=&quad.subject else { return None; };
-    let (root,key)=if quad.predicate.as_str()==format!("{}bidirectional",crate::runtime_config::WIRE_NS) { ("wires","bidirectional") }
-        else if quad.predicate.as_str()==format!("{}readOnly",crate::runtime_config::MDOC_NS) { ("documents","readOnly") }
-        else { return None; };
-    let field=&authorities.get(subject.as_str())?[key];
-    if field["root"]!=root || field["key"]!=key || field["presence"]!="present" || field["entityId"].as_str().is_none_or(str::is_empty) { return None; }
-    let value=field["value"].as_bool()?;
-    let Term::Literal(source)=&quad.object else { return None; };
-    let datatype="http://www.w3.org/2001/XMLSchema#boolean";
-    if source.datatype().as_str()!=datatype || source.value()!=if value {"True"} else {"False"} { return None; }
-    let native=Literal::new_typed_literal(value.to_string(),NamedNode::new(datatype).ok()?);
-    if !projected.contains(&format!("{} {} {}",quad.subject,quad.predicate,native)) { return None; }
-    Some(json!({"subject":subject.as_str(),"predicate":quad.predicate.as_str(),"rule":"cloud1-python-boolean-lexical",
-        "source":{"lexical":source.value(),"datatype":datatype},"native":{"lexical":native.value(),"datatype":datatype},
-        "authoritativeProjectionField":field}))
-}
-
-fn legacy_epoch_decimal_normalization(quad: &oxigraph::model::Quad, projected: &std::collections::HashSet<String>, authorities: &HashMap<String,Value>) -> Option<Value> {
-    use oxigraph::model::{NamedOrBlankNode,Term};
-    let NamedOrBlankNode::NamedNode(subject)=&quad.subject else { return None; };
-    let key=quad.predicate.as_str().strip_prefix(crate::runtime_config::MDOC_NS)?;
-    if !matches!(key,"createdAt"|"updatedAt") { return None; }
-    let field=&authorities.get(subject.as_str())?[key];
-    if field["key"]!=key || field["presence"]!="present" || !matches!(field["root"].as_str(),Some("documents"|"folders"|"artifacts")) { return None; }
-    let raw=match &field["value"] {
-        Value::Number(number)=>number.to_string(),
-        Value::String(text)=>text.clone(),
-        _=>return None,
+fn legacy_boolean_normalization(
+    quad: &oxigraph::model::Quad,
+    projected: &std::collections::HashSet<String>,
+    authorities: &HashMap<String, Value>,
+) -> Option<Value> {
+    use oxigraph::model::{Literal, NamedNode, NamedOrBlankNode, Term};
+    let NamedOrBlankNode::NamedNode(subject) = &quad.subject else {
+        return None;
     };
-    let expected=preservation_v2::legacy_decimal_attribute(&raw)?;
-    let Term::Literal(source)=&quad.object else { return None; };
-    if source.datatype().as_str()!="http://www.w3.org/2001/XMLSchema#dateTime"
-        || preservation_v2::legacy_decimal_attribute(source.value())?!=expected { return None; }
-    let prefix=format!("{} {} ",quad.subject,quad.predicate);
-    let rows:Vec<_>=projected.iter().filter(|row|row.starts_with(&prefix)).collect();
-    if rows.len()!=1 { return None; }
-    let line=format!("{} .",rows[0]);
-    let native_quad=RdfParser::from_format(RdfFormat::NTriples).for_slice(line.as_bytes()).next()?.ok()?;
-    let Term::Literal(native)=native_quad.object else { return None; };
-    if native.datatype().as_str()!="http://www.w3.org/2001/XMLSchema#string"
-        || preservation_v2::legacy_decimal_attribute(native.value())?!=expected || native.value()==source.value() { return None; }
-    Some(json!({"subject":subject.as_str(),"predicate":quad.predicate.as_str(),"rule":"captured-numeric-epoch-decimal-lexical",
+    let (root, key) =
+        if quad.predicate.as_str() == format!("{}bidirectional", crate::runtime_config::WIRE_NS) {
+            ("wires", "bidirectional")
+        } else if quad.predicate.as_str() == format!("{}readOnly", crate::runtime_config::MDOC_NS) {
+            ("documents", "readOnly")
+        } else {
+            return None;
+        };
+    let field = &authorities.get(subject.as_str())?[key];
+    if field["root"] != root
+        || field["key"] != key
+        || field["presence"] != "present"
+        || field["entityId"].as_str().is_none_or(str::is_empty)
+    {
+        return None;
+    }
+    let value = field["value"].as_bool()?;
+    let Term::Literal(source) = &quad.object else {
+        return None;
+    };
+    let datatype = "http://www.w3.org/2001/XMLSchema#boolean";
+    if source.datatype().as_str() != datatype
+        || source.value() != if value { "True" } else { "False" }
+    {
+        return None;
+    }
+    let native = Literal::new_typed_literal(value.to_string(), NamedNode::new(datatype).ok()?);
+    if !projected.contains(&format!("{} {} {}", quad.subject, quad.predicate, native)) {
+        return None;
+    }
+    Some(
+        json!({"subject":subject.as_str(),"predicate":quad.predicate.as_str(),"rule":"cloud1-python-boolean-lexical",
+        "source":{"lexical":source.value(),"datatype":datatype},"native":{"lexical":native.value(),"datatype":datatype},
+        "authoritativeProjectionField":field}),
+    )
+}
+
+fn legacy_epoch_decimal_normalization(
+    quad: &oxigraph::model::Quad,
+    projected: &std::collections::HashSet<String>,
+    authorities: &HashMap<String, Value>,
+) -> Option<Value> {
+    use oxigraph::model::{NamedOrBlankNode, Term};
+    let NamedOrBlankNode::NamedNode(subject) = &quad.subject else {
+        return None;
+    };
+    let key = quad
+        .predicate
+        .as_str()
+        .strip_prefix(crate::runtime_config::MDOC_NS)?;
+    if !matches!(key, "createdAt" | "updatedAt") {
+        return None;
+    }
+    let field = &authorities.get(subject.as_str())?[key];
+    if field["key"] != key
+        || field["presence"] != "present"
+        || !matches!(
+            field["root"].as_str(),
+            Some("documents" | "folders" | "artifacts")
+        )
+    {
+        return None;
+    }
+    let raw = match &field["value"] {
+        Value::Number(number) => number.to_string(),
+        Value::String(text) => text.clone(),
+        _ => return None,
+    };
+    let expected = preservation_v2::legacy_decimal_attribute(&raw)?;
+    let Term::Literal(source) = &quad.object else {
+        return None;
+    };
+    if source.datatype().as_str() != "http://www.w3.org/2001/XMLSchema#dateTime"
+        || preservation_v2::legacy_decimal_attribute(source.value())? != expected
+    {
+        return None;
+    }
+    let prefix = format!("{} {} ", quad.subject, quad.predicate);
+    let rows: Vec<_> = projected
+        .iter()
+        .filter(|row| row.starts_with(&prefix))
+        .collect();
+    if rows.len() != 1 {
+        return None;
+    }
+    let line = format!("{} .", rows[0]);
+    let native_quad = RdfParser::from_format(RdfFormat::NTriples)
+        .for_slice(line.as_bytes())
+        .next()?
+        .ok()?;
+    let Term::Literal(native) = native_quad.object else {
+        return None;
+    };
+    if native.datatype().as_str() != "http://www.w3.org/2001/XMLSchema#string"
+        || preservation_v2::legacy_decimal_attribute(native.value())? != expected
+        || native.value() == source.value()
+    {
+        return None;
+    }
+    Some(
+        json!({"subject":subject.as_str(),"predicate":quad.predicate.as_str(),"rule":"captured-numeric-epoch-decimal-lexical",
         "source":{"lexical":source.value(),"datatype":source.datatype().as_str()},
-        "native":{"lexical":native.value(),"datatype":native.datatype().as_str()},"authoritativeProjectionField":field}))
+        "native":{"lexical":native.value(),"datatype":native.datatype().as_str()},"authoritativeProjectionField":field}),
+    )
 }
 
 // Only the known document title projection can defer to the captured workspace.
 // Empty source and saved titles remain exact evidence even when the existing
 // native snapshot uses its named Untitled fallback. No source title is erased.
-fn legacy_saved_title_disposition(quad: &oxigraph::model::Quad, projected: &std::collections::HashSet<String>, authorities: &HashMap<String,Value>) -> Option<Value> {
-    use oxigraph::model::{NamedOrBlankNode,Term,Literal,NamedNode};
-    let NamedOrBlankNode::NamedNode(subject)=&quad.subject else { return None; };
-    if quad.predicate.as_str()!=format!("{}title",crate::runtime_config::DCTERMS_NS) { return None; }
-    let Term::Literal(source)=&quad.object else { return None; };
-    let datatype="http://www.w3.org/2001/XMLSchema#string";
-    if source.datatype().as_str()!=datatype { return None; }
-    let field=&authorities.get(subject.as_str())?["title"];
-    if field["root"]!="documents" || field["key"]!="title" || field["presence"]!="present"
-        || field["entityId"].as_str().is_none_or(str::is_empty) { return None; }
-    let raw=field["value"].as_str()?;
-    let expected=if raw.is_empty() { "Untitled" } else { raw };
-    let native=Literal::new_typed_literal(expected,NamedNode::new(datatype).ok()?);
-    let prefix=format!("{} {} ",quad.subject,quad.predicate);
-    if projected.iter().filter(|row|row.starts_with(&prefix)).count()!=1
-        || !projected.contains(&format!("{prefix}{native}")) || source==&native { return None; }
-    let reason=if raw.is_empty() { "saved-empty-document-title-native-fallback-v1" }
-        else { "saved-document-title-projection-authority-v1" };
-    Some(json!({"subject":subject.as_str(),"predicate":quad.predicate.as_str(),
+fn legacy_saved_title_disposition(
+    quad: &oxigraph::model::Quad,
+    projected: &std::collections::HashSet<String>,
+    authorities: &HashMap<String, Value>,
+) -> Option<Value> {
+    use oxigraph::model::{Literal, NamedNode, NamedOrBlankNode, Term};
+    let NamedOrBlankNode::NamedNode(subject) = &quad.subject else {
+        return None;
+    };
+    if quad.predicate.as_str() != format!("{}title", crate::runtime_config::DCTERMS_NS) {
+        return None;
+    }
+    let Term::Literal(source) = &quad.object else {
+        return None;
+    };
+    let datatype = "http://www.w3.org/2001/XMLSchema#string";
+    if source.datatype().as_str() != datatype {
+        return None;
+    }
+    let field = &authorities.get(subject.as_str())?["title"];
+    if field["root"] != "documents"
+        || field["key"] != "title"
+        || field["presence"] != "present"
+        || field["entityId"].as_str().is_none_or(str::is_empty)
+    {
+        return None;
+    }
+    let raw = field["value"].as_str()?;
+    let expected = if raw.is_empty() { "Untitled" } else { raw };
+    let native = Literal::new_typed_literal(expected, NamedNode::new(datatype).ok()?);
+    let prefix = format!("{} {} ", quad.subject, quad.predicate);
+    if projected
+        .iter()
+        .filter(|row| row.starts_with(&prefix))
+        .count()
+        != 1
+        || !projected.contains(&format!("{prefix}{native}"))
+        || source == &native
+    {
+        return None;
+    }
+    let reason = if raw.is_empty() {
+        "saved-empty-document-title-native-fallback-v1"
+    } else {
+        "saved-document-title-projection-authority-v1"
+    };
+    Some(
+        json!({"subject":subject.as_str(),"predicate":quad.predicate.as_str(),
         "source":{"lexical":source.value(),"datatype":datatype},
         "native":{"lexical":native.value(),"datatype":datatype},
         "authoritativeProjectionField":field,"authority":"captured-workspace-yjs",
-        "reason":reason,"disposition":"retained-not-rematerialized","rawSourceRetained":true}))
+        "reason":reason,"disposition":"retained-not-rematerialized","rawSourceRetained":true}),
+    )
 }
 
-fn legacy_saved_scalar_disposition(quad: &oxigraph::model::Quad, projected: &std::collections::HashSet<String>, authorities: &HashMap<String,Value>) -> Option<Value> {
-    use oxigraph::model::{NamedOrBlankNode,Term};
-    let NamedOrBlankNode::NamedNode(subject)=&quad.subject else { return None; };
-    let predicate=quad.predicate.as_str();
-    let (key,wire)=if predicate==format!("{}updatedAt",crate::runtime_config::MDOC_NS) { ("updatedAt",false) }
-        else if predicate==format!("{}lastAccessedAt",crate::runtime_config::MDOC_NS) { ("lastAccessedAt",false) }
-        else if predicate==format!("{}createdAt",crate::runtime_config::MDOC_NS) { ("createdAt",true) }
-        else { (predicate.strip_prefix(crate::runtime_config::WIRE_NS)?,true) };
-    if wire && !matches!(key,"createdAt"|"deletedAt"|"snapshotAt"|"sourceSnippet"|"targetSnippet"|"inverseOf") { return None; }
-    let field=&authorities.get(subject.as_str())?[key];
-    if field["key"]!=key || field["entityId"].as_str().is_none_or(str::is_empty)
-        || (wire && field["root"]!="wires")
-        || (!wire && !matches!(field["root"].as_str(),Some("documents"|"folders"|"artifacts"))) { return None; }
-    if key=="lastAccessedAt" && field["root"]!="documents" { return None; }
-    let source=if key=="inverseOf" {
-        let Term::NamedNode(target)=&quad.object else { return None; };
+fn legacy_saved_scalar_disposition(
+    quad: &oxigraph::model::Quad,
+    projected: &std::collections::HashSet<String>,
+    authorities: &HashMap<String, Value>,
+) -> Option<Value> {
+    use oxigraph::model::{NamedOrBlankNode, Term};
+    let NamedOrBlankNode::NamedNode(subject) = &quad.subject else {
+        return None;
+    };
+    let predicate = quad.predicate.as_str();
+    let (key, wire) = if predicate == format!("{}updatedAt", crate::runtime_config::MDOC_NS) {
+        ("updatedAt", false)
+    } else if predicate == format!("{}lastAccessedAt", crate::runtime_config::MDOC_NS) {
+        ("lastAccessedAt", false)
+    } else if predicate == format!("{}createdAt", crate::runtime_config::MDOC_NS) {
+        ("createdAt", true)
+    } else {
+        (
+            predicate.strip_prefix(crate::runtime_config::WIRE_NS)?,
+            true,
+        )
+    };
+    if wire
+        && !matches!(
+            key,
+            "createdAt"
+                | "deletedAt"
+                | "snapshotAt"
+                | "sourceSnippet"
+                | "targetSnippet"
+                | "inverseOf"
+        )
+    {
+        return None;
+    }
+    let field = &authorities.get(subject.as_str())?[key];
+    if field["key"] != key
+        || field["entityId"].as_str().is_none_or(str::is_empty)
+        || (wire && field["root"] != "wires")
+        || (!wire
+            && !matches!(
+                field["root"].as_str(),
+                Some("documents" | "folders" | "artifacts")
+            ))
+    {
+        return None;
+    }
+    if key == "lastAccessedAt" && field["root"] != "documents" {
+        return None;
+    }
+    let source = if key == "inverseOf" {
+        let Term::NamedNode(target) = &quad.object else {
+            return None;
+        };
         // Never admit a foreign/unresolved link as a legacy layout exception.
-        if authorities.get(target.as_str())?["inverseOf"]["root"]!="wires" { return None; }
+        if authorities.get(target.as_str())?["inverseOf"]["root"] != "wires" {
+            return None;
+        }
         json!({"iri":target.as_str()})
-    } else if matches!(key,"sourceSnippet"|"targetSnippet") {
+    } else if matches!(key, "sourceSnippet" | "targetSnippet") {
         // Cloud-1 wire snapshots are cached previews, not a new authored field.
         // Only absence in an existing saved wire can retain a legacy-only value.
-        let Term::Literal(value)=&quad.object else { return None; };
-        if value.datatype().as_str()!="http://www.w3.org/2001/XMLSchema#string" { return None; }
+        let Term::Literal(value) = &quad.object else {
+            return None;
+        };
+        if value.datatype().as_str() != "http://www.w3.org/2001/XMLSchema#string" {
+            return None;
+        }
         json!({"lexical":value.value(),"datatype":value.datatype().as_str()})
     } else {
-        let Term::Literal(value)=&quad.object else { return None; };
-        if value.datatype().as_str()!="http://www.w3.org/2001/XMLSchema#dateTime" { return None; }
-        let numeric=preservation_v2::legacy_decimal_attribute(value.value()).is_some()
-            && value.value().parse::<f64>().is_ok_and(|v|v.is_finite()&&v>=0.0);
-        if !numeric && chrono::DateTime::parse_from_rfc3339(value.value()).is_err() { return None; }
+        let Term::Literal(value) = &quad.object else {
+            return None;
+        };
+        if value.datatype().as_str() != "http://www.w3.org/2001/XMLSchema#dateTime" {
+            return None;
+        }
+        let numeric = preservation_v2::legacy_decimal_attribute(value.value()).is_some()
+            && value
+                .value()
+                .parse::<f64>()
+                .is_ok_and(|v| v.is_finite() && v >= 0.0);
+        if !numeric && chrono::DateTime::parse_from_rfc3339(value.value()).is_err() {
+            return None;
+        }
         json!({"lexical":value.value(),"datatype":value.datatype().as_str()})
     };
-    let prefix=format!("{} {} ",quad.subject,quad.predicate);
-    let native_rows:Vec<_>=projected.iter().filter(|row|row.starts_with(&prefix)).collect();
-    let native=match field["presence"].as_str()? {
-        "null" if !wire && key=="updatedAt" && field["root"]=="documents" => {
-            if !native_rows.is_empty() || !field["value"].is_null() { return None; }
+    let prefix = format!("{} {} ", quad.subject, quad.predicate);
+    let native_rows: Vec<_> = projected
+        .iter()
+        .filter(|row| row.starts_with(&prefix))
+        .collect();
+    let native = match field["presence"].as_str()? {
+        "null" if !wire && key == "updatedAt" && field["root"] == "documents" => {
+            if !native_rows.is_empty() || !field["value"].is_null() {
+                return None;
+            }
             Value::Null
-        },
-        "absent" if wire && matches!(key,"snapshotAt"|"sourceSnippet"|"targetSnippet") => {
-            if !native_rows.is_empty() || !field["value"].is_null() { return None; }
+        }
+        "absent" if wire && matches!(key, "snapshotAt" | "sourceSnippet" | "targetSnippet") => {
+            if !native_rows.is_empty() || !field["value"].is_null() {
+                return None;
+            }
             Value::Null
-        },
-        "absent"|"null" if wire && matches!(key,"createdAt"|"deletedAt"|"inverseOf") => {
-            if !native_rows.is_empty() || !field["value"].is_null() { return None; }
+        }
+        "absent" | "null" if wire && matches!(key, "createdAt" | "deletedAt" | "inverseOf") => {
+            if !native_rows.is_empty() || !field["value"].is_null() {
+                return None;
+            }
             Value::Null
-        },
-        "present" if matches!(key,"updatedAt"|"snapshotAt"|"lastAccessedAt") => {
-            if native_rows.len()!=1 || legacy_projection_normalization(quad,projected).is_some() { return None; }
-            let line=format!("{} .",native_rows[0]);
-            let native_quad=RdfParser::from_format(RdfFormat::NTriples).for_slice(line.as_bytes()).next()?.ok()?;
-            let Term::Literal(value)=native_quad.object else { return None; };
-            let raw=crate::json_utils::json_scalar_lexical(Some(&field["value"]))?;
+        }
+        "present" if matches!(key, "updatedAt" | "snapshotAt" | "lastAccessedAt") => {
+            if native_rows.len() != 1 || legacy_projection_normalization(quad, projected).is_some()
+            {
+                return None;
+            }
+            let line = format!("{} .", native_rows[0]);
+            let native_quad = RdfParser::from_format(RdfFormat::NTriples)
+                .for_slice(line.as_bytes())
+                .next()?
+                .ok()?;
+            let Term::Literal(value) = native_quad.object else {
+                return None;
+            };
+            let raw = crate::json_utils::json_scalar_lexical(Some(&field["value"]))?;
             if field["value"].is_string() {
-                if raw!=value.value() || chrono::DateTime::parse_from_rfc3339(&raw).is_err() { return None; }
+                if raw != value.value() || chrono::DateTime::parse_from_rfc3339(&raw).is_err() {
+                    return None;
+                }
             } else if field["value"].is_number() {
-                let expected=preservation_v2::legacy_decimal_attribute(&raw)?;
-                let actual=preservation_v2::legacy_decimal_attribute(value.value())?;
-                if expected!=actual { return None; }
-            } else { return None; }
-            let native=json!({"lexical":value.value(),"datatype":value.datatype().as_str()});
-            if native==source { return None; }
+                let expected = preservation_v2::legacy_decimal_attribute(&raw)?;
+                let actual = preservation_v2::legacy_decimal_attribute(value.value())?;
+                if expected != actual {
+                    return None;
+                }
+            } else {
+                return None;
+            }
+            let native = json!({"lexical":value.value(),"datatype":value.datatype().as_str()});
+            if native == source {
+                return None;
+            }
             native
-        },
-        _=>return None,
+        }
+        _ => return None,
     };
-    Some(json!({"subject":subject.as_str(),"predicate":predicate,"source":source,"native":native,
+    Some(
+        json!({"subject":subject.as_str(),"predicate":predicate,"source":source,"native":native,
         "authoritativeProjectionField":field,"authority":"captured-workspace-yjs",
         "reason":"known-derived-assertion-not-current-saved-projection",
-        "disposition":"retained-not-rematerialized","rawSourceRetained":true}))
+        "disposition":"retained-not-rematerialized","rawSourceRetained":true}),
+    )
 }
 
-fn legacy_order_disposition(quad: &oxigraph::model::Quad, projected: &std::collections::HashSet<String>, authorities: &HashMap<String,Value>) -> Option<Value> {
-    use oxigraph::model::{NamedOrBlankNode,Term,Literal,NamedNode};
-    let NamedOrBlankNode::NamedNode(subject) = &quad.subject else { return None; };
-    if quad.predicate.as_str() != format!("{}order",crate::runtime_config::MDOC_NS) { return None; }
-    let Term::Literal(source) = &quad.object else { return None; };
+fn legacy_order_disposition(
+    quad: &oxigraph::model::Quad,
+    projected: &std::collections::HashSet<String>,
+    authorities: &HashMap<String, Value>,
+) -> Option<Value> {
+    use oxigraph::model::{Literal, NamedNode, NamedOrBlankNode, Term};
+    let NamedOrBlankNode::NamedNode(subject) = &quad.subject else {
+        return None;
+    };
+    if quad.predicate.as_str() != format!("{}order", crate::runtime_config::MDOC_NS) {
+        return None;
+    }
+    let Term::Literal(source) = &quad.object else {
+        return None;
+    };
     let datatype = "http://www.w3.org/2001/XMLSchema#float";
-    if source.datatype().as_str() != datatype { return None; }
+    if source.datatype().as_str() != datatype {
+        return None;
+    }
     let source_value = source.value().parse::<f32>().ok()?;
-    if !source_value.is_finite() { return None; }
+    if !source_value.is_finite() {
+        return None;
+    }
     let field = authorities.get(subject.as_str())?;
-    if field["key"] != "order" || !matches!(field["root"].as_str(),Some("documents"|"folders"|"artifacts"))
-        || field["entityId"].as_str().is_none_or(str::is_empty) { return None; }
+    if field["key"] != "order"
+        || !matches!(
+            field["root"].as_str(),
+            Some("documents" | "folders" | "artifacts")
+        )
+        || field["entityId"].as_str().is_none_or(str::is_empty)
+    {
+        return None;
+    }
     let value = field["value"].as_f64()?;
-    if !value.is_finite() || !(value as f32).is_finite() || source_value == value as f32 { return None; }
-    let native = Literal::new_typed_literal(value.to_string(),NamedNode::new(datatype).ok()?);
-    if !projected.contains(&format!("{} {} {}",quad.subject,quad.predicate,native)) { return None; }
-    Some(json!({"subject":subject.as_str(),"predicate":quad.predicate.as_str(),
+    if !value.is_finite() || !(value as f32).is_finite() || source_value == value as f32 {
+        return None;
+    }
+    let native = Literal::new_typed_literal(value.to_string(), NamedNode::new(datatype).ok()?);
+    if !projected.contains(&format!("{} {} {}", quad.subject, quad.predicate, native)) {
+        return None;
+    }
+    Some(
+        json!({"subject":subject.as_str(),"predicate":quad.predicate.as_str(),
         "source":{"lexical":source.value(),"datatype":datatype},
         "native":{"lexical":native.value(),"datatype":datatype},
         "authoritativeProjectionField":field,"authority":"captured-workspace-yjs",
-        "disposition":"retained-not-rematerialized","rawSourceRetained":true}))
+        "disposition":"retained-not-rematerialized","rawSourceRetained":true}),
+    )
 }
 
 // Cloud-1 access bookkeeping is informational, not content/layout authority.
 // A missing captured Y.Map field is NOT filled from RDF and is NOT evidence of
 // deletion. Preserve only this named legacy assertion in the disposition ledger.
-fn legacy_absent_access_disposition(quad: &oxigraph::model::Quad, projected: &std::collections::HashSet<String>, authorities: &HashMap<String,Value>) -> Option<Value> {
-    use oxigraph::model::{NamedOrBlankNode,Term};
-    let NamedOrBlankNode::NamedNode(subject) = &quad.subject else { return None; };
-    if quad.predicate.as_str() != format!("{}lastAccessedAt",crate::runtime_config::MDOC_NS) { return None; }
-    let Term::Literal(source) = &quad.object else { return None; };
-    if source.datatype().as_str() != "http://www.w3.org/2001/XMLSchema#dateTime" { return None; }
+fn legacy_absent_access_disposition(
+    quad: &oxigraph::model::Quad,
+    projected: &std::collections::HashSet<String>,
+    authorities: &HashMap<String, Value>,
+) -> Option<Value> {
+    use oxigraph::model::{NamedOrBlankNode, Term};
+    let NamedOrBlankNode::NamedNode(subject) = &quad.subject else {
+        return None;
+    };
+    if quad.predicate.as_str() != format!("{}lastAccessedAt", crate::runtime_config::MDOC_NS) {
+        return None;
+    }
+    let Term::Literal(source) = &quad.object else {
+        return None;
+    };
+    if source.datatype().as_str() != "http://www.w3.org/2001/XMLSchema#dateTime" {
+        return None;
+    }
     let decimal = preservation_v2::legacy_decimal_attribute(source.value()).is_some()
-        && source.value().parse::<f64>().is_ok_and(|v| v.is_finite() && v >= 0.0);
-    if !decimal && chrono::DateTime::parse_from_rfc3339(source.value()).is_err() { return None; }
+        && source
+            .value()
+            .parse::<f64>()
+            .is_ok_and(|v| v.is_finite() && v >= 0.0);
+    if !decimal && chrono::DateTime::parse_from_rfc3339(source.value()).is_err() {
+        return None;
+    }
     let field = authorities.get(subject.as_str())?;
-    if field["key"] != "lastAccessedAt" || field["presence"] != "absent"
-        || !matches!(field["root"].as_str(),Some("documents"|"folders"|"artifacts"))
-        || field["entityId"].as_str().is_none_or(str::is_empty) { return None; }
-    let prefix = format!("{} {} ",quad.subject,quad.predicate);
-    if projected.iter().any(|statement| statement.starts_with(&prefix)) { return None; }
-    Some(json!({"subject":subject.as_str(),"predicate":quad.predicate.as_str(),
+    if field["key"] != "lastAccessedAt"
+        || field["presence"] != "absent"
+        || !matches!(
+            field["root"].as_str(),
+            Some("documents" | "folders" | "artifacts")
+        )
+        || field["entityId"].as_str().is_none_or(str::is_empty)
+    {
+        return None;
+    }
+    let prefix = format!("{} {} ", quad.subject, quad.predicate);
+    if projected
+        .iter()
+        .any(|statement| statement.starts_with(&prefix))
+    {
+        return None;
+    }
+    Some(
+        json!({"subject":subject.as_str(),"predicate":quad.predicate.as_str(),
         "source":{"lexical":source.value(),"datatype":source.datatype().as_str()},
         "native":null,"authoritativeProjectionField":field,"authority":"captured-workspace-yjs",
         "reason":"informational-field-absent-from-captured-workspace",
-        "disposition":"retained-not-rematerialized","rawSourceRetained":true}))
+        "disposition":"retained-not-rematerialized","rawSourceRetained":true}),
+    )
 }
 
 fn count_archive_nquads(rdf_n_quads: &str) -> Result<usize, String> {
@@ -1572,10 +2450,12 @@ fn require_empty_cell_restore_target(
         crate::paths::workspace_snapshot_path(graph_dir),
     ] {
         match fs::symlink_metadata(&path) {
-            Ok(_) => return Err(format!(
-                "graph.restoreArchive: target graph {graph_id} already has workspace state"
-            )),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {},
+            Ok(_) => {
+                return Err(format!(
+                    "graph.restoreArchive: target graph {graph_id} already has workspace state"
+                ))
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => return Err(format!("inspect {}: {error}", path.display())),
         }
     }
@@ -1599,10 +2479,14 @@ fn require_empty_cell_restore_target(
     // record and its seed bookkeeping can predate an otherwise empty cell.
     if graph_dir.join("store.oxigraph").exists() {
         let store = crate::rdf_store_service::open_graph_store(graph_dir)?;
-        let permitted = [crate::rdf_authority::graph_projection_graph_iri(graph_id), crate::rdf_authority::seed_marker_graph_iri(graph_id)];
+        let permitted = [
+            crate::rdf_authority::graph_projection_graph_iri(graph_id),
+            crate::rdf_authority::seed_marker_graph_iri(graph_id),
+        ];
         for quad in store.iter() {
             let quad = quad.map_err(|error| error.to_string())?;
-            if !matches!(&quad.graph_name, oxigraph::model::GraphName::NamedNode(name) if permitted.iter().any(|iri| iri == name.as_str())) {
+            if !matches!(&quad.graph_name, oxigraph::model::GraphName::NamedNode(name) if permitted.iter().any(|iri| iri == name.as_str()))
+            {
                 return Err(format!("graph.restoreArchive: target graph {graph_id} already has RDF outside empty-cell bookkeeping"));
             }
         }
@@ -1796,8 +2680,8 @@ fn validate_cell_restore_contract(
     let marker_path = cell_restore_marker_path(graph_dir);
     let marker_preexisted = marker_path.is_file();
     if marker_preexisted {
-        let existing: CellArchiveRestoreMarker = crate::storage::read_json(&marker_path)
-            .map_err(crate::app_error::AppError::message)?;
+        let existing: CellArchiveRestoreMarker =
+            crate::storage::read_json(&marker_path).map_err(crate::app_error::AppError::message)?;
         marker.started_at = existing.started_at;
     }
     if !marker_preexisted {
@@ -1927,7 +2811,11 @@ pub(crate) async fn apply_classified(
     }
 
     // Tier B replay guard: if the operation completed previously, return the
-    let restore_hash = if restore_existing { Some(restore_envelope_hash(app, operation)?) } else { None };
+    let restore_hash = if restore_existing {
+        Some(restore_envelope_hash(app, operation)?)
+    } else {
+        None
+    };
 
     // cached envelope without re-touching the filesystem. The ledger entry is
     // written only after the full handler succeeds (see end of this function).
@@ -1938,8 +2826,13 @@ pub(crate) async fn apply_classified(
             ))
         })?;
     if let Some(hit) = ledger_hit {
-        if restore_existing && (hit.payload_hash != restore_hash || hit.graph_id.as_deref() != Some(new_graph_id.as_str())) {
-            return Err(ApplyOperationError::terminal("graph.restoreArchive: completed operation envelope mismatch"));
+        if restore_existing
+            && (hit.payload_hash != restore_hash
+                || hit.graph_id.as_deref() != Some(new_graph_id.as_str()))
+        {
+            return Err(ApplyOperationError::terminal(
+                "graph.restoreArchive: completed operation envelope mismatch",
+            ));
         }
         if hit.kind == operation_kind {
             let mut cached = hit
@@ -1950,7 +2843,11 @@ pub(crate) async fn apply_classified(
                 .unwrap_or_default();
             // Best-effort cleanup of any pending archive file before short-circuiting.
             if let Some(pending) = &pending_archive_path {
-                cleanup_pending_archive(app, pending, restore_existing.then_some(new_graph_id.as_str()));
+                cleanup_pending_archive(
+                    app,
+                    pending,
+                    restore_existing.then_some(new_graph_id.as_str()),
+                );
             }
             cached.insert("replayed".to_string(), json!(true));
             return Ok(Value::Object(cached));
@@ -2020,24 +2917,46 @@ pub(crate) async fn apply_classified(
     let parse_started = Instant::now();
     if payload.get("formatVersion").and_then(Value::as_u64) == Some(2) {
         if !restore_existing {
-            return Err(ApplyOperationError::terminal("preservation v2 requires the owner-bound restore route"));
+            return Err(ApplyOperationError::terminal(
+                "preservation v2 requires the owner-bound restore route",
+            ));
         }
-        return preservation_v2::apply(app, operation, &bytes, pending_archive_path.as_deref(),
-            restore_hash.expect("restore envelope checked"));
+        return preservation_v2::apply(
+            app,
+            operation,
+            &bytes,
+            pending_archive_path.as_deref(),
+            restore_hash.expect("restore envelope checked"),
+        );
     }
     let parsed = parse_graph_archive(&bytes).map_err(ApplyOperationError::terminal)?;
     let restore_preflight = if restore_existing {
-        Some(preflight_cell_archive(&parsed, &new_graph_id).map_err(ApplyOperationError::terminal)?)
-    } else { None };
+        Some(
+            preflight_cell_archive(&parsed, &new_graph_id)
+                .map_err(ApplyOperationError::terminal)?,
+        )
+    } else {
+        None
+    };
     // Hold only a registry-owned admission token, never a mutex across await.
     // This refusal precedes a new claim and every workspace/document write.
     let restore_registry = if restore_existing {
-        Some(app.try_state::<super::rooms::RoomRegistry>()
-            .ok_or_else(|| ApplyOperationError::terminal("graph.restoreArchive: managed room registry required"))?)
-    } else { None };
-    let _restore_rooms = restore_registry.as_ref()
+        Some(
+            app.try_state::<super::rooms::RoomRegistry>()
+                .ok_or_else(|| {
+                    ApplyOperationError::terminal(
+                        "graph.restoreArchive: managed room registry required",
+                    )
+                })?,
+        )
+    } else {
+        None
+    };
+    let _restore_rooms = restore_registry
+        .as_ref()
         .map(|registry| registry.begin_disk_restore(&new_graph_id))
-        .transpose().map_err(ApplyOperationError::terminal)?;
+        .transpose()
+        .map_err(ApplyOperationError::terminal)?;
     record_import_phase(app, operation_id, "rustImportArchiveParseMs", parse_started);
     let manifest = &parsed.manifest;
     let requested_title = nullable_string_value(pick(&payload, &["newTitle", "new_title"]))
@@ -2179,7 +3098,9 @@ pub(crate) async fn apply_classified(
         let rewrite_started = Instant::now();
         let rewritten = if let Some(preflight) = &restore_preflight {
             preflight.user_rdf.clone()
-        } else { rewrite_graph_archive_rdf(&parsed.rdf_n_quads, manifest, &new_graph_id) };
+        } else {
+            rewrite_graph_archive_rdf(&parsed.rdf_n_quads, manifest, &new_graph_id)
+        };
         record_import_phase(
             app,
             operation_id,
@@ -2247,9 +3168,18 @@ pub(crate) async fn apply_classified(
         object.insert("restoredExistingGraph".to_string(), json!(true));
         if let Some(preflight) = &restore_preflight {
             object.insert("rdfPolicy".into(), json!(CELL_RESTORE_RDF_POLICY));
-            object.insert("authoredRdfStatementCount".into(), json!(preflight.authored_statements));
-            object.insert("regeneratedRdfStatementCount".into(), json!(preflight.regenerated_statements));
-            object.insert("userRdfGraphIri".into(), json!(crate::rdf_authority::user_rdf_graph_iri(&new_graph_id)));
+            object.insert(
+                "authoredRdfStatementCount".into(),
+                json!(preflight.authored_statements),
+            );
+            object.insert(
+                "regeneratedRdfStatementCount".into(),
+                json!(preflight.regenerated_statements),
+            );
+            object.insert(
+                "userRdfGraphIri".into(),
+                json!(crate::rdf_authority::user_rdf_graph_iri(&new_graph_id)),
+            );
         }
         object.insert(
             "archive_sha256".to_string(),
@@ -2305,7 +3235,11 @@ pub(crate) async fn apply_classified(
 
     if let Some(pending) = &pending_archive_path {
         let cleanup_started = Instant::now();
-        cleanup_pending_archive(app, pending, restore_existing.then_some(new_graph_id.as_str()));
+        cleanup_pending_archive(
+            app,
+            pending,
+            restore_existing.then_some(new_graph_id.as_str()),
+        );
         record_import_phase(
             app,
             operation_id,
@@ -2339,7 +3273,11 @@ fn contract_audit(document_id: &str, tiptap_json: &Value) -> Vec<String> {
     let mut out: Vec<String> = rewrites
         .iter()
         .take(CONTRACT_AUDIT_LIMIT)
-        .map(|w| format!("document {document_id}: stored bytes unchanged; next JSON write would apply: {w}"))
+        .map(|w| {
+            format!(
+                "document {document_id}: stored bytes unchanged; next JSON write would apply: {w}"
+            )
+        })
         .collect();
     if rewrites.len() > CONTRACT_AUDIT_LIMIT {
         out.push(format!(
@@ -2436,35 +3374,55 @@ mod cell_restore_contract_tests {
         assert!(require_compressed_archive_size(0).is_ok());
         assert!(require_compressed_archive_size(MAX_EXTRACTED_SIZE).is_ok());
         assert!(require_compressed_archive_size(MAX_EXTRACTED_SIZE + 1)
-            .unwrap_err().contains("including its gzip header"));
+            .unwrap_err()
+            .contains("including its gzip header"));
     }
 
     #[test]
     fn cell_restore_gzip_expansion_is_bounded_during_read_including_zero_header_tail() {
         let exact = vec![0u8; 1024];
-        assert_eq!(read_gzip_bounded(&gzip_for_limit_test(&exact), 1024).unwrap(), exact);
+        assert_eq!(
+            read_gzip_bounded(&gzip_for_limit_test(&exact), 1024).unwrap(),
+            exact
+        );
         // The first zero tar header does not excuse inflating its following tail.
         let expanded_tail = vec![0u8; 4096];
         let compressed = gzip_for_limit_test(&expanded_tail);
         assert!(compressed.len() < 1024);
-        assert!(read_gzip_bounded(&compressed, 1024).unwrap_err().contains("exceeds 1024 bytes"));
+        assert!(read_gzip_bounded(&compressed, 1024)
+            .unwrap_err()
+            .contains("exceeds 1024 bytes"));
         assert!(read_gzip_bounded(&gzip_for_limit_test(&[0]), 0).is_err());
-        assert!(read_gzip_bounded(&gzip_for_limit_test(&[]), 0).unwrap().is_empty());
+        assert!(read_gzip_bounded(&gzip_for_limit_test(&[]), 0)
+            .unwrap()
+            .is_empty());
         assert!(read_gzip_bounded(b"not gzip", 1024).is_err());
     }
 
     #[test]
     fn cell_restore_tar_tail_is_zero_and_bounded() {
-        assert!(read_tar_entries(&vec![0; MAX_TAR_TRAILING_BYTES]).unwrap().is_empty());
-        assert!(read_tar_entries(&vec![0; MAX_TAR_TRAILING_BYTES + TAR_BLOCK_SIZE]).unwrap_err().contains("Invalid tar tail"));
+        assert!(read_tar_entries(&vec![0; MAX_TAR_TRAILING_BYTES])
+            .unwrap()
+            .is_empty());
+        assert!(
+            read_tar_entries(&vec![0; MAX_TAR_TRAILING_BYTES + TAR_BLOCK_SIZE])
+                .unwrap_err()
+                .contains("Invalid tar tail")
+        );
         let mut tail = vec![0; TAR_BLOCK_SIZE * 2];
         tail[TAR_BLOCK_SIZE] = 1;
-        assert!(read_tar_entries(&tail).unwrap_err().contains("Invalid tar tail"));
-        assert!(read_tar_entries(&[1, 2, 3]).unwrap_err().contains("incomplete nonzero header"));
+        assert!(read_tar_entries(&tail)
+            .unwrap_err()
+            .contains("Invalid tar tail"));
+        assert!(read_tar_entries(&[1, 2, 3])
+            .unwrap_err()
+            .contains("incomplete nonzero header"));
     }
 
     fn independent_archive() -> ParsedGraphArchive {
-        let fixture: Value = serde_json::from_str(include_str!("../../tests/fixtures/owned-restore-v1.json")).unwrap();
+        let fixture: Value =
+            serde_json::from_str(include_str!("../../tests/fixtures/owned-restore-v1.json"))
+                .unwrap();
         let bytes = decode_bytes_base64(fixture["archiveBase64"].as_str().unwrap()).unwrap();
         parse_graph_archive(&bytes).unwrap()
     }
@@ -2473,14 +3431,22 @@ mod cell_restore_contract_tests {
     fn cell_restore_preflight_preserves_nonowned_title_and_rejects_unresolved_identity() {
         let mut archive = independent_archive();
         let graph = archive.manifest.source_graph_id.clone();
-        let source = format!("urn:mnemosyne:user:{}:graph:{graph}", archive.manifest.source_user_id);
+        let source = format!(
+            "urn:mnemosyne:user:{}:graph:{graph}",
+            archive.manifest.source_user_id
+        );
         archive.rdf_n_quads.push_str(&format!("<urn:external:authored-subject> <http://purl.org/dc/terms/title> \"Not a workspace title\"@en <{source}> .\n"));
         let preflight = preflight_cell_archive(&archive, &graph).unwrap();
         assert_eq!(preflight.regenerated_statements, 5);
         assert_eq!(preflight.authored_statements, 5);
         assert!(preflight.user_rdf.contains("\"Not a workspace title\"@en"));
-        archive.rdf_n_quads.push_str(&format!("<{source}:doc:missing-physical-document> <urn:custom:p> \"orphan\" <{source}> .\n"));
-        assert!(preflight_cell_archive(&archive, &graph).err().unwrap().contains("unresolved source document identity"));
+        archive.rdf_n_quads.push_str(&format!(
+            "<{source}:doc:missing-physical-document> <urn:custom:p> \"orphan\" <{source}> .\n"
+        ));
+        assert!(preflight_cell_archive(&archive, &graph)
+            .err()
+            .unwrap()
+            .contains("unresolved source document identity"));
     }
 
     #[test]
@@ -2488,44 +3454,93 @@ mod cell_restore_contract_tests {
         use crate::crdt_engine::content_parity as parity;
         let mut archive = independent_archive();
         let graph = archive.manifest.source_graph_id.clone();
-        let source = format!("urn:mnemosyne:user:{}:graph:{graph}", archive.manifest.source_user_id);
-        archive.rdf_n_quads.push_str(&format!("<{source}:doc:missing-physical-document> <urn:custom:p> \"orphan\" <{source}> .\n"));
+        let source = format!(
+            "urn:mnemosyne:user:{}:graph:{graph}",
+            archive.manifest.source_user_id
+        );
+        archive.rdf_n_quads.push_str(&format!(
+            "<{source}:doc:missing-physical-document> <urn:custom:p> \"orphan\" <{source}> .\n"
+        ));
 
         // Strict, and with the concession named but no evidence graph to retain into:
         // both refuse, because a concession that dropped the quad would invert the
         // meaning of content parity.
-        let named = parity::Concessions::parse(Some(&json!([parity::UNRESOLVED_SOURCE_DOCUMENT_IDENTITY]))).unwrap();
+        let named =
+            parity::Concessions::parse(Some(&json!([parity::UNRESOLVED_SOURCE_DOCUMENT_IDENTITY])))
+                .unwrap();
         for concessions in [&parity::Concessions::none(), &named] {
-            let error = preflight_cell_archive_with_content_parity(&archive, &graph, false,
-                &HashMap::new(), &std::collections::BTreeSet::new(), None, concessions)
-                .err().expect("no evidence graph means the strict error stands");
-            assert!(error.contains("unresolved source document identity"), "{error}");
+            let error = preflight_cell_archive_with_content_parity(
+                &archive,
+                &graph,
+                false,
+                &HashMap::new(),
+                &std::collections::BTreeSet::new(),
+                None,
+                concessions,
+            )
+            .err()
+            .expect("no evidence graph means the strict error stands");
+            assert!(
+                error.contains("unresolved source document identity"),
+                "{error}"
+            );
         }
 
         // Conceded, with an evidence graph: admitted, the quad retained there, and the
         // dangling id recorded as a reference-only disposition.
-        let preflight = preflight_cell_archive_with_content_parity(&archive, &graph, false,
-            &HashMap::new(), &std::collections::BTreeSet::new(), Some("deadbeef"), &named)
-            .expect("conceded unresolved identity is admitted");
-        let row = preflight.retained_derived_assertions.iter()
+        let preflight = preflight_cell_archive_with_content_parity(
+            &archive,
+            &graph,
+            false,
+            &HashMap::new(),
+            &std::collections::BTreeSet::new(),
+            Some("deadbeef"),
+            &named,
+        )
+        .expect("conceded unresolved identity is admitted");
+        let row = preflight
+            .retained_derived_assertions
+            .iter()
             .find(|row| row["reason"] == "unresolved-source-document-identity-v1")
             .expect("the concession is recorded");
         assert_eq!(row["unresolvedDocumentId"], "missing-physical-document");
-        assert_eq!(row["contentParity"]["concession"], parity::UNRESOLVED_SOURCE_DOCUMENT_IDENTITY);
+        assert_eq!(
+            row["contentParity"]["concession"],
+            parity::UNRESOLVED_SOURCE_DOCUMENT_IDENTITY
+        );
         assert_eq!(row["contentParity"]["ruling"], parity::RULING);
         assert_eq!(row["referenceOnly"], true);
         assert_eq!(row["currentEntityExistenceAsserted"], false);
         assert_eq!(row["rawSourceRetained"], true);
-        let evidence = row["evidenceGraph"].as_str().expect("an evidence graph is named");
-        assert!(preflight.user_rdf.contains(evidence), "the quad is retained in the evidence graph");
-        assert!(preflight.user_rdf.contains("missing-physical-document"),
-            "content parity means the assertion survives");
+        let evidence = row["evidenceGraph"]
+            .as_str()
+            .expect("an evidence graph is named");
+        assert!(
+            preflight.user_rdf.contains(evidence),
+            "the quad is retained in the evidence graph"
+        );
+        assert!(
+            preflight.user_rdf.contains("missing-physical-document"),
+            "content parity means the assertion survives"
+        );
 
         // Naming only the OTHER concession must not admit this one.
-        let other = parity::Concessions::parse(Some(&json!([parity::SOURCE_ASSERTION_OUTSIDE_PROJECTION_AUTHORITY]))).unwrap();
-        assert!(preflight_cell_archive_with_content_parity(&archive, &graph, false,
-            &HashMap::new(), &std::collections::BTreeSet::new(), Some("deadbeef"), &other)
-            .err().unwrap().contains("unresolved source document identity"));
+        let other = parity::Concessions::parse(Some(&json!([
+            parity::SOURCE_ASSERTION_OUTSIDE_PROJECTION_AUTHORITY
+        ])))
+        .unwrap();
+        assert!(preflight_cell_archive_with_content_parity(
+            &archive,
+            &graph,
+            false,
+            &HashMap::new(),
+            &std::collections::BTreeSet::new(),
+            Some("deadbeef"),
+            &other
+        )
+        .err()
+        .unwrap()
+        .contains("unresolved source document identity"));
     }
 
     #[test]

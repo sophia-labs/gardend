@@ -2,7 +2,9 @@ use crate::{
     loopback_scopes::{crdt_operation_scopes, mcp_tool_scopes},
     loopback_state::LoopbackState,
     mcp_dispatch_registry::{lookup, McpCallCtx},
-    mcp_rpc_protocol::{mcp_error, mcp_error_with_data, mcp_scope_error, mcp_success, McpRpcResponse},
+    mcp_rpc_protocol::{
+        mcp_error, mcp_error_with_data, mcp_scope_error, mcp_success, McpRpcResponse,
+    },
 };
 
 pub(crate) async fn handle_mcp_tool_call(
@@ -150,8 +152,7 @@ mod tests {
 
     #[test]
     fn unclassified_tool_failure_omits_error_data() {
-        let response =
-            tool_failure_response(None, crate::app_error::AppError::internal("boom"));
+        let response = tool_failure_response(None, crate::app_error::AppError::internal("boom"));
         let value = serde_json::to_value(&response).unwrap();
         assert_eq!(value["error"]["code"], -32000);
         assert_eq!(value["error"]["message"], "boom");

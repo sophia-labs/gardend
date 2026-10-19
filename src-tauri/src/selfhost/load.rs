@@ -128,7 +128,12 @@ pub fn load_into_profile(
         ));
     }
     let format = resolve_format(args)?;
-    let default_target = match args.into.as_deref().map(str::trim).filter(|iri| !iri.is_empty()) {
+    let default_target = match args
+        .into
+        .as_deref()
+        .map(str::trim)
+        .filter(|iri| !iri.is_empty())
+    {
         Some(iri) => {
             if is_reserved_rdf_graph_iri(&args.graph, iri) {
                 return Err(format!("--into {iri} is a reserved projection graph"));
@@ -221,8 +226,12 @@ pub fn load_into_profile(
         .commit()
         .map_err(|error| format!("commit the load: {error}; nothing was loaded"))?;
     drop(store);
-    crate::graph_record_store::touch_graph_updated_at(&graph_dir)
-        .map_err(|error| format!("loaded, but touching graph.json failed: {}", error.message()))?;
+    crate::graph_record_store::touch_graph_updated_at(&graph_dir).map_err(|error| {
+        format!(
+            "loaded, but touching graph.json failed: {}",
+            error.message()
+        )
+    })?;
     Ok(LoadReport {
         graph_id: args.graph.clone(),
         quads: parsed,
@@ -266,11 +275,14 @@ fn resolve_format(args: &LoadArgs) -> Result<RdfFormat, String> {
 /// The input as a buffered stream; `.gz` files are decompressed on the fly.
 fn open_input(input: &str) -> Result<Box<dyn Read>, String> {
     if input == "-" {
-        return Ok(Box::new(BufReader::with_capacity(1 << 20, std::io::stdin())));
+        return Ok(Box::new(BufReader::with_capacity(
+            1 << 20,
+            std::io::stdin(),
+        )));
     }
     let path = PathBuf::from(input);
-    let file = std::fs::File::open(&path)
-        .map_err(|error| format!("open {}: {error}", path.display()))?;
+    let file =
+        std::fs::File::open(&path).map_err(|error| format!("open {}: {error}", path.display()))?;
     let reader = BufReader::with_capacity(1 << 20, file);
     if input.to_ascii_lowercase().ends_with(".gz") {
         Ok(Box::new(BufReader::with_capacity(
@@ -307,7 +319,8 @@ mod tests {
     /// A profile with one graph, as gardend leaves it (`graph.json` and no
     /// served store open).
     fn profile_with_graph() -> Scratch {
-        let profile = Scratch(std::env::temp_dir().join(format!("gardend-load-{}", uuid::Uuid::new_v4())));
+        let profile =
+            Scratch(std::env::temp_dir().join(format!("gardend-load-{}", uuid::Uuid::new_v4())));
         let graph_dir = profile.path().join("graphs").join(GRAPH);
         std::fs::create_dir_all(&graph_dir).unwrap();
         std::fs::write(
@@ -339,12 +352,13 @@ mod tests {
 
     fn count(profile: &Path, query: &str) -> u64 {
         let store = Store::open(profile.join("graphs").join(GRAPH).join("store.oxigraph")).unwrap();
-        let oxigraph::sparql::QueryResults::Solutions(mut rows) = oxigraph::sparql::SparqlEvaluator::new()
-            .parse_query(query)
-            .unwrap()
-            .on_store(&store)
-            .execute()
-            .unwrap()
+        let oxigraph::sparql::QueryResults::Solutions(mut rows) =
+            oxigraph::sparql::SparqlEvaluator::new()
+                .parse_query(query)
+                .unwrap()
+                .on_store(&store)
+                .execute()
+                .unwrap()
         else {
             panic!("not a SELECT");
         };
@@ -361,8 +375,10 @@ mod tests {
     fn a_gzipped_nquads_file_loads_into_its_graphs_and_queries_back() {
         let profile = profile_with_graph();
         let file = profile.path().join("cube.nq.gz");
-        let mut encoder =
-            flate2::write::GzEncoder::new(std::fs::File::create(&file).unwrap(), flate2::Compression::fast());
+        let mut encoder = flate2::write::GzEncoder::new(
+            std::fs::File::create(&file).unwrap(),
+            flate2::Compression::fast(),
+        );
         for i in 0..25_000 {
             writeln!(
                 encoder,
@@ -401,7 +417,10 @@ mod tests {
             1
         );
         assert_eq!(
-            count(profile.path(), "SELECT (COUNT(*) AS ?n) WHERE { <urn:cow:cube> ?p ?o }"),
+            count(
+                profile.path(),
+                "SELECT (COUNT(*) AS ?n) WHERE { <urn:cow:cube> ?p ?o }"
+            ),
             0
         );
     }
@@ -411,7 +430,11 @@ mod tests {
     fn triples_go_to_the_named_graph_asked_for() {
         let profile = profile_with_graph();
         let file = profile.path().join("labels.ttl");
-        std::fs::write(&file, "<urn:a> <urn:label> \"a\" .\n<urn:b> <urn:label> \"b\" .\n").unwrap();
+        std::fs::write(
+            &file,
+            "<urn:a> <urn:label> \"a\" .\n<urn:b> <urn:label> \"b\" .\n",
+        )
+        .unwrap();
         let mut load = args(&file);
         load.into = Some("urn:cow:labels".to_string());
         let report = load_into_profile(profile.path(), &load, &mut |_| {}).unwrap();
@@ -444,7 +467,10 @@ mod tests {
         assert!(error.contains("reserved projection graph"), "{error}");
         assert!(error.contains("nothing was loaded"), "{error}");
         assert_eq!(
-            count(profile.path(), "SELECT (COUNT(*) AS ?n) WHERE { GRAPH ?g { ?s ?p ?o } }"),
+            count(
+                profile.path(),
+                "SELECT (COUNT(*) AS ?n) WHERE { GRAPH ?g { ?s ?p ?o } }"
+            ),
             0
         );
     }
@@ -454,11 +480,18 @@ mod tests {
     fn a_broken_file_loads_nothing() {
         let profile = profile_with_graph();
         let file = profile.path().join("broken.nt");
-        std::fs::write(&file, "<urn:a> <urn:p> \"a\" .\n<urn:b> <urn:p> \"unterminated .\n").unwrap();
+        std::fs::write(
+            &file,
+            "<urn:a> <urn:p> \"a\" .\n<urn:b> <urn:p> \"unterminated .\n",
+        )
+        .unwrap();
         let error = load_into_profile(profile.path(), &args(&file), &mut |_| {}).unwrap_err();
         assert!(error.contains("parse"), "{error}");
         assert_eq!(
-            count(profile.path(), "SELECT (COUNT(*) AS ?n) WHERE { GRAPH ?g { ?s ?p ?o } }"),
+            count(
+                profile.path(),
+                "SELECT (COUNT(*) AS ?n) WHERE { GRAPH ?g { ?s ?p ?o } }"
+            ),
             0
         );
     }
@@ -475,7 +508,10 @@ mod tests {
         let error = load_into_profile(profile.path(), &other, &mut |_| {}).unwrap_err();
         assert!(error.contains("create it first"), "{error}");
         let mut reserved = args(&profile.path().join("x.nt"));
-        reserved.into = Some(format!("{}:projection:workspace", crate::rdf::graph_subject(GRAPH)));
+        reserved.into = Some(format!(
+            "{}:projection:workspace",
+            crate::rdf::graph_subject(GRAPH)
+        ));
         std::fs::write(profile.path().join("x.nt"), "").unwrap();
         let error = load_into_profile(profile.path(), &reserved, &mut |_| {}).unwrap_err();
         assert!(error.contains("reserved"), "{error}");

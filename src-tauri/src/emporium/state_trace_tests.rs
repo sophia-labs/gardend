@@ -315,8 +315,9 @@ fn run_workflow_trace() {
     assert_eq!(plan1.summary.rdf_delete, 0, "rdfDelete==0 on first plan");
 
     // ── STAGE 2 — APPLY (apply_and_assert, the real write path) ──────────────
-    let report =
-        crate::app_runtime::async_runtime::block_on(apply_and_assert(&app, graph_id, plan1, contract, &request));
+    let report = crate::app_runtime::async_runtime::block_on(apply_and_assert(
+        &app, graph_id, plan1, contract, &request,
+    ));
     println!("\n-- STAGE 2  APPLY (apply_and_assert → CRDT surface + GRAPH <user:rdf>) --");
     println!(
         "  ApplyReport: ok={} haltedAt={:?} steps={} scriptBlock={:?}",
@@ -2168,9 +2169,11 @@ fn run_openapi_populated_serving_oracle() {
         "application/openapi+json"
     );
     // Read the served body and prove it is the SAME populated spec.
-    let body_bytes =
-        crate::app_runtime::async_runtime::block_on(axum::body::to_bytes(response.into_body(), usize::MAX))
-            .expect("collect the served body");
+    let body_bytes = crate::app_runtime::async_runtime::block_on(axum::body::to_bytes(
+        response.into_body(),
+        usize::MAX,
+    ))
+    .expect("collect the served body");
     let served: Value = serde_json::from_slice(&body_bytes).expect("served body is valid JSON");
     assert_eq!(
         served["paths"]["/tasks"]["post"]["operationId"],
@@ -2347,9 +2350,11 @@ fn run_survey_synthesize_workflow_binding_openapi() {
     // ── CURL-EMIT the OpenAPI doc through the real serve face ────────────────
     let response = populated_openapi_response(&store, graph_id, Some("openapi"), &HeaderMap::new());
     assert_eq!(response.status(), axum::http::StatusCode::OK);
-    let body_bytes =
-        crate::app_runtime::async_runtime::block_on(axum::body::to_bytes(response.into_body(), usize::MAX))
-            .expect("collect served body");
+    let body_bytes = crate::app_runtime::async_runtime::block_on(axum::body::to_bytes(
+        response.into_body(),
+        usize::MAX,
+    ))
+    .expect("collect served body");
     let served: Value =
         serde_json::from_slice(&body_bytes).expect("served body is valid OpenAPI JSON");
 
@@ -3611,8 +3616,13 @@ fn run_chamber_write_lane() {
     let app = mock_app();
     let graph_id = "chamber-write-lane";
     seed_graph(&app, graph_id);
-    propose(&app, graph_id, bench_contract_v1(), "chamber write-lane witness")
-        .expect("propose bench-domain v1");
+    propose(
+        &app,
+        graph_id,
+        bench_contract_v1(),
+        "chamber write-lane witness",
+    )
+    .expect("propose bench-domain v1");
     assert_eq!(active_ontology_count(&app, graph_id, "bench-domain"), 1);
     assert_eq!(trial_count(&app, graph_id), 0, "no Trial before the write");
 
@@ -3629,7 +3639,11 @@ fn run_chamber_write_lane() {
     .expect("a chamber vocabulary that previews clean must also apply");
 
     assert_eq!(applied["ok"], json!(true), "apply ok: {applied}");
-    assert_eq!(applied["dryRun"], json!(false), "this was the apply, not the preview");
+    assert_eq!(
+        applied["dryRun"],
+        json!(false),
+        "this was the apply, not the preview"
+    );
     assert_eq!(
         applied["sourceLedgered"],
         json!(false),
@@ -3638,7 +3652,11 @@ fn run_chamber_write_lane() {
     let outcomes = applied["results"].as_array().expect("results array");
     assert_eq!(outcomes.len(), 1);
     assert_eq!(outcomes[0]["outcome"], json!("applied"));
-    assert_eq!(trial_count(&app, graph_id), 1, "the Trial landed in its projection sink");
+    assert_eq!(
+        trial_count(&app, graph_id),
+        1,
+        "the Trial landed in its projection sink"
+    );
 
     // Idempotent re-apply of the same record: still ok, still one Trial.
     let again = crate::app_runtime::async_runtime::block_on(
@@ -3646,5 +3664,9 @@ fn run_chamber_write_lane() {
     )
     .expect("re-apply");
     assert_eq!(again["ok"], json!(true));
-    assert_eq!(trial_count(&app, graph_id), 1, "re-apply converges, never duplicates");
+    assert_eq!(
+        trial_count(&app, graph_id),
+        1,
+        "re-apply converges, never duplicates"
+    );
 }

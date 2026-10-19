@@ -31,10 +31,12 @@ fn run(store: &Store, graph_id: &str, langs: &[&str]) -> (Vec<EntityRecord>, Ver
 }
 
 fn find<'a>(records: &'a [EntityRecord], iri: &str) -> &'a EntityRecord {
-    records
-        .iter()
-        .find(|r| r.iri == iri)
-        .unwrap_or_else(|| panic!("no record for {iri}: {:?}", records.iter().map(|r| &r.iri).collect::<Vec<_>>()))
+    records.iter().find(|r| r.iri == iri).unwrap_or_else(|| {
+        panic!(
+            "no record for {iri}: {:?}",
+            records.iter().map(|r| &r.iri).collect::<Vec<_>>()
+        )
+    })
 }
 
 const CATALOGUE: &str = r#"
@@ -68,29 +70,57 @@ GRAPH <urn:mnemosyne:local:graph:uruguay-catalogue:projection:document:about> {
 fn dcat_dataset_reads_through_publisher_theme_and_parts() {
     let s = store(CATALOGUE);
     let (records, _) = run(&s, "uruguay-catalogue", &["es", "en"]);
-    let ds = find(&records, "https://catalogodatos.gub.uy/dataset/ancap-precio-combustible-pe");
+    let ds = find(
+        &records,
+        "https://catalogodatos.gub.uy/dataset/ancap-precio-combustible-pe",
+    );
     assert_eq!(ds.kind, "dataset");
     assert_eq!(ds.label, "Precios de Combustibles - Poder Ejecutivo");
-    for needle in ["publisher: ANCAP", "theme: Energía", "Datos de precios de combustibles", "Precios máximos"] {
-        assert!(ds.text.contains(needle), "{needle:?} missing from {:?}", ds.text);
+    for needle in [
+        "publisher: ANCAP",
+        "theme: Energía",
+        "Datos de precios de combustibles",
+        "Precios máximos",
+    ] {
+        assert!(
+            ds.text.contains(needle),
+            "{needle:?} missing from {:?}",
+            ds.text
+        );
     }
     // ids, URLs and housekeeping never reach the text (the UUID guard and the skip list)
     for absent in ["3f2a9c1e", "https://", "identifier", "landing page"] {
-        assert!(!ds.text.contains(absent), "{absent:?} leaked into {:?}", ds.text);
+        assert!(
+            !ds.text.contains(absent),
+            "{absent:?} leaked into {:?}",
+            ds.text
+        );
     }
     // the catalog's member list is noise, not a relation
     let catalog = find(&records, "https://catalogodatos.gub.uy/");
     assert!(!catalog.text.contains("Precios"), "{}", catalog.text);
     // a distribution is a part: it rolls up to its dataset and says so
-    let dist = find(&records, "https://catalogodatos.gub.uy/dataset/ancap-precio-combustible-pe/resource/r1");
+    let dist = find(
+        &records,
+        "https://catalogodatos.gub.uy/dataset/ancap-precio-combustible-pe/resource/r1",
+    );
     assert_eq!(dist.kind, "distribution");
-    assert_eq!(dist.parent.as_deref(), Some("https://catalogodatos.gub.uy/dataset/ancap-precio-combustible-pe"));
-    assert!(dist.text.contains("part of: Precios de Combustibles"), "{}", dist.text);
+    assert_eq!(
+        dist.parent.as_deref(),
+        Some("https://catalogodatos.gub.uy/dataset/ancap-precio-combustible-pe")
+    );
+    assert!(
+        dist.text.contains("part of: Precios de Combustibles"),
+        "{}",
+        dist.text
+    );
     // the theme's other-language label is an alternate
     let theme = find(&records, "https://catalogodatos.gub.uy/group/energia");
     assert!(theme.text.starts_with("Energía (Energy)"), "{}", theme.text);
     // Sophia's own projection graphs belong to the block index, not here
-    assert!(records.iter().all(|r| r.iri != "urn:mnemosyne:local:document:about"));
+    assert!(records
+        .iter()
+        .all(|r| r.iri != "urn:mnemosyne:local:document:about"));
 }
 
 const CUBE: &str = r#"
@@ -135,23 +165,49 @@ fn data_cube_indexes_structure_and_code_lists_never_observations() {
     // shouting code-list labels are un-shouted in the text and lose their enumerator; the label is kept
     let dry = find(&records, "urn:sophia:cow:animal-category/2/3");
     assert_eq!(dry.label, "3) VACAS SECAS");
-    assert!(dry.text.starts_with("Vacas secas [code 3] — animal category"), "{}", dry.text);
+    assert!(
+        dry.text
+            .starts_with("Vacas secas [code 3] — animal category"),
+        "{}",
+        dry.text
+    );
     // an unlabelled schema thing is named by its local name
-    let class = find(&records, "https://sophia.dev/ontology/cattle-aggregates#Department");
+    let class = find(
+        &records,
+        "https://sophia.dev/ontology/cattle-aggregates#Department",
+    );
     assert_eq!(class.label, "department");
     assert_eq!(class.kind, "class");
     // an unlabelled typed instance with a code reads as "<type> <code>"; a dataset says its dimensions and measures
     let snap = find(&records, "urn:sophia:cow:snapshot/2025");
     assert_eq!(snap.label, "dataset snapshot 2025");
     assert_eq!(snap.kind, "dataset");
-    assert!(snap.text.contains("dimensions: department; measures: animals count"), "{}", snap.text);
+    assert!(
+        snap.text
+            .contains("dimensions: department; measures: animals count"),
+        "{}",
+        snap.text
+    );
     // a code-like label gets its type in front, and relations render through labels
     let area = find(&records, "urn:sophia:cow:enumeration-area/1001001");
     assert!(area.label.starts_with("enumeration area"), "{}", area.label);
-    assert!(area.text.contains("department: Montevideo"), "{}", area.text);
+    assert!(
+        area.text.contains("department: Montevideo"),
+        "{}",
+        area.text
+    );
     // language preference picks the label; the other language is an alternate
-    let metric = find(&records, "https://sophia.dev/ontology/cattle-aggregates#metric_bovine_count");
-    assert!(metric.text.starts_with("Existencias bovinas (Bovine count)"), "{}", metric.text);
+    let metric = find(
+        &records,
+        "https://sophia.dev/ontology/cattle-aggregates#metric_bovine_count",
+    );
+    assert!(
+        metric
+            .text
+            .starts_with("Existencias bovinas (Bovine count)"),
+        "{}",
+        metric.text
+    );
 }
 
 const WIKIDATA: &str = r#"
@@ -177,28 +233,62 @@ fn wikidata_types_predicates_and_unnamed_objects() {
     let (records, stats) = run(&s, "wd", &["en", "es"]);
     let cavani = find(&records, "http://www.wikidata.org/entity/Q167790");
     assert_eq!(cavani.types, vec!["human".to_string()]);
-    assert!(cavani.text.starts_with("Edinson Cavani (Edinson Roberto Cavani Gomez) — human."), "{}", cavani.text);
-    for needle in ["Uruguayan association football player", "futbolista uruguayo", "place of birth: Salto", "member of sports team: Manchester United F.C."] {
-        assert!(cavani.text.contains(needle), "{needle:?} missing from {:?}", cavani.text);
+    assert!(
+        cavani
+            .text
+            .starts_with("Edinson Cavani (Edinson Roberto Cavani Gomez) — human."),
+        "{}",
+        cavani.text
+    );
+    for needle in [
+        "Uruguayan association football player",
+        "futbolista uruguayo",
+        "place of birth: Salto",
+        "member of sports team: Manchester United F.C.",
+    ] {
+        assert!(
+            cavani.text.contains(needle),
+            "{needle:?} missing from {:?}",
+            cavani.text
+        );
     }
     // an object with no label is dropped, never shown as Q999999999
     assert!(!cavani.text.contains("Q999999999"), "{}", cavani.text);
     // described but unnamed: skipped (its local name is an id)
-    assert!(records.iter().all(|r| r.iri != "http://www.wikidata.org/entity/Q77"));
+    assert!(records
+        .iter()
+        .all(|r| r.iri != "http://www.wikidata.org/entity/Q77"));
     assert!(stats.skipped_no_label >= 1);
 }
 
 #[test]
 fn the_uuid_guard() {
-    for text in ["Q42", "P31", "3f2a9c1e-77aa-4c51-9e0b-4b3f2d1c0a99", "https://example.org/x", "urn:x:y", "12", "a1b2c3d4e5f6a7b8"] {
+    for text in [
+        "Q42",
+        "P31",
+        "3f2a9c1e-77aa-4c51-9e0b-4b3f2d1c0a99",
+        "https://example.org/x",
+        "urn:x:y",
+        "12",
+        "a1b2c3d4e5f6a7b8",
+    ] {
         assert!(!word_like(text), "{text} read as words");
     }
-    for text in ["Salto", "Precios de combustibles", "Area 0", "ANCAP", "dataset snapshot 2025"] {
+    for text in [
+        "Salto",
+        "Precios de combustibles",
+        "Area 0",
+        "ANCAP",
+        "dataset snapshot 2025",
+    ] {
         assert!(word_like(text), "{text} not read as words");
     }
     assert_eq!(humanize("accrualPeriodicity"), "accrual periodicity");
     assert_eq!(humanize("scheme_land_tenures"), "scheme land tenures");
-    assert_eq!(text_name("2) VACAS DE CRIA (ENTORADAS)"), "Vacas de cria (entoradas)");
+    assert_eq!(
+        text_name("2) VACAS DE CRIA (ENTORADAS)"),
+        "Vacas de cria (entoradas)"
+    );
     assert_eq!(text_name("1a. Praderas"), "Praderas");
     assert_eq!(text_name("ANCAP"), "ANCAP");
     assert_eq!(text_name("YEGUARIZOS"), "Yeguarizos");

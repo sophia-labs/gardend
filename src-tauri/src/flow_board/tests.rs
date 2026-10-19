@@ -872,7 +872,10 @@ fn i1_differential_prints_reference_export_evidence() {
     print_b64_block("I1-GOLDEN-EXPORT", golden_export.json.as_bytes());
 
     let scrambled = scramble_json(GOLDEN_BOARD_JSON);
-    println!("I1-SCRAMBLED-INPUT-SHA256 {}", sha256_hex(scrambled.as_bytes()));
+    println!(
+        "I1-SCRAMBLED-INPUT-SHA256 {}",
+        sha256_hex(scrambled.as_bytes())
+    );
     print_b64_block("I1-SCRAMBLED-INPUT", scrambled.as_bytes());
 
     let doc = board_from_json(&scrambled).expect("scrambled golden fixture still parses");

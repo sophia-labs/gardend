@@ -34,7 +34,11 @@ fn is_cached_graph_store(store: &Store) -> bool {
     GRAPH_STORES.get().is_some_and(|stores| {
         stores
             .lock()
-            .map(|stores| stores.values().any(|cached| std::ptr::eq(cached.as_ref(), store)))
+            .map(|stores| {
+                stores
+                    .values()
+                    .any(|cached| std::ptr::eq(cached.as_ref(), store))
+            })
             .unwrap_or(false)
     })
 }
@@ -268,7 +272,11 @@ mod cell_durability_quad_count_tests {
         assert_eq!(graph_store_quad_count(&store).unwrap(), 0);
         store.insert(QuadRef::new(s, s, s, g)).unwrap();
         crate::cell_durability::mark_rdf_store_written(&store);
-        assert_eq!(graph_store_quad_count(&store).unwrap(), 1, "the write was marked");
+        assert_eq!(
+            graph_store_quad_count(&store).unwrap(),
+            1,
+            "the write was marked"
+        );
         // A write by any other test bumps the process-wide epoch, and a count
         // that overlapped it is (rightly) not remembered: count again until one
         // ran clear (the cells check failed on this race once, 2026-10-15).
@@ -289,7 +297,10 @@ mod cell_durability_quad_count_tests {
         let loose = Store::new().unwrap();
         loose.insert(QuadRef::new(s, s, s, g)).unwrap();
         assert_eq!(graph_store_quad_count(&loose).unwrap(), 1);
-        assert!(quad_counts().get(&store_key(&loose)).is_none(), "never remembered");
+        assert!(
+            quad_counts().get(&store_key(&loose)).is_none(),
+            "never remembered"
+        );
 
         drop(store);
         evict_graph_store(&graph_dir).unwrap();

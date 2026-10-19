@@ -318,7 +318,8 @@ pub(super) async fn apply_operation_classified(
     // state. They remain useful pure-operation tests, while setup_core always
     // installs the graph gate for desktop/headless applications.
     if crate::graph_incarnation_admission::expected_incarnation(&operation.payload)
-        .map_err(crate::app_error::AppError::message)?.is_some()
+        .map_err(crate::app_error::AppError::message)?
+        .is_some()
     {
         return Err(ApplyOperationError::terminal(
             "expected-incarnation execution requires a managed graph lifecycle coordinator",
@@ -395,15 +396,27 @@ async fn apply_operation_inner(
                 "tripwire: a fenced {} reached the executor",
                 operation.kind
             );
-            let document_id = operation
-                .document_id
-                .clone()
-                .or_else(|| operation.payload.get("documentId").and_then(Value::as_str).map(str::to_string));
+            let document_id = operation.document_id.clone().or_else(|| {
+                operation
+                    .payload
+                    .get("documentId")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            });
             let policy = crate::visitor_fence::RoomPolicy { fence, document_id };
-            return match crate::visitor_fence::under_room_policy(policy, apply_operation_dispatch(app, operation)).await {
+            return match crate::visitor_fence::under_room_policy(
+                policy,
+                apply_operation_dispatch(app, operation),
+            )
+            .await
+            {
                 // The policy refuses inside the room's transaction, before the
                 // mutation commits (the room is evicted): nothing to retry.
-                Err(error) if error.message().contains(crate::visitor_fence::POLICY_REFUSAL) => {
+                Err(error)
+                    if error
+                        .message()
+                        .contains(crate::visitor_fence::POLICY_REFUSAL) =>
+                {
                     Err(ApplyOperationError::terminal(error.message().to_string()))
                 }
                 other => other,
@@ -419,7 +432,11 @@ async fn apply_operation_dispatch(
     operation: &CrdtOperation,
 ) -> ApplyOperationResult<Value> {
     let kind = operation.kind.as_str();
-    if let Some(ids) = operation.payload.get("documentIds").and_then(Value::as_array) {
+    if let Some(ids) = operation
+        .payload
+        .get("documentIds")
+        .and_then(Value::as_array)
+    {
         let graph_dir = crate::paths::existing_graph_dir(app, &operation.graph_id)
             .map_err(ApplyOperationError::terminal)?;
         for id in ids.iter().filter_map(Value::as_str) {
@@ -429,8 +446,11 @@ async fn apply_operation_dispatch(
     }
     // Imported missing bodies may not be recreated by a queued/stale edit.
     // This complements the lower-level room and persistence guards.
-    if let Some(id) = operation.document_id.as_deref()
-        .or_else(|| operation.payload.get("documentId").and_then(Value::as_str)) {
+    if let Some(id) = operation
+        .document_id
+        .as_deref()
+        .or_else(|| operation.payload.get("documentId").and_then(Value::as_str))
+    {
         let graph_dir = crate::paths::existing_graph_dir(app, &operation.graph_id)
             .map_err(ApplyOperationError::terminal)?;
         crate::document_body_availability::require_available(&graph_dir, id)
@@ -1586,15 +1606,30 @@ mod post_hot_recovery_tests {
                 );
 
                 crate::crdt_engine::import_archive_ops::fail_next_archive_step_for_test(
-                    OPERATION_ID, crate::crdt_engine::import_archive_ops::ArchiveFailurePoint::BeforeDocument);
+                    OPERATION_ID,
+                    crate::crdt_engine::import_archive_ops::ArchiveFailurePoint::BeforeDocument,
+                );
                 journal_enqueue_and_attempt_once_before_crash(&app, operation.clone()).await;
                 assert!(pending.exists());
                 drop(app);
-                let app = crate::tauri_runtime::build_mock_cell_app_for_tests(GRAPH_ID,&format!("user:{OWNER}"),GENERATION);
-                assert_eq!(crate::crdt_queue::recover_crdt_operations(app.clone()).unwrap(),1);
+                let app = crate::tauri_runtime::build_mock_cell_app_for_tests(
+                    GRAPH_ID,
+                    &format!("user:{OWNER}"),
+                    GENERATION,
+                );
+                assert_eq!(
+                    crate::crdt_queue::recover_crdt_operations(app.clone()).unwrap(),
+                    1
+                );
                 super::drain_queue(app.clone()).await;
-                assert!(crate::crdt_operation_journal::recover_pending_crdt_operations(&app).unwrap().is_empty());
-                let restored = super::apply_operation_classified(&app, &operation).await.expect("completed recovered restore");
+                assert!(
+                    crate::crdt_operation_journal::recover_pending_crdt_operations(&app)
+                        .unwrap()
+                        .is_empty()
+                );
+                let restored = super::apply_operation_classified(&app, &operation)
+                    .await
+                    .expect("completed recovered restore");
                 assert_eq!(restored["restoredExistingGraph"], json!(true));
                 assert_eq!(restored["targetGeneration"], json!(GENERATION));
                 assert_eq!(restored["documentCount"], json!(1));

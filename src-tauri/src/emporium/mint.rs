@@ -93,11 +93,7 @@ pub(crate) fn render_class_triples(
         let predicate_uri = contract.expand(curie).map_err(PlanError)?;
         for v in fv.values() {
             let term = term_for(v, pspec.datatype);
-            out.push((
-                subject.to_string(),
-                predicate_uri.clone(),
-                term,
-            ));
+            out.push((subject.to_string(), predicate_uri.clone(), term));
         }
     }
 

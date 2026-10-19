@@ -106,11 +106,13 @@ fn snapshot_dir(cache: &Path, model_code: &str) -> Option<PathBuf> {
 
 /// Same padding and truncation as fastembed's (private) tokenizer loader.
 fn load_tokenizer(dir: &Path, max_len: usize) -> Result<tokenizers::Tokenizer, String> {
-    let read = |name: &str| std::fs::read(dir.join(name)).map_err(|error| format!("{name}: {error}"));
-    let config: serde_json::Value =
-        serde_json::from_slice(&read("config.json")?).map_err(|error| format!("config.json: {error}"))?;
-    let tokenizer_config: serde_json::Value = serde_json::from_slice(&read("tokenizer_config.json")?)
-        .map_err(|error| format!("tokenizer_config.json: {error}"))?;
+    let read =
+        |name: &str| std::fs::read(dir.join(name)).map_err(|error| format!("{name}: {error}"));
+    let config: serde_json::Value = serde_json::from_slice(&read("config.json")?)
+        .map_err(|error| format!("config.json: {error}"))?;
+    let tokenizer_config: serde_json::Value =
+        serde_json::from_slice(&read("tokenizer_config.json")?)
+            .map_err(|error| format!("tokenizer_config.json: {error}"))?;
     let mut tokenizer = tokenizers::Tokenizer::from_bytes(read("tokenizer.json")?)
         .map_err(|error| format!("tokenizer.json: {error}"))?;
     let model_max = tokenizer_config["model_max_length"]
@@ -119,7 +121,10 @@ fn load_tokenizer(dir: &Path, max_len: usize) -> Result<tokenizers::Tokenizer, S
         .unwrap_or(512);
     tokenizer.with_padding(Some(tokenizers::PaddingParams {
         strategy: tokenizers::PaddingStrategy::BatchLongest,
-        pad_token: tokenizer_config["pad_token"].as_str().unwrap_or("<pad>").to_string(),
+        pad_token: tokenizer_config["pad_token"]
+            .as_str()
+            .unwrap_or("<pad>")
+            .to_string(),
         pad_id: config["pad_token_id"].as_u64().unwrap_or(0) as u32,
         ..Default::default()
     }));
@@ -141,7 +146,10 @@ impl EntityEmbedder {
             .clone();
         let cache = model_cache_dir();
         let mut dir = snapshot_dir(&cache, &info.model_code);
-        if dir.as_ref().map_or(true, |dir| !dir.join(&info.model_file).is_file()) {
+        if dir
+            .as_ref()
+            .map_or(true, |dir| !dir.join(&info.model_file).is_file())
+        {
             // fastembed fetches the files once (Hugging Face, into its cache); its
             // own session is dropped at once.
             TextEmbedding::try_new(
@@ -152,7 +160,13 @@ impl EntityEmbedder {
             .map_err(|error| format!("download {}: {error}", spec.model_id))?;
             dir = snapshot_dir(&cache, &info.model_code);
         }
-        let dir = dir.ok_or_else(|| format!("model files for {} not found in {}", spec.model_id, cache.display()))?;
+        let dir = dir.ok_or_else(|| {
+            format!(
+                "model files for {} not found in {}",
+                spec.model_id,
+                cache.display()
+            )
+        })?;
         let tokenizer = load_tokenizer(&dir, MAX_TOKENS)?;
         let session = ort::session::Session::builder()
             .map_err(|error| format!("onnx session: {error}"))?
@@ -168,7 +182,8 @@ impl EntityEmbedder {
             .inputs()
             .iter()
             .any(|input| input.name() == "token_type_ids");
-        let pooling = TextEmbedding::get_default_pooling_method(&spec.model).unwrap_or(Pooling::Mean);
+        let pooling =
+            TextEmbedding::get_default_pooling_method(&spec.model).unwrap_or(Pooling::Mean);
         Ok(Self {
             spec,
             threads,
@@ -199,7 +214,8 @@ impl EntityEmbedder {
         }
         let shape = vec![batch as i64, len as i64];
         let tensor = |data: Vec<i64>| {
-            ort::value::Tensor::from_array((shape.clone(), data)).map_err(|error| format!("tensor: {error}"))
+            ort::value::Tensor::from_array((shape.clone(), data))
+                .map_err(|error| format!("tensor: {error}"))
         };
         let mut inputs = ort::inputs![
             "input_ids" => tensor(ids)?,
@@ -208,7 +224,10 @@ impl EntityEmbedder {
         if self.needs_token_types {
             inputs.push(("token_type_ids".into(), tensor(types)?.into()));
         }
-        let outputs = self.session.run(inputs).map_err(|error| format!("onnx run: {error}"))?;
+        let outputs = self
+            .session
+            .run(inputs)
+            .map_err(|error| format!("onnx run: {error}"))?;
         let names: Vec<String> = outputs.keys().map(|key| key.to_string()).collect();
         let key = ["text_embeds", "last_hidden_state", "sentence_embedding"]
             .iter()
@@ -314,11 +333,15 @@ pub(crate) fn with_entity_embedder<T>(
         .lock()
         .map_err(|_| "entity embedder lock was poisoned".to_string())?;
     let reload = guard.as_ref().map_or(true, |loaded| {
-        loaded.spec.model_id != spec.model_id || threads.is_some_and(|wanted| loaded.threads != wanted)
+        loaded.spec.model_id != spec.model_id
+            || threads.is_some_and(|wanted| loaded.threads != wanted)
     });
     if reload {
         *guard = None;
-        *guard = Some(EntityEmbedder::load(spec.model_id, embed_thread_budget(threads))?);
+        *guard = Some(EntityEmbedder::load(
+            spec.model_id,
+            embed_thread_budget(threads),
+        )?);
     }
     work(guard.as_mut().expect("embedder loaded"))
 }
@@ -334,15 +357,27 @@ mod tests {
             model_cache_root(Some("/srv/x/hf".into()), "/srv/x/fastembed".into()),
             PathBuf::from("/srv/x/hf")
         );
-        assert_eq!(model_cache_root(None, ".fastembed_cache".into()), PathBuf::from(".fastembed_cache"));
-        assert_eq!(model_cache_root(Some(" ".into()), "/c".into()), PathBuf::from("/c"));
+        assert_eq!(
+            model_cache_root(None, ".fastembed_cache".into()),
+            PathBuf::from(".fastembed_cache")
+        );
+        assert_eq!(
+            model_cache_root(Some(" ".into()), "/c".into()),
+            PathBuf::from("/c")
+        );
     }
 
     #[test]
     fn e5_carries_its_own_prefixes_and_identity() {
         let spec = entity_model_spec("").unwrap();
-        assert_eq!((spec.model_id, spec.dimensions), (DEFAULT_ENTITY_MODEL, 384));
-        assert_eq!((spec.query_prefix, spec.passage_prefix), ("query: ", "passage: "));
+        assert_eq!(
+            (spec.model_id, spec.dimensions),
+            (DEFAULT_ENTITY_MODEL, 384)
+        );
+        assert_eq!(
+            (spec.query_prefix, spec.passage_prefix),
+            ("query: ", "passage: ")
+        );
         assert_eq!(entity_model_spec("e5-base").unwrap().dimensions, 768);
         assert!(entity_model_spec("bge-small").is_err());
         assert_eq!(embed_thread_budget(Some(0)), 1);

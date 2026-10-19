@@ -587,9 +587,7 @@ fn reuse_block_ids_positionally(content_nodes: &mut [Value], existing_ids: &[Str
         };
         next_existing += 1;
         if let Some(obj) = node.as_object_mut() {
-            let attrs = obj
-                .entry("attrs".to_string())
-                .or_insert_with(|| json!({}));
+            let attrs = obj.entry("attrs".to_string()).or_insert_with(|| json!({}));
             if let Some(attrs_obj) = attrs.as_object_mut() {
                 attrs_obj.insert("data-block-id".into(), json!(existing_id));
                 // The parser may also have stamped a legacy `blockId`; keep the
@@ -741,7 +739,14 @@ pub(crate) fn tiptap_json_from_blocks(value: Option<&Value>) -> Value {
 
 /// Block types the simplified `blocks` array maps (blockToTipTapNode).
 const SIMPLIFIED_BLOCK_TYPES: &[&str] = &[
-    "paragraph", "heading", "bullet", "numbered", "todo", "quote", "code", "divider",
+    "paragraph",
+    "heading",
+    "bullet",
+    "numbered",
+    "todo",
+    "quote",
+    "code",
+    "divider",
 ];
 
 /// A `blocks` entry that is a TipTap node rather than a simplified block:
@@ -759,7 +764,9 @@ pub(crate) fn is_tiptap_shaped_block(value: &Value) -> bool {
 /// normaliser runs next), simplified blocks through blockToTipTapNode. A
 /// simplified type outside the blocks vocabulary keeps the historical
 /// paragraph fallback, now with a receipt.
-pub(crate) fn nodes_from_blocks_array(blocks: &[Value]) -> Result<(Vec<Value>, Vec<String>), String> {
+pub(crate) fn nodes_from_blocks_array(
+    blocks: &[Value],
+) -> Result<(Vec<Value>, Vec<String>), String> {
     let mut nodes = Vec::with_capacity(blocks.len());
     let mut warnings = Vec::new();
     for (index, block) in blocks.iter().enumerate() {
@@ -782,9 +789,15 @@ pub(crate) fn nodes_from_blocks_array(blocks: &[Value]) -> Result<(Vec<Value>, V
 /// `tiptap_json_from_blocks` for a write: TipTap-shaped entries kept for the
 /// normaliser, plus the fallback receipts.
 fn tiptap_json_from_blocks_array(value: Option<&Value>) -> (Value, Vec<String>) {
-    let blocks = value.and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
+    let blocks = value
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
     if blocks.is_empty() {
-        return (json!({ "type": "doc", "content": [{ "type": "paragraph" }] }), Vec::new());
+        return (
+            json!({ "type": "doc", "content": [{ "type": "paragraph" }] }),
+            Vec::new(),
+        );
     }
     match nodes_from_blocks_array(blocks) {
         Ok((nodes, warnings)) => (json!({ "type": "doc", "content": nodes }), warnings),

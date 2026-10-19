@@ -408,7 +408,10 @@ fn inject_graph_incarnation(
         payload[GRAPH_INCARNATION_PAYLOAD_KEY] = serde_json::json!(expected);
         return Ok(());
     }
-    if kind == "document.createOnce" || kind == "artifact.mutateText" || kind == "workspace.setCustomCss" {
+    if kind == "document.createOnce"
+        || kind == "artifact.mutateText"
+        || kind == "workspace.setCustomCss"
+    {
         // First creation must not heal a missing graph at admission either.
         crate::graph_record_store::read_graph_record_no_heal(app, graph_id)
             .map_err(crate::app_error::AppError::message)?;
@@ -543,8 +546,14 @@ async fn enqueue_crdt_operation_outcome_inner(
     if expected.is_some() && cfg!(feature = "frontend-crdt") {
         return Err("expected-incarnation mutation requires the native CRDT executor".into());
     }
-    if expected.is_some() && app.try_state::<crate::crdt_engine::persistence_coordinator::GraphPersistenceCoordinator>().is_none() {
-        return Err("expected-incarnation mutation requires a managed graph lifecycle coordinator".into());
+    if expected.is_some()
+        && app
+            .try_state::<crate::crdt_engine::persistence_coordinator::GraphPersistenceCoordinator>()
+            .is_none()
+    {
+        return Err(
+            "expected-incarnation mutation requires a managed graph lifecycle coordinator".into(),
+        );
     }
     if let Some(boundary) = app.try_state::<Arc<crate::cell_graph_boundary::CellGraphBoundary>>() {
         boundary

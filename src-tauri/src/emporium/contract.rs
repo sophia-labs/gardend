@@ -1476,9 +1476,15 @@ agt:Attunement a agt:ReadOperation ; agt:readsAcross agt:Song, agt:Memory, agt:V
         };
         // Approval never widens the surface: a tool that needs approval but is
         // not allowed by the mode is a violation (teeth) ...
-        assert!(fired(&mode("delete_document")), "approval outside allowsTool MUST violate");
+        assert!(
+            fired(&mode("delete_document")),
+            "approval outside allowsTool MUST violate"
+        );
         // ... while approval on an allowed tool is legal.
-        assert!(!fired(&mode("write_document")), "approval on an allowed tool MUST pass");
+        assert!(
+            !fired(&mode("write_document")),
+            "approval on an allowed tool MUST pass"
+        );
     }
 
     #[test]

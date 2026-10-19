@@ -147,10 +147,11 @@ pub(super) async fn loopback_list_graph_catalog(
 /// Every graph of the profile; for a public-mode visitor or account, the
 /// public graphs only, each with the role `viewer`.
 fn list_graph_entries(state: &LoopbackState, headers: &HeaderMap, catalog: bool) -> Response {
-    let caller = match crate::loopback_http::authorized_loopback_caller(headers, state, &["graphs.read"]) {
-        Ok(caller) => caller,
-        Err(response) => return response,
-    };
+    let caller =
+        match crate::loopback_http::authorized_loopback_caller(headers, state, &["graphs.read"]) {
+            Ok(caller) => caller,
+            Err(response) => return response,
+        };
     let entries = hosted_graph_entries_service(&state.app, catalog);
     match (caller.is_public(), state.self_host.public()) {
         (true, Some(public)) => loopback_app_result(

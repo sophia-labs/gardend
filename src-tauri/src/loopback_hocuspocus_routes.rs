@@ -102,7 +102,9 @@ pub(crate) fn authorize_ws(
             require_room_scope(&grant.scopes(), required_scope)?;
             return Ok(offered.first().map(|entry| (*entry).to_string()));
         }
-        Some(Err(error)) => log::debug!("self-host: refused Cloudflare Access token on a room: {error}"),
+        Some(Err(error)) => {
+            log::debug!("self-host: refused Cloudflare Access token on a room: {error}")
+        }
         None => {}
     }
     Err(loopback_error(
@@ -141,7 +143,13 @@ pub(crate) async fn room_access(
     let offered = headers
         .get("sec-websocket-protocol")
         .and_then(|v| v.to_str().ok())
-        .map(|protocols| protocols.split(',').map(str::trim).map(str::to_string).collect::<Vec<_>>())
+        .map(|protocols| {
+            protocols
+                .split(',')
+                .map(str::trim)
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
         .unwrap_or_default();
     let jwt_entry = offered
         .iter()
@@ -154,12 +162,20 @@ pub(crate) async fn room_access(
     let jwt = bearer_token(headers)
         .filter(|token| crate::public_mode::looks_like_jwt(token))
         .map(str::to_string)
-        .or_else(|| jwt_entry.as_deref().and_then(|entry| entry.strip_prefix("bearer.")).map(str::to_string));
+        .or_else(|| {
+            jwt_entry
+                .as_deref()
+                .and_then(|entry| entry.strip_prefix("bearer."))
+                .map(str::to_string)
+        });
     if let (Some(jwt), Some(accounts)) = (jwt, public.accounts()) {
         accounts.ensure_signing_key(&jwt).await;
         let identity = accounts.verify(&jwt).map_err(|error| {
             log::debug!("public mode: refused an account token on a room: {error}");
-            loopback_error(StatusCode::UNAUTHORIZED, "invalid or expired Sophia account token (sign in again)")
+            loopback_error(
+                StatusCode::UNAUTHORIZED,
+                "invalid or expired Sophia account token (sign in again)",
+            )
         })?;
         let account = crate::visitor_fence::VisitorAccount {
             sub: identity.sub,
@@ -170,7 +186,9 @@ pub(crate) async fn room_access(
             .visitor_folders()
             .map(|folders| folders.account_id(&account.sub));
         if let Some(document_id) = document_id {
-            if let Ok(fence) = crate::visitor_fence::fence_for(Some(public), Some(&account), graph_id) {
+            if let Ok(fence) =
+                crate::visitor_fence::fence_for(Some(public), Some(&account), graph_id)
+            {
                 return Ok((
                     subprotocol,
                     RoomAccess::Fenced {
@@ -180,7 +198,12 @@ pub(crate) async fn room_access(
                 ));
             }
         }
-        return Ok((subprotocol, RoomAccess::ReadOnly { account: account_id }));
+        return Ok((
+            subprotocol,
+            RoomAccess::ReadOnly {
+                account: account_id,
+            },
+        ));
     }
     // No credential of its own at all: an anonymous reader. A wrong key stays 401.
     let carries_credential = bearer_token(headers).is_some()
@@ -189,7 +212,10 @@ pub(crate) async fn room_access(
     if carries_credential {
         return Err(refused);
     }
-    Ok((offered.first().cloned(), RoomAccess::ReadOnly { account: None }))
+    Ok((
+        offered.first().cloned(),
+        RoomAccess::ReadOnly { account: None },
+    ))
 }
 
 fn with_access_limits(ws: WebSocketUpgrade, access: &RoomAccess) -> WebSocketUpgrade {

@@ -263,8 +263,11 @@ pub(crate) async fn mcp_local_emporium_write(
         ));
     }
     let _identity_lease = crate::graph_incarnation_admission::acquire_expected_lifetime(
-        &app, &graph_id, expected.as_deref(),
-    ).await?;
+        &app,
+        &graph_id,
+        expected.as_deref(),
+    )
+    .await?;
     let result = emporium_write(
         &app,
         &graph_id,

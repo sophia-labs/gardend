@@ -231,7 +231,10 @@ fn workspace_page_value(
     })
 }
 
-fn snapshot_array<'a>(snapshot: Option<&'a serde_json::Value>, key: &str) -> &'a [serde_json::Value] {
+fn snapshot_array<'a>(
+    snapshot: Option<&'a serde_json::Value>,
+    key: &str,
+) -> &'a [serde_json::Value] {
     snapshot
         .and_then(|value| value.get(key))
         .and_then(serde_json::Value::as_array)
@@ -362,7 +365,10 @@ fn compact_workspace_entry(kind: &str, entry: &serde_json::Value) -> serde_json:
     // knows which notes it may offer to edit. Absent on every other document.
     if kind == "document" {
         let extra = entry.get("extra");
-        for key in [crate::visitor_fence::CREATED_BY_FIELD, crate::visitor_fence::CREATED_BY_NAME_FIELD] {
+        for key in [
+            crate::visitor_fence::CREATED_BY_FIELD,
+            crate::visitor_fence::CREATED_BY_NAME_FIELD,
+        ] {
             if let Some(value) = entry
                 .get(key)
                 .or_else(|| extra.and_then(|extra| extra.get(key)))
@@ -383,7 +389,8 @@ fn compact_workspace_entry(kind: &str, entry: &serde_json::Value) -> serde_json:
             .and_then(serde_json::Value::as_str)
             .filter(|message| !message.is_empty())
         {
-            compact["errorMessage"] = serde_json::json!(message.chars().take(512).collect::<String>());
+            compact["errorMessage"] =
+                serde_json::json!(message.chars().take(512).collect::<String>());
         }
     }
     compact
@@ -439,7 +446,10 @@ mod tests {
         for key in ["folders", "artifacts", "wires"] {
             let borrowed = snapshot_array(Some(&snapshot), key);
             let original = snapshot[key].as_array().unwrap().as_slice();
-            assert!(std::ptr::eq(borrowed, original), "{key} must borrow the same source allocation");
+            assert!(
+                std::ptr::eq(borrowed, original),
+                "{key} must borrow the same source allocation"
+            );
         }
         assert!(snapshot_array(Some(&snapshot), "missing").is_empty());
         assert!(snapshot_array(None, "folders").is_empty());

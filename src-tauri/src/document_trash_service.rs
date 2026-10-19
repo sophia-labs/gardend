@@ -64,7 +64,10 @@ pub(crate) fn document_is_trashed(graph_dir: &Path, document_id: &str) -> bool {
         && record_path(graph_dir, document_id).is_file()
 }
 
-fn read_record(graph_dir: &Path, document_id: &str) -> Result<Option<DocumentTrashRecord>, FilesError> {
+fn read_record(
+    graph_dir: &Path,
+    document_id: &str,
+) -> Result<Option<DocumentTrashRecord>, FilesError> {
     validate_local_id(document_id, "document_id").map_err(bad_id)?;
     let path = record_path(graph_dir, document_id);
     if !path.is_file() {
@@ -212,7 +215,10 @@ pub(crate) async fn trash_document(
             .map_err(FilesError::internal)
     });
     if let Err(error) = removed {
-        log::warn!("[trash] semantic index cleanup for {document_id}: {}", error.message());
+        log::warn!(
+            "[trash] semantic index cleanup for {document_id}: {}",
+            error.message()
+        );
     }
     flush_projection(app, graph_id).await?;
     Ok(trashed_body(graph_id, &record, false))
@@ -347,5 +353,7 @@ pub(crate) async fn purge_document(
     .await
     .map_err(|error| FilesError::uncoded(StatusCode::BAD_REQUEST, error))?;
     flush_projection(app, graph_id).await?;
-    Ok(json!({ "kind": "document", "documentId": document_id, "graphId": graph_id, "purged": true }))
+    Ok(
+        json!({ "kind": "document", "documentId": document_id, "graphId": graph_id, "purged": true }),
+    )
 }

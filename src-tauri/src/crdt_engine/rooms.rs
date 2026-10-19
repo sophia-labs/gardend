@@ -331,20 +331,39 @@ enum TombstoneOpenPolicy<'a> {
 }
 
 impl RoomRegistry {
-    pub(crate) fn begin_disk_restore(&self, graph_id: &str) -> Result<DiskRestoreRoomGuard<'_>, String> {
-        let mut restores = self.disk_restores.lock().map_err(|_| "restore room admission lock poisoned")?;
-        let rooms = self.rooms.lock().map_err(|_| "room registry lock poisoned")?;
-        if restores.contains(graph_id) || rooms.keys().any(|key| room_key_belongs_to_graph(key, graph_id)) {
+    pub(crate) fn begin_disk_restore(
+        &self,
+        graph_id: &str,
+    ) -> Result<DiskRestoreRoomGuard<'_>, String> {
+        let mut restores = self
+            .disk_restores
+            .lock()
+            .map_err(|_| "restore room admission lock poisoned")?;
+        let rooms = self
+            .rooms
+            .lock()
+            .map_err(|_| "room registry lock poisoned")?;
+        if restores.contains(graph_id)
+            || rooms
+                .keys()
+                .any(|key| room_key_belongs_to_graph(key, graph_id))
+        {
             return Err(format!("graph.restoreArchive: target graph {graph_id} has live room authority or an active disk restore"));
         }
         restores.insert(graph_id.to_string());
-        Ok(DiskRestoreRoomGuard { registry: self, graph_id: graph_id.to_string() })
+        Ok(DiskRestoreRoomGuard {
+            registry: self,
+            graph_id: graph_id.to_string(),
+        })
     }
 
     /// Non-healing, fallible occupancy read. Do not turn a poisoned registry
     /// into absence when deciding whether a first creation is admissible.
     pub(crate) fn existing_room(&self, key: &str) -> Result<Option<Arc<Room>>, String> {
-        let rooms = self.rooms.lock().map_err(|_| "room registry lock poisoned")?;
+        let rooms = self
+            .rooms
+            .lock()
+            .map_err(|_| "room registry lock poisoned")?;
         Ok(rooms.get(key).cloned())
     }
 
@@ -396,8 +415,14 @@ impl RoomRegistry {
         }
         pause_after_tombstone_precheck(&state_path);
 
-        let restores = self.disk_restores.lock().map_err(|_| "restore room admission lock poisoned")?;
-        if restores.iter().any(|graph_id| room_key_belongs_to_graph(key, graph_id)) {
+        let restores = self
+            .disk_restores
+            .lock()
+            .map_err(|_| "restore room admission lock poisoned")?;
+        if restores
+            .iter()
+            .any(|graph_id| room_key_belongs_to_graph(key, graph_id))
+        {
             return Err("graph room is unavailable during disk archive restore".to_string());
         }
         let mut rooms = self
@@ -494,7 +519,9 @@ impl RoomRegistry {
         policy: &TombstoneOpenPolicy<'_>,
         evict_on_error: bool,
     ) -> Result<Arc<Room>, String> {
-        if let Err(error) = crate::document_body_availability::require_state_path_available(state_path) {
+        if let Err(error) =
+            crate::document_body_availability::require_state_path_available(state_path)
+        {
             self.evict_room_if_identity(key, &room);
             return Err(error);
         }
@@ -1097,7 +1124,11 @@ impl Room {
     pub(crate) async fn shadow_apply(
         &self,
         update: &[u8],
-        check: impl FnOnce(&yrs::Transaction<'_>, usize, &serde_json::Map<String, serde_json::Value>) -> Result<(), String>,
+        check: impl FnOnce(
+            &yrs::Transaction<'_>,
+            usize,
+            &serde_json::Map<String, serde_json::Value>,
+        ) -> Result<(), String>,
     ) -> Result<bool, String> {
         let state = {
             let doc = self.doc.lock().await;
@@ -1107,17 +1138,21 @@ impl Room {
         let shadow = Doc::new();
         {
             let mut txn = shadow.transact_mut();
-            let base = Update::decode_v1(&state).map_err(|error| format!("decode room state: {error}"))?;
-            txn.apply_update(base).map_err(|error| format!("copy room state: {error}"))?;
+            let base =
+                Update::decode_v1(&state).map_err(|error| format!("decode room state: {error}"))?;
+            txn.apply_update(base)
+                .map_err(|error| format!("copy room state: {error}"))?;
         }
         let before = {
             let txn = shadow.transact();
             crate::visitor_fence::document_comments(&txn)
         };
         let changed = {
-            let decoded = Update::decode_v1(update).map_err(|error| format!("decode client update: {error}"))?;
+            let decoded = Update::decode_v1(update)
+                .map_err(|error| format!("decode client update: {error}"))?;
             let mut txn = shadow.transact_mut();
-            txn.apply_update(decoded).map_err(|error| format!("apply client update: {error}"))?;
+            txn.apply_update(decoded)
+                .map_err(|error| format!("apply client update: {error}"))?;
             txn.encode_update_v1().len() > 3
         };
         if !changed {
@@ -1844,23 +1879,36 @@ mod tests {
     #[test]
     fn disk_restore_admission_refuses_an_opener_paused_before_registry_insertion() {
         let registry = std::sync::Arc::new(super::RoomRegistry::default());
-        let root = std::env::temp_dir().join(format!("garden-restore-room-race-{}", uuid::Uuid::new_v4()));
+        let root =
+            std::env::temp_dir().join(format!("garden-restore-room-race-{}", uuid::Uuid::new_v4()));
         let path = root.join("ydocs/workspace/update-v1.bin");
         let (reached_tx, reached_rx) = std::sync::mpsc::channel();
         let (release_tx, release_rx) = std::sync::mpsc::channel();
         super::install_tombstone_open_race_hook(path.clone(), reached_tx, release_rx);
         let opener_registry = registry.clone();
         let opener_path = path.clone();
-        let opener = std::thread::spawn(move || crate::app_runtime::async_runtime::block_on(async move {
-            opener_registry.get_or_create("workspace:restore-race", opener_path).await
-        }));
-        reached_rx.recv_timeout(std::time::Duration::from_secs(5)).expect("opener reached pre-admission barrier");
+        let opener = std::thread::spawn(move || {
+            crate::app_runtime::async_runtime::block_on(async move {
+                opener_registry
+                    .get_or_create("workspace:restore-race", opener_path)
+                    .await
+            })
+        });
+        reached_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("opener reached pre-admission barrier");
         let guard = registry.begin_disk_restore("restore-race").unwrap();
         release_tx.send(()).unwrap();
         let result = opener.join().expect("opener thread");
         super::clear_tombstone_open_race_hook();
-        assert!(result.err().unwrap().contains("during disk archive restore"));
-        assert!(registry.existing_room("workspace:restore-race").unwrap().is_none());
+        assert!(result
+            .err()
+            .unwrap()
+            .contains("during disk archive restore"));
+        assert!(registry
+            .existing_room("workspace:restore-race")
+            .unwrap()
+            .is_none());
         assert!(!path.exists());
         drop(guard);
     }
@@ -1869,21 +1917,57 @@ mod tests {
     fn disk_restore_admission_blocks_new_rooms_and_never_evicts_existing_rooms() {
         crate::app_runtime::async_runtime::block_on(async {
             let registry = super::RoomRegistry::default();
-            let root = std::env::temp_dir().join(format!("garden-restore-room-admission-{}", uuid::Uuid::new_v4()));
+            let root = std::env::temp_dir().join(format!(
+                "garden-restore-room-admission-{}",
+                uuid::Uuid::new_v4()
+            ));
             let workspace_path = root.join("ydocs/workspace/update-v1.bin");
             let guard = registry.begin_disk_restore("graph-a").unwrap();
-            assert!(registry.get_or_create("workspace:graph-a", workspace_path.clone()).await.is_err());
-            assert!(registry.get_or_create("doc:graph-a:one", root.join("ydocs/documents/one/update-v1.bin")).await.is_err());
+            assert!(registry
+                .get_or_create("workspace:graph-a", workspace_path.clone())
+                .await
+                .is_err());
+            assert!(registry
+                .get_or_create(
+                    "doc:graph-a:one",
+                    root.join("ydocs/documents/one/update-v1.bin")
+                )
+                .await
+                .is_err());
             assert!(registry.begin_disk_restore("graph-a").is_err());
-            assert!(registry.existing_room("workspace:graph-a").unwrap().is_none());
+            assert!(registry
+                .existing_room("workspace:graph-a")
+                .unwrap()
+                .is_none());
             // The bounded reservation is graph-local, not a global room stop.
-            let other = registry.get_or_create("workspace:graph-ab", root.join("other/update-v1.bin")).await.unwrap();
+            let other = registry
+                .get_or_create("workspace:graph-ab", root.join("other/update-v1.bin"))
+                .await
+                .unwrap();
             drop(guard);
-            let existing = registry.get_or_create("workspace:graph-a", workspace_path.clone()).await.unwrap();
+            let existing = registry
+                .get_or_create("workspace:graph-a", workspace_path.clone())
+                .await
+                .unwrap();
             assert!(registry.begin_disk_restore("graph-a").is_err());
-            assert!(std::sync::Arc::ptr_eq(&existing, &registry.existing_room("workspace:graph-a").unwrap().unwrap()));
-            assert!(std::sync::Arc::ptr_eq(&other, &registry.existing_room("workspace:graph-ab").unwrap().unwrap()));
-            assert!(!workspace_path.exists(), "an untouched preopened room has no disk sidecar");
+            assert!(std::sync::Arc::ptr_eq(
+                &existing,
+                &registry
+                    .existing_room("workspace:graph-a")
+                    .unwrap()
+                    .unwrap()
+            ));
+            assert!(std::sync::Arc::ptr_eq(
+                &other,
+                &registry
+                    .existing_room("workspace:graph-ab")
+                    .unwrap()
+                    .unwrap()
+            ));
+            assert!(
+                !workspace_path.exists(),
+                "an untouched preopened room has no disk sidecar"
+            );
         });
     }
 

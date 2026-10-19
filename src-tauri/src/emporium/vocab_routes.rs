@@ -1415,9 +1415,11 @@ mod tests {
                 .unwrap(),
             "application/openapi+json"
         );
-        let body_bytes =
-            crate::app_runtime::async_runtime::block_on(axum::body::to_bytes(response.into_body(), usize::MAX))
-                .expect("collect served body");
+        let body_bytes = crate::app_runtime::async_runtime::block_on(axum::body::to_bytes(
+            response.into_body(),
+            usize::MAX,
+        ))
+        .expect("collect served body");
         let spec: serde_json::Value =
             serde_json::from_slice(&body_bytes).expect("served workflow OpenAPI JSON");
         assert_eq!(spec["info"]["title"], "Mnemosyne Workflow Vocabulary");
@@ -1509,9 +1511,11 @@ mod tests {
             "text/turtle",
             "served under text/turtle"
         );
-        let bytes =
-            crate::app_runtime::async_runtime::block_on(axum::body::to_bytes(response.into_body(), usize::MAX))
-                .expect("collect served shapes body");
+        let bytes = crate::app_runtime::async_runtime::block_on(axum::body::to_bytes(
+            response.into_body(),
+            usize::MAX,
+        ))
+        .expect("collect served shapes body");
         String::from_utf8(bytes.to_vec()).expect("served turtle is utf-8")
     }
 
