@@ -194,6 +194,323 @@ pub(super) async fn mcp_local_workflow_plan_compose(
     read_result(&app, &graph_id, &names)
 }
 
+/// One finding a person may publish (Shrubbery's `publishableFindings`): an
+/// item of the plan's last collection that names the `documentId` it is
+/// about, the exact `quote` it rests on, the `note` to write beside it and,
+/// optionally, the `blockId` that holds the quote.
+#[derive(Debug, Clone)]
+struct Finding {
+    /// 1-based: `wf:position` + 1, the `n` of its comment id `wf-<runId>-<n>`.
+    index: i64,
+    document_id: String,
+    quote: String,
+    note: String,
+    block_id: Option<String>,
+}
+
+/// `runId` as a graph and comment-id segment (`graphPlanRunGraphIri`).
+fn run_segment(run_id: &str) -> String {
+    run_id
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+fn finding_of(index: i64, json: &str) -> Option<Finding> {
+    let value: Value = serde_json::from_str(json).ok()?;
+    let text = |key: &str| {
+        value
+            .get(key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(str::to_string)
+    };
+    let document_id = value.get("documentId").and_then(Value::as_str)?;
+    let id_shaped = (1..=128).contains(&document_id.len())
+        && document_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+    if !id_shaped {
+        return None;
+    }
+    Some(Finding {
+        index,
+        document_id: document_id.to_string(),
+        quote: text("quote")?,
+        note: text("note")?,
+        block_id: value
+            .get("blockId")
+            .and_then(Value::as_str)
+            .filter(|block| !block.is_empty())
+            .map(str::to_string),
+    })
+}
+
+/// The plan's last collection: what the first producing step of its last
+/// phase produces (as the workflow pane reads it).
+fn last_collection(draft: &[Triple], names: &PlanNames) -> Option<String> {
+    let plan = Plan::new(draft);
+    let workflows = plan.typed("Workflow");
+    let workflow = if workflows.len() == 1 {
+        workflows[0]
+    } else {
+        names.workflow.as_str()
+    };
+    let mut phases: Vec<(i64, &str)> = plan
+        .typed("Phase")
+        .into_iter()
+        .filter(|phase| {
+            plan.iris(phase, &format!("{WF}partOfWorkflow"))
+                .contains(&workflow)
+        })
+        .map(|phase| (phase_order(&plan, phase).unwrap_or(i64::MAX), phase))
+        .collect();
+    phases.sort();
+    let (_, last) = phases.last()?;
+    plan.typed("AgentNode")
+        .into_iter()
+        .filter(|step| plan.iri_of(step, &format!("{WF}inPhase")) == Some(*last))
+        .find_map(|step| plan.iri_of(step, &format!("{WF}produces")))
+        .map(str::to_string)
+}
+
+pub(super) async fn mcp_local_workflow_plan_publish(
+    app: AppHandle,
+    arguments: &Value,
+) -> AppResult<Value> {
+    let started = std::time::Instant::now();
+    let (graph_id, names) = workflow_document(&app, arguments).await?;
+    let run_id = mcp_arg_string(arguments, &["runId", "run_id"])
+        .map(|run_id| run_id.trim().to_string())
+        .filter(|run_id| !run_id.is_empty())
+        .ok_or_else(|| AppError::validation("runId is required"))?;
+    let segment = run_segment(&run_id);
+    let run_graph = format!("{}:run:{segment}", names.workflow);
+    let draft = load_graph(&app, &graph_id, &names.draft)?;
+    let collection = last_collection(&draft, &names).ok_or_else(|| {
+        AppError::validation(
+            "the plan has no last collection: its last phase has no step that produces one",
+        )
+    })?;
+    let run_triples = load_graph(&app, &graph_id, &run_graph)?;
+    let run = Plan::new(&run_triples);
+    let Some(run_node) = run.typed("GraphPlanRun").first().copied() else {
+        return Err(AppError::validation(format!(
+            "there is no run {run_id} of this workflow (no wf:GraphPlanRun in {run_graph})"
+        )));
+    };
+    let mut items: Vec<(i64, &str)> = run
+        .typed("Item")
+        .into_iter()
+        .filter(|item| run.iri_of(item, &format!("{WF}inCollection")) == Some(collection.as_str()))
+        .filter_map(|item| {
+            let position = run
+                .literal(item, &format!("{WF}position"))?
+                .trim()
+                .parse::<i64>()
+                .ok()?;
+            Some((position, item))
+        })
+        .collect();
+    items.sort();
+    let mut skipped = 0usize;
+    let mut by_document: Vec<(String, Vec<Finding>)> = Vec::new();
+    for (position, item) in &items {
+        let finding = run
+            .literal(item, &format!("{WF}json"))
+            .and_then(|json| finding_of(position + 1, json));
+        let Some(finding) = finding else {
+            skipped += 1;
+            continue;
+        };
+        match by_document
+            .iter_mut()
+            .find(|(document, _)| *document == finding.document_id)
+        {
+            Some((_, findings)) => findings.push(finding),
+            None => by_document.push((finding.document_id.clone(), vec![finding])),
+        }
+    }
+    let author = plan_view(&draft, &names)["title"]
+        .as_str()
+        .unwrap_or("Workflow")
+        .to_string();
+
+    // One document.editComments per target document: one Y.Doc transaction
+    // and one re-projection for all of its comments.
+    let mut placed_total = 0usize;
+    let mut not_found: Vec<Value> = Vec::new();
+    let mut documents: Vec<Value> = Vec::new();
+    let mut targets: Vec<String> = Vec::new();
+    for (document_id, findings) in &by_document {
+        let comment_id = |finding: &Finding| format!("wf-{segment}-{}", finding.index);
+        let comments: Vec<Value> = findings
+            .iter()
+            .map(|finding| {
+                let mut comment = json!({
+                    "commentId": comment_id(finding),
+                    "text": finding.note,
+                    "find": finding.quote,
+                    "quotedText": finding.quote,
+                });
+                if let Some(block_id) = &finding.block_id {
+                    comment["blockId"] = json!(block_id);
+                }
+                comment
+            })
+            .collect();
+        let result = crate::crdt_queue::enqueue_crdt_operation(
+            app.clone(),
+            crate::crdt_queue::EnqueueCrdtOperationInput {
+                kind: "document.editComments".to_string(),
+                graph_id: graph_id.clone(),
+                document_id: Some(document_id.clone()),
+                payload: json!({
+                    "documentId": document_id,
+                    "author": author,
+                    "comments": comments,
+                }),
+            },
+        )
+        .await
+        .map_err(AppError::internal)?;
+        let placed = result["placed"].as_array().map_or(0, Vec::len);
+        placed_total += placed;
+        let missed = result["notFound"].as_array().cloned().unwrap_or_default();
+        for miss in &missed {
+            let Some(finding) = findings
+                .iter()
+                .find(|finding| miss["commentId"].as_str() == Some(comment_id(finding).as_str()))
+            else {
+                continue;
+            };
+            not_found.push(json!({
+                "index": finding.index,
+                "documentId": document_id,
+                "quote": finding.quote,
+                "reason": miss["reason"],
+            }));
+        }
+        let in_graph = !missed.iter().any(|miss| {
+            miss["reason"].as_str().is_some_and(|reason| {
+                reason.starts_with(&format!("document {document_id} is not in graph"))
+            })
+        });
+        if in_graph {
+            targets.push(document_id.clone());
+        }
+        documents.push(json!({
+            "documentId": document_id,
+            "inGraph": in_graph,
+            "findings": findings.len(),
+            "placed": placed,
+            "notFound": missed.len(),
+        }));
+    }
+    not_found.sort_by_key(|miss| miss["index"].as_i64().unwrap_or_default());
+
+    // One wf:Publication in the authoring trail.
+    let publication = NamedNode::new_unchecked(format!(
+        "{}:publication:{}",
+        names.authoring,
+        uuid::Uuid::new_v4().simple()
+    ));
+    let p = |name: &str| iri(&format!("{WF}{name}"));
+    let at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    let mut record = vec![
+        Triple::new(publication.clone(), iri(RDF_TYPE), p("Publication")),
+        Triple::new(
+            publication.clone(),
+            iri(RDF_TYPE),
+            iri(&format!("{PROV}Activity")),
+        ),
+        Triple::new(
+            publication.clone(),
+            p("definitionSubject"),
+            NamedNode::new_unchecked(names.workflow.clone()),
+        ),
+        Triple::new(
+            publication.clone(),
+            p("run"),
+            NamedNode::new_unchecked(run_node.to_string()),
+        ),
+        Triple::new(publication.clone(), p("runId"), text(&run_id)),
+        Triple::new(
+            publication.clone(),
+            p("collection"),
+            NamedNode::new_unchecked(collection.clone()),
+        ),
+        Triple::new(
+            publication.clone(),
+            p("placedCount"),
+            integer(placed_total as i64),
+        ),
+        Triple::new(
+            publication.clone(),
+            p("notFoundCount"),
+            integer(not_found.len() as i64),
+        ),
+        Triple::new(
+            publication.clone(),
+            p("notFoundJson"),
+            text(&Value::Array(not_found.clone()).to_string()),
+        ),
+        Triple::new(
+            publication.clone(),
+            iri(&format!("{PROV}generatedAtTime")),
+            Literal::new_typed_literal(at, NamedNode::new_unchecked(XSD_DATE_TIME)),
+        ),
+    ];
+    for target in &targets {
+        record.push(Triple::new(
+            publication.clone(),
+            p("targetDocument"),
+            NamedNode::new_unchecked(crate::rdf::document_subject(target)),
+        ));
+    }
+    for miss in &not_found {
+        if let Some(quote) = miss["quote"].as_str() {
+            record.push(Triple::new(
+                publication.clone(),
+                p("notFoundQuote"),
+                text(quote),
+            ));
+        }
+    }
+    if let Some(actor) = crate::request_actor::current_request_actor() {
+        record.push(Triple::new(
+            publication.clone(),
+            p("actor"),
+            text(&actor.user_id),
+        ));
+        if let Some(via) = actor.via {
+            record.push(Triple::new(publication.clone(), p("actorVia"), text(&via)));
+        }
+    }
+    run_update(&app, &graph_id, insert_data(&names.authoring, &record)).await?;
+
+    Ok(json!({
+        "graphId": graph_id,
+        "documentId": names.document_id,
+        "runId": run_id,
+        "runGraph": run_graph,
+        "collection": local_id(&collection),
+        "placed": placed_total,
+        "notFound": not_found,
+        "skipped": skipped,
+        "documents": documents,
+        "publication": publication.as_str(),
+        "elapsedMs": started.elapsed().as_millis() as u64,
+    }))
+}
+
 /// The fence: `documentId` must name a document of kind `"workflow"`.
 async fn workflow_document(app: &AppHandle, arguments: &Value) -> AppResult<(String, PlanNames)> {
     let graph_id = mcp_required_graph_id(arguments).map_err(AppError::validation)?;

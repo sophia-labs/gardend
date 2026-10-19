@@ -380,6 +380,7 @@
     "workflow_plan_compose",
     "workflow_plan_create",
     "workflow_plan_read",
+    "workflow_plan_publish",
     "write_document"
   ]
 }

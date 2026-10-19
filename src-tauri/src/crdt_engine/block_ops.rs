@@ -502,7 +502,10 @@ fn content_fragment(txn: &mut TransactionMut<'_>) -> XmlFragmentRef {
 }
 
 /// Port of readBlockId: data-block-id ?? blockId, non-empty string only.
-fn read_block_id_from_element<T: ReadTxn>(txn: &T, element: &XmlElementRef) -> Option<String> {
+pub(crate) fn read_block_id_from_element<T: ReadTxn>(
+    txn: &T,
+    element: &XmlElementRef,
+) -> Option<String> {
     let primary = element.get_attribute(txn, "data-block-id");
     let raw = match &primary {
         None | Some(Out::Any(Any::Null)) | Some(Out::Any(Any::Undefined)) => {

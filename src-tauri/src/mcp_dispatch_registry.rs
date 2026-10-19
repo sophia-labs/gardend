@@ -103,7 +103,7 @@ use crate::{
     },
     workflow_plan_mcp::{
         mcp_local_workflow_plan_compose, mcp_local_workflow_plan_create,
-        mcp_local_workflow_plan_read,
+        mcp_local_workflow_plan_publish, mcp_local_workflow_plan_read,
     },
     workflow_run_mcp::{mcp_local_workflow_run_monitor, mcp_local_workflow_run_start},
     workspace_projection_service::mcp_local_get_workspace,
@@ -867,6 +867,11 @@ fn tramp_workflow_plan_compose<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> 
     Box::pin(async move { mcp_local_workflow_plan_compose(app, args).await })
 }
 
+fn tramp_workflow_plan_publish<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
+    let app = ctx.app.clone();
+    Box::pin(async move { mcp_local_workflow_plan_publish(app, args).await })
+}
+
 fn tramp_workflow_authoring_session<'a>(
     ctx: &'a McpCallCtx<'a>,
     args: &'a Value,
@@ -1389,6 +1394,10 @@ const REGISTRY: &[McpToolEntry] = &[
     McpToolEntry {
         name: "workflow_plan_compose",
         handler: tramp_workflow_plan_compose,
+    },
+    McpToolEntry {
+        name: "workflow_plan_publish",
+        handler: tramp_workflow_plan_publish,
     },
     McpToolEntry {
         name: "workflow_authoring_session",

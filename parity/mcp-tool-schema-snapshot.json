@@ -436,6 +436,10 @@
     "workflow_plan_compose": {
       "required": ["documentId", "graphId", "moves", "rationale"],
       "properties": ["documentId", "graphId", "graph_id", "moves", "rationale"]
+    },
+    "workflow_plan_publish": {
+      "required": ["documentId", "graphId", "runId"],
+      "properties": ["documentId", "graphId", "graph_id", "runId"]
     }
   }
 }

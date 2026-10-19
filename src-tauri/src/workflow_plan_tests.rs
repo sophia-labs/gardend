@@ -818,3 +818,282 @@ fn a_document_writer_without_rdf_update_composes_and_a_reader_cannot() {
         let _ = std::fs::remove_dir_all(&dir);
     });
 }
+
+// ── workflow_plan_publish: a run's findings into the margin ─────────────────
+
+/// A two-phase plan whose last collection is `findings`.
+fn finding_moves() -> Value {
+    json!([
+        { "op": "upsert_phase", "id": "p1", "title": "Read", "order": 1 },
+        { "op": "upsert_phase", "id": "p2", "title": "Find", "order": 2 },
+        {
+            "op": "upsert_step", "id": "reader", "phase": "p1", "label": "the Reader",
+            "agentType": "segmenter", "instructions": "Cut it into passages.", "mode": "once",
+            "produces": "passages", "itemSchema": { "type": "object" },
+        },
+        {
+            "op": "upsert_step", "id": "finder", "phase": "p2", "label": "the Finder",
+            "agentType": "extractor", "instructions": "Find what to say.", "mode": "perItem",
+            "over": "passages", "produces": "findings", "itemSchema": { "type": "object" },
+        },
+    ])
+}
+
+/// The run graph Choreograph's `serializeGraphPlanRun` writes, for `items`
+/// (collection id, item JSON), in its exact shape.
+fn write_run(ctx: &McpCallCtx<'_>, workflow: &str, run_id: &str, items: &[(&str, Value)]) {
+    let run_graph = format!(
+        "{workflow}:run:{}",
+        run_id.replace(
+            |c: char| !c.is_ascii_alphanumeric() && c != '_' && c != '-',
+            "_"
+        )
+    );
+    let run = format!("<{run_graph}#run>");
+    let lit = |value: &str| serde_json::to_string(value).unwrap();
+    let mut triples = vec![format!(
+        "{run} a wf:GraphPlanRun ; wf:runId {} ; wf:status {} ; wf:definition <{workflow}:v1> ; \
+         wf:definitionDigest {} ; wf:workflow <{workflow}> .",
+        lit(run_id),
+        lit("completed"),
+        lit("sha256:test")
+    )];
+    let mut positions: std::collections::BTreeMap<&str, usize> = Default::default();
+    for (n, (collection, item)) in items.iter().enumerate() {
+        let position = positions.entry(collection).or_default();
+        triples.push(format!(
+            "<{run_graph}#item-{}> a wf:Item ; wf:partOfRun {run} ; wf:inCollection <{workflow}#{collection}> ; \
+             wf:position {position} ; wf:json {} .",
+            n + 1,
+            lit(&item.to_string())
+        ));
+        *position += 1;
+    }
+    ok(
+        ctx,
+        "sparql_update",
+        json!({ "update": format!(
+            "PREFIX wf: <{WF}>\nINSERT DATA {{ GRAPH <{run_graph}> {{\n{}\n}} }}",
+            triples.join("\n")
+        ) }),
+    );
+}
+
+fn stored_comments(ctx: &McpCallCtx<'_>, document_id: &str) -> serde_json::Map<String, Value> {
+    use yrs::types::ToJson;
+    use yrs::{ReadTxn, Transact};
+    let graph_dir = crate::graph_paths::existing_graph_dir(&ctx.app, GRAPH).unwrap();
+    let path =
+        crate::ydoc_paths::checked_document_ydoc_state_path(&graph_dir, document_id).unwrap();
+    crate::app_runtime::async_runtime::block_on(async {
+        let room = ctx
+            .app
+            .state::<crate::crdt_engine::rooms::RoomRegistry>()
+            .get_or_create(&format!("doc:{GRAPH}:{document_id}"), path)
+            .await
+            .unwrap();
+        room.with_doc(|doc| {
+            let txn = doc.transact();
+            txn.get_map("comments")
+                .map(|comments| serde_json::to_value(comments.to_json(&txn)).unwrap())
+                .unwrap_or(Value::Null)
+        })
+        .await
+    })
+    .as_object()
+    .cloned()
+    .unwrap_or_default()
+}
+
+fn revision(ctx: &McpCallCtx<'_>, document_id: &str) -> u64 {
+    ok(ctx, "read_document", json!({ "document_id": document_id }))["revision"]
+        .as_u64()
+        .unwrap_or_else(|| panic!("no revision for {document_id}"))
+}
+
+#[test]
+fn publish_places_a_runs_findings_in_one_write_per_document_and_twice_is_once() {
+    with_graph(|ctx| {
+        let (id, _) = create(ctx, "Margins");
+        let workflow = format!("urn:sophia:wf:{id}");
+        ok(
+            ctx,
+            "workflow_plan_compose",
+            json!({ "documentId": id, "rationale": "the plan", "moves": finding_moves() }),
+        );
+        for (doc, content) in [
+            (
+                "alpha",
+                "The quick brown fox jumps.\n\nOver the lazy dog it goes.",
+            ),
+            ("beta", "Nothing much is said here."),
+        ] {
+            ok(
+                ctx,
+                "write_document",
+                json!({ "document_id": doc, "title": doc, "content": content, "format": "markdown" }),
+            );
+        }
+        let blocks = ok(
+            ctx,
+            "read_document",
+            json!({ "document_id": "alpha", "format": "ids_only" }),
+        );
+        let first_block = blocks["block_ids"][0].as_str().unwrap().to_string();
+        write_run(
+            ctx,
+            &workflow,
+            "run/1",
+            &[
+                ("passages", json!({ "text": "a passage, not a finding" })),
+                (
+                    "findings",
+                    json!({ "documentId": "alpha", "blockId": first_block,
+                                     "quote": "quick brown fox", "note": "An animal." }),
+                ),
+                (
+                    "findings",
+                    json!({ "documentId": "alpha", "quote": "lazy dog", "note": "Another." }),
+                ),
+                (
+                    "findings",
+                    json!({ "documentId": "beta", "quote": "not in this text", "note": "Lost." }),
+                ),
+                (
+                    "findings",
+                    json!({ "documentId": "nowhere", "quote": "x", "note": "No such document." }),
+                ),
+                ("findings", json!({ "note": "no document, no quote" })),
+            ],
+        );
+        let alpha_before = revision(ctx, "alpha");
+
+        let published = ok(
+            ctx,
+            "workflow_plan_publish",
+            json!({ "documentId": id, "runId": "run/1" }),
+        );
+        assert_eq!(published["placed"], 2, "{published}");
+        let not_found: Vec<(i64, String)> = published["notFound"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|miss| {
+                (
+                    miss["index"].as_i64().unwrap(),
+                    miss["quote"].as_str().unwrap().to_string(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            not_found,
+            vec![(3, "not in this text".to_string()), (4, "x".to_string())],
+            "{published}"
+        );
+        assert!(
+            published["notFound"][1]["reason"]
+                .as_str()
+                .is_some_and(|reason| reason.contains("nowhere")),
+            "{published}"
+        );
+        assert_eq!(published["skipped"], 1, "{published}");
+
+        let comments = stored_comments(ctx, "alpha");
+        let mut ids: Vec<&String> = comments.keys().collect();
+        ids.sort();
+        assert_eq!(ids, vec!["wf-run_1-1", "wf-run_1-2"], "{comments:?}");
+        assert_eq!(comments["wf-run_1-1"]["text"], "An animal.");
+        assert_eq!(comments["wf-run_1-2"]["quotedText"], "lazy dog");
+        assert_eq!(
+            comments["wf-run_1-2"]["blockId"], blocks["block_ids"][1],
+            "anchored by search"
+        );
+        assert!(stored_comments(ctx, "beta").is_empty());
+        assert_eq!(
+            revision(ctx, "alpha"),
+            alpha_before + 1,
+            "both comments land in one write of alpha"
+        );
+        let xml = ok(ctx, "read_document", json!({ "document_id": "alpha" }))["content"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(
+            xml.contains("wf-run_1-1") && xml.contains("wf-run_1-2"),
+            "{xml}"
+        );
+
+        // Twice is once: the same ids are updated, nothing doubles.
+        let again = ok(
+            ctx,
+            "workflow_plan_publish",
+            json!({ "documentId": id, "runId": "run/1" }),
+        );
+        assert_eq!(again["placed"], 2, "{again}");
+        assert_eq!(stored_comments(ctx, "alpha").len(), 2);
+        let xml_again = ok(ctx, "read_document", json!({ "document_id": "alpha" }))["content"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert_eq!(
+            xml_again.matches("wf-run_1-1").count(),
+            xml.matches("wf-run_1-1").count(),
+            "{xml_again}"
+        );
+
+        // Each publish is one wf:Publication in the authoring graph.
+        let publications = ok(
+            ctx,
+            "sparql_query",
+            json!({ "query": format!(
+                "PREFIX wf: <{WF}> SELECT ?p ?placed WHERE {{ GRAPH <{workflow}:authoring> {{ \
+                 ?p a wf:Publication ; wf:placedCount ?placed ; wf:runId \"run/1\" ; \
+                 wf:targetDocument <urn:mnemosyne:local:document:alpha> ; \
+                 wf:notFoundQuote \"not in this text\" }} }}"
+            ) }),
+        );
+        assert_eq!(
+            publications["rows"].as_array().unwrap().len(),
+            2,
+            "{publications}"
+        );
+    });
+}
+
+#[test]
+fn publish_is_fenced_and_needs_a_run() {
+    with_graph(|ctx| {
+        ok(
+            ctx,
+            "create_document",
+            json!({ "documentId": "plain", "title": "Plain" }),
+        );
+        let error = call(
+            ctx,
+            "workflow_plan_publish",
+            json!({ "documentId": "plain", "runId": "r1" }),
+        )
+        .expect_err("not a workflow document");
+        assert!(error.contains("not a workflow"), "{error}");
+        let (id, _) = create(ctx, "Margins");
+        ok(
+            ctx,
+            "workflow_plan_compose",
+            json!({ "documentId": id, "rationale": "the plan", "moves": finding_moves() }),
+        );
+        let error = call(
+            ctx,
+            "workflow_plan_publish",
+            json!({ "documentId": id, "runId": "never" }),
+        )
+        .expect_err("no such run");
+        assert!(error.contains("never"), "{error}");
+        assert_eq!(
+            crate::loopback_scopes::mcp_tool_scopes("workflow_plan_publish"),
+            vec!["rdf.query", "documents.write.crdt"]
+        );
+        assert!(crate::mcp_tool_registry::is_known_mcp_tool_name(
+            "workflow_plan_publish"
+        ));
+    });
+}

@@ -275,7 +275,7 @@ fn normalize_payload_ids(kind: &str, payload: &mut serde_json::Value, enqueue_ti
             // how it knows a content write must not reorder an existing one.
             inject_updated_at_if_absent(obj, enqueue_timestamp);
         }
-        "document.editComment" => {
+        "document.editComment" | "document.editComments" => {
             inject_updated_at_if_absent(obj, enqueue_timestamp);
         }
         "workspace.createWire" => {

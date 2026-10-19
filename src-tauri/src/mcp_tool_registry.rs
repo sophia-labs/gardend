@@ -218,8 +218,9 @@ mod tests {
         // write_artifact_text) = 112 (113 with the one added since), then
         // + datasheet_import and datasheet_facts (datasheets slice 1) = 115,
         // + find (the RDF entity index) = 116, + the three RDF-native
-        // workflow plan tools (workflow_plan_create/read/compose) = 119.
-        assert_eq!(tools.len(), 119);
+        // workflow plan tools (workflow_plan_create/read/compose) = 119,
+        // + workflow_plan_publish = 120.
+        assert_eq!(tools.len(), 120);
 
         let known_scopes = loopback_scope_keys()
             .into_iter()
@@ -337,8 +338,8 @@ mod tests {
         .expect("desktop tools list serializes");
         let tools = result["tools"].as_array().expect("tools");
 
-        // 119 registered tools minus the two explicitly optional CSS schemas.
-        assert_eq!(tools.len(), 117);
+        // 120 registered tools minus the two explicitly optional CSS schemas.
+        assert_eq!(tools.len(), 118);
         assert!(tools.iter().any(|tool| tool["name"] == "read_document"));
         assert!(tools.iter().any(|tool| tool["name"] == "write_document"));
         assert!(tools
@@ -372,8 +373,8 @@ mod tests {
         // with real Editor+ role mapping (sources.read/write/rebuild are
         // classified Editor in `minimum_role_for_effect`) — the merge keeps
         // that later, deployed decision, not main's earlier blanket fence.
-        // + the three workflow plan tools (graph-scoped, cell-visible) = 107.
-        assert_eq!(names.len(), 107);
+        // + the four workflow plan tools (graph-scoped, cell-visible) = 108.
+        assert_eq!(names.len(), 108);
         for added in ["custom_css", "agent_status", "agent_self_image", "status"] {
             assert!(names.contains(added), "missing default tool {added}");
         }
@@ -595,7 +596,7 @@ mod tests {
             tools.len()
         }
 
-        assert_eq!(audit("catalog", &mcp_tools_list_result()), 119);
+        assert_eq!(audit("catalog", &mcp_tools_list_result()), 120);
         let desktop = crate::cell_graph_boundary::CellGraphBoundary::for_test(None);
         let cell = crate::cell_graph_boundary::CellGraphBoundary::for_test(Some("graph-a"));
         for role in [

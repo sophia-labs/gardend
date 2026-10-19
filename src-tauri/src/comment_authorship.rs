@@ -161,7 +161,7 @@ pub(crate) fn stamp_comment_author(app: &AppHandle, kind: &str, payload: &mut Va
     };
     object.remove(COMMENT_AUTHOR_PAYLOAD_KEY);
     let writes_comments = match kind {
-        "document.editComment" => true,
+        "document.editComment" | "document.editComments" => true,
         "document.write" => object
             .get("comments")
             .and_then(Value::as_object)

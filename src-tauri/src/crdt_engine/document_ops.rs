@@ -2506,6 +2506,158 @@ pub(crate) async fn edit_comment_classified(
 }
 
 // ---------------------------------------------------------------------------
+// document.editComments: several `set` comments on one document in ONE Y.Doc
+// transaction and ONE persist (workflow_plan_publish). A document.editComment
+// per comment re-projects the whole document each time; on a 209k-word book
+// that was 6-20 s a comment. Each comment anchors exactly as
+// document.editComment does (blockId + find + occurrence); one that names no
+// blockId anchors at the first block whose text holds its find. A comment
+// that cannot anchor is reported and written nowhere.
+// ---------------------------------------------------------------------------
+
+pub(crate) async fn edit_comments_classified(
+    app: &AppHandle,
+    operation: &CrdtOperation,
+) -> ApplyOperationResult<Value> {
+    let graph_id = operation.graph_id.clone();
+    let document_id = operation
+        .document_id
+        .clone()
+        .filter(|id| !id.is_empty())
+        .ok_or_else(|| "document.editComments: documentId is required".to_string())?;
+    let payload = obj(&operation.payload);
+    let comments: Vec<Map<String, Value>> = payload
+        .get("comments")
+        .and_then(Value::as_array)
+        .filter(|comments| !comments.is_empty())
+        .ok_or_else(|| {
+            ApplyOperationError::terminal(
+                "document.editComments: comments must be a non-empty list",
+            )
+        })?
+        .iter()
+        .map(|comment| comment.as_object().cloned().unwrap_or_default())
+        .collect();
+    let now = js_finite_number(payload.get("updatedAt")).ok_or_else(|| {
+        "document.editComments: updatedAt is required — normalize_payload_ids must inject it from enqueueTimestamp"
+            .to_string()
+    })?;
+    let graph_dir = existing_graph_dir(app, &graph_id)?;
+    let registry = app.state::<RoomRegistry>();
+    // Never open (and so create) a room for a document this graph does not hold.
+    if !crate::loopback_hocuspocus_routes::document_exists_for_room_connection(
+        &registry,
+        &graph_id,
+        &graph_dir,
+        &document_id,
+    )
+    .await
+    .unwrap_or(false)
+    {
+        let not_found: Vec<Value> = comments
+            .iter()
+            .map(|comment| {
+                json!({
+                    "commentId": comment.get("commentId"),
+                    "reason": format!("document {document_id} is not in graph {graph_id}"),
+                })
+            })
+            .collect();
+        return Ok(json!({
+            "documentId": document_id,
+            "graphId": graph_id,
+            "placed": [],
+            "notFound": not_found,
+        }));
+    }
+    let room = registry
+        .get_or_create(
+            &format!("doc:{graph_id}:{document_id}"),
+            checked_document_ydoc_state_path(&graph_dir, &document_id)?,
+        )
+        .await
+        .map_err(ApplyOperationError::retryable_after_hot_commit)?;
+    // What every comment shares: the server-stamped author and the caller's
+    // claimed one (crate::comment_authorship).
+    let mut shared = payload.clone();
+    shared.remove("comments");
+    let outcome = room
+        .update_doc(move |_doc, txn| {
+            let fragment = txn.get_or_insert_xml_fragment("content");
+            let mut placed = Vec::new();
+            let mut not_found = Vec::new();
+            for comment in comments {
+                let mut fields = shared.clone();
+                fields.extend(comment);
+                fields.insert("action".to_string(), json!("set"));
+                let comment_id = js_string_value(coalesce(&fields, &["commentId", "comment_id"]));
+                let Some(comment_id) = comment_id else {
+                    not_found.push(json!({ "reason": "a comment has no commentId" }));
+                    continue;
+                };
+                let has_block =
+                    js_string_value(coalesce(&fields, &["blockId", "block_id"])).is_some();
+                if !has_block {
+                    let Some(find) = js_string_value(fields.get("find")) else {
+                        not_found
+                            .push(json!({ "commentId": comment_id, "reason": "nothing to find" }));
+                        continue;
+                    };
+                    let holder = fragment.children(txn).find_map(|child| match child {
+                        XmlOut::Element(element)
+                            if read_block_text(txn, &element).contains(find.as_str()) =>
+                        {
+                            block_ops::read_block_id_from_element(txn, &element)
+                        }
+                        _ => None,
+                    });
+                    match holder {
+                        Some(block_id) => {
+                            fields.insert("blockId".to_string(), json!(block_id));
+                        }
+                        None => {
+                            not_found.push(json!({
+                                "commentId": comment_id,
+                                "reason": format!("text not found in the document: {find}"),
+                            }));
+                            continue;
+                        }
+                    }
+                }
+                match edit_comment_in_doc(txn, &fields, "set", &comment_id, now) {
+                    Ok(result) => placed.push(result),
+                    Err(error) => {
+                        not_found.push(json!({ "commentId": comment_id, "reason": error }))
+                    }
+                }
+            }
+            Ok::<_, String>((placed, not_found))
+        })
+        .await
+        .map_err(ApplyOperationError::retryable_after_hot_commit)?;
+    let (placed, not_found) = outcome;
+    if !placed.is_empty() {
+        let title = existing_record_title(&graph_dir, &document_id);
+        persist_room_document(
+            app,
+            &graph_id,
+            &document_id,
+            &title,
+            &room,
+            &operation.operation_id,
+        )
+        .await
+        .map_err(ApplyOperationError::retryable_after_hot_commit)?;
+    }
+    Ok(json!({
+        "documentId": document_id,
+        "graphId": graph_id,
+        "placed": placed,
+        "notFound": not_found,
+    }))
+}
+
+// ---------------------------------------------------------------------------
 // document.liveProjection (port of liveProjection,
 // native-local-runtime.ts:314; the room registry is the cell's channel pool)
 // ---------------------------------------------------------------------------

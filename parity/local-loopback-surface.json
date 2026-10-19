@@ -2099,6 +2099,14 @@
       ]
     },
     {
+      "name": "workflow_plan_publish",
+      "status": "implemented-workflow-plan-publish",
+      "scopes": [
+        "rdf.query",
+        "documents.write.crdt"
+      ]
+    },
+    {
       "name": "workflow_authoring_session",
       "status": "implemented-workflow-authoring-session",
       "scopes": [

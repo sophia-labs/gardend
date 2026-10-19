@@ -473,6 +473,9 @@ async fn apply_operation_dispatch(
         "document.editComment" => super::document_ops::edit_comment_classified(app, operation)
             .await
             .map_err(ApplyOperationError::from),
+        "document.editComments" => super::document_ops::edit_comments_classified(app, operation)
+            .await
+            .map_err(ApplyOperationError::from),
         "document.liveProjection" => super::document_ops::live_projection(app, operation)
             .await
             .map_err(ApplyOperationError::from),
