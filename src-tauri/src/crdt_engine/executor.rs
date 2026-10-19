@@ -91,6 +91,39 @@ fn is_heavy_kind(kind: &str) -> bool {
     HEAVY_KINDS.contains(&kind)
 }
 
+/// Default number of times a `crdt.flush` operation is requeued after a
+/// retryable failure before it completes as failed. The value is a generous
+/// choice, not derived from another bound. With the queue's backoff it is
+/// about 20 seconds for an attached caller and about 20 minutes for a
+/// detached one.
+const DEFAULT_MAX_RETRYABLE_ATTEMPTS: u32 = 25;
+
+/// Whether the retry ceiling applies to this operation kind.
+///
+/// A `RetryableAfterHotCommit` failure normally keeps its journal entry
+/// non-terminal so the executor's retry can repair the cold tail. For
+/// `crdt.flush` that tail is only the projection of the room's durable state,
+/// and the room stays dirty when a flush fails, so the next write to the same
+/// room schedules a flush that rebuilds it. Other kinds have tails (workspace
+/// membership, tombstones, import steps) that only their own retry repairs,
+/// so they keep retrying without a ceiling.
+fn retry_ceiling_applies(kind: &str) -> bool {
+    kind == "crdt.flush"
+}
+
+/// Retry ceiling, overridable with `GARDEN_CRDT_MAX_RETRIES` (a positive
+/// integer; other values use the default).
+fn max_retryable_attempts() -> u32 {
+    retry_ceiling_from(std::env::var("GARDEN_CRDT_MAX_RETRIES").ok().as_deref())
+}
+
+fn retry_ceiling_from(value: Option<&str>) -> u32 {
+    value
+        .and_then(|value| value.trim().parse::<u32>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(DEFAULT_MAX_RETRYABLE_ATTEMPTS)
+}
+
 /// Drain everything currently in the queue. Called after each enqueue and
 /// once at startup (recovered operations).
 pub(crate) async fn drain_queue(app: AppHandle) {
@@ -139,6 +172,31 @@ pub(crate) async fn drain_queue(app: AppHandle) {
                     complete_terminal(&app, &operation, Err(error));
                 }
                 Err(ApplyOperationError::RetryableAfterHotCommit(error)) => {
+                    // A flush that keeps failing completes as failed once the
+                    // retry ceiling is reached, so the caller gets the error
+                    // and the graph's retry barrier is released. The room
+                    // state it was projecting is already committed.
+                    let prior_retries = queue.retry_attempt_count(&operation.operation_id);
+                    let ceiling = max_retryable_attempts();
+                    if retry_ceiling_applies(&operation.kind) && prior_retries >= ceiling {
+                        log::error!(
+                            "executor: operation {} ({}) failed attempt {} and reached the retry ceiling ({ceiling}); giving up: {error}",
+                            operation.operation_id,
+                            operation.kind,
+                            prior_retries + 1,
+                        );
+                        complete_terminal(
+                            &app,
+                            &operation,
+                            Err(format!(
+                                "projection flush failed after {} attempts; giving up. The room \
+                                 state is committed and stays dirty; the next write to the room \
+                                 flushes it again: {error}",
+                                prior_retries + 1
+                            )),
+                        );
+                        continue;
+                    }
                     let retry = match queue.requeue_retryable_after_hot_commit(operation.clone()) {
                         Ok(retry) => retry,
                         Err(queue_error) => {
@@ -1625,6 +1683,31 @@ mod post_hot_recovery_tests {
         let _ = std::fs::remove_dir_all(&profile);
         if let Err(payload) = result {
             std::panic::resume_unwind(payload);
+        }
+    }
+}
+
+#[cfg(test)]
+mod retry_ceiling_tests {
+    use super::{retry_ceiling_applies, retry_ceiling_from, DEFAULT_MAX_RETRYABLE_ATTEMPTS};
+
+    #[test]
+    fn retry_ceiling_uses_positive_override_and_defaults_otherwise() {
+        assert_eq!(retry_ceiling_from(None), DEFAULT_MAX_RETRYABLE_ATTEMPTS);
+        assert_eq!(retry_ceiling_from(Some(" 40 ")), 40);
+        for invalid in ["0", "-3", "many", ""] {
+            assert_eq!(
+                retry_ceiling_from(Some(invalid)),
+                DEFAULT_MAX_RETRYABLE_ATTEMPTS
+            );
+        }
+    }
+
+    #[test]
+    fn retry_ceiling_applies_only_to_flush_operations() {
+        assert!(retry_ceiling_applies("crdt.flush"));
+        for kind in ["document.write", "workspace.createFolder", "import.vault"] {
+            assert!(!retry_ceiling_applies(kind), "{kind}");
         }
     }
 }
