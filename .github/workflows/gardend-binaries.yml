@@ -2,7 +2,10 @@
 # without a Rust toolchain: `pnpm test:real` in sophia-labs/shrubbery fetches the binary for the pinned sha.
 #
 # Runs on pushes to main ONLY, never on pull_request (the publish job holds contents: write).
-# Assets are named gardend-<full sha>-<target> on the rolling prerelease `main-latest`; the newest few dozen are kept.
+# Assets are named gardend-<full sha>-<target>, each with a gardend-<full sha>-<target>.sha256 beside it, on the rolling
+# prerelease `main-latest` (a tag literally named `main` would be ambiguous with the branch); the newest twelve commits
+# are kept. scripts/fetch-gardend downloads the right one for your machine and verifies the checksum.
+# No secrets beyond the workflow's GITHUB_TOKEN; forks and pull requests never reach the publish job.
 # The targets are the ones release.yml builds (the x86_64 macOS binary is cross-compiled on the arm64 runner).
 name: gardend binaries
 
@@ -64,7 +67,9 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp "src-tauri/target/${{ matrix.target }}/release/examples/gardend" "dist/gardend-${GITHUB_SHA}-${{ matrix.target }}"
+          name="gardend-${GITHUB_SHA}-${{ matrix.target }}"
+          cp "src-tauri/target/${{ matrix.target }}/release/examples/gardend" "dist/$name"
+          (cd dist && shasum -a 256 "$name" > "$name.sha256")
 
       - uses: actions/upload-artifact@v4
         with:
@@ -77,6 +82,7 @@ jobs:
     name: rolling prerelease main-latest
     needs: build
     runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.repository == 'sophia-labs/gardend'
     permissions:
       contents: write
     steps:
@@ -95,6 +101,6 @@ jobs:
             --title "main-latest" --notes "Prebuilt gardend binaries for recent commits on main, named gardend-<sha>-<target>. Rolling; not a release."
           gh release upload main-latest dist/* --clobber
           gh release edit main-latest --notes "Prebuilt gardend binaries for recent commits on main, named gardend-<sha>-<target>. Newest: $GITHUB_SHA. Rolling; not a release."
-          # Keep the newest 36 assets (twelve commits of three targets).
-          gh api "repos/$GH_REPO/releases/tags/main-latest" --jq '.assets | sort_by(.created_at) | reverse | .[36:] | .[].id' \
+          # Keep the newest 72 assets (twelve commits of three targets, each binary with its checksum).
+          gh api "repos/$GH_REPO/releases/tags/main-latest" --jq '.assets | sort_by(.created_at) | reverse | .[72:] | .[].id' \
             | while read -r id; do gh api -X DELETE "repos/$GH_REPO/releases/assets/$id"; done

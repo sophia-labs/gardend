@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# fetch-gardend: download a prebuilt headless gardend for this machine, verify its checksum, print its path.
+#
+#   scripts/fetch-gardend              the newest build of main            ->  .gardend-cache/gardend-<sha>-<target>
+#   scripts/fetch-gardend <sha>        the build of one commit (full sha; GitHub keeps the newest dozen)
+#   GARDEND_REPO=owner/name            another repository (default sophia-labs/gardend)
+#   GARDEND_CACHE=dir                  where to keep it (default .gardend-cache in the current directory)
+#   GITHUB_TOKEN=...                   optional, only to lift the anonymous API rate limit
+#
+# Prints the binary's path on stdout and nothing else. Binaries come from the `main-latest` prerelease that
+# .github/workflows/gardend-binaries.yml fills for every commit on main. Needs curl and python3 (or jq).
+set -euo pipefail
+REPO=${GARDEND_REPO:-sophia-labs/gardend}
+CACHE=${GARDEND_CACHE:-$PWD/.gardend-cache}
+REV=${1:-}
+die() { echo "fetch-gardend: $*" >&2; exit 1; }
+
+case "$(uname -s)-$(uname -m)" in
+  Linux-x86_64) TARGET=x86_64-unknown-linux-gnu ;;
+  Darwin-arm64) TARGET=aarch64-apple-darwin ;;
+  Darwin-x86_64) TARGET=x86_64-apple-darwin ;;
+  *) die "no prebuilt for $(uname -s)-$(uname -m); build one with scripts/buildbox build" ;;
+esac
+
+auth=(); [[ -n ${GITHUB_TOKEN:-} ]] && auth=(-H "Authorization: Bearer $GITHUB_TOKEN")
+json=$(curl -fsSL "${auth[@]+"${auth[@]}"}" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$REPO/releases/tags/main-latest") \
+  || die "could not read the main-latest prerelease of $REPO"
+
+# newest asset (or the one for REV) for this target: "name url"
+pick=$(printf '%s' "$json" | python3 -c '
+import json, sys
+target, rev = sys.argv[1], sys.argv[2]
+assets = json.load(sys.stdin).get("assets", [])
+want = [a for a in assets if a["name"].startswith("gardend-") and a["name"].endswith("-" + target)]
+if rev:
+    want = [a for a in want if a["name"] == f"gardend-{rev}-{target}"]
+want.sort(key=lambda a: a["created_at"], reverse=True)
+sums = {a["name"]: a["browser_download_url"] for a in assets}
+if want:
+    a = want[0]
+    print(a["name"], a["browser_download_url"], sums.get(a["name"] + ".sha256", ""))
+' "$TARGET" "$REV")
+[[ -n $pick ]] || die "no prebuilt gardend${REV:+ for $REV} for $TARGET on $REPO main-latest (it keeps the newest few; build one with scripts/buildbox build)"
+read -r name url sumurl <<<"$pick"
+[[ -n $sumurl ]] || die "$name has no .sha256 beside it; refusing an unchecked binary"
+
+mkdir -p "$CACHE"
+out=$CACHE/$name
+if [[ ! -x $out ]]; then
+  tmp=$(mktemp "$CACHE/.fetch.XXXXXX")
+  trap 'rm -f "$tmp"' EXIT
+  curl -fsSL -o "$tmp" "$url"
+  want=$(curl -fsSL "$sumurl" | awk '{print $1}')
+  got=$(shasum -a 256 "$tmp" | awk '{print $1}')
+  [[ $want == "$got" ]] || die "checksum mismatch for $name (expected $want, got $got)"
+  chmod +x "$tmp"; mv "$tmp" "$out"; trap - EXIT
+fi
+echo "$out"

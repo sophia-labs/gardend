@@ -1,0 +1,231 @@
+#!/usr/bin/env bash
+# buildbox: make your own machine a little build box for gardend.
+#
+# A cold compile of gardend takes tens of minutes; changing one file should not. buildbox keeps ONE warm cargo target
+# directory for the Garden line you are working on and builds your working tree into it, so only what changed recompiles.
+# Local only: it runs your own cargo on your own machine, listens on nothing, and sends nothing anywhere.
+#
+#   scripts/buildbox build [--release]   build the headless gardend; prints the binary's path on stdout (nothing else)
+#   scripts/buildbox test [filter...]    the headless lib tests (no filter: the whole battery, as CI runs it)
+#   scripts/buildbox gate                fmt + check + lib tests + build: what CONTRIBUTING asks before a PR
+#   scripts/buildbox status              the key, the warm directory, its size, whether a build holds the lock
+#   scripts/buildbox serve [seconds]     background warmer: every N seconds (default 1800) fetch and prebuild origin/main
+#   scripts/buildbox unit launchd|systemd  print a unit that keeps `serve` running at login
+#
+# The KEY names the Garden line: sha of src-tauri/Cargo.lock at the merge-base with origin/main (else HEAD), plus the rustc
+# version. Same dependencies and compiler, same warm directory, whatever branch or worktree you build from. Bump either and
+# you get a fresh one (old ones are listed by `status`; delete them freely).
+#
+#   ~/.cache/gardend-buildbox/<key>/target   the one warm CARGO_TARGET_DIR
+#                                /src        a stable copy of your tree (stable path => cargo fingerprints hold)
+#                                /logs       one log per run
+#                                /sccache    used when `sccache` is installed
+#
+# Your tree is copied into /src with `rsync --checksum`: a file whose content is unchanged keeps its old mtime, so cargo
+# does not see it as touched. Runs are serialized by a lock; a second request waits its turn.
+#
+# Environment: BUILDBOX_HOME (default ~/.cache/gardend-buildbox), BUILDBOX_KEY (override the key), CARGO.
+set -euo pipefail
+
+CARGO=${CARGO:-cargo}
+FEATURES=(--no-default-features --features headless)
+MANIFEST=src-tauri/Cargo.toml
+HOME_DIR=${BUILDBOX_HOME:-$HOME/.cache/gardend-buildbox}
+SELF=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")
+REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && git rev-parse --show-toplevel)
+
+say() { printf 'buildbox: %s\n' "$*" >&2; }
+die() { say "$*"; exit 1; }
+sha() { shasum -a 256 | cut -c1-"$1"; }
+
+key() {
+  [[ -n ${BUILDBOX_KEY:-} ]] && { echo "$BUILDBOX_KEY"; return; }
+  local base lock
+  base=$(git -C "$REPO" merge-base HEAD origin/main 2>/dev/null || git -C "$REPO" rev-parse HEAD)
+  lock=$(git -C "$REPO" show "$base:src-tauri/Cargo.lock" 2>/dev/null | sha 10)
+  [[ $lock != e3b0c44298 ]] || lock=$(sha 10 <"$REPO/src-tauri/Cargo.lock")  # e3b0c44298 = sha256 of nothing
+  echo "$lock-$(rustc -vV | sha 6)"
+}
+
+setup() {
+  KEY=$(key)
+  BOX=$HOME_DIR/$KEY
+  SRC=$BOX/src TARGET=$BOX/target LOGS=$BOX/logs
+  mkdir -p "$SRC" "$TARGET" "$LOGS"
+  export CARGO_TARGET_DIR=$TARGET CARGO_TERM_COLOR=never
+  if command -v sccache >/dev/null 2>&1; then
+    export RUSTC_WRAPPER=sccache SCCACHE_DIR=$BOX/sccache CARGO_INCREMENTAL=0
+  fi
+}
+
+# ---- the lock: mkdir is atomic everywhere (macOS has no flock) -------------------------------------------------------
+
+lock() {
+  local dir=$BOX/lock waited=0
+  until mkdir "$dir" 2>/dev/null; do
+    local holder; holder=$(cat "$dir/pid" 2>/dev/null || true)
+    if [[ -n $holder ]] && ! kill -0 "$holder" 2>/dev/null; then rm -rf "$dir"; continue; fi
+    ((waited++ == 0)) && say "another run holds the lock (pid ${holder:-?}); waiting"
+    sleep 2
+  done
+  echo $$ >"$dir/pid"
+  trap 'rm -rf "$BOX/lock"' EXIT
+}
+
+# ---- sync: copy a tree into $SRC, touching only files whose content changed -------------------------------------------
+
+# sync_from <dir> <file-list (NUL separated, relative to dir)>
+sync_from() {
+  local from=$1 list=$2 manifest=$SRC/.buildbox-manifest
+  rsync -a --checksum --from0 --files-from="$list" "$from/" "$SRC/"
+  # files we copied last time that this tree no longer has
+  if [[ -f $manifest ]]; then
+    tr '\0' '\n' <"$list" | sort >"$manifest.new"
+    comm -23 "$manifest" "$manifest.new" | while IFS= read -r gone; do rm -f "$SRC/$gone"; done
+    mv "$manifest.new" "$manifest"
+  else
+    tr '\0' '\n' <"$list" | sort >"$manifest"
+  fi
+}
+
+sync_worktree() {
+  local list; list=$(mktemp)
+  # tracked and untracked-but-not-ignored, minus anything deleted in the working tree
+  git -C "$REPO" ls-files -co --exclude-standard -z | while IFS= read -r -d '' f; do
+    [[ -e $REPO/$f || -L $REPO/$f ]] && printf '%s\0' "$f"
+  done >"$list"
+  sync_from "$REPO" "$list"
+  rm -f "$list"
+}
+
+sync_rev() {
+  local rev=$1 tmp list
+  tmp=$(mktemp -d) list=$(mktemp)
+  git -C "$REPO" archive "$rev" | tar -x -C "$tmp"
+  git -C "$REPO" ls-tree -r -z --name-only "$rev" >"$list"
+  sync_from "$tmp" "$list"
+  rm -rf "$tmp" "$list"
+}
+
+# ---- cargo -------------------------------------------------------------------------------------------------------------
+
+LOG=
+logged() { # logged <label> <cmd...>: run in $SRC, tee to a log, return the exit code
+  local label=$1; shift
+  LOG=$LOGS/$(date +%Y%m%d-%H%M%S)-$label.log
+  say "$label  ($LOG)"
+  echo "\$ $*" >"$LOG"
+  (cd "$SRC" && "$@") >>"$LOG" 2>&1 || { local c=$?; tail -n 40 "$LOG" >&2; say "$label FAILED ($c); full log: $LOG"; return $c; }
+}
+
+cmd_build() {
+  local profile=debug extra=()
+  [[ ${1:-} == --release ]] && profile=release extra=(--release)
+  local t0=$SECONDS
+  logged build "$CARGO" build --locked --manifest-path "$MANIFEST" "${FEATURES[@]}" --example gardend ${extra[@]+"${extra[@]}"}
+  say "build ok in $((SECONDS - t0))s"
+  echo "$TARGET/$profile/examples/gardend"
+}
+
+# The whole battery, shaped like CI: the three order-dependent suites run isolated (docs/headless-engine.md).
+cmd_test() {
+  local t=("$CARGO" test --locked --manifest-path "$MANIFEST" "${FEATURES[@]}" --lib)
+  if (($#)); then logged test "${t[@]}" "$@"; return; fi
+  local rc=0
+  logged test "${t[@]}" -- --skip semantic_model_state --skip cell_self_heal_tests --skip host_dry_run_apply_and_replay_preserve_the_exact_site_route || rc=$?
+  logged test-isolated-1 "${t[@]}" semantic_model_state -- --test-threads=1 || rc=$?
+  logged test-isolated-2 "${t[@]}" graph_paths::cell_self_heal_tests::cell_self_heal_materializes_a_never_created_graph_on_first_query -- --exact --test-threads=1 || rc=$?
+  logged test-isolated-3 "${t[@]}" emporium::site_projection_tests::headless::host_dry_run_apply_and_replay_preserve_the_exact_site_route -- --exact --test-threads=1 || rc=$?
+  return $rc
+}
+
+cmd_gate() {
+  local t0=$SECONDS
+  logged fmt "$CARGO" fmt --check --manifest-path "$MANIFEST"
+  logged check "$CARGO" check --locked --manifest-path "$MANIFEST" "${FEATURES[@]}" --lib --examples
+  cmd_test
+  cmd_build >/dev/null
+  say "gate passed in $((SECONDS - t0))s"
+}
+
+cmd_status() {
+  echo "key        $KEY"
+  echo "home       $HOME_DIR"
+  echo "target     $TARGET ($(du -sh "$TARGET" 2>/dev/null | cut -f1))"
+  echo "sccache    $(command -v sccache || echo 'not installed (optional)')"
+  [[ -d $BOX/lock ]] && echo "lock       held by pid $(cat "$BOX/lock/pid" 2>/dev/null)" || echo "lock       free"
+  echo "last log   $(ls -t "$LOGS" 2>/dev/null | head -1)"
+  echo "other keys $(ls "$HOME_DIR" 2>/dev/null | grep -vx "$KEY" | tr '\n' ' ')"
+}
+
+cmd_serve() {
+  local every=${1:-1800}
+  say "warming origin/main every ${every}s (key $KEY); ctrl-c to stop"
+  while :; do
+    git -C "$REPO" fetch --quiet origin main 2>/dev/null || say "fetch failed; building what we have"
+    "$SELF" _warm || say "warm build failed (see its log)"
+    sleep "$every"
+  done
+}
+
+cmd_unit() {
+  case ${1:-} in
+    launchd) cat <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.sophia-labs.gardend-buildbox</string>
+  <key>ProgramArguments</key><array><string>$SELF</string><string>serve</string></array>
+  <key>EnvironmentVariables</key><dict><key>PATH</key><string>$HOME/.cargo/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string></dict>
+  <key>RunAtLoad</key><true/><key>KeepAlive</key><true/>
+  <key>ProcessType</key><string>Background</string><key>LowPriorityIO</key><true/><key>Nice</key><integer>10</integer>
+  <key>StandardOutPath</key><string>$HOME_DIR/serve.log</string><key>StandardErrorPath</key><string>$HOME_DIR/serve.log</string>
+</dict></plist>
+<!-- save as ~/Library/LaunchAgents/com.sophia-labs.gardend-buildbox.plist, then:
+     launchctl bootstrap gui/\$(id -u) ~/Library/LaunchAgents/com.sophia-labs.gardend-buildbox.plist -->
+EOF
+    ;;
+    systemd) cat <<EOF
+[Unit]
+Description=gardend buildbox warmer (prebuilds origin/main into the warm target)
+
+[Service]
+ExecStart=$SELF serve
+Environment=PATH=$HOME/.cargo/bin:/usr/local/bin:/usr/bin:/bin
+Nice=10
+IOSchedulingClass=idle
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+# save as ~/.config/systemd/user/gardend-buildbox.service, then: systemctl --user enable --now gardend-buildbox
+EOF
+    ;;
+    *) die "usage: buildbox unit launchd|systemd" ;;
+  esac
+}
+
+usage() { sed -n '2,/^set -euo/p' "$SELF" | sed '$d' | sed 's/^# \{0,1\}//'; }
+
+main() {
+  local cmd=${1:-help}; shift || true
+  case $cmd in
+    help|-h|--help) usage; return ;;
+    unit) setup; cmd_unit "$@"; return ;;
+    status) setup; cmd_status; return ;;
+    serve) setup; cmd_serve "$@"; return ;;
+    build|test|gate|_warm) ;;
+    *) usage >&2; die "unknown command: $cmd" ;;
+  esac
+  command -v rsync >/dev/null || die "rsync is required"
+  setup
+  lock
+  if [[ $cmd == _warm ]]; then
+    sync_rev origin/main
+    cmd_build >/dev/null
+    return
+  fi
+  sync_worktree
+  "cmd_$cmd" "$@"
+}
+main "$@"

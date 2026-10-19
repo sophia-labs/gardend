@@ -46,19 +46,23 @@ cargo test --manifest-path src-tauri/Cargo.toml --no-default-features --features
 pnpm parity:openapi:check && pnpm parity:cell-boundary && pnpm parity:security   # if you touched routes, MCP tools, scopes, storage or security
 ```
 
-The first Rust build is a cold compile of a large dependency tree (tens of minutes). Do not pay it twice: the **build
-service** keeps one warm cargo target on your machine, across revisions and worktrees, and builds only what changed.
+The first Rust build is a cold compile of a large dependency tree (tens of minutes). Do not pay it twice: **`scripts/buildbox`**
+turns your machine into a little build box. It keeps one warm cargo target for the Garden line you are working on (keyed by
+the merge-base's `Cargo.lock` and your rustc), copies your working tree into a stable source directory without touching
+unchanged files, and builds only what changed. Local only: your own cargo, nothing listens, nothing goes to a cloud.
 
 ```bash
-scripts/garden-build-service.py start                 # once; `unit launchd|systemd` prints a unit to keep it running
-GARDEND_BIN=$(scripts/garden-build-service.py build)  # builds this worktree's gardend, prints the binary's path
-scripts/garden-build-service.py test                  # cargo test --lib (headless); prints the log's path
-scripts/garden-build-service.py build --rev origin/main
+scripts/buildbox gate                                  # fmt + check + the lib tests (CI's shape) + build: run this before a PR
+GARDEND_BIN=$(scripts/buildbox build)                  # builds this worktree's gardend, prints the binary's path
+scripts/buildbox test block_ops                        # a filter, or no argument for the whole battery
+scripts/buildbox status                                # key, warm directory and size, lock
+scripts/buildbox unit launchd                          # or systemd: keeps `buildbox serve` prebuilding origin/main in the background
 ```
 
-It is local only (127.0.0.1) and uses your own cargo; `scripts/garden-build-service.py --help` lists the rest.
+[`docs/buildbox.md`](docs/buildbox.md) has the details.
 
-Need a real gardend without building one? Every commit on `main` has a prebuilt binary on the
+Need a real gardend without building one? `scripts/fetch-gardend` downloads the prebuilt for your machine (linux x86_64,
+macOS arm64 or x86_64), checks its sha256, and prints the path. Every commit on `main` has one on the
 [`main-latest`](https://github.com/sophia-labs/gardend/releases/tag/main-latest) prerelease, named
 `gardend-<sha>-<target>`. Shrubbery's `pnpm test:real` fetches it for you.
 
