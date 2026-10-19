@@ -3,3 +3,6 @@
 /src-tauri/gen/
 /frontend/
 .DS_Store
+
+# written by the differential tests when they run
+prototypes/ontology-to-lean/differential/out/

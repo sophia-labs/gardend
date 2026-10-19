@@ -1,0 +1,100 @@
+# A prebuilt gardend for every commit on main, so a contributor to Shrubbery (or anyone) can run a real gardend
+# without a Rust toolchain: `pnpm test:real` in sophia-labs/shrubbery fetches the binary for the pinned sha.
+#
+# Runs on pushes to main ONLY, never on pull_request (the publish job holds contents: write).
+# Assets are named gardend-<full sha>-<target> on the rolling prerelease `main-latest`; the newest few dozen are kept.
+# The targets are the ones release.yml builds (the x86_64 macOS binary is cross-compiled on the arm64 runner).
+name: gardend binaries
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gardend-binaries
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-gnu, os: ubuntu-latest }
+          - { target: aarch64-apple-darwin, os: macos-14 }
+          - { target: x86_64-apple-darwin, os: macos-14 }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Native build dependencies (linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev cmake pkg-config libssl-dev
+
+      - name: Native build dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: command -v cmake || brew install cmake
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: ${{ matrix.target }}-binaries-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: |
+            ${{ matrix.target }}-binaries-
+
+      - name: Build gardend
+        run: >
+          cargo build --release --locked --target ${{ matrix.target }}
+          --manifest-path src-tauri/Cargo.toml
+          --no-default-features --features headless --example gardend
+
+      - name: Name it by sha and target
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp "src-tauri/target/${{ matrix.target }}/release/examples/gardend" "dist/gardend-${GITHUB_SHA}-${{ matrix.target }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gardend-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: rolling prerelease main-latest
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: gardend-*
+          path: dist
+          merge-multiple: true
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release view main-latest >/dev/null 2>&1 || gh release create main-latest --prerelease --target "$GITHUB_SHA" \
+            --title "main-latest" --notes "Prebuilt gardend binaries for recent commits on main, named gardend-<sha>-<target>. Rolling; not a release."
+          gh release upload main-latest dist/* --clobber
+          gh release edit main-latest --notes "Prebuilt gardend binaries for recent commits on main, named gardend-<sha>-<target>. Newest: $GITHUB_SHA. Rolling; not a release."
+          # Keep the newest 36 assets (twelve commits of three targets).
+          gh api "repos/$GH_REPO/releases/tags/main-latest" --jq '.assets | sort_by(.created_at) | reverse | .[36:] | .[].id' \
+            | while read -r id; do gh api -X DELETE "repos/$GH_REPO/releases/assets/$id"; done
