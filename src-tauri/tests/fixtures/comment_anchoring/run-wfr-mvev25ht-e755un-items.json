@@ -1,0 +1,17 @@
+{
+ "source": "verbatim wf:json of items 1 and 9 (n = wf:position + 1) of #verifiedFindings in run graph urn:sophia:wf:doc-a4097aeae6014d7f8fa45d8adfe07086:run:wfr-mvev25ht-e755un (scratch graph freud-dreams, 2026-10-18)",
+ "items": {
+  "1": {
+   "blockId": "block-be1fe535",
+   "note": "Sleeper: A patient with general anesthesia of the skin and paralysis of several higher sensory organs. Intervention: Remaining sensory paths from the outer world were shut off. Dream: Not stated.",
+   "documentId": "doc-5ca098bcf9024343952d2789d060f543",
+   "quote": "The younger Strümpell,\\nson of the philosopher whose writings on the subject have\\nalready more than once served us as a guide in the problem\\nof dreams, has, as is well known, reported his observations on\\na patient who was afflicted with general anæsthesia of the\\nskin and with paralysis of several of the higher sensory organs.\\nThis man merged into sleep when his few remaining sensory\\npaths from the outer world were shut off."
+  },
+  "9": {
+   "documentId": "doc-5ca098bcf9024343952d2789d060f543",
+   "quote": "“The same author, according\nto Hemmings (Von den Traumen und Nachtwandeln,\nWeimar, 1784, p. 258) dreamed on another occasion that he\nwas being hanged when his shirt was pinned somewhat tight\naround his neck.”",
+   "blockId": "block-c11fe9ee",
+   "note": "Sleeper: Meier; Intervention: shirt pinned tight around neck; Dream: being hanged."
+  }
+ }
+}

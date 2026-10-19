@@ -191,3 +191,70 @@ fn an_absent_quote_is_reported_and_writes_nothing() {
     assert!(stored(&doc, "c-absent").is_none());
     assert_eq!(ydoc_to_tiptap_json(&doc), before);
 }
+
+/// Two more copying habits, from run wfr-mvev25ht-e755un's verified
+/// findings (verbatim, `tests/fixtures/comment_anchoring`): a quote copied
+/// as a JSON-escaped string (a backslash and `n` where the book wraps), and a
+/// sentence the clerk wrapped in quotation marks the book does not have.
+const RUN_ITEMS: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/fixtures/comment_anchoring/run-wfr-mvev25ht-e755un-items.json"
+));
+
+fn run_item(n: &str) -> (String, String) {
+    let items: Value = serde_json::from_str(RUN_ITEMS).unwrap();
+    let item = &items["items"][n];
+    (
+        item["blockId"].as_str().unwrap().to_string(),
+        item["quote"].as_str().unwrap().to_string(),
+    )
+}
+
+fn block_text(doc: &Doc, block_id: &str) -> String {
+    let json = ydoc_to_tiptap_json(doc);
+    json["content"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|block| block["attrs"]["data-block-id"] == block_id)
+        .map(|block| {
+            block["content"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|node| node["text"].as_str())
+                .collect()
+        })
+        .unwrap()
+}
+
+/// Item 1: `\` `n` (two characters) where the book has a newline.
+#[test]
+fn an_escaped_newline_in_a_quote_is_whitespace() {
+    let doc = book();
+    let (block_id, quote) = run_item("1");
+    assert!(
+        quote.contains("\\n"),
+        "the item carries a literal backslash-n"
+    );
+    let original = quote.replace("\\n", "\n");
+    assert!(block_text(&doc, &block_id).contains(&original));
+    set(&doc, "c-item-1", Some(&block_id), &quote).expect("item 1 anchors");
+    assert_eq!(marked(&doc, "c-item-1"), vec![(block_id, original)]);
+}
+
+/// Item 9: the sentence sits mid-paragraph; the clerk added “ ”.
+#[test]
+fn added_outer_quotation_marks_are_forgiven() {
+    let doc = book();
+    let (block_id, quote) = run_item("9");
+    assert!(quote.starts_with('“') && quote.ends_with('”'));
+    let original = quote
+        .trim_start_matches('“')
+        .trim_end_matches('”')
+        .to_string();
+    let text = block_text(&doc, &block_id);
+    assert!(text.contains(&original) && !text.contains(&quote));
+    set(&doc, "c-item-9", Some(&block_id), &quote).expect("item 9 anchors");
+    assert_eq!(marked(&doc, "c-item-9"), vec![(block_id, original)]);
+}

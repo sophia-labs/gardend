@@ -2382,19 +2382,53 @@ pub(crate) fn quote_ranges(text: &str, find: &str, occurrence: f64) -> Vec<(usiz
         return exact.into_iter().map(|offset| (offset, length)).collect();
     }
     let haystack = QuoteForm::of(text);
-    let matches = quote_matches(&haystack, &QuoteForm::of_quote(find));
-    let chosen: Vec<(usize, usize)> = if occurrence == 0.0 {
-        matches
-    } else if occurrence == -1.0 {
-        matches.last().copied().into_iter().collect()
-    } else {
-        let index = (occurrence.floor().max(1.0) as usize) - 1;
-        matches.get(index).copied().into_iter().collect()
-    };
-    chosen
+    // Then two more copying habits, as fallbacks in this order: a quote
+    // copied as a JSON-escaped string (`\` `n` where the text wraps), and
+    // quotation marks the copier put around a sentence the text has bare.
+    let unescaped = quote_unescaped_whitespace(find);
+    let stripped = quote_without_outer_marks(unescaped.as_deref().unwrap_or(find));
+    for candidate in [Some(find), unescaped.as_deref(), stripped.as_deref()]
         .into_iter()
-        .map(|(start, end)| haystack.source_span(start, end))
-        .collect()
+        .flatten()
+    {
+        let matches = quote_matches(&haystack, &QuoteForm::of_quote(candidate));
+        let chosen: Vec<(usize, usize)> = if occurrence == 0.0 {
+            matches
+        } else if occurrence == -1.0 {
+            matches.last().copied().into_iter().collect()
+        } else {
+            let index = (occurrence.floor().max(1.0) as usize) - 1;
+            matches.get(index).copied().into_iter().collect()
+        };
+        if !chosen.is_empty() {
+            return chosen
+                .into_iter()
+                .map(|(start, end)| haystack.source_span(start, end))
+                .collect();
+        }
+    }
+    Vec::new()
+}
+
+/// `find` with a literal backslash + `n`, `t` or `r` read as whitespace, when
+/// it has one.
+fn quote_unescaped_whitespace(find: &str) -> Option<String> {
+    const ESCAPES: [&str; 3] = ["\\n", "\\t", "\\r"];
+    ESCAPES.iter().any(|escape| find.contains(escape)).then(|| {
+        ESCAPES
+            .iter()
+            .fold(find.to_string(), |text, escape| text.replace(escape, " "))
+    })
+}
+
+/// `find` without quotation marks and whitespace at either end, when it has
+/// any and something is left.
+fn quote_without_outer_marks(find: &str) -> Option<String> {
+    let outer =
+        |c: char| matches!(c, '"' | '\'' | '“' | '”' | '‘' | '’' | '«' | '»') || quote_space(c);
+    let stripped = find.trim_matches(outer);
+    (stripped.len() != find.len() && stripped.chars().count() >= QUOTE_MIN_LENGTH)
+        .then(|| stripped.to_string())
 }
 
 /// The first block holding `find`, searching the blocks after `after` (the
