@@ -2076,6 +2076,30 @@
       ]
     },
     {
+      "name": "workflow_plan_create",
+      "status": "implemented-workflow-plan-create",
+      "scopes": [
+        "workspace.write.crdt",
+        "documents.write.crdt",
+        "rdf.update"
+      ]
+    },
+    {
+      "name": "workflow_plan_read",
+      "status": "implemented-workflow-plan-read",
+      "scopes": [
+        "rdf.query"
+      ]
+    },
+    {
+      "name": "workflow_plan_compose",
+      "status": "implemented-workflow-plan-compose",
+      "scopes": [
+        "rdf.query",
+        "rdf.update"
+      ]
+    },
+    {
       "name": "workflow_authoring_session",
       "status": "implemented-workflow-authoring-session",
       "scopes": [

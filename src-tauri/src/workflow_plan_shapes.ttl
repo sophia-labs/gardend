@@ -1,0 +1,134 @@
+# SHACL shapes for graph-plan-v1: a workflow whose plan is a named RDF graph
+# (`urn:sophia:wf:<documentId>:draft`). The grammar is normative in Choreograph
+# (`src/workflow/graph-plan.ts`, `compileGraphPlan`); these shapes say, per
+# node, what SHACL Core can: the classes, the required properties, how many
+# values each may hold, their datatypes, `wf:mode`, and the length limits
+# (`GRAPH_PLAN_LIMITS`). What needs more than one node (reads from an earlier
+# phase, one producer per collection, the step and phase counts, a parseable
+# item schema) is checked in `workflow_plan_mcp.rs`.
+#
+# Every property shape is named and carries one constraint, so its
+# `sh:message` can say exactly what is wrong, worded like the TS compiler.
+# `{$this}` is the focus node's local name, `{?value}` the offending value
+# (text quoted, an IRI as is) and `{?short}` that value's local name.
+
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix wf: <http://mnemosyne.dev/workflow#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix gp: <urn:sophia:shacl:graph-plan-v1#> .
+
+# ── the workflow ────────────────────────────────────────────────────────────
+
+gp:WorkflowShape a sh:NodeShape ;
+    sh:targetClass wf:Workflow ;
+    sh:property gp:WorkflowNameRequired , gp:WorkflowNameOne , gp:WorkflowNameText ,
+        gp:WorkflowTitleOne , gp:WorkflowTitleText .
+
+gp:WorkflowNameRequired a sh:PropertyShape ; sh:path wf:name ; sh:minCount 1 ;
+    sh:message "{$this} has no wf:name" .
+gp:WorkflowNameOne a sh:PropertyShape ; sh:path wf:name ; sh:maxCount 1 ;
+    sh:message "{$this} has more than one wf:name; it needs exactly one" .
+gp:WorkflowNameText a sh:PropertyShape ; sh:path wf:name ; sh:datatype xsd:string ;
+    sh:message "{$this}'s wf:name must be text, not {?value}" .
+gp:WorkflowTitleOne a sh:PropertyShape ; sh:path dcterms:title ; sh:maxCount 1 ;
+    sh:message "{$this} has more than one dcterms:title; it needs exactly one" .
+gp:WorkflowTitleText a sh:PropertyShape ; sh:path dcterms:title ; sh:nodeKind sh:Literal ;
+    sh:message "{$this}'s dcterms:title must be text, not {?value}" .
+
+# ── a phase ─────────────────────────────────────────────────────────────────
+
+gp:PhaseShape a sh:NodeShape ;
+    sh:targetClass wf:Phase ;
+    sh:property gp:PhaseWorkflowRequired , gp:PhaseWorkflowIri , gp:PhaseWorkflowClass ,
+        gp:PhaseOrderRequired , gp:PhaseOrderOne , gp:PhaseOrderInteger ,
+        gp:PhaseTitleOne , gp:PhaseTitleText .
+
+gp:PhaseWorkflowRequired a sh:PropertyShape ; sh:path wf:partOfWorkflow ; sh:minCount 1 ;
+    sh:message "{$this} is a phase of no workflow here (wf:partOfWorkflow)" .
+gp:PhaseWorkflowIri a sh:PropertyShape ; sh:path wf:partOfWorkflow ; sh:nodeKind sh:IRI ;
+    sh:message "{$this}'s wf:partOfWorkflow must be an IRI, not {?value}" .
+gp:PhaseWorkflowClass a sh:PropertyShape ; sh:path wf:partOfWorkflow ; sh:class wf:Workflow ;
+    sh:message "{$this} is a phase of no workflow here (wf:partOfWorkflow)" .
+gp:PhaseOrderRequired a sh:PropertyShape ; sh:path wf:order ; sh:minCount 1 ;
+    sh:message "{$this} has no wf:order" .
+gp:PhaseOrderOne a sh:PropertyShape ; sh:path wf:order ; sh:maxCount 1 ;
+    sh:message "{$this} has more than one wf:order; it needs exactly one" .
+gp:PhaseOrderInteger a sh:PropertyShape ; sh:path wf:order ; sh:datatype xsd:integer ;
+    sh:message "{$this}'s wf:order must be a whole number" .
+gp:PhaseTitleOne a sh:PropertyShape ; sh:path dcterms:title ; sh:maxCount 1 ;
+    sh:message "{$this} has more than one dcterms:title; it needs exactly one" .
+gp:PhaseTitleText a sh:PropertyShape ; sh:path dcterms:title ; sh:nodeKind sh:Literal ;
+    sh:message "{$this}'s dcterms:title must be text, not {?value}" .
+
+# ── a step (wf:AgentNode) ───────────────────────────────────────────────────
+
+gp:StepShape a sh:NodeShape ;
+    sh:targetClass wf:AgentNode ;
+    sh:property gp:StepPhaseRequired , gp:StepPhaseOne , gp:StepPhaseIri , gp:StepPhaseClass ,
+        gp:StepLabelRequired , gp:StepLabelOne , gp:StepLabelText ,
+        gp:StepAgentTypeOne , gp:StepAgentTypeText ,
+        gp:StepInstructionsRequired , gp:StepInstructionsOne , gp:StepInstructionsText ,
+        gp:StepInstructionsLength ,
+        gp:StepModeOne , gp:StepModeValue ,
+        gp:StepOverOne , gp:StepOverIri , gp:StepConsumesIri ,
+        gp:StepProducesOne , gp:StepProducesIri ,
+        gp:StepChecksOne , gp:StepChecksIri ,
+        gp:StepItemSchemaOne , gp:StepItemSchemaText , gp:StepItemSchemaLength .
+
+gp:StepPhaseRequired a sh:PropertyShape ; sh:path wf:inPhase ; sh:minCount 1 ;
+    sh:message "{$this} has no wf:inPhase" .
+gp:StepPhaseOne a sh:PropertyShape ; sh:path wf:inPhase ; sh:maxCount 1 ;
+    sh:message "{$this} has more than one wf:inPhase; it needs exactly one" .
+gp:StepPhaseIri a sh:PropertyShape ; sh:path wf:inPhase ; sh:nodeKind sh:IRI ;
+    sh:message "{$this}'s wf:inPhase must be an IRI, not {?value}" .
+gp:StepPhaseClass a sh:PropertyShape ; sh:path wf:inPhase ; sh:class wf:Phase ;
+    sh:message "{$this} is in {?short}, which is not a phase of this workflow" .
+
+gp:StepLabelRequired a sh:PropertyShape ; sh:path wf:label ; sh:minCount 1 ;
+    sh:message "{$this} has no wf:label" .
+gp:StepLabelOne a sh:PropertyShape ; sh:path wf:label ; sh:maxCount 1 ;
+    sh:message "{$this} has more than one wf:label; it needs exactly one" .
+gp:StepLabelText a sh:PropertyShape ; sh:path wf:label ; sh:datatype xsd:string ;
+    sh:message "{$this}'s wf:label must be text, not {?value}" .
+
+gp:StepAgentTypeOne a sh:PropertyShape ; sh:path wf:agentType ; sh:maxCount 1 ;
+    sh:message "{$this} has more than one wf:agentType; it needs exactly one" .
+gp:StepAgentTypeText a sh:PropertyShape ; sh:path wf:agentType ; sh:datatype xsd:string ;
+    sh:message "{$this}'s wf:agentType must be text, not {?value}" .
+
+gp:StepInstructionsRequired a sh:PropertyShape ; sh:path wf:instructions ; sh:minCount 1 ;
+    sh:message "{$this} has no wf:instructions" .
+gp:StepInstructionsOne a sh:PropertyShape ; sh:path wf:instructions ; sh:maxCount 1 ;
+    sh:message "{$this} has more than one wf:instructions; it needs exactly one" .
+gp:StepInstructionsText a sh:PropertyShape ; sh:path wf:instructions ; sh:datatype xsd:string ;
+    sh:message "{$this}'s wf:instructions must be text, not {?value}" .
+gp:StepInstructionsLength a sh:PropertyShape ; sh:path wf:instructions ; sh:maxLength 4000 ;
+    sh:message "{$this}'s instructions are longer than 4000 characters" .
+
+gp:StepModeOne a sh:PropertyShape ; sh:path wf:mode ; sh:maxCount 1 ;
+    sh:message "{$this} has more than one wf:mode; it needs exactly one" .
+gp:StepModeValue a sh:PropertyShape ; sh:path wf:mode ; sh:in ( "once" "perItem" ) ;
+    sh:message "{$this}'s wf:mode is {?value}; use \"once\" or \"perItem\"" .
+
+gp:StepOverOne a sh:PropertyShape ; sh:path wf:over ; sh:maxCount 1 ;
+    sh:message "{$this} has more than one wf:over; it needs exactly one" .
+gp:StepOverIri a sh:PropertyShape ; sh:path wf:over ; sh:nodeKind sh:IRI ;
+    sh:message "{$this}'s wf:over must be an IRI, not {?value}" .
+gp:StepConsumesIri a sh:PropertyShape ; sh:path wf:consumes ; sh:nodeKind sh:IRI ;
+    sh:message "{$this}'s wf:consumes must be an IRI, not {?value}" .
+gp:StepProducesOne a sh:PropertyShape ; sh:path wf:produces ; sh:maxCount 1 ;
+    sh:message "{$this} has more than one wf:produces; it needs exactly one" .
+gp:StepProducesIri a sh:PropertyShape ; sh:path wf:produces ; sh:nodeKind sh:IRI ;
+    sh:message "{$this}'s wf:produces must be an IRI, not {?value}" .
+gp:StepChecksOne a sh:PropertyShape ; sh:path wf:checks ; sh:maxCount 1 ;
+    sh:message "{$this} has more than one wf:checks; it needs exactly one" .
+gp:StepChecksIri a sh:PropertyShape ; sh:path wf:checks ; sh:nodeKind sh:IRI ;
+    sh:message "{$this}'s wf:checks must be an IRI, not {?value}" .
+
+gp:StepItemSchemaOne a sh:PropertyShape ; sh:path wf:itemSchema ; sh:maxCount 1 ;
+    sh:message "{$this} has more than one wf:itemSchema; it needs exactly one" .
+gp:StepItemSchemaText a sh:PropertyShape ; sh:path wf:itemSchema ; sh:datatype xsd:string ;
+    sh:message "{$this}'s wf:itemSchema must be text, not {?value}" .
+gp:StepItemSchemaLength a sh:PropertyShape ; sh:path wf:itemSchema ; sh:maxLength 4000 ;
+    sh:message "{$this}'s item schema is too long" .

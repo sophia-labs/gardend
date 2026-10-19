@@ -1,0 +1,208 @@
+{
+  "resultType": "solutions",
+  "variables": [
+    "s",
+    "p",
+    "o"
+  ],
+  "rows": [
+    {
+      "o": "\"perItem\"",
+      "p": "<http://mnemosyne.dev/workflow#mode>",
+      "s": "<urn:sophia:wf:freud-ch1#clerk>"
+    },
+    {
+      "o": "\"{\\\"type\\\":\\\"object\\\",\\\"additionalProperties\\\":false,\\\"required\\\":[\\\"who\\\",\\\"done\\\",\\\"dreamt\\\",\\\"deliberate\\\",\\\"quote\\\",\\\"firstLine\\\"],\\\"properties\\\":{\\\"who\\\":{\\\"type\\\":\\\"string\\\"},\\\"done\\\":{\\\"type\\\":\\\"string\\\"},\\\"dreamt\\\":{\\\"type\\\":\\\"string\\\"},\\\"deliberate\\\":{\\\"type\\\":\\\"boolean\\\"},\\\"quote\\\":{\\\"type\\\":\\\"string\\\"},\\\"firstLine\\\":{\\\"type\\\":\\\"integer\\\"}}}\"",
+      "p": "<http://mnemosyne.dev/workflow#itemSchema>",
+      "s": "<urn:sophia:wf:freud-ch1#clerk>"
+    },
+    {
+      "o": "<urn:sophia:wf:freud-ch1#passages>",
+      "p": "<http://mnemosyne.dev/workflow#over>",
+      "s": "<urn:sophia:wf:freud-ch1#clerk>"
+    },
+    {
+      "o": "<http://mnemosyne.dev/workflow#AgentNode>",
+      "p": "<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>",
+      "s": "<urn:sophia:wf:freud-ch1#clerk>"
+    },
+    {
+      "o": "<urn:sophia:wf:freud-ch1#candidates>",
+      "p": "<http://mnemosyne.dev/workflow#produces>",
+      "s": "<urn:sophia:wf:freud-ch1#clerk>"
+    },
+    {
+      "o": "\"extractor\"",
+      "p": "<http://mnemosyne.dev/workflow#agentType>",
+      "s": "<urn:sophia:wf:freud-ch1#clerk>"
+    },
+    {
+      "o": "\"the Experimenter's Clerk\"",
+      "p": "<http://mnemosyne.dev/workflow#label>",
+      "s": "<urn:sophia:wf:freud-ch1#clerk>"
+    },
+    {
+      "o": "<urn:sophia:wf:freud-ch1#p2>",
+      "p": "<http://mnemosyne.dev/workflow#inPhase>",
+      "s": "<urn:sophia:wf:freud-ch1#clerk>"
+    },
+    {
+      "o": "\"In this passage of Freud, find every case where something was done to a sleeping person, or happened to them, and they dreamt about it. For each one: who slept, what was done to them, what they dreamt, whether it was deliberate (an experiment) or an accident, and the sentence that says so, copied exactly from the passage, with the passage's firstLine. If there is none, answer an empty list.\"",
+      "p": "<http://mnemosyne.dev/workflow#instructions>",
+      "s": "<urn:sophia:wf:freud-ch1#clerk>"
+    },
+    {
+      "o": "<http://mnemosyne.dev/workflow#Phase>",
+      "p": "<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>",
+      "s": "<urn:sophia:wf:freud-ch1#p3>"
+    },
+    {
+      "o": "\"The Censor\"",
+      "p": "<http://purl.org/dc/terms/title>",
+      "s": "<urn:sophia:wf:freud-ch1#p3>"
+    },
+    {
+      "o": "<urn:sophia:wf:freud-ch1>",
+      "p": "<http://mnemosyne.dev/workflow#partOfWorkflow>",
+      "s": "<urn:sophia:wf:freud-ch1#p3>"
+    },
+    {
+      "o": "\"3\"^^<http://www.w3.org/2001/XMLSchema#integer>",
+      "p": "<http://mnemosyne.dev/workflow#order>",
+      "s": "<urn:sophia:wf:freud-ch1#p3>"
+    },
+    {
+      "o": "<http://mnemosyne.dev/workflow#Phase>",
+      "p": "<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>",
+      "s": "<urn:sophia:wf:freud-ch1#p1>"
+    },
+    {
+      "o": "\"Day residue\"",
+      "p": "<http://purl.org/dc/terms/title>",
+      "s": "<urn:sophia:wf:freud-ch1#p1>"
+    },
+    {
+      "o": "<urn:sophia:wf:freud-ch1>",
+      "p": "<http://mnemosyne.dev/workflow#partOfWorkflow>",
+      "s": "<urn:sophia:wf:freud-ch1#p1>"
+    },
+    {
+      "o": "\"1\"^^<http://www.w3.org/2001/XMLSchema#integer>",
+      "p": "<http://mnemosyne.dev/workflow#order>",
+      "s": "<urn:sophia:wf:freud-ch1#p1>"
+    },
+    {
+      "o": "\"once\"",
+      "p": "<http://mnemosyne.dev/workflow#mode>",
+      "s": "<urn:sophia:wf:freud-ch1#reader>"
+    },
+    {
+      "o": "\"{\\\"type\\\":\\\"object\\\",\\\"additionalProperties\\\":false,\\\"required\\\":[\\\"firstLine\\\",\\\"text\\\"],\\\"properties\\\":{\\\"firstLine\\\":{\\\"type\\\":\\\"integer\\\"},\\\"text\\\":{\\\"type\\\":\\\"string\\\"}}}\"",
+      "p": "<http://mnemosyne.dev/workflow#itemSchema>",
+      "s": "<urn:sophia:wf:freud-ch1#reader>"
+    },
+    {
+      "o": "<http://mnemosyne.dev/workflow#AgentNode>",
+      "p": "<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>",
+      "s": "<urn:sophia:wf:freud-ch1#reader>"
+    },
+    {
+      "o": "<urn:sophia:wf:freud-ch1#passages>",
+      "p": "<http://mnemosyne.dev/workflow#produces>",
+      "s": "<urn:sophia:wf:freud-ch1#reader>"
+    },
+    {
+      "o": "\"segmenter\"",
+      "p": "<http://mnemosyne.dev/workflow#agentType>",
+      "s": "<urn:sophia:wf:freud-ch1#reader>"
+    },
+    {
+      "o": "\"the Reader\"",
+      "p": "<http://mnemosyne.dev/workflow#label>",
+      "s": "<urn:sophia:wf:freud-ch1#reader>"
+    },
+    {
+      "o": "<urn:sophia:wf:freud-ch1#p1>",
+      "p": "<http://mnemosyne.dev/workflow#inPhase>",
+      "s": "<urn:sophia:wf:freud-ch1#reader>"
+    },
+    {
+      "o": "\"Read the document named in the run input (documentId) with read_document. Cut it into passages, one per paragraph. Each paragraph begins with a marker like [L958]: give that number as firstLine, and the paragraph's text exactly as written, without the marker.\"",
+      "p": "<http://mnemosyne.dev/workflow#instructions>",
+      "s": "<urn:sophia:wf:freud-ch1#reader>"
+    },
+    {
+      "o": "<urn:sophia:wf:freud-ch1#candidates>",
+      "p": "<http://mnemosyne.dev/workflow#checks>",
+      "s": "<urn:sophia:wf:freud-ch1#censor>"
+    },
+    {
+      "o": "<http://mnemosyne.dev/workflow#AgentNode>",
+      "p": "<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>",
+      "s": "<urn:sophia:wf:freud-ch1#censor>"
+    },
+    {
+      "o": "<urn:sophia:wf:freud-ch1#verified>",
+      "p": "<http://mnemosyne.dev/workflow#produces>",
+      "s": "<urn:sophia:wf:freud-ch1#censor>"
+    },
+    {
+      "o": "\"quote checker\"",
+      "p": "<http://mnemosyne.dev/workflow#agentType>",
+      "s": "<urn:sophia:wf:freud-ch1#censor>"
+    },
+    {
+      "o": "\"the Censor\"",
+      "p": "<http://mnemosyne.dev/workflow#label>",
+      "s": "<urn:sophia:wf:freud-ch1#censor>"
+    },
+    {
+      "o": "<urn:sophia:wf:freud-ch1#p3>",
+      "p": "<http://mnemosyne.dev/workflow#inPhase>",
+      "s": "<urn:sophia:wf:freud-ch1#censor>"
+    },
+    {
+      "o": "\"The entry quotes Freud. Read the document freud-ch1-excerpt with read_document and look for the quote. Pass the entry only if the quote appears in the document character for character (an ellipsis is allowed only at its start or end). Otherwise refuse it, and give the nearest sentence that does appear.\"",
+      "p": "<http://mnemosyne.dev/workflow#instructions>",
+      "s": "<urn:sophia:wf:freud-ch1#censor>"
+    },
+    {
+      "o": "<http://mnemosyne.dev/workflow#Workflow>",
+      "p": "<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>",
+      "s": "<urn:sophia:wf:freud-ch1>"
+    },
+    {
+      "o": "\"Things done to sleepers, chapter I\"",
+      "p": "<http://purl.org/dc/terms/title>",
+      "s": "<urn:sophia:wf:freud-ch1>"
+    },
+    {
+      "o": "\"freud-ch1\"",
+      "p": "<http://mnemosyne.dev/workflow#name>",
+      "s": "<urn:sophia:wf:freud-ch1>"
+    },
+    {
+      "o": "<http://mnemosyne.dev/workflow#Phase>",
+      "p": "<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>",
+      "s": "<urn:sophia:wf:freud-ch1#p2>"
+    },
+    {
+      "o": "\"Dream-work\"",
+      "p": "<http://purl.org/dc/terms/title>",
+      "s": "<urn:sophia:wf:freud-ch1#p2>"
+    },
+    {
+      "o": "<urn:sophia:wf:freud-ch1>",
+      "p": "<http://mnemosyne.dev/workflow#partOfWorkflow>",
+      "s": "<urn:sophia:wf:freud-ch1#p2>"
+    },
+    {
+      "o": "\"2\"^^<http://www.w3.org/2001/XMLSchema#integer>",
+      "p": "<http://mnemosyne.dev/workflow#order>",
+      "s": "<urn:sophia:wf:freud-ch1#p2>"
+    }
+  ],
+  "boolean": null,
+  "graph": null,
+  "quadCount": 4689
+}

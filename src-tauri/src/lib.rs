@@ -385,6 +385,8 @@ mod source_pull_tree_tests;
 mod source_sync;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod document_kind_store_tests;
+#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
+mod workflow_plan_tests;
 mod sparql_admission;
 mod sparql_cursor;
 mod storage;
@@ -416,6 +418,7 @@ mod wire_traversal_payloads;
 mod wire_traversal_service;
 mod workflow_authoring_mcp;
 mod workflow_book_mcp;
+mod workflow_plan_mcp;
 mod workflow_run_mcp;
 mod workspace_document_projection;
 mod workspace_entity_projection;

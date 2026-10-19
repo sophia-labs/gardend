@@ -424,6 +424,18 @@
     "cancel_restore_operation": {
       "required": ["operationId"],
       "properties": ["graphId", "graph_id", "operationId", "operation_id"]
+    },
+    "workflow_plan_create": {
+      "required": ["graphId", "title"],
+      "properties": ["graphId", "graph_id", "parentId", "title"]
+    },
+    "workflow_plan_read": {
+      "required": ["documentId", "graphId"],
+      "properties": ["documentId", "graphId", "graph_id"]
+    },
+    "workflow_plan_compose": {
+      "required": ["documentId", "graphId", "moves", "rationale"],
+      "properties": ["documentId", "graphId", "graph_id", "moves", "rationale"]
     }
   }
 }

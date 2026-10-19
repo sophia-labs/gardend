@@ -1306,7 +1306,7 @@ pub(super) struct MaterializedRoomDocument {
 /// A graph with no workspace sidecar yet has declared no kinds ⇒ `None`.
 /// FAIL CLOSED on a corrupt sidecar: refusing to guess a kind beats silently
 /// projecting a board through the TipTap seam (or vice versa).
-pub(super) async fn resolve_document_kind(
+pub(crate) async fn resolve_document_kind(
     app: &AppHandle,
     graph_id: &str,
     document_id: &str,
