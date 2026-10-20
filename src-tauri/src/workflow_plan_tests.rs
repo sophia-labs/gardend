@@ -1723,3 +1723,79 @@ fn publish_to_a_destination_publishes_what_it_receives_into_its_document() {
         );
     });
 }
+
+/// Sophia's clerks answer `{who, whatDone, dream, quote}`, with no note: the
+/// comment says the item's other text fields in its own order, as the
+/// workflow pane's `composedNote` does.
+#[test]
+fn publish_writes_an_items_other_fields_when_it_has_no_note() {
+    with_graph(|ctx| {
+        let (id, _) = create(ctx, "Margins");
+        ok(
+            ctx,
+            "workflow_plan_compose",
+            json!({ "documentId": id, "rationale": "the plan", "moves": finding_moves() }),
+        );
+        ok(
+            ctx,
+            "write_document",
+            json!({ "document_id": "alpha", "title": "alpha", "format": "markdown",
+                    "content": "The quick brown fox jumps.\n\nOver the lazy dog it goes." }),
+        );
+        write_run(
+            ctx,
+            &format!("urn:sophia:wf:{id}"),
+            "r1",
+            &[
+                (
+                    "findings",
+                    json!({ "who": "Meier", "whatDone": "straw between toes", "dream": "a stake",
+                            "quote": "quick brown fox", "documentId": "alpha" }),
+                ),
+                (
+                    "findings",
+                    json!({ "documentId": "alpha", "quote": "lazy dog", "seen_by": " the Censor ",
+                            "page": 3, "aside": "   ", "dream--kind": "waking", "blockId": "",
+                            "names": ["not", "text"] }),
+                ),
+                (
+                    "findings",
+                    json!({ "documentId": "alpha", "quote": "Over the" }),
+                ),
+                (
+                    "findings",
+                    json!({ "documentId": "alpha", "quote": "jumps", "note": "  ", "who": "Maury" }),
+                ),
+                (
+                    "findings",
+                    json!({ "documentId": "alpha", "quote": "goes", "who": "x".repeat(700) }),
+                ),
+            ],
+        );
+        let published = ok(
+            ctx,
+            "workflow_plan_publish",
+            json!({ "documentId": id, "runId": "r1" }),
+        );
+        assert_eq!(published["placed"], 4, "{published}");
+        assert_eq!(
+            published["skipped"], 1,
+            "the quote alone says nothing: {published}"
+        );
+        let comments = stored_comments(ctx, "alpha");
+        assert_eq!(
+            comments["wf-r1-1"]["text"],
+            "who: Meier; what done: straw between toes; dream: a stake"
+        );
+        assert_eq!(
+            comments["wf-r1-2"]["text"],
+            "seen by: the Censor; dream kind: waking"
+        );
+        assert!(!comments.contains_key("wf-r1-3"), "{comments:?}");
+        assert_eq!(comments["wf-r1-4"]["text"], "who: Maury");
+        let long = comments["wf-r1-5"]["text"].as_str().unwrap();
+        assert_eq!(long.chars().count(), 600, "{long}");
+        assert!(long.starts_with("who: xxx"), "{long}");
+        assert_eq!(comments["wf-r1-1"]["quotedText"], "quick brown fox");
+    });
+}

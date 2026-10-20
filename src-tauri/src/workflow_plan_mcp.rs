@@ -73,6 +73,8 @@ const MAX_DESTINATIONS: usize = 4;
 const MARGIN: &str = "margin";
 const RECENT_EVENTS: usize = 10;
 const ID_MAX: usize = 64;
+/// The longest note composed for a finding that has none, in characters.
+const COMPOSED_NOTE_MAX: usize = 600;
 
 /// The names one workflow document owns.
 #[derive(Debug, Clone)]
@@ -215,8 +217,8 @@ pub(super) async fn mcp_local_workflow_plan_compose(
 /// One finding a person may publish (Shrubbery's `publishableFindings`): an
 /// item of the collection being published that names the `documentId` it is
 /// about (or leaves it to the destination's), the exact `quote` it rests on,
-/// the `note` to write beside it and, optionally, the `blockId` that holds
-/// the quote.
+/// the `note` to write beside it (or, when it has none, its other fields)
+/// and, optionally, the `blockId` that holds the quote.
 #[derive(Debug, Clone)]
 struct Finding {
     /// 1-based: `wf:position` + 1, the `n` of its comment id `wf-<runId>-<n>`.
@@ -258,7 +260,8 @@ fn block_id_shaped(id: &str) -> bool {
 }
 
 /// An item's finding. One whose JSON names no `documentId` (none, null or
-/// empty) is about `fallback`, the destination's document, when there is one.
+/// empty) is about `fallback`, the destination's document, when there is one;
+/// one with no note says its other fields instead (`composed_note`).
 fn finding_of(index: i64, json: &str, fallback: Option<&str>) -> Option<Finding> {
     let value: Value = serde_json::from_str(json).ok()?;
     let text = |key: &str| {
@@ -282,13 +285,58 @@ fn finding_of(index: i64, json: &str, fallback: Option<&str>) -> Option<Finding>
         index,
         document_id: document_id.to_string(),
         quote: text("quote")?,
-        note: text("note")?,
+        note: text("note").or_else(|| composed_note(&value))?,
         block_id: value
             .get("blockId")
             .and_then(Value::as_str)
             .filter(|block| !block.is_empty())
             .map(str::to_string),
     })
+}
+
+/// The note of an item that has none (Sophia's clerks answer `{who, whatDone,
+/// dream, quote}`): its other non-empty text fields in the item's own key
+/// order, each `<key as words>: <value>`, joined with `; ` and cut at 600
+/// characters. `quote`, `documentId`, `blockId` and `note` are not said. An
+/// item whose only text is its quote has none. Shrubbery's `composedNote`
+/// (`cell/graph-plan.ts`) is the same rule, so what the workflow pane offers
+/// to publish is what this writes.
+fn composed_note(item: &Value) -> Option<String> {
+    let parts: Vec<String> = item
+        .as_object()?
+        .iter()
+        .filter(|(key, _)| !matches!(key.as_str(), "quote" | "documentId" | "blockId" | "note"))
+        .filter_map(|(key, value)| {
+            let value = value.as_str()?.trim();
+            (!value.is_empty()).then(|| format!("{}: {value}", key_as_words(key)))
+        })
+        .collect();
+    let note: String = parts.join("; ").chars().take(COMPOSED_NOTE_MAX).collect();
+    (!note.is_empty()).then_some(note)
+}
+
+/// `whatDone` → `what done`, `seen_by` → `seen by`: a space where a lowercase
+/// letter or digit meets a capital, one space for each run of `_` and `-`,
+/// then lowercased and trimmed (`/([a-z0-9])([A-Z])/g`, then `/[_-]+/g`).
+fn key_as_words(key: &str) -> String {
+    let mut words = String::new();
+    let mut previous: Option<char> = None;
+    for c in key.chars() {
+        if c == '_' || c == '-' {
+            if !previous.is_some_and(|p| p == '_' || p == '-') {
+                words.push(' ');
+            }
+        } else {
+            if c.is_ascii_uppercase()
+                && previous.is_some_and(|p| p.is_ascii_lowercase() || p.is_ascii_digit())
+            {
+                words.push(' ');
+            }
+            words.push(c);
+        }
+        previous = Some(c);
+    }
+    words.to_lowercase().trim().to_string()
 }
 
 /// The plan's last collection: what the first producing step of its last
