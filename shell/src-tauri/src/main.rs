@@ -238,6 +238,8 @@ fn main() {
                 .inner_size(1280.0, 860.0)
                 .min_inner_size(420.0, 360.0)
                 .devtools(true)
+                // Files dropped on the window go to the page (an import, the Files canvas), not to Tauri.
+                .disable_drag_drop_handler()
                 // Another site never replaces the place: it opens in the default browser.
                 .on_navigation(move |url| {
                     let inside = stays_inside(url);

@@ -33,6 +33,10 @@ scripts/buildbox app --only services --vehicle ../vehicle --choreograph ../chore
 says what goes where. The UI and the engine must come from the same moment: a Shrubbery newer than its gardend can fail
 to sync.
 
+**The icon** is the Sophia Labs logo (Shrubbery's `apps/organism/public/sophialabslogo.png`) on Apple's icon grid:
+`swift shell/make-icon.swift <logo.png> icon-1024.png`, then `cargo tauri icon icon-1024.png -o <tmp>` and copy
+`32x32.png 128x128.png 128x128@2x.png icon.icns icon.ico icon.png` into `shell/src-tauri/icons/`.
+
 **Mac users:** the app is not notarized. The first time, right-click Sophia.app → Open → Open (or run
 `xattr -dr com.apple.quarantine ~/Applications/Sophia.app`).
 

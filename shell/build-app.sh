@@ -9,7 +9,8 @@
 #   ui/                Shrubbery's self-host build (`pnpm build:selfhost` in --shrubbery)
 #   services/vehicle/  chat (vehicle's ts/scripts/build-service.mjs in --vehicle)
 #   services/choreograph/  Sophia Compute (deploy/build-gardend-service.mjs in --choreograph, this Mac's libSQL only)
-#   node/bin/node      the Node.js both run on: `--node`, else the `node` on PATH (22.19 or later)
+#   node/bin/node      the Node.js both run on, 22.19 or later and self-contained (an official build, not Homebrew's):
+#                      `--node`, else the `node` on PATH, else the newest from mise or nvm
 #   lib/libpdfium.dylib  pdfium for reading scans: `--pdfium`, else GARDEN_PDFIUM_LIB, else pypdfium2's, if found
 #
 # --install puts the app in ~/Applications (quitting a running Sophia first, so its gardend flushes and stops), keeping
@@ -61,14 +62,27 @@ stage_services() {
   (cd "$CHOREOGRAPH" && node deploy/build-gardend-service.mjs "$1/services/choreograph" --natives host) </dev/null >"$CACHE/app-choreograph.log" 2>&1 || { tail -n 30 "$CACHE/app-choreograph.log" >&2; die "choreograph build failed"; }
 }
 
+# A Node.js that runs on its own: official builds link only the system's libraries; Homebrew's needs its libnode and more.
+self_contained() { ! otool -L "$1" 2>/dev/null | tail -n +2 | grep -qvE '^[[:space:]]*(/usr/lib/|/System/)'; }
+
 stage_node() {
-  local node=${NODE:-$(command -v node || true)}
-  [[ -n $node ]] || die "no node on PATH; pass --node <bin>"
-  node=$(realpath "$node")
-  local v; v=$("$node" -p 'process.versions.node')
-  [[ $(printf '%s\n%s\n' "$NODE_FLOOR" "$v" | sort -V | head -1) == "$NODE_FLOOR" ]] || die "node $v is older than $NODE_FLOOR"
-  rm -rf "$1/node" && mkdir -p "$1/node/bin" && cp "$node" "$1/node/bin/node"
-  say "node: $v"
+  local candidates=() node= c v
+  if [[ -n $NODE ]]; then candidates=("$NODE")
+  else
+    command -v node >/dev/null && candidates+=("$(command -v node)")
+    # mise and nvm keep official builds
+    for c in $(ls -d "$HOME"/.local/share/mise/installs/node/*/bin/node "$HOME"/.nvm/versions/node/*/bin/node 2>/dev/null | sort -rV); do candidates+=("$c"); done
+  fi
+  for c in ${candidates[@]+"${candidates[@]}"}; do
+    c=$(realpath "$c")
+    v=$("$c" -p 'process.versions.node' 2>/dev/null) || continue
+    [[ $(printf '%s\n%s\n' "$NODE_FLOOR" "$v" | sort -V | head -1) == "$NODE_FLOOR" ]] || continue
+    self_contained "$c" || { say "node: skipping $c (it needs libraries outside the system's)"; continue; }
+    node=$c; break
+  done
+  [[ -n $node ]] || die "no self-contained Node.js $NODE_FLOOR or later (an official build from nodejs.org, mise or nvm); pass --node <bin>"
+  rm -rf "$1/node" && mkdir -p "$1/node/bin" && cp "$node" "$1/node/bin/node" && chmod 755 "$1/node/bin/node"
+  say "node: $v ($node)"
 }
 
 stage_pdfium() {
@@ -100,15 +114,19 @@ fi
 [[ -x $GARDEND ]] || die "--gardend must be the gardend binary (scripts/buildbox app builds it)"
 TRIPLE=$(rustc -vV | sed -n 's/^host: //p')
 mkdir -p "$TAURI/binaries"
-cp "$GARDEND" "$TAURI/binaries/gardend-$TRIPLE"
+install -m 755 "$GARDEND" "$TAURI/binaries/gardend-$TRIPLE"
 rm -rf "$STAGE" && mkdir -p "$STAGE"
 stage_ui "$STAGE"
 stage_services "$STAGE"
 stage_node "$STAGE"
 stage_pdfium "$STAGE"
+# The bundler clears extended attributes on every file, so every file must be writable (a Node from mise is not).
+chmod -R u+w "$STAGE"
 
 say "bundling Sophia.app"
 export CARGO_TARGET_DIR=$CACHE/shell-target
+# The build copies the resources beside the binary too; an earlier read-only copy there cannot be overwritten.
+chmod -R u+w "$CARGO_TARGET_DIR/release/node" "$CARGO_TARGET_DIR/release/lib" 2>/dev/null || true
 (cd "$TAURI" && cargo tauri build --bundles app) </dev/null >"$CACHE/app-bundle.log" 2>&1 || { tail -n 40 "$CACHE/app-bundle.log" >&2; die "bundle failed ($CACHE/app-bundle.log)"; }
 APP=$CARGO_TARGET_DIR/release/bundle/macos/Sophia.app
 [[ -d $APP ]] || die "no app at $APP"
