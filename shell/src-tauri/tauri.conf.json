@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "identifier": "com.sophia-labs.sophia",
   "build": {
-    "frontendDist": "../dist"
+    "frontendDist": "../static"
   },
   "app": {
     "withGlobalTauri": false,
@@ -20,7 +20,7 @@
     ],
     "category": "Productivity",
     "shortDescription": "Sophia",
-    "longDescription": "A native window onto Sophia.",
+    "longDescription": "Sophia on this Mac: your gardens, chat and Sophia Compute, in a native window.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -34,6 +34,12 @@
     },
     "externalBin": [
       "binaries/gardend"
-    ]
+    ],
+    "resources": {
+      "stage/ui/": "ui/",
+      "stage/services/": "services/",
+      "stage/node/": "node/",
+      "stage/lib/": "lib/"
+    }
   }
 }

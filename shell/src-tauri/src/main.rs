@@ -1,8 +1,9 @@
 //! Sophia: a native window onto a Sophia place.
 //!
 //! Two places, chosen from the Place menu and remembered between launches:
+//! - **This Mac** (the default): `gardend serve`, started by the app with the UI, chat and Sophia Compute it carries
+//!   (`local.rs`), so the window is self-hosted Sophia, as a person starting fresh gets it.
 //! - **Hosted**: garden.sophia-labs.com (or `SOPHIA_URL`), with its own sign-in and storage.
-//! - **This Mac**: a `gardend` the app starts beside itself, with no network, served the Shrubbery UI bundled in the app.
 //!
 //! The window opens every other site in the default browser and saves downloads to ~/Downloads
 //! (plans/2026-10-09-native-bundle.md).
@@ -36,16 +37,38 @@ fn hosted_url() -> Url {
         .unwrap_or_else(|| Url::parse(HOSTED).expect("the hosted address parses"))
 }
 
-/// The app's own origin, where the bundled Shrubbery is served.
-fn local_url() -> Url {
+/// The app's own page, shown while the local gardend starts (or says why it could not).
+fn starting_url() -> Url {
     Url::parse(if cfg!(windows) { "http://tauri.localhost/" } else { "tauri://localhost/" }).expect("the app origin parses")
 }
 
-fn home(place: Place) -> Url {
+fn home(app: &AppHandle, place: Place) -> Url {
     match place {
         Place::Hosted => hosted_url(),
-        Place::Local => local_url(),
+        Place::Local => app.state::<LocalCell>().known_link().unwrap_or_else(starting_url),
     }
+}
+
+/// Open the local place in the window once gardend is ready, without holding up the window meanwhile.
+fn open_local(app: &AppHandle) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let result = app.state::<LocalCell>().open(&app);
+        if *app.state::<CurrentPlace>().0.lock().expect("place lock") != Place::Local {
+            return;
+        }
+        let Some(window) = main_window(&app) else { return };
+        match result {
+            Ok(link) => {
+                let _ = window.navigate(link);
+            }
+            Err(why) => {
+                eprintln!("sophia: {why}");
+                let words = serde_json::to_string(&why).unwrap_or_default();
+                let _ = window.eval(format!("window.sophiaCouldNotStart && window.sophiaCouldNotStart({words})"));
+            }
+        }
+    });
 }
 
 fn place_file(app: &AppHandle) -> Option<std::path::PathBuf> {
@@ -54,8 +77,8 @@ fn place_file(app: &AppHandle) -> Option<std::path::PathBuf> {
 
 fn remembered_place(app: &AppHandle) -> Place {
     match place_file(app).and_then(|p| std::fs::read_to_string(p).ok()).as_deref().map(str::trim) {
-        Some("local") => Place::Local,
-        _ => Place::Hosted,
+        Some("hosted") => Place::Hosted,
+        _ => Place::Local,
     }
 }
 
@@ -75,6 +98,7 @@ fn stays_inside(url: &Url) -> bool {
         "about" | "blob" | "data" | "tauri" => true,
         "http" | "https" => {
             url.host_str() == Some("tauri.localhost")
+                || (matches!(url.host_str(), Some("127.0.0.1" | "localhost")) && url.port() == Some(local::port()))
                 || (url.host_str() == hosted.host_str() && url.port_or_known_default() == hosted.port_or_known_default())
         }
         _ => false,
@@ -100,12 +124,8 @@ fn title(place: Place) -> &'static str {
 
 fn go_to(app: &AppHandle, place: Place) {
     match place {
-        Place::Local => {
-            if let Err(e) = app.state::<LocalCell>().ensure_started(app) {
-                eprintln!("sophia: {e}");
-            }
-        }
-        // The local cell flushes and stops; its data stays in the profile for next time.
+        Place::Local => {}
+        // The local gardend flushes and stops; its data stays in the profile for next time.
         Place::Hosted => app.state::<LocalCell>().stop(),
     }
     *app.state::<CurrentPlace>().0.lock().expect("place lock") = place;
@@ -119,7 +139,10 @@ fn go_to(app: &AppHandle, place: Place) {
     }
     if let Some(window) = main_window(app) {
         let _ = window.set_title(title(place));
-        let _ = window.navigate(home(place));
+        let _ = window.navigate(home(app, place));
+    }
+    if place == Place::Local {
+        open_local(app);
     }
 }
 
@@ -132,10 +155,11 @@ fn menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         "Place",
         true,
         &[
+            &CheckMenuItem::with_id(app, "place-local", "This Mac", true, place == Place::Local, None::<&str>)?,
             &CheckMenuItem::with_id(app, "place-hosted", format!("Hosted ({host})"), true, place == Place::Hosted, None::<&str>)?,
-            &CheckMenuItem::with_id(app, "place-local", "This Mac (local, offline)", true, place == Place::Local, None::<&str>)?,
             &PredefinedMenuItem::separator(app)?,
             &MenuItem::with_id(app, "local-folder", "Show Local Data in Finder", true, None::<&str>)?,
+            &MenuItem::with_id(app, "local-log", "Show Log", true, None::<&str>)?,
         ],
     )?;
     let go = Submenu::with_items(
@@ -162,12 +186,6 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .manage(LocalCell::new())
-        .invoke_handler(tauri::generate_handler![
-            local::get_loopback_manifest,
-            local::get_provider_keys,
-            local::store_provider_key,
-            local::delete_provider_key,
-        ])
         .menu(menu)
         .on_menu_event(|app, event| {
             let window = main_window(app);
@@ -175,9 +193,14 @@ fn main() {
                 "place-hosted" => go_to(app, Place::Hosted),
                 "place-local" => go_to(app, Place::Local),
                 "local-folder" => {
-                    if let Ok(dir) = local::profile_dir(app) {
+                    if let Ok(dir) = local::data_dir(app) {
                         let _ = std::fs::create_dir_all(&dir);
                         let _ = app.opener().open_path(dir.to_string_lossy(), None::<&str>);
+                    }
+                }
+                "local-log" => {
+                    if let Some(log) = local::log_file() {
+                        let _ = app.opener().open_path(log.to_string_lossy(), None::<&str>);
                     }
                 }
                 "back" => {
@@ -191,7 +214,7 @@ fn main() {
                 }
                 "home" => {
                     let place = *app.state::<CurrentPlace>().0.lock().expect("place lock");
-                    let _ = window.map(|w| w.navigate(home(place)));
+                    let _ = window.map(|w| w.navigate(home(app, place)));
                 }
                 "in-browser" => {
                     if let Some(url) = window.and_then(|w| w.url().ok()) {
@@ -207,12 +230,7 @@ fn main() {
             app.manage(CurrentPlace(Mutex::new(place)));
             let start = match place {
                 Place::Hosted => WebviewUrl::External(hosted_url()),
-                Place::Local => {
-                    if let Err(e) = handle.state::<LocalCell>().ensure_started(&handle) {
-                        eprintln!("sophia: {e}");
-                    }
-                    WebviewUrl::App("index.html".into())
-                }
+                Place::Local => WebviewUrl::App("index.html".into()),
             };
             let (nav_app, pop_app) = (handle.clone(), handle.clone());
             WebviewWindowBuilder::new(app, "main", start)
@@ -248,6 +266,9 @@ fn main() {
                     true
                 })
                 .build()?;
+            if place == Place::Local {
+                open_local(&handle);
+            }
             Ok(())
         })
         .build(tauri::generate_context!())

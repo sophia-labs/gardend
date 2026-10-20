@@ -8,8 +8,14 @@
 #   scripts/buildbox build [--release]   build the headless gardend; prints the binary's path on stdout (nothing else)
 #   scripts/buildbox test [filter...]    the headless lib tests (no filter: the whole battery, as CI runs it)
 #   scripts/buildbox gate                fmt + check + lib tests + build: what CONTRIBUTING asks before a PR
+#   scripts/buildbox app [--install] [--only ui|services]
+#                                        Sophia.app (shell/build-app.sh) around the warm release gardend: the UI, chat and
+#                                        Sophia Compute from --shrubbery/--vehicle/--choreograph <dir>, else
+#                                        BUILDBOX_SHRUBBERY / BUILDBOX_VEHICLE / BUILDBOX_CHOREOGRAPH. --only patches
+#                                        that part into the installed app, no Rust at all
 #   scripts/buildbox status              the key, the warm directory, its size, whether a build holds the lock
 #   scripts/buildbox serve [seconds]     background warmer: every N seconds (default 1800) fetch and prebuild origin/main
+#                                        (BUILDBOX_WARM, default release: the profiles it prebuilds, e.g. "debug release")
 #   scripts/buildbox unit launchd|systemd  print a unit that keeps `serve` running at login
 #
 # The KEY names the Garden line: sha of src-tauri/Cargo.lock at the merge-base with origin/main (else HEAD), plus the rustc
@@ -22,7 +28,9 @@
 #                                /sccache    used when `sccache` is installed
 #
 # Your tree is copied into /src with `rsync --checksum`: a file whose content is unchanged keeps its old mtime, so cargo
-# does not see it as touched. Runs are serialized by a lock; a second request waits its turn.
+# does not see it as touched. Runs are serialized by a lock; a second request waits its turn. Release builds here are
+# incremental (CARGO_PROFILE_RELEASE_INCREMENTAL, for gardend's own crate only), so a one-file change to a release
+# gardend takes minutes, not the whole crate again; a release made for others is built without buildbox.
 #
 # Environment: BUILDBOX_HOME (default ~/.cache/gardend-buildbox), BUILDBOX_KEY (override the key), CARGO,
 # BUILDBOX_TEST_SKIP (space-separated test names to --skip in the main lib run).
@@ -54,6 +62,7 @@ setup() {
   SRC=$BOX/src TARGET=$BOX/target LOGS=$BOX/logs
   mkdir -p "$SRC" "$TARGET" "$LOGS"
   export CARGO_TARGET_DIR=$TARGET CARGO_TERM_COLOR=never
+  export CARGO_PROFILE_RELEASE_INCREMENTAL=${CARGO_PROFILE_RELEASE_INCREMENTAL:-true}
   if command -v sccache >/dev/null 2>&1; then
     export RUSTC_WRAPPER=sccache SCCACHE_DIR=$BOX/sccache CARGO_INCREMENTAL=0
   fi
@@ -156,6 +165,28 @@ cmd_gate() {
   say "gate passed in $((SECONDS - t0))s"
 }
 
+cmd_app() {
+  local args=() only= shrubbery=${BUILDBOX_SHRUBBERY:-} vehicle=${BUILDBOX_VEHICLE:-} choreograph=${BUILDBOX_CHOREOGRAPH:-}
+  while (($#)); do
+    case $1 in
+      --shrubbery) shrubbery=$2; shift 2 ;;
+      --vehicle) vehicle=$2; shift 2 ;;
+      --choreograph) choreograph=$2; shift 2 ;;
+      --only) only=$2; args+=(--only "$2"); shift 2 ;;
+      *) args+=("$1"); shift ;;
+    esac
+  done
+  local parts=()
+  [[ -n $shrubbery ]] && parts+=(--shrubbery "$shrubbery")
+  [[ -n $vehicle ]] && parts+=(--vehicle "$vehicle")
+  [[ -n $choreograph ]] && parts+=(--choreograph "$choreograph")
+  if [[ -z $only ]]; then
+    local gardend; gardend=$(cmd_build --release)
+    args+=(--gardend "$gardend")
+  fi
+  BUILDBOX_HOME=$HOME_DIR "$REPO/shell/build-app.sh" ${parts[@]+"${parts[@]}"} ${args[@]+"${args[@]}"}
+}
+
 cmd_status() {
   echo "key        $KEY"
   echo "home       $HOME_DIR"
@@ -222,6 +253,9 @@ main() {
     unit) setup; cmd_unit "$@"; return ;;
     status) setup; cmd_status; return ;;
     serve) setup; cmd_serve "$@"; return ;;
+    app)
+      # --only rebuilds no Rust, so it needs neither the lock nor the tree
+      if [[ " $* " == *" --only "* ]]; then setup; cmd_app "$@"; return; fi ;;
     build|test|gate|_warm) ;;
     *) usage >&2; die "unknown command: $cmd" ;;
   esac
@@ -230,7 +264,10 @@ main() {
   lock
   if [[ $cmd == _warm ]]; then
     sync_rev origin/main
-    cmd_build >/dev/null
+    local profile
+    for profile in ${BUILDBOX_WARM:-release}; do
+      if [[ $profile == release ]]; then cmd_build --release >/dev/null; else cmd_build >/dev/null; fi
+    done
     return
   fi
   sync_worktree

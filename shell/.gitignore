@@ -1,4 +1,4 @@
 src-tauri/target/
 src-tauri/gen/
 src-tauri/binaries/
-dist/
+src-tauri/stage/

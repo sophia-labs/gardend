@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sophia</title>
+<style>
+  :root { --bg: #f6f4ef; --ink: #2a2723; --soft: #77706a; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #1d1c1a; --ink: #ece8e1; --soft: #9a948c; } }
+  html, body { height: 100%; margin: 0; background: var(--bg); color: var(--ink); }
+  body { display: grid; place-items: center; font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; }
+  main { max-width: 34rem; padding: 0 16px; text-align: center; }
+  h1 { font-weight: 500; font-size: 20px; margin: 0 0 6px; }
+  p { color: var(--soft); margin: 0; }
+  pre { text-align: left; white-space: pre-wrap; color: var(--ink); font-size: 12px; margin-top: 16px; }
+</style>
+</head>
+<body>
+<main>
+  <h1 id="what">Opening Sophia on this Mac…</h1>
+  <p id="why">A large garden can take a minute to open.</p>
+  <pre id="said" hidden></pre>
+</main>
+<script>
+  // The app calls this when gardend could not start; Place → Show Log has the rest.
+  window.sophiaCouldNotStart = (words) => {
+    document.getElementById('what').textContent = 'Sophia could not open this Mac’s garden.'
+    document.getElementById('why').textContent = 'Place → Show Log says more. Place → This Mac tries again.'
+    const said = document.getElementById('said')
+    said.textContent = words
+    said.hidden = false
+  }
+</script>
+</body>
+</html>
