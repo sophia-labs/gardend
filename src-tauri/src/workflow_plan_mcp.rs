@@ -12,8 +12,18 @@
 //! <…#p1> a wf:Phase ; wf:partOfWorkflow <urn:sophia:wf:D> ; wf:order 1 ; dcterms:title "…" .
 //! <…#reader> a wf:AgentNode ; wf:inPhase <…#p1> ; wf:label "…" ; wf:agentType "…" ;
 //!     wf:instructions "…" ; wf:mode "once"|"perItem" ; wf:over <…#c> ; wf:consumes <…#c> ;
-//!     wf:produces <…#c> ; wf:itemSchema "{json schema}" ; wf:checks <…#c> .
+//!     wf:produces <…#c> ; wf:itemSchema "{json schema}" ; wf:checks <…#c> ;
+//!     wf:reads <…#book> .
+//! <…#book> a wf:Source ; wf:label "…" ; wf:documentId "…" ; wf:fromBlock "…" ; wf:toBlock "…" .
+//! <…#margin> a wf:Destination ; wf:label "…" ; wf:kind "margin" ; wf:receives <…#c> ;
+//!     wf:documentId "…" .
 //! ```
+//!
+//! A source is what a step reads (a document, or the blocks from one block
+//! through another), so its instructions can say "the book" instead of a
+//! document id; a destination is where the results go, and
+//! `workflow_plan_publish` publishes what a margin destination receives
+//! (`plans/2026-10-19-workflow-canvas.md`, "The grammar addition").
 //!
 //! The ideas come from the workflow book (`workflow_book_mcp.rs`: compose moves,
 //! live validation, a `wf:CompositionEvent` per change), not its script
@@ -22,7 +32,9 @@
 //! `urn:sophia:wf:<documentId>:authoring`. Validation never blocks a draft
 //! (FlagAndAccept): SHACL shapes (`workflow_plan_shapes.ttl`, run by rudof as
 //! Emporium's EA-1 face does) judge each node, and the structural checks here
-//! judge what SHACL Core cannot say, worded as the TS compiler words them.
+//! judge what SHACL Core cannot say, worded as the TS compiler words them. One
+//! check is this cell's alone, because the compiler cannot see the workspace:
+//! whether the documents the sources and destinations name are in this graph.
 //!
 //! The fence: every tool refuses a document whose kind is not `"workflow"`,
 //! and writes only that document's `:draft` and `:authoring` graphs.
@@ -38,6 +50,8 @@ use oxigraph::model::{GraphNameRef, Literal, NamedNode, NamedOrBlankNode, Term, 
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::OnceLock;
+#[cfg(feature = "desktop")]
+use tauri::Manager;
 
 const WF: &str = "http://mnemosyne.dev/workflow#";
 const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
@@ -53,6 +67,10 @@ const SHAPES_TTL: &str = include_str!("workflow_plan_shapes.ttl");
 /// `GRAPH_PLAN_LIMITS` in graph-plan.ts; the length limits are in the shapes.
 const MAX_PHASES: usize = 6;
 const MAX_STEPS: usize = 12;
+const MAX_SOURCES: usize = 6;
+const MAX_DESTINATIONS: usize = 4;
+/// The one kind of destination there is: comments in a document's margin.
+const MARGIN: &str = "margin";
 const RECENT_EVENTS: usize = 10;
 const ID_MAX: usize = 64;
 
@@ -148,7 +166,7 @@ pub(super) async fn mcp_local_workflow_plan_create(
         insert_data(&names.authoring, &event)
     );
     run_update(&app, &graph_id, update).await?;
-    read_result(&app, &graph_id, &names)
+    read_result(&app, &graph_id, &names).await
 }
 
 pub(super) async fn mcp_local_workflow_plan_read(
@@ -156,7 +174,7 @@ pub(super) async fn mcp_local_workflow_plan_read(
     arguments: &Value,
 ) -> AppResult<Value> {
     let (graph_id, names) = workflow_document(&app, arguments).await?;
-    read_result(&app, &graph_id, &names)
+    read_result(&app, &graph_id, &names).await
 }
 
 pub(super) async fn mcp_local_workflow_plan_compose(
@@ -191,13 +209,14 @@ pub(super) async fn mcp_local_workflow_plan_compose(
     update.push_str(" ;\n");
     update.push_str(&insert_data(&names.authoring, &event));
     run_update(&app, &graph_id, update).await?;
-    read_result(&app, &graph_id, &names)
+    read_result(&app, &graph_id, &names).await
 }
 
 /// One finding a person may publish (Shrubbery's `publishableFindings`): an
-/// item of the plan's last collection that names the `documentId` it is
-/// about, the exact `quote` it rests on, the `note` to write beside it and,
-/// optionally, the `blockId` that holds the quote.
+/// item of the collection being published that names the `documentId` it is
+/// about (or leaves it to the destination's), the exact `quote` it rests on,
+/// the `note` to write beside it and, optionally, the `blockId` that holds
+/// the quote.
 #[derive(Debug, Clone)]
 struct Finding {
     /// 1-based: `wf:position` + 1, the `n` of its comment id `wf-<runId>-<n>`.
@@ -222,7 +241,25 @@ fn run_segment(run_id: &str) -> String {
         .collect()
 }
 
-fn finding_of(index: i64, json: &str) -> Option<Finding> {
+/// `^[A-Za-z0-9_-]{1,128}$`: a document id (graph-plan.ts `wf:documentId`).
+fn document_id_shaped(id: &str) -> bool {
+    (1..=128).contains(&id.len())
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+}
+
+/// `^[A-Za-z0-9_.:-]{1,128}$`: a block id (`wf:fromBlock`, `wf:toBlock`).
+fn block_id_shaped(id: &str) -> bool {
+    (1..=128).contains(&id.len())
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | ':' | '-'))
+}
+
+/// An item's finding. One whose JSON names no `documentId` (none, null or
+/// empty) is about `fallback`, the destination's document, when there is one.
+fn finding_of(index: i64, json: &str, fallback: Option<&str>) -> Option<Finding> {
     let value: Value = serde_json::from_str(json).ok()?;
     let text = |key: &str| {
         value
@@ -232,12 +269,13 @@ fn finding_of(index: i64, json: &str) -> Option<Finding> {
             .filter(|text| !text.is_empty())
             .map(str::to_string)
     };
-    let document_id = value.get("documentId").and_then(Value::as_str)?;
-    let id_shaped = (1..=128).contains(&document_id.len())
-        && document_id
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
-    if !id_shaped {
+    let document_id = match value.get("documentId") {
+        None | Some(Value::Null) => fallback?,
+        Some(Value::String(id)) if id.trim().is_empty() => fallback?,
+        Some(Value::String(id)) => id.as_str(),
+        Some(_) => return None,
+    };
+    if !document_id_shaped(document_id) {
         return None;
     }
     Some(Finding {
@@ -281,6 +319,38 @@ fn last_collection(draft: &[Triple], names: &PlanNames) -> Option<String> {
         .map(str::to_string)
 }
 
+/// A margin destination of the plan (`wf:Destination`, `wf:kind "margin"`):
+/// the collection whose items go into a margin, and the document they go to
+/// when an item names none.
+#[derive(Debug, Clone)]
+struct MarginDestination {
+    iri: String,
+    id: String,
+    receives: Option<String>,
+    document_id: Option<String>,
+}
+
+/// The plan's margin destinations, by id.
+fn margin_destinations(draft: &[Triple]) -> Vec<MarginDestination> {
+    let plan = Plan::new(draft);
+    let p = |name: &str| format!("{WF}{name}");
+    let mut destinations: Vec<MarginDestination> = plan
+        .typed("Destination")
+        .into_iter()
+        .filter(|destination| plan.literal(destination, &p("kind")) == Some(MARGIN))
+        .map(|destination| MarginDestination {
+            iri: destination.to_string(),
+            id: local_id(destination),
+            receives: plan.iri_of(destination, &p("receives")).map(str::to_string),
+            document_id: plan
+                .literal(destination, &p("documentId"))
+                .map(str::to_string),
+        })
+        .collect();
+    destinations.sort_by(|a, b| (&a.id, &a.iri).cmp(&(&b.id, &b.iri)));
+    destinations
+}
+
 pub(super) async fn mcp_local_workflow_plan_publish(
     app: AppHandle,
     arguments: &Value,
@@ -294,11 +364,42 @@ pub(super) async fn mcp_local_workflow_plan_publish(
     let segment = run_segment(&run_id);
     let run_graph = format!("{}:run:{segment}", names.workflow);
     let draft = load_graph(&app, &graph_id, &names.draft)?;
-    let collection = last_collection(&draft, &names).ok_or_else(|| {
-        AppError::validation(
-            "the plan has no last collection: its last phase has no step that produces one",
-        )
-    })?;
+    // What a margin destination receives: the one named, or else the first by
+    // id. A plan with no destination publishes its last collection.
+    let destinations = margin_destinations(&draft);
+    let destination = match mcp_arg_string(arguments, &["destination"]) {
+        Some(wanted) => Some(
+            destinations
+                .iter()
+                .find(|destination| destination.id == wanted)
+                .ok_or_else(|| {
+                    let has = if destinations.is_empty() {
+                        "none".to_string()
+                    } else {
+                        destinations
+                            .iter()
+                            .map(|destination| destination.id.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    };
+                    AppError::validation(format!(
+                        "the plan has no margin destination {wanted} (it has {has})"
+                    ))
+                })?,
+        ),
+        None => destinations.first(),
+    };
+    let collection = match destination {
+        Some(destination) => destination.receives.clone().ok_or_else(|| {
+            AppError::validation(format!("{} has no wf:receives", destination.id))
+        })?,
+        None => last_collection(&draft, &names).ok_or_else(|| {
+            AppError::validation(
+                "the plan has no last collection: its last phase has no step that produces one",
+            )
+        })?,
+    };
+    let fallback = destination.and_then(|destination| destination.document_id.as_deref());
     let run_triples = load_graph(&app, &graph_id, &run_graph)?;
     let run = Plan::new(&run_triples);
     let Some(run_node) = run.typed("GraphPlanRun").first().copied() else {
@@ -325,7 +426,7 @@ pub(super) async fn mcp_local_workflow_plan_publish(
     for (position, item) in &items {
         let finding = run
             .literal(item, &format!("{WF}json"))
-            .and_then(|json| finding_of(position + 1, json));
+            .and_then(|json| finding_of(position + 1, json, fallback));
         let Some(finding) = finding else {
             skipped += 1;
             continue;
@@ -475,6 +576,13 @@ pub(super) async fn mcp_local_workflow_plan_publish(
             NamedNode::new_unchecked(crate::rdf::document_subject(target)),
         ));
     }
+    if let Some(destination) = destination {
+        record.push(Triple::new(
+            publication.clone(),
+            p("destination"),
+            NamedNode::new_unchecked(destination.iri.clone()),
+        ));
+    }
     for miss in &not_found {
         if let Some(quote) = miss["quote"].as_str() {
             record.push(Triple::new(
@@ -496,7 +604,7 @@ pub(super) async fn mcp_local_workflow_plan_publish(
     }
     run_update(&app, &graph_id, insert_data(&names.authoring, &record)).await?;
 
-    Ok(json!({
+    let mut result = json!({
         "graphId": graph_id,
         "documentId": names.document_id,
         "runId": run_id,
@@ -508,7 +616,11 @@ pub(super) async fn mcp_local_workflow_plan_publish(
         "documents": documents,
         "publication": publication.as_str(),
         "elapsedMs": started.elapsed().as_millis() as u64,
-    }))
+    });
+    if let Some(destination) = destination {
+        result["destination"] = json!(destination.id);
+    }
+    Ok(result)
 }
 
 /// The fence: `documentId` must name a document of kind `"workflow"`.
@@ -560,11 +672,28 @@ fn load_graph(app: &AppHandle, graph_id: &str, graph_iri: &str) -> AppResult<Vec
         .map_err(|error| AppError::rdf(format!("read {graph_iri}: {error}")))
 }
 
-fn read_result(app: &AppHandle, graph_id: &str, names: &PlanNames) -> AppResult<Value> {
+async fn read_result(app: &AppHandle, graph_id: &str, names: &PlanNames) -> AppResult<Value> {
     let draft = load_graph(app, graph_id, &names.draft)?;
     let authoring = load_graph(app, graph_id, &names.authoring)?;
-    let problems = report(&draft, &names.draft);
+    let mut problems = report(&draft, &names.draft);
+    let workspace = workspace_documents(app, graph_id, &draft).await?;
+    for problem in workspace.problems(&draft) {
+        if !problems
+            .iter()
+            .any(|known| known.message == problem.message)
+        {
+            problems.push(problem);
+        }
+    }
     let mut result = plan_view(&draft, names);
+    for source in result["sources"].as_array_mut().into_iter().flatten() {
+        let title = source["documentId"]
+            .as_str()
+            .and_then(|document_id| workspace.titles.get(document_id));
+        if let Some(title) = title {
+            source["documentTitle"] = json!(title);
+        }
+    }
     result["graphId"] = json!(graph_id);
     result["documentId"] = json!(names.document_id);
     result["workflow"] = json!(names.workflow);
@@ -576,6 +705,113 @@ fn read_result(app: &AppHandle, graph_id: &str, names: &PlanNames) -> AppResult<
     });
     result["authoring"] = json!({ "recent": recent_events(&authoring) });
     Ok(result)
+}
+
+/// What only this cell can see about the documents the plan's sources and
+/// destinations name (the compiler cannot see the workspace): which are not
+/// in this graph, and the title of each that is.
+#[derive(Debug, Default)]
+struct Workspace {
+    missing: BTreeSet<String>,
+    titles: BTreeMap<String, String>,
+}
+
+impl Workspace {
+    /// `<id> names document <documentId>, which is not in this graph`, for
+    /// each source, then each destination, whose document is missing.
+    fn problems(&self, draft: &[Triple]) -> Vec<Problem> {
+        let plan = Plan::new(draft);
+        plan.typed("Source")
+            .into_iter()
+            .chain(plan.typed("Destination"))
+            .filter_map(|subject| {
+                let document_id = plan.literal(subject, &format!("{WF}documentId"))?;
+                self.missing.contains(document_id).then(|| Problem {
+                    focus: subject.to_string(),
+                    message: format!(
+                        "{} names document {document_id}, which is not in this graph",
+                        local_id(subject)
+                    ),
+                    source: "workspace",
+                })
+            })
+            .collect()
+    }
+}
+
+async fn workspace_documents(
+    app: &AppHandle,
+    graph_id: &str,
+    draft: &[Triple],
+) -> AppResult<Workspace> {
+    let plan = Plan::new(draft);
+    // An id of the wrong shape is the structural checks' to report.
+    let document_ids: BTreeSet<&str> = plan
+        .typed("Source")
+        .into_iter()
+        .chain(plan.typed("Destination"))
+        .filter_map(|subject| plan.literal(subject, &format!("{WF}documentId")))
+        .filter(|document_id| document_id_shaped(document_id))
+        .collect();
+    let mut workspace = Workspace::default();
+    if document_ids.is_empty() {
+        return Ok(workspace);
+    }
+    let graph_dir =
+        crate::graph_paths::existing_graph_dir(app, graph_id).map_err(AppError::storage)?;
+    let registry = app.state::<crate::crdt_engine::rooms::RoomRegistry>();
+    for document_id in document_ids {
+        // The test document.editComments makes before it writes in a margin,
+        // so what the report calls missing is what publish would not find.
+        match crate::loopback_hocuspocus_routes::document_exists_for_room_connection(
+            &registry,
+            graph_id,
+            &graph_dir,
+            document_id,
+        )
+        .await
+        {
+            Ok(true) => {
+                if let Some(title) =
+                    document_title(&registry, graph_id, &graph_dir, document_id).await
+                {
+                    workspace.titles.insert(document_id.to_string(), title);
+                }
+            }
+            Ok(false) => {
+                workspace.missing.insert(document_id.to_string());
+            }
+            // A document the graph holds but cannot serve yet is not missing.
+            Err(_) => {}
+        }
+    }
+    Ok(workspace)
+}
+
+/// The title the workspace gives a document, else its stored record's.
+async fn document_title(
+    registry: &crate::crdt_engine::rooms::RoomRegistry,
+    graph_id: &str,
+    graph_dir: &std::path::Path,
+    document_id: &str,
+) -> Option<String> {
+    let live = match registry.peek(&format!("workspace:{graph_id}")).await {
+        Some(room) => {
+            let document_id = document_id.to_string();
+            room.with_doc(move |doc| {
+                crate::crdt_engine::workspace_ops::document_title_in_workspace(doc, &document_id)
+            })
+            .await
+        }
+        None => None,
+    };
+    live.or_else(|| {
+        crate::crdt_engine::workspace_ops::document_record_json(graph_dir, document_id)?
+            .get("title")?
+            .as_str()
+            .filter(|title| !title.is_empty())
+            .map(str::to_string)
+    })
 }
 
 // ── moves ───────────────────────────────────────────────────────────────────
@@ -591,6 +827,8 @@ enum Move {
         order: i64,
     },
     UpsertStep(StepMove),
+    UpsertSource(SourceMove),
+    UpsertDestination(DestinationMove),
     Remove {
         id: String,
     },
@@ -609,9 +847,33 @@ struct StepMove {
     checks: Option<String>,
     produces: Option<String>,
     item_schema: Option<String>,
+    /// The sources it reads (`wf:reads`), in the order given, each once.
+    reads: Vec<String>,
 }
 
-const MOVE_OPS: &str = "set_title, upsert_phase, upsert_step or remove";
+/// A `wf:Source`: a document, or the blocks of one from `from_block`
+/// through `to_block`.
+#[derive(Debug, Clone)]
+struct SourceMove {
+    id: String,
+    label: String,
+    document_id: String,
+    from_block: Option<String>,
+    to_block: Option<String>,
+}
+
+/// A `wf:Destination`: where the items of `receives` go.
+#[derive(Debug, Clone)]
+struct DestinationMove {
+    id: String,
+    label: String,
+    kind: String,
+    receives: String,
+    document_id: Option<String>,
+}
+
+const MOVE_OPS: &str =
+    "set_title, upsert_phase, upsert_step, upsert_source, upsert_destination or remove";
 
 fn parse_move(index: usize, value: &Value) -> Result<Move, String> {
     let object = value
@@ -638,7 +900,10 @@ fn parse_move(index: usize, value: &Value) -> Result<Move, String> {
             "checks",
             "produces",
             "itemSchema",
+            "reads",
         ],
+        "upsert_source" => &["op", "id", "label", "documentId", "fromBlock", "toBlock"],
+        "upsert_destination" => &["op", "id", "label", "kind", "receives", "documentId"],
         "remove" => &["op", "id"],
         other => {
             return Err(format!(
@@ -675,6 +940,44 @@ fn parse_move(index: usize, value: &Value) -> Result<Move, String> {
             Some(_) => Err(format!("{at}: {field} must be an id")),
         }
     };
+    // An id or a list of ids.
+    let id_list = |field: &str| -> Result<Vec<String>, String> {
+        match object.get(field) {
+            None | Some(Value::Null) => Ok(Vec::new()),
+            Some(Value::String(id)) => Ok(vec![valid_id(&at, field, id)?]),
+            Some(Value::Array(ids)) => ids
+                .iter()
+                .map(|id| {
+                    id.as_str()
+                        .ok_or_else(|| format!("{at}: {field} must be a list of ids"))
+                        .and_then(|id| valid_id(&at, field, id))
+                })
+                .collect(),
+            Some(_) => Err(format!("{at}: {field} must be a list of ids")),
+        }
+    };
+    // `^[A-Za-z0-9_-]{1,128}$`, refused here so a bad one never reaches the draft.
+    let document_field = |field: &str| -> Result<Option<String>, String> {
+        match object.get(field) {
+            None | Some(Value::Null) => Ok(None),
+            Some(Value::String(id)) if document_id_shaped(id) => Ok(Some(id.clone())),
+            Some(Value::String(id)) => Err(format!(
+                "{at}: {field} {id:?} is not a document id (1 to 128 letters, digits, _ or -)"
+            )),
+            Some(_) => Err(format!("{at}: {field} must be a document id")),
+        }
+    };
+    // `^[A-Za-z0-9_.:-]{1,128}$`.
+    let block_field = |field: &str| -> Result<Option<String>, String> {
+        match object.get(field) {
+            None | Some(Value::Null) => Ok(None),
+            Some(Value::String(id)) if block_id_shaped(id) => Ok(Some(id.clone())),
+            Some(Value::String(id)) => Err(format!(
+                "{at}: {field} {id:?} is not a block id (1 to 128 letters, digits, _, ., : or -)"
+            )),
+            Some(_) => Err(format!("{at}: {field} must be a block id")),
+        }
+    };
     Ok(match op {
         "set_title" => Move::SetTitle {
             title: text("title")?,
@@ -709,19 +1012,12 @@ fn parse_move(index: usize, value: &Value) -> Result<Move, String> {
                     ))
                 }
             };
-            let consumes = match object.get("consumes") {
-                None | Some(Value::Null) => Vec::new(),
-                Some(Value::String(id)) => vec![valid_id(&at, "consumes", id)?],
-                Some(Value::Array(ids)) => ids
-                    .iter()
-                    .map(|id| {
-                        id.as_str()
-                            .ok_or_else(|| format!("{at}: consumes must be a list of ids"))
-                            .and_then(|id| valid_id(&at, "consumes", id))
-                    })
-                    .collect::<Result<Vec<_>, _>>()?,
-                Some(_) => return Err(format!("{at}: consumes must be a list of ids")),
-            };
+            let consumes = id_list("consumes")?;
+            let mut seen = HashSet::new();
+            let reads: Vec<String> = id_list("reads")?
+                .into_iter()
+                .filter(|id| seen.insert(id.clone()))
+                .collect();
             let item_schema = match object.get("itemSchema") {
                 None | Some(Value::Null) => None,
                 Some(Value::String(schema)) => Some(schema.clone()),
@@ -744,6 +1040,29 @@ fn parse_move(index: usize, value: &Value) -> Result<Move, String> {
                 checks: optional_id("checks")?,
                 produces: optional_id("produces")?,
                 item_schema,
+                reads,
+            })
+        }
+        "upsert_source" => Move::UpsertSource(SourceMove {
+            id: id_field("id")?,
+            label: text("label")?,
+            document_id: document_field("documentId")?
+                .ok_or_else(|| format!("{at} needs documentId (a document id)"))?,
+            from_block: block_field("fromBlock")?,
+            to_block: block_field("toBlock")?,
+        }),
+        "upsert_destination" => {
+            let kind = match object.get("kind") {
+                None | Some(Value::Null) => MARGIN.to_string(),
+                Some(Value::String(kind)) if kind == MARGIN => kind.clone(),
+                Some(other) => return Err(format!("{at}: kind is {other}; use \"margin\"")),
+            };
+            Move::UpsertDestination(DestinationMove {
+                id: id_field("id")?,
+                label: text("label")?,
+                kind,
+                receives: id_field("receives")?,
+                document_id: document_field("documentId")?,
             })
         }
         _ => Move::Remove {
@@ -787,9 +1106,22 @@ fn apply_moves(
                 && matches!(&t.object, Term::NamedNode(o) if o.as_str() == format!("{WF}{class}"))
         })
     };
+    // What an id already names, when it names a node: a phase, a step, a
+    // source or a destination.
+    let named = |state: &[Triple], item: &str| -> Option<&'static str> {
+        [
+            ("Phase", "phase"),
+            ("AgentNode", "step"),
+            ("Source", "source"),
+            ("Destination", "destination"),
+        ]
+        .into_iter()
+        .find(|(class, _)| typed(state, item, class))
+        .map(|(_, what)| what)
+    };
     let collection = |state: &[Triple], item: &str| {
         state.iter().any(|t| {
-            ["over", "consumes", "produces", "checks"]
+            ["over", "consumes", "produces", "checks", "receives"]
                 .iter()
                 .any(|p| t.predicate.as_str() == format!("{WF}{p}"))
                 && matches!(&t.object, Term::NamedNode(o) if o.as_str() == item)
@@ -813,9 +1145,9 @@ fn apply_moves(
             }
             Move::UpsertPhase { id, title, order } => {
                 let item = names.item(id);
-                if typed(&state, &item, "AgentNode") {
+                if let Some(what) = named(&state, &item).filter(|what| *what != "phase") {
                     return Err(format!(
-                        "{}: {id} is a step; give the phase its own id",
+                        "{}: {id} is a {what}; give the phase its own id",
                         at("upsert_phase")
                     ));
                 }
@@ -841,9 +1173,9 @@ fn apply_moves(
             Move::UpsertStep(step) => {
                 let item = names.item(&step.id);
                 let here = at("upsert_step");
-                if typed(&state, &item, "Phase") {
+                if let Some(what) = named(&state, &item).filter(|what| *what != "step") {
                     return Err(format!(
-                        "{here}: {} is a phase; give the step its own id",
+                        "{here}: {} is a {what}; give the step its own id",
                         step.id
                     ));
                 }
@@ -854,32 +1186,57 @@ fn apply_moves(
                     ));
                 }
                 let phase_item = names.item(&step.phase);
-                if typed(&state, &phase_item, "AgentNode") || phase_item == item {
+                let phase_is = if phase_item == item {
+                    Some("step")
+                } else {
+                    named(&state, &phase_item).filter(|what| *what != "phase")
+                };
+                if let Some(what) = phase_is {
                     return Err(format!(
-                        "{here}: phase {} is a step, not a phase",
+                        "{here}: phase {} is a {what}, not a phase",
                         step.phase
                     ));
                 }
-                let reads = step
+                let collections: Vec<&String> = step
                     .over
                     .iter()
                     .chain(step.consumes.iter())
                     .chain(step.checks.iter())
-                    .chain(step.produces.iter());
-                for read in reads {
-                    let read_item = names.item(read);
-                    if read_item == item
-                        || typed(&state, &read_item, "AgentNode")
-                        || typed(&state, &read_item, "Phase")
+                    .chain(step.produces.iter())
+                    .collect();
+                for used in &collections {
+                    let used_item = names.item(used);
+                    if used_item == item
+                        || typed(&state, &used_item, "AgentNode")
+                        || typed(&state, &used_item, "Phase")
                     {
                         return Err(format!(
-                            "{here}: {read} is a phase or a step, not a collection"
+                            "{here}: {used} is a phase or a step, not a collection"
                         ));
+                    }
+                    if let Some(what) = named(&state, &used_item) {
+                        return Err(format!("{here}: {used} is a {what}, not a collection"));
+                    }
+                }
+                // A source it reads may come in a later move (the report says
+                // so until it does); anything else an id names is refused.
+                for read in &step.reads {
+                    let read_item = names.item(read);
+                    let read_is = if read_item == item {
+                        Some("step")
+                    } else {
+                        named(&state, &read_item).filter(|what| *what != "source")
+                    };
+                    if let Some(what) = read_is {
+                        return Err(format!("{here}: {read} is a {what}, not a source"));
+                    }
+                    if collections.contains(&read) || collection(&state, &read_item) {
+                        return Err(format!("{here}: {read} names a collection, not a source"));
                     }
                 }
                 let subject = NamedNode::new_unchecked(item.clone());
                 let p = |name: &str| iri(&format!("{WF}{name}"));
-                let collection_term =
+                let node_term =
                     |id: &str| Term::NamedNode(NamedNode::new_unchecked(names.item(id)));
                 let mut added = vec![
                     Triple::new(
@@ -900,60 +1257,153 @@ fn apply_moves(
                     added.push(Triple::new(subject.clone(), p("mode"), text(mode)));
                 }
                 if let Some(over) = &step.over {
-                    added.push(Triple::new(
-                        subject.clone(),
-                        p("over"),
-                        collection_term(over),
-                    ));
+                    added.push(Triple::new(subject.clone(), p("over"), node_term(over)));
                 }
                 for consumed in &step.consumes {
                     added.push(Triple::new(
                         subject.clone(),
                         p("consumes"),
-                        collection_term(consumed),
+                        node_term(consumed),
                     ));
                 }
                 if let Some(checks) = &step.checks {
-                    added.push(Triple::new(
-                        subject.clone(),
-                        p("checks"),
-                        collection_term(checks),
-                    ));
+                    added.push(Triple::new(subject.clone(), p("checks"), node_term(checks)));
                 }
                 if let Some(produces) = &step.produces {
                     added.push(Triple::new(
                         subject.clone(),
                         p("produces"),
-                        collection_term(produces),
+                        node_term(produces),
                     ));
                 }
                 if let Some(schema) = &step.item_schema {
                     added.push(Triple::new(subject.clone(), p("itemSchema"), text(schema)));
+                }
+                for read in &step.reads {
+                    added.push(Triple::new(subject.clone(), p("reads"), node_term(read)));
+                }
+                replace_subject(names, &mut state, &mut operations, &item, added);
+            }
+            Move::UpsertSource(source) => {
+                let item = names.item(&source.id);
+                let here = at("upsert_source");
+                if let Some(what) = named(&state, &item).filter(|what| *what != "source") {
+                    return Err(format!(
+                        "{here}: {} is a {what}; give the source its own id",
+                        source.id
+                    ));
+                }
+                if collection(&state, &item) {
+                    return Err(format!(
+                        "{here}: {} names a collection; give the source its own id",
+                        source.id
+                    ));
+                }
+                let subject = NamedNode::new_unchecked(item.clone());
+                let p = |name: &str| iri(&format!("{WF}{name}"));
+                let mut added = vec![
+                    Triple::new(subject.clone(), iri(RDF_TYPE), p("Source")),
+                    Triple::new(subject.clone(), p("label"), text(&source.label)),
+                    Triple::new(subject.clone(), p("documentId"), text(&source.document_id)),
+                ];
+                if let Some(block) = &source.from_block {
+                    added.push(Triple::new(subject.clone(), p("fromBlock"), text(block)));
+                }
+                if let Some(block) = &source.to_block {
+                    added.push(Triple::new(subject.clone(), p("toBlock"), text(block)));
+                }
+                replace_subject(names, &mut state, &mut operations, &item, added);
+            }
+            Move::UpsertDestination(destination) => {
+                let item = names.item(&destination.id);
+                let here = at("upsert_destination");
+                if let Some(what) = named(&state, &item).filter(|what| *what != "destination") {
+                    return Err(format!(
+                        "{here}: {} is a {what}; give the destination its own id",
+                        destination.id
+                    ));
+                }
+                if collection(&state, &item) {
+                    return Err(format!(
+                        "{here}: {} names a collection; give the destination its own id",
+                        destination.id
+                    ));
+                }
+                // What it receives may be produced in a later move (the report
+                // says so until it is); a node is refused.
+                let receives_item = names.item(&destination.receives);
+                let receives_is = if receives_item == item {
+                    Some("destination")
+                } else {
+                    named(&state, &receives_item)
+                };
+                if let Some(what) = receives_is {
+                    return Err(format!(
+                        "{here}: {} is a {what}, not a collection",
+                        destination.receives
+                    ));
+                }
+                let subject = NamedNode::new_unchecked(item.clone());
+                let p = |name: &str| iri(&format!("{WF}{name}"));
+                let mut added = vec![
+                    Triple::new(subject.clone(), iri(RDF_TYPE), p("Destination")),
+                    Triple::new(subject.clone(), p("label"), text(&destination.label)),
+                    Triple::new(subject.clone(), p("kind"), text(&destination.kind)),
+                    Triple::new(
+                        subject.clone(),
+                        p("receives"),
+                        NamedNode::new_unchecked(receives_item),
+                    ),
+                ];
+                if let Some(document_id) = &destination.document_id {
+                    added.push(Triple::new(
+                        subject.clone(),
+                        p("documentId"),
+                        text(document_id),
+                    ));
                 }
                 replace_subject(names, &mut state, &mut operations, &item, added);
             }
             Move::Remove { id } => {
                 let item = names.item(id);
                 let here = at("remove");
-                if typed(&state, &item, "Phase") {
-                    let held: BTreeSet<String> = state
+                // The subjects of `predicate` that point at `item`, by id.
+                let pointing = |predicate: &str| -> Vec<String> {
+                    state
                         .iter()
                         .filter(|t| {
-                            t.predicate.as_str() == format!("{WF}inPhase")
+                            t.predicate.as_str() == format!("{WF}{predicate}")
                                 && matches!(&t.object, Term::NamedNode(o) if o.as_str() == item)
                         })
                         .filter_map(|t| subject_iri(t).map(local_id))
-                        .collect();
-                    if !held.is_empty() {
-                        return Err(format!(
-                            "{here}: phase {id} still holds {}; remove or move those steps first",
-                            held.into_iter().collect::<Vec<_>>().join(", ")
-                        ));
+                        .collect::<BTreeSet<_>>()
+                        .into_iter()
+                        .collect()
+                };
+                match named(&state, &item) {
+                    Some("phase") => {
+                        let held = pointing("inPhase");
+                        if !held.is_empty() {
+                            return Err(format!(
+                                "{here}: phase {id} still holds {}; remove or move those steps first",
+                                held.join(", ")
+                            ));
+                        }
                     }
-                } else if !typed(&state, &item, "AgentNode") {
-                    return Err(format!(
-                        "{here}: there is no phase or step {id} in this plan"
-                    ));
+                    Some("source") => {
+                        let readers = pointing("reads");
+                        if !readers.is_empty() {
+                            return Err(format!(
+                                "{here}: source {id} is still read by {}; change those steps first",
+                                readers.join(", ")
+                            ));
+                        }
+                    }
+                    Some(_) => {}
+                    None => {
+                        let what = "phase, step, source or destination";
+                        return Err(format!("{here}: there is no {what} {id} in this plan"));
+                    }
                 }
                 replace_subject(names, &mut state, &mut operations, &item, Vec::new());
             }
@@ -1159,7 +1609,8 @@ impl<'a> Plan<'a> {
 }
 
 /// The plan as `workflow_plan_read` shows it: title, phases in order with
-/// their steps, and any step that sits in no phase of this workflow.
+/// their steps, the sources and destinations, and any step that sits in no
+/// phase of this workflow.
 fn plan_view(triples: &[Triple], names: &PlanNames) -> Value {
     let plan = Plan::new(triples);
     let workflows = plan.typed("Workflow");
@@ -1208,7 +1659,22 @@ fn plan_view(triples: &[Triple], names: &PlanNames) -> Value {
         .filter(|step| !placed.contains(step))
         .map(|step| step_view(&plan, step))
         .collect();
-    let mut view = json!({ "title": title, "phases": phase_values });
+    let sources: Vec<Value> = plan
+        .typed("Source")
+        .into_iter()
+        .map(|source| source_view(&plan, source))
+        .collect();
+    let destinations: Vec<Value> = plan
+        .typed("Destination")
+        .into_iter()
+        .map(|destination| destination_view(&plan, destination))
+        .collect();
+    let mut view = json!({
+        "title": title,
+        "phases": phase_values,
+        "sources": sources,
+        "destinations": destinations,
+    });
     if !unplaced.is_empty() {
         view["unplacedSteps"] = json!(unplaced);
     }
@@ -1245,6 +1711,36 @@ fn step_view(plan: &Plan<'_>, step: &str) -> Value {
         "produces": short(plan.iri_of(step, &p("produces"))),
         "instructions": plan.literal(step, &p("instructions")),
         "itemSchema": item_schema,
+        "reads": plan.iris(step, &p("reads")).into_iter().map(local_id).collect::<Vec<_>>(),
+    })
+}
+
+fn source_view(plan: &Plan<'_>, source: &str) -> Value {
+    let p = |name: &str| format!("{WF}{name}");
+    let read_by: Vec<String> = plan
+        .typed("AgentNode")
+        .into_iter()
+        .filter(|step| plan.iris(step, &p("reads")).contains(&source))
+        .map(local_id)
+        .collect();
+    json!({
+        "id": local_id(source),
+        "label": plan.literal(source, &p("label")),
+        "documentId": plan.literal(source, &p("documentId")),
+        "fromBlock": plan.literal(source, &p("fromBlock")),
+        "toBlock": plan.literal(source, &p("toBlock")),
+        "readBy": read_by,
+    })
+}
+
+fn destination_view(plan: &Plan<'_>, destination: &str) -> Value {
+    let p = |name: &str| format!("{WF}{name}");
+    json!({
+        "id": local_id(destination),
+        "label": plan.literal(destination, &p("label")),
+        "kind": plan.literal(destination, &p("kind")),
+        "receives": plan.iri_of(destination, &p("receives")).map(local_id),
+        "documentId": plan.literal(destination, &p("documentId")),
     })
 }
 
@@ -1342,14 +1838,19 @@ fn shacl_problems(triples: &[Triple], draft_iri: &str) -> Vec<Problem> {
     else {
         return Vec::new();
     };
-    let mut problems: Vec<Problem> = violations.iter().map(shacl_problem).collect();
+    let plan = Plan::new(triples);
+    let mut problems: Vec<Problem> = violations
+        .iter()
+        .map(|violation| shacl_problem(&plan, violation))
+        .collect();
     problems.sort_by(|a, b| (&a.focus, &a.message).cmp(&(&b.focus, &b.message)));
     problems
 }
 
 /// A violation in the compiler's words: the shape's `sh:message` with
-/// `{$this}`, `{?value}` and `{?short}` filled in.
-fn shacl_problem(violation: &ViolationRecord) -> Problem {
+/// `{$this}`, `{?value}`, `{?short}` and `{?count}` (how many values the
+/// focus node holds on the shape's path) filled in.
+fn shacl_problem(plan: &Plan<'_>, violation: &ViolationRecord) -> Problem {
     let focus = bare_iri(&violation.focus_node).to_string();
     let template = violation
         .shape
@@ -1368,11 +1869,16 @@ fn shacl_problem(violation: &ViolationRecord) -> Problem {
         }
         None => (String::new(), String::new()),
     };
+    let count = violation
+        .property_path
+        .as_deref()
+        .map_or(0, |path| plan.values(&focus, bare_iri(path)).len());
     Problem {
         message: template
             .replace("{$this}", &local_id(&focus))
             .replace("{?value}", &value)
-            .replace("{?short}", &short),
+            .replace("{?short}", &short)
+            .replace("{?count}", &count.to_string()),
         focus,
         source: "shacl",
     }
@@ -1639,6 +2145,73 @@ fn structure_problems(triples: &[Triple], draft_iri: &str) -> Vec<Problem> {
             }
         }
     }
+
+    // Sources and destinations (graph-plan-v1, additive): the counts, the
+    // shapes of the ids they hold, and what each points at.
+    let sources = plan.typed("Source");
+    if sources.len() > MAX_SOURCES {
+        problems.push(Problem::structure(
+            workflow,
+            format!("at most {MAX_SOURCES} sources"),
+        ));
+    }
+    let destinations = plan.typed("Destination");
+    if destinations.len() > MAX_DESTINATIONS {
+        problems.push(Problem::structure(
+            workflow,
+            format!("at most {MAX_DESTINATIONS} destinations"),
+        ));
+    }
+    for node in sources.iter().chain(destinations.iter()) {
+        let document_id = plan.literal(node, &p("documentId"));
+        if document_id.is_some_and(|document_id| !document_id_shaped(document_id)) {
+            problems.push(Problem::structure(
+                node,
+                format!("{}'s wf:documentId is not a document id", local_id(node)),
+            ));
+        }
+    }
+    for source in &sources {
+        for block in ["fromBlock", "toBlock"] {
+            if plan
+                .literal(source, &p(block))
+                .is_some_and(|id| !block_id_shaped(id))
+            {
+                problems.push(Problem::structure(
+                    source,
+                    format!("{}'s wf:{block} is not a block id", local_id(source)),
+                ));
+            }
+        }
+    }
+    for step in &steps {
+        for read in plan.iris(step, &p("reads")) {
+            if !sources.contains(&read) {
+                problems.push(Problem::structure(
+                    step,
+                    format!(
+                        "{} reads {}, which is not a source of this workflow (wf:Source)",
+                        local_id(step),
+                        local_id(read)
+                    ),
+                ));
+            }
+        }
+    }
+    for destination in &destinations {
+        let receives = plan.iri_of(destination, &p("receives"));
+        if let Some(receives) = receives.filter(|c| !produced_by.contains_key(c)) {
+            problems.push(Problem::structure(
+                destination,
+                format!(
+                    "{} receives {}, which no step produces",
+                    local_id(destination),
+                    local_id(receives)
+                ),
+            ));
+        }
+    }
+
     let ids: Vec<String> = steps.iter().map(|step| local_id(step)).collect();
     if ids.iter().collect::<BTreeSet<_>>().len() != ids.len() {
         problems.push(Problem::structure(

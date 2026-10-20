@@ -1164,3 +1164,562 @@ fn publish_anchors_quotes_as_the_clerks_copied_them() {
         assert!(!comments.contains_key("wf-run-ch1-4"));
     });
 }
+
+// ── sources and destinations (graph-plan-v1, additive) ──────────────────────
+
+/// A two-phase plan whose Reader reads the book (a source) and whose findings
+/// go into the book's margin (a destination). The Reader names the source
+/// before the source exists: a later move may bring it.
+fn sourced_moves(document_id: &str) -> Value {
+    json!([
+        { "op": "upsert_phase", "id": "p1", "title": "Read", "order": 1 },
+        { "op": "upsert_phase", "id": "p2", "title": "Find", "order": 2 },
+        {
+            "op": "upsert_step", "id": "reader", "phase": "p1", "label": "the Reader",
+            "agentType": "segmenter", "instructions": "Cut the book into passages.",
+            "mode": "once", "reads": "book", "produces": "passages",
+            "itemSchema": { "type": "object" },
+        },
+        {
+            "op": "upsert_step", "id": "finder", "phase": "p2", "label": "the Finder",
+            "agentType": "extractor", "instructions": "Find what to say.", "mode": "perItem",
+            "over": "passages", "produces": "findings", "itemSchema": { "type": "object" },
+        },
+        {
+            "op": "upsert_source", "id": "book", "label": "The Interpretation of Dreams, I.C",
+            "documentId": document_id, "fromBlock": "block-be1fe535", "toBlock": "block-c0.ffee:2",
+        },
+        {
+            "op": "upsert_destination", "id": "margin", "label": "The book's margin",
+            "receives": "findings", "documentId": document_id,
+        },
+    ])
+}
+
+fn write_book(ctx: &McpCallCtx<'_>, document_id: &str, title: &str) {
+    ok(
+        ctx,
+        "write_document",
+        json!({ "document_id": document_id, "title": title, "format": "markdown",
+                "content": "The quick brown fox jumps.\n\nOver the lazy dog it goes." }),
+    );
+}
+
+fn step<'a>(read: &'a Value, id: &str) -> &'a Value {
+    read["phases"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|phase| phase["steps"].as_array().into_iter().flatten())
+        .find(|step| step["id"] == id)
+        .unwrap_or_else(|| panic!("no step {id} in {}", read["phases"]))
+}
+
+#[test]
+fn a_source_a_reading_step_and_a_destination_conform_and_read_back() {
+    with_graph(|ctx| {
+        write_book(ctx, "freud-ch1", "Chapter I");
+        let (id, created) = create(ctx, "Freud");
+        assert_eq!(created["sources"], json!([]), "{created}");
+        assert_eq!(created["destinations"], json!([]), "{created}");
+        let read = ok(
+            ctx,
+            "workflow_plan_compose",
+            json!({ "documentId": id, "rationale": "read the book, write in its margin",
+                    "moves": sourced_moves("freud-ch1") }),
+        );
+        assert_eq!(read["report"]["conforms"], true, "{}", read["report"]);
+        assert_eq!(
+            read["sources"],
+            json!([{
+                "id": "book",
+                "label": "The Interpretation of Dreams, I.C",
+                "documentId": "freud-ch1",
+                "fromBlock": "block-be1fe535",
+                "toBlock": "block-c0.ffee:2",
+                "documentTitle": "Chapter I",
+                "readBy": ["reader"],
+            }])
+        );
+        assert_eq!(
+            read["destinations"],
+            json!([{
+                "id": "margin",
+                "label": "The book's margin",
+                "kind": "margin",
+                "receives": "findings",
+                "documentId": "freud-ch1",
+            }])
+        );
+        assert_eq!(step(&read, "reader")["reads"], json!(["book"]));
+        assert_eq!(step(&read, "finder")["reads"], json!([]));
+
+        // The RDF the compiler reads, with wf:kind written out.
+        let w = format!("urn:sophia:wf:{id}");
+        let rows = graph_rows(ctx, &format!("{w}:draft"));
+        let has = |s: &str, p: &str, o: &str| {
+            rows.iter()
+                .any(|row| row["s"] == format!("<{w}#{s}>") && row["p"] == p && row["o"] == o)
+        };
+        let rdf_type = "<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>";
+        assert!(has("book", rdf_type, &format!("<{WF}Source>")), "{rows:?}");
+        assert!(has("book", &format!("<{WF}documentId>"), "\"freud-ch1\""));
+        assert!(has(
+            "book",
+            &format!("<{WF}fromBlock>"),
+            "\"block-be1fe535\""
+        ));
+        assert!(has(
+            "reader",
+            &format!("<{WF}reads>"),
+            &format!("<{w}#book>")
+        ));
+        assert!(has("margin", rdf_type, &format!("<{WF}Destination>")));
+        assert!(has("margin", &format!("<{WF}kind>"), "\"margin\""));
+        assert!(has(
+            "margin",
+            &format!("<{WF}receives>"),
+            &format!("<{w}#findings>")
+        ));
+    });
+}
+
+#[test]
+fn source_and_destination_problems_are_worded_like_the_compiler() {
+    with_graph(|ctx| {
+        let (id, _) = create(ctx, "Freud");
+        ok(
+            ctx,
+            "workflow_plan_compose",
+            json!({ "documentId": id, "rationale": "the plan", "moves": finding_moves() }),
+        );
+        // What moves can say wrong: a step reading what is not a source, a
+        // destination receiving what nobody produces, too many of each.
+        let mut moves = vec![
+            json!({
+                "op": "upsert_step", "id": "reader", "phase": "p1", "label": "the Reader",
+                "agentType": "segmenter", "instructions": "Cut it into passages.", "mode": "once",
+                "reads": ["ghost"], "produces": "passages", "itemSchema": { "type": "object" },
+            }),
+            json!({ "op": "upsert_destination", "id": "shelf", "label": "A shelf",
+                    "receives": "nowhere" }),
+        ];
+        for n in 1..=7 {
+            moves.push(json!({ "op": "upsert_source", "id": format!("s{n}"),
+                               "label": format!("Source {n}"), "documentId": format!("doc-{n}") }));
+        }
+        for n in 1..=4 {
+            moves.push(json!({ "op": "upsert_destination", "id": format!("d{n}"),
+                               "label": format!("Margin {n}"), "receives": "findings" }));
+        }
+        ok(
+            ctx,
+            "workflow_plan_compose",
+            json!({ "documentId": id, "rationale": "too much", "moves": moves }),
+        );
+        // What only raw RDF can say wrong.
+        let w = format!("urn:sophia:wf:{id}");
+        ok(
+            ctx,
+            "sparql_update",
+            json!({ "update": format!(
+                "PREFIX wf: <{WF}> INSERT DATA {{ GRAPH <{w}:draft> {{ \
+                 <{w}#odd> a wf:Destination ; wf:label \"Odd\" ; wf:kind \"shelf\" ; \
+                 wf:receives <{w}#findings> . \
+                 <{w}#bare> a wf:Destination . \
+                 <{w}#loose> a wf:Source ; wf:label \"a\" , \"b\" ; wf:documentId \"doc/1\" ; \
+                 wf:fromBlock \"a b\" ; wf:toBlock \"c d\" . \
+                 <{w}#nodoc> a wf:Source ; wf:label \"No document\" . \
+                 <{w}#finder> wf:reads \"the book\" . }} }}"
+            ) }),
+        );
+        let read = ok(ctx, "workflow_plan_read", json!({ "documentId": id }));
+        assert_eq!(read["report"]["conforms"], false);
+        for (expected, source) in [
+            ("at most 6 sources", "structure"),
+            ("at most 4 destinations", "structure"),
+            (
+                "reader reads ghost, which is not a source of this workflow (wf:Source)",
+                "structure",
+            ),
+            (
+                "shelf receives nowhere, which no step produces",
+                "structure",
+            ),
+            ("odd's wf:kind is \"shelf\"; use \"margin\"", "shacl"),
+            ("bare has no wf:label", "shacl"),
+            ("bare has no wf:kind", "shacl"),
+            ("bare has no wf:receives", "shacl"),
+            ("loose has 2 wf:label; it needs exactly one", "shacl"),
+            ("loose's wf:documentId is not a document id", "structure"),
+            ("loose's wf:fromBlock is not a block id", "structure"),
+            ("loose's wf:toBlock is not a block id", "structure"),
+            ("nodoc has no wf:documentId", "shacl"),
+            (
+                "finder's wf:reads must be an IRI, not \"the book\"",
+                "shacl",
+            ),
+        ] {
+            let found = problem(&read, expected);
+            assert_eq!(found["source"], source, "{found}");
+        }
+        assert_eq!(problem(&read, "at most 6 sources")["focus"], w.as_str());
+        assert_eq!(
+            problem(&read, "shelf receives nowhere, which no step produces")["focus"],
+            format!("{w}#shelf")
+        );
+        // Each message once (the report dedupes as the compiler does).
+        let found = messages(&read);
+        let unique: std::collections::BTreeSet<&String> = found.iter().collect();
+        assert_eq!(unique.len(), found.len(), "{found:?}");
+    });
+}
+
+#[test]
+fn the_report_names_a_document_this_graph_does_not_hold() {
+    with_graph(|ctx| {
+        write_book(ctx, "freud-ch1", "Chapter I");
+        let (id, _) = create(ctx, "Freud");
+        let mut moves = sourced_moves("freud-ch1").as_array().unwrap().clone();
+        moves.push(
+            json!({ "op": "upsert_source", "id": "lost", "label": "A lost book",
+                           "documentId": "no-such-doc" }),
+        );
+        moves.push(
+            json!({ "op": "upsert_destination", "id": "margin", "label": "Elsewhere",
+                           "receives": "findings", "documentId": "elsewhere" }),
+        );
+        let read = ok(
+            ctx,
+            "workflow_plan_compose",
+            json!({ "documentId": id, "rationale": "two books, one lost", "moves": moves }),
+        );
+        assert_eq!(read["report"]["conforms"], false, "{}", read["report"]);
+        let lost = problem(
+            &read,
+            "lost names document no-such-doc, which is not in this graph",
+        );
+        assert_eq!(lost["source"], "workspace", "{lost}");
+        assert_eq!(lost["focus"], format!("urn:sophia:wf:{id}#lost"));
+        assert_eq!(
+            problem(
+                &read,
+                "margin names document elsewhere, which is not in this graph"
+            )["source"],
+            "workspace"
+        );
+        // Silent for the book the graph holds, whose title it shows.
+        let found = messages(&read);
+        assert!(!found.iter().any(|m| m.contains("freud-ch1")), "{found:?}");
+        assert_eq!(found.len(), 2, "{found:?}");
+        let sources = read["sources"].as_array().unwrap();
+        assert_eq!(sources[0]["id"], "book");
+        assert_eq!(sources[0]["documentTitle"], "Chapter I");
+        assert_eq!(sources[1]["id"], "lost");
+        assert!(sources[1].get("documentTitle").is_none(), "{}", sources[1]);
+
+        let read = ok(
+            ctx,
+            "workflow_plan_compose",
+            json!({ "documentId": id, "rationale": "the margin is the book's", "moves": [
+                { "op": "remove", "id": "lost" },
+                { "op": "upsert_destination", "id": "margin", "label": "The book's margin",
+                  "receives": "findings", "documentId": "freud-ch1" },
+            ] }),
+        );
+        assert_eq!(read["report"]["conforms"], true, "{}", read["report"]);
+    });
+}
+
+#[test]
+fn a_source_is_removed_once_no_step_reads_it_and_a_destination_at_once() {
+    with_graph(|ctx| {
+        write_book(ctx, "freud-ch1", "Chapter I");
+        let (id, _) = create(ctx, "Freud");
+        ok(
+            ctx,
+            "workflow_plan_compose",
+            json!({ "documentId": id, "rationale": "the plan", "moves": sourced_moves("freud-ch1") }),
+        );
+        let error = call(
+            ctx,
+            "workflow_plan_compose",
+            json!({ "documentId": id, "rationale": "drop", "moves": [{ "op": "remove", "id": "book" }] }),
+        )
+        .expect_err("a source a step reads is not removed");
+        assert!(
+            error.contains("source book is still read by reader; change those steps first"),
+            "{error}"
+        );
+        let read = ok(
+            ctx,
+            "workflow_plan_compose",
+            json!({ "documentId": id, "rationale": "no margin", "moves": [{ "op": "remove", "id": "margin" }] }),
+        );
+        assert_eq!(read["destinations"], json!([]), "{read}");
+        let read = ok(
+            ctx,
+            "workflow_plan_compose",
+            json!({ "documentId": id, "rationale": "no book", "moves": [
+                {
+                    "op": "upsert_step", "id": "reader", "phase": "p1", "label": "the Reader",
+                    "agentType": "segmenter", "instructions": "Cut the input into passages.",
+                    "mode": "once", "produces": "passages", "itemSchema": { "type": "object" },
+                },
+                { "op": "remove", "id": "book" },
+            ] }),
+        );
+        assert_eq!(read["sources"], json!([]), "{read}");
+        assert_eq!(read["report"]["conforms"], true, "{}", read["report"]);
+        let w = format!("urn:sophia:wf:{id}");
+        assert!(!graph_rows(ctx, &format!("{w}:draft"))
+            .iter()
+            .any(|row| row["s"] == format!("<{w}#book>") || row["s"] == format!("<{w}#margin>")));
+    });
+}
+
+#[test]
+fn malformed_source_and_destination_moves_refuse_the_whole_call() {
+    with_graph(|ctx| {
+        let (id, _) = create(ctx, "Freud");
+        let mut moves = finding_moves().as_array().unwrap().clone();
+        moves.push(
+            json!({ "op": "upsert_source", "id": "book", "label": "The book",
+                           "documentId": "freud-ch1" }),
+        );
+        ok(
+            ctx,
+            "workflow_plan_compose",
+            json!({ "documentId": id, "rationale": "the plan", "moves": moves }),
+        );
+        let draft = format!("urn:sophia:wf:{id}:draft");
+        let before = graph_rows(ctx, &draft).len();
+        let source = |extra: Value| {
+            let mut source = json!({ "op": "upsert_source", "id": "other", "label": "Other",
+                                     "documentId": "doc-other" });
+            for (key, value) in extra.as_object().unwrap() {
+                source[key] = value.clone();
+            }
+            source
+        };
+        let reader = |reads: Value| {
+            json!({
+                "op": "upsert_step", "id": "reader", "phase": "p1", "label": "the Reader",
+                "agentType": "segmenter", "instructions": "Cut it.", "mode": "once",
+                "produces": "passages", "itemSchema": { "type": "object" }, "reads": reads,
+            })
+        };
+        let destination = |extra: Value| {
+            let mut destination = json!({ "op": "upsert_destination", "id": "margin",
+                                          "label": "Margin", "receives": "findings" });
+            for (key, value) in extra.as_object().unwrap() {
+                destination[key] = value.clone();
+            }
+            destination
+        };
+        for (bad, says) in [
+            (
+                source(json!({ "documentId": "doc/1" })),
+                "documentId \"doc/1\" is not a document id",
+            ),
+            (
+                source(json!({ "fromBlock": "a b" })),
+                "fromBlock \"a b\" is not a block id",
+            ),
+            (
+                source(json!({ "toBlock": "x".repeat(129) })),
+                "is not a block id",
+            ),
+            (
+                json!({ "op": "upsert_source", "id": "other", "label": "Other" }),
+                "needs documentId",
+            ),
+            (source(json!({ "pages": "1-3" })), "unknown field \"pages\""),
+            (
+                destination(json!({ "kind": "shelf" })),
+                "kind is \"shelf\"; use \"margin\"",
+            ),
+            (
+                json!({ "op": "upsert_destination", "id": "margin", "label": "Margin" }),
+                "needs receives",
+            ),
+            (reader(json!(5)), "reads must be a list of ids"),
+            (reader(json!(["1st"])), "\"1st\" is not an id"),
+            (
+                source(json!({ "id": "p1" })),
+                "p1 is a phase; give the source its own id",
+            ),
+            (
+                source(json!({ "id": "passages" })),
+                "passages names a collection; give the source its own id",
+            ),
+            (
+                source(json!({ "id": "finder" })),
+                "finder is a step; give the source its own id",
+            ),
+            (
+                destination(json!({ "id": "book" })),
+                "book is a source; give the destination its own id",
+            ),
+            (
+                destination(json!({ "id": "findings" })),
+                "findings names a collection; give the destination its own id",
+            ),
+            (
+                destination(json!({ "receives": "book" })),
+                "book is a source, not a collection",
+            ),
+            (
+                reader(json!(["passages"])),
+                "passages names a collection, not a source",
+            ),
+            (reader(json!("p2")), "p2 is a phase, not a source"),
+            (
+                json!({ "op": "upsert_phase", "id": "book", "title": "Books", "order": 9 }),
+                "book is a source; give the phase its own id",
+            ),
+            (
+                json!({
+                    "op": "upsert_step", "id": "book", "phase": "p1", "label": "x",
+                    "agentType": "x", "instructions": "x", "produces": "xs",
+                }),
+                "book is a source; give the step its own id",
+            ),
+            (
+                json!({
+                    "op": "upsert_step", "id": "lister", "phase": "p2", "label": "the Lister",
+                    "agentType": "x", "instructions": "x", "mode": "perItem", "over": "book",
+                    "produces": "lists",
+                }),
+                "book is a source, not a collection",
+            ),
+        ] {
+            let moves = json!([{ "op": "set_title", "title": "Changed" }, bad]);
+            let error = call(
+                ctx,
+                "workflow_plan_compose",
+                json!({ "documentId": id, "rationale": "try", "moves": moves }),
+            )
+            .expect_err("a malformed move refuses the call");
+            assert!(error.contains(says), "{says:?} not in {error}");
+        }
+        assert_eq!(graph_rows(ctx, &draft).len(), before, "nothing was written");
+        let read = ok(ctx, "workflow_plan_read", json!({ "documentId": id }));
+        assert_eq!(read["title"], "Freud");
+    });
+}
+
+#[test]
+fn publish_to_a_destination_publishes_what_it_receives_into_its_document() {
+    with_graph(|ctx| {
+        let (id, _) = create(ctx, "Margins");
+        let workflow = format!("urn:sophia:wf:{id}");
+        let mut moves = finding_moves().as_array().unwrap().clone();
+        // b-margin comes first in the moves; a-margin is first by id.
+        moves.push(
+            json!({ "op": "upsert_destination", "id": "b-margin", "label": "The findings",
+                           "receives": "findings" }),
+        );
+        moves.push(
+            json!({ "op": "upsert_destination", "id": "a-margin", "label": "The passages",
+                           "receives": "passages", "documentId": "alpha" }),
+        );
+        ok(
+            ctx,
+            "workflow_plan_compose",
+            json!({ "documentId": id, "rationale": "the plan", "moves": moves }),
+        );
+        for (doc, content) in [
+            (
+                "alpha",
+                "The quick brown fox jumps.\n\nOver the lazy dog it goes.",
+            ),
+            ("beta", "Nothing much is said here."),
+        ] {
+            ok(
+                ctx,
+                "write_document",
+                json!({ "document_id": doc, "title": doc, "content": content, "format": "markdown" }),
+            );
+        }
+        write_run(
+            ctx,
+            &workflow,
+            "r1",
+            &[
+                (
+                    "passages",
+                    json!({ "quote": "quick brown fox", "note": "In the destination's document." }),
+                ),
+                (
+                    "passages",
+                    json!({ "documentId": "beta", "quote": "Nothing much", "note": "Its own." }),
+                ),
+                (
+                    "findings",
+                    json!({ "documentId": "beta", "quote": "said here", "note": "A finding." }),
+                ),
+                (
+                    "findings",
+                    json!({ "quote": "lazy dog", "note": "b-margin names no document." }),
+                ),
+            ],
+        );
+
+        // By default the first margin destination by id: the passages, not
+        // the last collection.
+        let published = ok(
+            ctx,
+            "workflow_plan_publish",
+            json!({ "documentId": id, "runId": "r1" }),
+        );
+        assert_eq!(published["destination"], "a-margin", "{published}");
+        assert_eq!(published["collection"], "passages", "{published}");
+        assert_eq!(published["placed"], 2, "{published}");
+        assert_eq!(published["skipped"], 0, "{published}");
+        let alpha = stored_comments(ctx, "alpha");
+        assert_eq!(alpha.len(), 1, "{alpha:?}");
+        assert_eq!(alpha["wf-r1-1"]["text"], "In the destination's document.");
+        assert_eq!(alpha["wf-r1-1"]["quotedText"], "quick brown fox");
+        let beta = stored_comments(ctx, "beta");
+        assert_eq!(beta["wf-r1-2"]["text"], "Its own.", "{beta:?}");
+        let recorded = ok(
+            ctx,
+            "sparql_query",
+            json!({ "query": format!(
+                "PREFIX wf: <{WF}> SELECT ?p WHERE {{ GRAPH <{workflow}:authoring> {{ \
+                 ?p a wf:Publication ; wf:destination <{workflow}#a-margin> ; \
+                 wf:collection <{workflow}#passages> }} }}"
+            ) }),
+        );
+        assert_eq!(recorded["rows"].as_array().unwrap().len(), 1, "{recorded}");
+
+        // The one named, and an item whose document neither it nor the
+        // destination names is skipped.
+        let published = ok(
+            ctx,
+            "workflow_plan_publish",
+            json!({ "documentId": id, "runId": "r1", "destination": "b-margin" }),
+        );
+        assert_eq!(published["destination"], "b-margin", "{published}");
+        assert_eq!(published["collection"], "findings", "{published}");
+        assert_eq!(published["placed"], 1, "{published}");
+        assert_eq!(published["skipped"], 1, "{published}");
+        assert_eq!(
+            stored_comments(ctx, "beta")["wf-r1-1"]["text"],
+            "A finding."
+        );
+
+        let error = call(
+            ctx,
+            "workflow_plan_publish",
+            json!({ "documentId": id, "runId": "r1", "destination": "nowhere" }),
+        )
+        .expect_err("no such destination");
+        assert!(
+            error
+                .contains("the plan has no margin destination nowhere (it has a-margin, b-margin)"),
+            "{error}"
+        );
+    });
+}

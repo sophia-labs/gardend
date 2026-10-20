@@ -4,13 +4,15 @@
 # node, what SHACL Core can: the classes, the required properties, how many
 # values each may hold, their datatypes, `wf:mode`, and the length limits
 # (`GRAPH_PLAN_LIMITS`). What needs more than one node (reads from an earlier
-# phase, one producer per collection, the step and phase counts, a parseable
-# item schema) is checked in `workflow_plan_mcp.rs`.
+# phase, one producer per collection, the step, phase, source and destination
+# counts, a parseable item schema, the shapes of document and block ids, what
+# `wf:reads` and `wf:receives` point at) is checked in `workflow_plan_mcp.rs`.
 #
 # Every property shape is named and carries one constraint, so its
 # `sh:message` can say exactly what is wrong, worded like the TS compiler.
 # `{$this}` is the focus node's local name, `{?value}` the offending value
-# (text quoted, an IRI as is) and `{?short}` that value's local name.
+# (text quoted, an IRI as is), `{?short}` that value's local name and
+# `{?count}` how many values the focus node holds on the shape's path.
 
 @prefix sh: <http://www.w3.org/ns/shacl#> .
 @prefix wf: <http://mnemosyne.dev/workflow#> .
@@ -74,7 +76,8 @@ gp:StepShape a sh:NodeShape ;
         gp:StepOverOne , gp:StepOverIri , gp:StepConsumesIri ,
         gp:StepProducesOne , gp:StepProducesIri ,
         gp:StepChecksOne , gp:StepChecksIri ,
-        gp:StepItemSchemaOne , gp:StepItemSchemaText , gp:StepItemSchemaLength .
+        gp:StepItemSchemaOne , gp:StepItemSchemaText , gp:StepItemSchemaLength ,
+        gp:StepReadsIri .
 
 gp:StepPhaseRequired a sh:PropertyShape ; sh:path wf:inPhase ; sh:minCount 1 ;
     sh:message "{$this} has no wf:inPhase" .
@@ -132,3 +135,73 @@ gp:StepItemSchemaText a sh:PropertyShape ; sh:path wf:itemSchema ; sh:datatype x
     sh:message "{$this}'s wf:itemSchema must be text, not {?value}" .
 gp:StepItemSchemaLength a sh:PropertyShape ; sh:path wf:itemSchema ; sh:maxLength 4000 ;
     sh:message "{$this}'s item schema is too long" .
+
+gp:StepReadsIri a sh:PropertyShape ; sh:path wf:reads ; sh:nodeKind sh:IRI ;
+    sh:message "{$this}'s wf:reads must be an IRI, not {?value}" .
+
+# ── a source (wf:Source): what a step reads ─────────────────────────────────
+
+gp:SourceShape a sh:NodeShape ;
+    sh:targetClass wf:Source ;
+    sh:property gp:SourceLabelRequired , gp:SourceLabelOne , gp:SourceLabelText ,
+        gp:SourceDocumentRequired , gp:SourceDocumentOne , gp:SourceDocumentText ,
+        gp:SourceFromBlockOne , gp:SourceFromBlockText ,
+        gp:SourceToBlockOne , gp:SourceToBlockText .
+
+gp:SourceLabelRequired a sh:PropertyShape ; sh:path wf:label ; sh:minCount 1 ;
+    sh:message "{$this} has no wf:label" .
+gp:SourceLabelOne a sh:PropertyShape ; sh:path wf:label ; sh:maxCount 1 ;
+    sh:message "{$this} has {?count} wf:label; it needs exactly one" .
+gp:SourceLabelText a sh:PropertyShape ; sh:path wf:label ; sh:datatype xsd:string ;
+    sh:message "{$this}'s wf:label must be text, not {?value}" .
+
+gp:SourceDocumentRequired a sh:PropertyShape ; sh:path wf:documentId ; sh:minCount 1 ;
+    sh:message "{$this} has no wf:documentId" .
+gp:SourceDocumentOne a sh:PropertyShape ; sh:path wf:documentId ; sh:maxCount 1 ;
+    sh:message "{$this} has {?count} wf:documentId; it needs exactly one" .
+gp:SourceDocumentText a sh:PropertyShape ; sh:path wf:documentId ; sh:datatype xsd:string ;
+    sh:message "{$this}'s wf:documentId must be text, not {?value}" .
+
+gp:SourceFromBlockOne a sh:PropertyShape ; sh:path wf:fromBlock ; sh:maxCount 1 ;
+    sh:message "{$this} has {?count} wf:fromBlock; it needs exactly one" .
+gp:SourceFromBlockText a sh:PropertyShape ; sh:path wf:fromBlock ; sh:datatype xsd:string ;
+    sh:message "{$this}'s wf:fromBlock must be text, not {?value}" .
+gp:SourceToBlockOne a sh:PropertyShape ; sh:path wf:toBlock ; sh:maxCount 1 ;
+    sh:message "{$this} has {?count} wf:toBlock; it needs exactly one" .
+gp:SourceToBlockText a sh:PropertyShape ; sh:path wf:toBlock ; sh:datatype xsd:string ;
+    sh:message "{$this}'s wf:toBlock must be text, not {?value}" .
+
+# ── a destination (wf:Destination): where the results go ────────────────────
+
+gp:DestinationShape a sh:NodeShape ;
+    sh:targetClass wf:Destination ;
+    sh:property gp:DestinationLabelRequired , gp:DestinationLabelOne , gp:DestinationLabelText ,
+        gp:DestinationKindRequired , gp:DestinationKindOne , gp:DestinationKindValue ,
+        gp:DestinationReceivesRequired , gp:DestinationReceivesOne , gp:DestinationReceivesIri ,
+        gp:DestinationDocumentOne , gp:DestinationDocumentText .
+
+gp:DestinationLabelRequired a sh:PropertyShape ; sh:path wf:label ; sh:minCount 1 ;
+    sh:message "{$this} has no wf:label" .
+gp:DestinationLabelOne a sh:PropertyShape ; sh:path wf:label ; sh:maxCount 1 ;
+    sh:message "{$this} has {?count} wf:label; it needs exactly one" .
+gp:DestinationLabelText a sh:PropertyShape ; sh:path wf:label ; sh:datatype xsd:string ;
+    sh:message "{$this}'s wf:label must be text, not {?value}" .
+
+gp:DestinationKindRequired a sh:PropertyShape ; sh:path wf:kind ; sh:minCount 1 ;
+    sh:message "{$this} has no wf:kind" .
+gp:DestinationKindOne a sh:PropertyShape ; sh:path wf:kind ; sh:maxCount 1 ;
+    sh:message "{$this} has {?count} wf:kind; it needs exactly one" .
+gp:DestinationKindValue a sh:PropertyShape ; sh:path wf:kind ; sh:in ( "margin" ) ;
+    sh:message "{$this}'s wf:kind is {?value}; use \"margin\"" .
+
+gp:DestinationReceivesRequired a sh:PropertyShape ; sh:path wf:receives ; sh:minCount 1 ;
+    sh:message "{$this} has no wf:receives" .
+gp:DestinationReceivesOne a sh:PropertyShape ; sh:path wf:receives ; sh:maxCount 1 ;
+    sh:message "{$this} has {?count} wf:receives; it needs exactly one" .
+gp:DestinationReceivesIri a sh:PropertyShape ; sh:path wf:receives ; sh:nodeKind sh:IRI ;
+    sh:message "{$this}'s wf:receives must be an IRI, not {?value}" .
+
+gp:DestinationDocumentOne a sh:PropertyShape ; sh:path wf:documentId ; sh:maxCount 1 ;
+    sh:message "{$this} has {?count} wf:documentId; it needs exactly one" .
+gp:DestinationDocumentText a sh:PropertyShape ; sh:path wf:documentId ; sh:datatype xsd:string ;
+    sh:message "{$this}'s wf:documentId must be text, not {?value}" .

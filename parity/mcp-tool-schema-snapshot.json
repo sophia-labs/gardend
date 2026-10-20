@@ -439,7 +439,7 @@
     },
     "workflow_plan_publish": {
       "required": ["documentId", "graphId", "runId"],
-      "properties": ["documentId", "graphId", "graph_id", "runId"]
+      "properties": ["destination", "documentId", "graphId", "graph_id", "runId"]
     }
   }
 }
