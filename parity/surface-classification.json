@@ -646,6 +646,7 @@
     "workflow_plan_read": "implemented",
     "workflow_plan_publish": "implemented",
     "workflow_run_monitor": "implemented",
+    "workflow_run_record": "implemented",
     "workflow_run_start": "implemented"
   },
   "notes": {

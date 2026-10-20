@@ -36,8 +36,16 @@
 //! check is this cell's alone, because the compiler cannot see the workspace:
 //! whether the documents the sources and destinations name are in this graph.
 //!
+//! `workflow_run_record` is the runner's side: when a run ends, Choreograph
+//! records its results (the run node, its items, refusals and step tallies)
+//! in `urn:sophia:wf:<documentId>:run:<runId>`, the graph the workflow pane
+//! and `workflow_plan_publish` read. It needs only `documents.write.crdt`, so
+//! a runner holding a member's token records its runs without `rdf.update`.
+//!
 //! The fence: every tool refuses a document whose kind is not `"workflow"`,
-//! and writes only that document's `:draft` and `:authoring` graphs.
+//! and writes only that document's own graphs: `:draft` and `:authoring`, and
+//! (`workflow_run_record`) one `:run:<runId>` graph, only triples whose
+//! subject is in that run's namespace.
 use crate::{
     app_error::{AppError, AppResult},
     app_runtime::AppHandle,
@@ -75,6 +83,10 @@ const RECENT_EVENTS: usize = 10;
 const ID_MAX: usize = 64;
 /// The longest note composed for a finding that has none, in characters.
 const COMPOSED_NOTE_MAX: usize = 600;
+/// The longest `runId` a run record takes, in characters.
+const RUN_ID_MAX: usize = 128;
+/// The most Turtle a run record takes: 16 MiB.
+const RUN_TURTLE_MAX_BYTES: usize = 16 * 1024 * 1024;
 
 /// The names one workflow document owns.
 #[derive(Debug, Clone)]
@@ -98,6 +110,12 @@ impl PlanNames {
 
     fn item(&self, id: &str) -> String {
         format!("{}#{id}", self.workflow)
+    }
+
+    /// The graph a run's results live in: `urn:sophia:wf:<documentId>:run:<runId>`
+    /// with `runId` made a segment (`run_segment`).
+    fn run_graph(&self, run_id: &str) -> String {
+        format!("{}:run:{}", self.workflow, run_segment(run_id))
     }
 }
 
@@ -410,7 +428,7 @@ pub(super) async fn mcp_local_workflow_plan_publish(
         .filter(|run_id| !run_id.is_empty())
         .ok_or_else(|| AppError::validation("runId is required"))?;
     let segment = run_segment(&run_id);
-    let run_graph = format!("{}:run:{segment}", names.workflow);
+    let run_graph = names.run_graph(&run_id);
     let draft = load_graph(&app, &graph_id, &names.draft)?;
     // What a margin destination receives: the one named, or else the first by
     // id. A plan with no destination publishes its last collection.
@@ -669,6 +687,77 @@ pub(super) async fn mcp_local_workflow_plan_publish(
         result["destination"] = json!(destination.id);
     }
     Ok(result)
+}
+
+/// `workflow_run_record`: a runner records a finished run's results in the
+/// workflow document's own run graph, replacing what was there (clear, then
+/// insert, in one SPARQL update and so one store transaction), so recording
+/// the same run again is idempotent. Every triple must be about that run;
+/// one that is not, or Turtle that does not parse, refuses the whole call
+/// before anything is written.
+pub(super) async fn mcp_local_workflow_run_record(
+    app: AppHandle,
+    arguments: &Value,
+) -> AppResult<Value> {
+    let (graph_id, names) = workflow_document(&app, arguments).await?;
+    let run_id = mcp_arg_string(arguments, &["runId", "run_id"])
+        .ok_or_else(|| AppError::validation("runId is required"))?;
+    if run_id.chars().count() > RUN_ID_MAX {
+        return Err(AppError::validation(format!(
+            "runId is longer than {RUN_ID_MAX} characters"
+        )));
+    }
+    let turtle = arguments
+        .get("turtle")
+        .and_then(Value::as_str)
+        .ok_or_else(|| AppError::validation("turtle is required: the run's triples as Turtle"))?;
+    if turtle.len() > RUN_TURTLE_MAX_BYTES {
+        return Err(AppError::validation(format!(
+            "turtle is {} bytes, more than the {RUN_TURTLE_MAX_BYTES} (16 MiB) a run record takes",
+            turtle.len()
+        )));
+    }
+    let run_graph = names.run_graph(&run_id);
+    let triples = run_record_triples(&run_graph, turtle).map_err(AppError::validation)?;
+    let mut update = format!("CLEAR SILENT GRAPH <{run_graph}>");
+    if !triples.is_empty() {
+        update.push_str(" ;\n");
+        update.push_str(&insert_data(&run_graph, &triples));
+    }
+    run_update(&app, &graph_id, update).await?;
+    Ok(json!({ "graph": run_graph, "triples": triples.len() }))
+}
+
+/// The distinct triples of `turtle`, each about the run whose graph is
+/// `run_graph`: its subject is the IRI `run_graph` itself or `run_graph#…`.
+/// The first triple that does not parse or is about anything else (another
+/// IRI, a blank node) is the error.
+fn run_record_triples(run_graph: &str, turtle: &str) -> Result<Vec<Triple>, String> {
+    let in_run = |subject: &NamedOrBlankNode| match subject {
+        NamedOrBlankNode::NamedNode(node) => node
+            .as_str()
+            .strip_prefix(run_graph)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with('#')),
+        _ => false,
+    };
+    let parser = oxigraph::io::RdfParser::from_format(oxigraph::io::RdfFormat::Turtle);
+    let mut seen = HashSet::new();
+    let mut triples = Vec::new();
+    for quad in parser.for_slice(turtle.as_bytes()) {
+        let quad = quad.map_err(|error| format!("turtle does not parse: {error}"))?;
+        if !in_run(&quad.subject) {
+            return Err(format!(
+                "{} is not about this run: every subject must be <{run_graph}> or \
+                 <{run_graph}#…>; nothing was written",
+                quad.subject
+            ));
+        }
+        let triple = Triple::new(quad.subject, quad.predicate, quad.object);
+        if seen.insert(triple.clone()) {
+            triples.push(triple);
+        }
+    }
+    Ok(triples)
 }
 
 /// The fence: `documentId` must name a document of kind `"workflow"`.

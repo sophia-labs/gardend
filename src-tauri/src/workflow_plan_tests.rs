@@ -581,6 +581,7 @@ fn the_tools_are_registered_with_scopes_in_every_source_of_truth() {
         "workflow_plan_create",
         "workflow_plan_read",
         "workflow_plan_compose",
+        "workflow_run_record",
     ] {
         assert!(lookup(name).is_some(), "dispatch row for {name}");
         assert!(
@@ -600,6 +601,12 @@ fn the_tools_are_registered_with_scopes_in_every_source_of_truth() {
     assert_eq!(
         crate::loopback_scopes::mcp_tool_scopes("workflow_plan_create"),
         vec!["workspace.write.crdt", "documents.write.crdt"]
+    );
+    // Recording a run is writing the workflow document's own run graph: the
+    // same gate as compose, never rdf.update.
+    assert_eq!(
+        crate::loopback_scopes::mcp_tool_scopes("workflow_run_record"),
+        vec!["rdf.query", "documents.write.crdt"]
     );
 }
 
@@ -1797,5 +1804,340 @@ fn publish_writes_an_items_other_fields_when_it_has_no_note() {
         assert_eq!(long.chars().count(), 600, "{long}");
         assert!(long.starts_with("who: xxx"), "{long}");
         assert_eq!(comments["wf-r1-1"]["quotedText"], "quick brown fox");
+    });
+}
+
+// ── workflow_run_record: the runner records a finished run ──────────────────
+
+/// A run as Turtle, in the shape Choreograph's `serializeGraphPlanRun` writes
+/// (`@prefix` instead of `PREFIX`, no `INSERT DATA`): the run node, one
+/// `wf:Item` of the plan's `findings` per finding and, with `tallies`, one
+/// `wf:Refusal` and one `wf:StepRun`. 6 + 5 per finding (+ 11) triples.
+fn run_turtle(workflow: &str, run_id: &str, findings: &[Value], tallies: bool) -> String {
+    let run_graph = format!(
+        "{workflow}:run:{}",
+        run_id.replace(
+            |c: char| !c.is_ascii_alphanumeric() && c != '_' && c != '-',
+            "_"
+        )
+    );
+    let run = format!("<{run_graph}#run>");
+    let lit = |value: &str| serde_json::to_string(value).unwrap();
+    let mut lines = vec![
+        format!("@prefix wf: <{WF}> ."),
+        format!(
+            "{run} a wf:GraphPlanRun ; wf:runId {} ; wf:status {} ; wf:definition <{workflow}:v1> ; \
+             wf:definitionDigest {} ; wf:workflow <{workflow}> .",
+            lit(run_id),
+            lit("completed"),
+            lit("sha256:test")
+        ),
+    ];
+    for (n, finding) in findings.iter().enumerate() {
+        lines.push(format!(
+            "<{run_graph}#item-{}> a wf:Item ; wf:partOfRun {run} ; wf:inCollection <{workflow}#findings> ; \
+             wf:position {n} ; wf:json {} .",
+            n + 1,
+            lit(&finding.to_string())
+        ));
+    }
+    if tallies {
+        lines.push(format!(
+            "<{run_graph}#refused-1> a wf:Refusal ; wf:partOfRun {run} ; wf:checkedBy <{workflow}#finder> ; \
+             wf:json {} ; wf:verdict {} .",
+            lit(r#"{"quote":"not there"}"#),
+            lit(r#"{"pass":false,"reason":"no such quote"}"#)
+        ));
+        lines.push(format!(
+            "<{run_graph}#step-1> a wf:StepRun ; wf:partOfRun {run} ; wf:step <{workflow}#finder> ; \
+             wf:runs 3 ; wf:produced 2 ; wf:refused 1 ."
+        ));
+    }
+    lines.join("\n")
+}
+
+/// The rows of one named graph as sorted `s p o` lines, to compare graphs.
+fn graph_lines(ctx: &McpCallCtx<'_>, graph: &str) -> Vec<String> {
+    let mut lines: Vec<String> = graph_rows(ctx, graph)
+        .iter()
+        .map(|row| format!("{} {} {}", row["s"], row["p"], row["o"]))
+        .collect();
+    lines.sort();
+    lines
+}
+
+fn two_findings() -> [Value; 2] {
+    [
+        json!({ "documentId": "alpha", "quote": "quick brown fox", "note": "An animal." }),
+        json!({ "documentId": "alpha", "quote": "lazy dog", "note": "Another." }),
+    ]
+}
+
+#[test]
+fn a_member_records_a_run_that_publish_then_publishes_and_a_reader_cannot() {
+    with_graph(|ctx| {
+        let dir = std::env::temp_dir().join(format!(
+            "garden-workflow-plan-state-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let state = loopback_state(ctx.app.clone(), &dir);
+        // What gardend's supervised Choreograph holds on a self-host: no rdf.update.
+        let member = client_token(&ctx.app, Some("member"), None);
+        let reader = client_token(&ctx.app, None, Some(&["mcp.tools.call", "rdf.query"]));
+        let (id, _) = create(ctx, "Margins");
+        ok(
+            ctx,
+            "workflow_plan_compose",
+            json!({ "documentId": id, "rationale": "the plan", "moves": finding_moves() }),
+        );
+        write_book(ctx, "alpha", "alpha");
+        let workflow = format!("urn:sophia:wf:{id}");
+        let run_graph = format!("{workflow}:run:run_1");
+        let turtle = run_turtle(&workflow, "run/1", &two_findings(), true);
+        crate::app_runtime::async_runtime::block_on(async {
+            let recorded = tool_call(
+                &state,
+                &member,
+                "workflow_run_record",
+                json!({ "documentId": id, "runId": "run/1", "turtle": turtle }),
+            )
+            .await
+            .expect("a member records a run without rdf.update");
+            assert_eq!(recorded, json!({ "graph": run_graph, "triples": 27 }));
+
+            let refused = tool_call(
+                &state,
+                &reader,
+                "workflow_run_record",
+                json!({ "documentId": id, "runId": "run/1",
+                        "turtle": run_turtle(&workflow, "run/1", &[], false) }),
+            )
+            .await
+            .expect_err("a reader cannot record a run");
+            assert!(refused.contains("documents.write.crdt"), "{refused}");
+
+            // A member is offered it (a client hides what it cannot call).
+            let listed = rpc(&state, &member, "tools/list", json!({})).await.unwrap();
+            assert!(
+                listed["tools"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|tool| tool["name"] == "workflow_run_record"),
+                "workflow_run_record not offered to a member"
+            );
+
+            // Publish reads the run graph the member recorded.
+            let published = tool_call(
+                &state,
+                &member,
+                "workflow_plan_publish",
+                json!({ "documentId": id, "runId": "run/1" }),
+            )
+            .await
+            .expect("publish finds the recorded run");
+            assert_eq!(published["runGraph"], run_graph.as_str(), "{published}");
+            assert_eq!(published["placed"], 2, "{published}");
+        });
+        assert_eq!(
+            graph_rows(ctx, &run_graph).len(),
+            27,
+            "the reader's record wrote nothing"
+        );
+        let comments = stored_comments(ctx, "alpha");
+        let mut ids: Vec<&String> = comments.keys().collect();
+        ids.sort();
+        assert_eq!(ids, vec!["wf-run_1-1", "wf-run_1-2"], "{comments:?}");
+        assert_eq!(comments["wf-run_1-1"]["text"], "An animal.");
+
+        // The workflow pane finds runs with GRAPH ?g, and sees this one.
+        let pane = ok(
+            ctx,
+            "sparql_query",
+            json!({ "query": format!(
+                "PREFIX wf: <{WF}> SELECT ?g ?status ?runs WHERE {{ GRAPH ?g {{ \
+                 ?run a wf:GraphPlanRun ; wf:workflow <{workflow}> ; wf:status ?status . \
+                 ?step a wf:StepRun ; wf:partOfRun ?run ; wf:runs ?runs }} }}"
+            ) }),
+        );
+        let rows = pane["rows"].as_array().unwrap();
+        assert_eq!(rows.len(), 1, "{pane}");
+        assert_eq!(rows[0]["g"], format!("<{run_graph}>"), "{pane}");
+        assert_eq!(rows[0]["status"], "\"completed\"", "{pane}");
+        let _ = std::fs::remove_dir_all(&dir);
+    });
+}
+
+#[test]
+fn recording_a_run_again_replaces_it_and_twice_is_once() {
+    with_graph(|ctx| {
+        let (id, _) = create(ctx, "Runs");
+        let workflow = format!("urn:sophia:wf:{id}");
+        let run_graph = format!("{workflow}:run:r1");
+        let record = |run_id: &str, turtle: String| {
+            ok(
+                ctx,
+                "workflow_run_record",
+                json!({ "documentId": id, "runId": run_id, "turtle": turtle }),
+            )
+        };
+        let full = run_turtle(&workflow, "r1", &two_findings(), true);
+        assert_eq!(record("r1", full.clone())["triples"], 27);
+        let first = graph_lines(ctx, &run_graph);
+        assert_eq!(first.len(), 27);
+        assert_eq!(record("r1", full)["triples"], 27, "again is the same");
+        assert_eq!(graph_lines(ctx, &run_graph), first, "twice is once");
+
+        // Fewer triples: the graph holds exactly those, the rest are gone. A
+        // triple said twice is one triple.
+        let fewer = format!(
+            "{}\n<{run_graph}#run> a wf:GraphPlanRun .",
+            run_turtle(&workflow, "r1", &two_findings()[..1], false)
+        );
+        let replaced = record("r1", fewer);
+        assert_eq!(replaced, json!({ "graph": run_graph, "triples": 11 }));
+        let rows = graph_rows(ctx, &run_graph);
+        assert_eq!(rows.len(), 11, "{rows:?}");
+        for gone in ["#item-2", "#refused-1", "#step-1"] {
+            assert!(
+                !rows
+                    .iter()
+                    .any(|row| row["s"] == format!("<{run_graph}{gone}>")),
+                "{gone} survived: {rows:?}"
+            );
+        }
+
+        // Another run is its own graph; recording it leaves this one alone.
+        let other = record("r2", run_turtle(&workflow, "r2", &two_findings(), true));
+        assert_eq!(other["graph"], format!("{workflow}:run:r2").as_str());
+        assert_eq!(graph_rows(ctx, &run_graph).len(), 11);
+    });
+}
+
+#[test]
+fn a_run_record_about_anything_else_is_refused_and_writes_nothing() {
+    with_graph(|ctx| {
+        ok(
+            ctx,
+            "create_document",
+            json!({ "documentId": "plain", "title": "Plain" }),
+        );
+        let (id, _) = create(ctx, "Runs");
+        let workflow = format!("urn:sophia:wf:{id}");
+        let run_graph = format!("{workflow}:run:r1");
+        let good = run_turtle(&workflow, "r1", &two_findings()[..1], true);
+        let recorded = ok(
+            ctx,
+            "workflow_run_record",
+            json!({ "documentId": id, "runId": "r1", "turtle": good }),
+        );
+        assert_eq!(recorded["triples"], 22, "{recorded}");
+        let before = graph_lines(ctx, &run_graph);
+        let draft_before = graph_lines(ctx, &format!("{workflow}:draft"));
+
+        // Each is a good run plus one bad line, so a refusal is of the whole call.
+        let refusals = [
+            (
+                "a node of the plan",
+                format!("{good}\n<{workflow}#finder> wf:label \"hijacked\" ."),
+                "is not about this run",
+            ),
+            (
+                "the workflow itself",
+                format!("{good}\n<{workflow}> wf:name \"hijacked\" ."),
+                "is not about this run",
+            ),
+            (
+                "another document's run",
+                format!("{good}\n<urn:sophia:wf:other:run:r1#run> a wf:GraphPlanRun ."),
+                "is not about this run",
+            ),
+            (
+                "another run whose id begins with this one's",
+                format!("{good}\n<{workflow}:run:r10#run> a wf:GraphPlanRun ."),
+                "is not about this run",
+            ),
+            (
+                "a blank node",
+                format!("{good}\n[] a wf:Item ; wf:partOfRun <{run_graph}#run> ."),
+                "is not about this run",
+            ),
+            (
+                "a labelled blank node",
+                format!("{good}\n_:b wf:json \"{{}}\" ."),
+                "is not about this run",
+            ),
+            (
+                "Turtle that does not parse",
+                format!("{good}\n<{run_graph}#item-9> a wf:Item"),
+                "does not parse",
+            ),
+            (
+                "an undeclared prefix",
+                format!("{good}\n<{run_graph}#item-9> a ex:Item ."),
+                "does not parse",
+            ),
+        ];
+        for (what, turtle, says) in refusals {
+            let error = call(
+                ctx,
+                "workflow_run_record",
+                json!({ "documentId": id, "runId": "r1", "turtle": turtle }),
+            )
+            .expect_err(what);
+            assert!(error.contains(says), "{what}: {error}");
+            assert_eq!(graph_lines(ctx, &run_graph), before, "{what} wrote nothing");
+        }
+        assert_eq!(
+            graph_lines(ctx, &format!("{workflow}:draft")),
+            draft_before,
+            "the plan is untouched"
+        );
+        for elsewhere in [
+            "urn:sophia:wf:other:run:r1".to_string(),
+            format!("{workflow}:run:r10"),
+        ] {
+            assert!(graph_rows(ctx, &elsewhere).is_empty(), "{elsewhere}");
+        }
+
+        // Arguments it cannot take.
+        let too_much = format!("{good}\n# {}", "x".repeat(16 * 1024 * 1024));
+        for (what, args, says) in [
+            (
+                "a runId over 128 characters",
+                json!({ "documentId": id, "runId": "r".repeat(129), "turtle": good }),
+                "128",
+            ),
+            (
+                "no runId",
+                json!({ "documentId": id, "turtle": good }),
+                "runId is required",
+            ),
+            (
+                "no turtle",
+                json!({ "documentId": id, "runId": "r1" }),
+                "turtle is required",
+            ),
+            (
+                "more than 16 MiB of Turtle",
+                json!({ "documentId": id, "runId": "r1", "turtle": too_much }),
+                "16 MiB",
+            ),
+        ] {
+            let error = call(ctx, "workflow_run_record", args).expect_err(what);
+            assert!(error.contains(says), "{what}: {error}");
+            assert_eq!(graph_lines(ctx, &run_graph), before, "{what} wrote nothing");
+        }
+
+        // A document that is not a workflow, worded as the other tools word it.
+        let error = call(
+            ctx,
+            "workflow_run_record",
+            json!({ "documentId": "plain", "runId": "r1",
+                    "turtle": run_turtle("urn:sophia:wf:plain", "r1", &[], false) }),
+        )
+        .expect_err("not a workflow document");
+        assert!(error.contains("not a workflow"), "{error}");
+        assert!(graph_rows(ctx, "urn:sophia:wf:plain:run:r1").is_empty());
     });
 }

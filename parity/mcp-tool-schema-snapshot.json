@@ -440,6 +440,10 @@
     "workflow_plan_publish": {
       "required": ["documentId", "graphId", "runId"],
       "properties": ["destination", "documentId", "graphId", "graph_id", "runId"]
+    },
+    "workflow_run_record": {
+      "required": ["documentId", "graphId", "runId", "turtle"],
+      "properties": ["documentId", "graphId", "graph_id", "runId", "turtle"]
     }
   }
 }

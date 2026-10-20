@@ -2121,6 +2121,14 @@
       ]
     },
     {
+      "name": "workflow_run_record",
+      "status": "implemented-workflow-run-record",
+      "scopes": [
+        "rdf.query",
+        "documents.write.crdt"
+      ]
+    },
+    {
       "name": "workflow_authoring_session",
       "status": "implemented-workflow-authoring-session",
       "scopes": [

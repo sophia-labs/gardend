@@ -1,7 +1,7 @@
 {
   "restSurfaceSha256": "628a6b1d60e2fcf12267e62c0d4d50e24a7efc1c92551d2aac37cb5fbbf58fc6",
-  "mcpSurfaceSha256": "b6cc74e22ebc6a164479390a0521f806a1caaea6a5734430397c19039e646b4f",
-  "effectRegistrySha256": "595d2a2fa1461dd45ae2b27723a8c8e3cedd9dcc02b25ee0915179f70ed10e58",
+  "mcpSurfaceSha256": "d80bc2f81fbd83c5b95906936b5053741cc9ea7058f8efcd49986b765bd240fa",
+  "effectRegistrySha256": "ff648bef175c001093f00830fe33cdea4e87cea2d3c86ffbcf36269ddd6acf4a",
   "restGlobal": [
     "GET /api/artifacts/ingestion/approaches",
     "GET /api/artifacts/ingestion/docling/status",
@@ -381,6 +381,7 @@
     "workflow_plan_create",
     "workflow_plan_read",
     "workflow_plan_publish",
+    "workflow_run_record",
     "write_document",
     "read_scan_text",
     "scan_text_layer"
