@@ -14,7 +14,8 @@
 #                                        BUILDBOX_SHRUBBERY / BUILDBOX_VEHICLE / BUILDBOX_CHOREOGRAPH. --only patches
 #                                        that part into the installed app, no Rust at all
 #   scripts/buildbox status              the key, the warm directory, its size, whether a build holds the lock
-#   scripts/buildbox serve [seconds]     background warmer: every N seconds (default 1800) fetch and prebuild origin/main
+#   scripts/buildbox serve [seconds]     background warmer: every N seconds (default 1800) fetch origin/main and, when it
+#                                        has moved since the last warm, prebuild it
 #                                        (BUILDBOX_WARM, default release: the profiles it prebuilds, e.g. "debug release")
 #   scripts/buildbox unit launchd|systemd  print a unit that keeps `serve` running at login
 #
@@ -194,15 +195,21 @@ cmd_status() {
   echo "sccache    $(command -v sccache || echo 'not installed (optional)')"
   [[ -d $BOX/lock ]] && echo "lock       held by pid $(cat "$BOX/lock/pid" 2>/dev/null)" || echo "lock       free"
   echo "last log   $(ls -t "$LOGS" 2>/dev/null | head -1)"
-  echo "other keys $(ls "$HOME_DIR" 2>/dev/null | grep -vx "$KEY" | tr '\n' ' ')"
+  echo "warmed     $(cat "$BOX/warmed" 2>/dev/null || echo never)"
+  echo "other keys $(ls "$HOME_DIR" 2>/dev/null | grep -E '^[0-9a-f]{10}-[0-9a-f]{6}$' | grep -vx "$KEY" | tr '\n' ' ')"
 }
 
+# Warm only when origin/main has moved since the last warm: each warm puts main's tree in the shared /src, so the next
+# build from a branch recompiles gardend's own crate; warming an unchanged main would cost every branch that, for nothing.
 cmd_serve() {
-  local every=${1:-1800}
-  say "warming origin/main every ${every}s (key $KEY); ctrl-c to stop"
+  local every=${1:-1800} rev
+  say "warming origin/main every ${every}s when it moves (key $KEY); ctrl-c to stop"
   while :; do
     git -C "$REPO" fetch --quiet origin main 2>/dev/null || say "fetch failed; building what we have"
-    "$SELF" _warm || say "warm build failed (see its log)"
+    rev=$(git -C "$REPO" rev-parse origin/main)
+    if [[ $rev != "$(cat "$BOX/warmed" 2>/dev/null)" ]]; then
+      if "$SELF" _warm; then echo "$rev" >"$BOX/warmed"; else say "warm build failed (see its log)"; fi
+    fi
     sleep "$every"
   done
 }
