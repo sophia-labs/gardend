@@ -338,7 +338,7 @@ fn assert_specimen_canonical_in(doc: &Value, result: &Value, path: &str, carrier
     );
     assert_eq!(
         opaque["attrs"]["contractVersion"].as_f64(),
-        Some(1.0),
+        Some(crate::crdt_engine::block_contract::CONTRACT_VERSION as f64),
         "{path}"
     );
     assert_eq!(opaque["attrs"]["data-block-id"], "co", "{path}");
@@ -681,6 +681,436 @@ fn list_loss_battery_through_every_tiptap_json_path() {
                 failures.is_empty(),
                 "battery failures:\n{}",
                 failures.join("\n")
+            );
+        });
+    });
+}
+
+// ---------------------------------------------------------------------------
+// objectEmbed (block contract 2): a typed object embedded by IRI, through
+// every JSON write path, read back through every read face, and found by
+// SPARQL as a real `mdoc:embeds` edge.
+// ---------------------------------------------------------------------------
+
+const DREAM: &str = "urn:sophia:type:freud-dreams:workspace#DreamReport-meier";
+const RAT_MAN: &str = "https://example.org/objects/rat-man";
+
+/// The block exactly as an agent sends it (the MCP catalog's example), plus
+/// an id when the carrier is one whose ids the caller owns.
+fn embed(id: Option<&str>, iri: &str, label: &str) -> Value {
+    let mut attrs =
+        json!({"iri": iri, "slot": "card", "label": label, "classLabel": "Dream report"});
+    if let Some(id) = id {
+        attrs["data-block-id"] = json!(id);
+    }
+    json!({"type": "objectEmbed", "attrs": attrs})
+}
+
+async fn select(app: &crate::app_runtime::AppHandle, query: &str) -> Vec<Value> {
+    let result = crate::rdf_service::mcp_local_sparql_query(
+        app.clone(),
+        &json!({"graphId": GRAPH, "query": format!(
+            "PREFIX mdoc: <http://mnemosyne.dev/doc#> PREFIX mnemo: <https://mnemosyne.local/ns#> {query}")}),
+    )
+    .await
+    .unwrap();
+    result["rows"]
+        .as_array()
+        .unwrap_or_else(|| panic!("SELECT answered no rows array: {result}"))
+        .clone()
+}
+
+/// The blocks that embed `iri`, as `(block, documentId)`: the join the
+/// object page's "where it is used" runs. Wrapped in `GRAPH ?g` (the cell's
+/// store is partitioned into named graphs).
+async fn embedders(app: &crate::app_runtime::AppHandle, iri: &str) -> Vec<(String, String)> {
+    let mut rows: Vec<(String, String)> = select(
+        app,
+        &format!(
+            "SELECT ?b ?d WHERE {{ GRAPH ?g {{ ?b a mdoc:ObjectEmbed ; mdoc:embeds <{iri}> ; mnemo:documentId ?d }} }}"
+        ),
+    )
+    .await
+    .iter()
+    .map(|row| {
+        // Rows carry N-Triples terms: `<iri>` and `"literal"`.
+        let term = |key: &str| {
+            row[key]
+                .as_str()
+                .unwrap()
+                .trim_matches(|c| matches!(c, '<' | '>' | '"'))
+                .to_string()
+        };
+        (term("b"), term("d"))
+    })
+    .collect();
+    rows.sort();
+    rows
+}
+
+fn embed_line(label: &str, iri: &str) -> String {
+    format!("> ⧉ Dream report — {label} <{iri}>")
+}
+
+async fn read_blocks(app: &crate::app_runtime::AppHandle, document_id: &str) -> Vec<Value> {
+    crate::document_mcp_blocks::mcp_local_read_blocks(
+        app.clone(),
+        &json!({"graph_id": GRAPH, "document_id": document_id}),
+    )
+    .await
+    .unwrap()["blocks"]
+        .as_array()
+        .unwrap()
+        .clone()
+}
+
+async fn get_block(
+    app: &crate::app_runtime::AppHandle,
+    document_id: &str,
+    block_id: &str,
+) -> Value {
+    crate::document_mcp_blocks::mcp_local_get_block(
+        app.clone(),
+        &json!({"graph_id": GRAPH, "document_id": document_id, "blockId": block_id, "format": "markdown"}),
+    )
+    .await
+    .unwrap()["block"]
+        .clone()
+}
+
+/// Every read face of one stored embed: the stored node, the markdown line,
+/// read_blocks, get_block, and the SPARQL join.
+async fn assert_embed_reads(
+    app: &crate::app_runtime::AppHandle,
+    document_id: &str,
+    block_id: &str,
+    iri: &str,
+    label: &str,
+) {
+    let doc = stored(app, document_id);
+    let node = doc["content"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["type"] == "objectEmbed")
+        .unwrap_or_else(|| panic!("{document_id}: no objectEmbed stored: {doc}"));
+    assert_eq!(node["attrs"]["data-block-id"], block_id, "{document_id}");
+    assert_eq!(node["attrs"]["iri"], iri, "{document_id}");
+    assert_eq!(node["attrs"]["label"], label, "{document_id}");
+    assert!(node.get("content").is_none(), "{document_id}: an atom");
+
+    let md = markdown(app, document_id);
+    assert!(
+        md.lines().any(|line| line == embed_line(label, iri)),
+        "{document_id}: read_document markdown must show the embed:\n{md}"
+    );
+
+    let listed = read_blocks(app, document_id).await;
+    let row = listed
+        .iter()
+        .find(|b| b["blockId"] == block_id)
+        .unwrap_or_else(|| {
+            panic!("{document_id}: read_blocks does not list {block_id}: {listed:?}")
+        });
+    assert_eq!(row["blockType"], "object", "{document_id}: {row}");
+    assert_eq!(row["content"], label, "{document_id}: {row}");
+
+    let block = get_block(app, document_id, block_id).await;
+    assert_eq!(block["type"], "object", "{document_id}: {block}");
+    assert_eq!(block["content"], label, "{document_id}: {block}");
+
+    let found = embedders(app, iri).await;
+    assert!(
+        found
+            .iter()
+            .any(|(b, d)| b.contains(&format!("#block-{block_id}")) && d == document_id),
+        "{document_id}: SPARQL ?b a mdoc:ObjectEmbed ; mdoc:embeds <{iri}> missed it: {found:?}"
+    );
+}
+
+#[test]
+fn object_embed_through_write_document_is_stored_canonical_and_read_by_every_face() {
+    with_graph(|app| {
+        crate::app_runtime::async_runtime::block_on(async {
+            create(&app, "doc-embed-write").await;
+            let content = vec![
+                json!({"type": "paragraph", "attrs": {"data-block-id": "lead"}, "content": [text("Meier's dream, below.")]}),
+                embed(Some("emb"), DREAM, "Meier: straw between the toes"),
+                json!({"type": "paragraph", "attrs": {"data-block-id": "after"}, "content": [text("After the embed.")]}),
+            ];
+            let result = write_tiptap(&app, "doc-embed-write", content.clone()).await;
+            assert!(
+                warnings(&result).is_empty(),
+                "a canonical embed draws no receipt: {result}"
+            );
+            assert_eq!(
+                semantic(&stored(&app, "doc-embed-write")["content"]),
+                semantic(&Value::Array(content.clone())),
+                "stored verbatim"
+            );
+            assert_embed_reads(
+                &app,
+                "doc-embed-write",
+                "emb",
+                DREAM,
+                "Meier: straw between the toes",
+            )
+            .await;
+            // The markdown face keeps the prose around it, in order.
+            let md = markdown(&app, "doc-embed-write");
+            let (lead, line, after) = (
+                md.find("Meier's dream, below.").unwrap(),
+                md.find("> ⧉ Dream report").unwrap(),
+                md.find("After the embed.").unwrap(),
+            );
+            assert!(lead < line && line < after, "{md}");
+            // The literal attrs project beside the edge.
+            let literals = select(
+                &app,
+                "SELECT ?i ?s ?l ?c WHERE { GRAPH ?g { ?b a mdoc:ObjectEmbed ; mdoc:iri ?i ; mdoc:slot ?s ; mdoc:label ?l ; mdoc:classLabel ?c } }",
+            )
+            .await;
+            let flat = serde_json::to_string(&literals).unwrap();
+            for needle in [
+                DREAM,
+                "card",
+                "Meier: straw between the toes",
+                "Dream report",
+            ] {
+                assert!(flat.contains(needle), "{needle} not projected: {flat}");
+            }
+            // Writing it back is a no-op (idempotent through the store).
+            let again = write_tiptap(
+                &app,
+                "doc-embed-write",
+                stored(&app, "doc-embed-write")["content"]
+                    .as_array()
+                    .unwrap()
+                    .clone(),
+            )
+            .await;
+            assert!(warnings(&again).is_empty(), "{again}");
+        });
+    });
+}
+
+#[test]
+fn object_embed_through_insert_blocks_takes_the_agents_exact_json() {
+    with_graph(|app| {
+        crate::app_runtime::async_runtime::block_on(async {
+            create(&app, "doc-embed-insert").await;
+            write_tiptap(&app, "doc-embed-insert", vec![
+                json!({"type": "paragraph", "attrs": {"data-block-id": "p1"}, "content": [text("Notes.")]}),
+            ])
+            .await;
+            // Exactly the catalog's example: no data-block-id, gardend mints it.
+            let result = crate::mcp_block_mutation_service::mcp_local_insert_blocks(
+                app.clone(),
+                &json!({"graphId": GRAPH, "documentId": "doc-embed-insert", "blockId": "p1", "position": "after",
+                        "tiptapJson": {"type": "doc", "content": [
+                            {"type": "objectEmbed", "attrs": {"iri": DREAM, "slot": "card",
+                                "label": "Meier: straw between the toes", "classLabel": "Dream report"}}]}}),
+            )
+            .await
+            .unwrap();
+            assert!(warnings(&result).is_empty(), "{result}");
+            let id = result["block_ids"][0].as_str().unwrap().to_string();
+            assert!(id.starts_with("block-"), "{result}");
+            assert_embed_reads(
+                &app,
+                "doc-embed-insert",
+                &id,
+                DREAM,
+                "Meier: straw between the toes",
+            )
+            .await;
+            let top = stored(&app, "doc-embed-insert")["content"]
+                .as_array()
+                .unwrap()
+                .clone();
+            assert_eq!(top[1]["type"], "objectEmbed", "inserted after p1: {top:?}");
+        });
+    });
+}
+
+#[test]
+fn object_embed_through_create_document_once_is_stored_and_found() {
+    with_graph(|app| {
+        crate::app_runtime::async_runtime::block_on(async {
+            let inc = incarnation(&app);
+            let result = crate::document_create_once_mcp::create_document_once(
+                app.clone(),
+                &json!({"graph_id": GRAPH, "graphIncarnation": inc, "document_id": "doc-embed-once",
+                        "title": "Embed once", "order": 1, "parentId": null, "awaitDurable": false,
+                        "tiptapJson": {"type": "doc", "content": [
+                            // create_document_once requires every block's id.
+                            {"type": "paragraph", "attrs": {"data-block-id": "lead"},
+                             "content": [text("Created with an embed.")]},
+                            embed(Some("emb-once"), RAT_MAN, "The rat man")]}}),
+            )
+            .await
+            .unwrap();
+            assert!(warnings(&result).is_empty(), "{result}");
+            assert_embed_reads(&app, "doc-embed-once", "emb-once", RAT_MAN, "The rat man").await;
+        });
+    });
+}
+
+#[test]
+fn update_blocks_of_iri_and_label_moves_the_edge_and_the_markdown() {
+    with_graph(|app| {
+        crate::app_runtime::async_runtime::block_on(async {
+            create(&app, "doc-embed-update").await;
+            write_tiptap(
+                &app,
+                "doc-embed-update",
+                vec![embed(Some("emb"), DREAM, "Meier")],
+            )
+            .await;
+            assert_eq!(embedders(&app, DREAM).await.len(), 1);
+
+            let result = crate::mcp_block_mutation_service::mcp_local_update_blocks(
+                app.clone(),
+                &json!({"graphId": GRAPH, "documentId": "doc-embed-update",
+                        "edits": [{"blockId": "emb", "attrs": {"iri": RAT_MAN, "label": "The rat man"}}]}),
+            )
+            .await
+            .unwrap();
+            assert_eq!(result["updated"], json!(["emb"]), "{result}");
+            assert!(warnings(&result).is_empty(), "{result}");
+            assert_embed_reads(&app, "doc-embed-update", "emb", RAT_MAN, "The rat man").await;
+            // The old edge is retracted, not left behind beside the new one.
+            assert_eq!(
+                embedders(&app, DREAM).await,
+                Vec::<(String, String)>::new(),
+                "the old mdoc:embeds edge survived the update"
+            );
+
+            // A relative IRI through update_blocks (no normaliser on an attr
+            // edit) is stored as written with a receipt, and projects no edge.
+            let result = crate::mcp_block_mutation_service::mcp_local_update_blocks(
+                app.clone(),
+                &json!({"graphId": GRAPH, "documentId": "doc-embed-update",
+                        "edits": [{"blockId": "emb", "attrs": {"iri": "rat-man"}}]}),
+            )
+            .await
+            .unwrap();
+            assert_eq!(
+                warnings(&result),
+                vec!["block-contract preserved emb: objectEmbed has an iri that is not absolute (\"rat-man\"); stored verbatim, and it projects no mdoc:embeds edge".to_string()]
+            );
+            assert!(embedders(&app, RAT_MAN).await.is_empty());
+            let edges = select(
+                &app,
+                "SELECT ?o WHERE { GRAPH ?g { ?b a mdoc:ObjectEmbed ; mdoc:embeds ?o } }",
+            )
+            .await;
+            assert!(edges.is_empty(), "no edge for a relative iri: {edges:?}");
+            let md = markdown(&app, "doc-embed-update");
+            assert!(
+                md.contains("> ⧉ Dream report — The rat man `rat-man`"),
+                "still never dropped from markdown:\n{md}"
+            );
+        });
+    });
+}
+
+#[test]
+fn object_embed_without_an_absolute_iri_is_stored_opaque_with_a_receipt() {
+    with_graph(|app| {
+        crate::app_runtime::async_runtime::block_on(async {
+            create(&app, "doc-embed-bad").await;
+            let missing = json!({"type": "objectEmbed", "attrs": {"data-block-id": "no-iri", "label": "Orphan"}});
+            let relative = embed(Some("rel"), "dream-report-7", "Meier");
+            let result = write_tiptap(
+                &app,
+                "doc-embed-bad",
+                vec![para("lead"), missing.clone(), relative.clone()],
+            )
+            .await;
+            let receipts = warnings(&result);
+            assert_eq!(receipts.len(), 2, "{receipts:?}");
+            assert!(
+                receipts[0]
+                    .starts_with("block-contract unknown content[1]: objectEmbed has no iri"),
+                "{receipts:?}"
+            );
+            assert!(
+                receipts[1].starts_with("block-contract unknown content[2]: objectEmbed has an iri that is not absolute (\"dream-report-7\")"),
+                "{receipts:?}"
+            );
+            let top = stored(&app, "doc-embed-bad")["content"]
+                .as_array()
+                .unwrap()
+                .clone();
+            for (index, original, id) in [(1, &missing, "no-iri"), (2, &relative, "rel")] {
+                assert_eq!(top[index]["type"], "opaqueBlock", "{top:?}");
+                assert_eq!(top[index]["attrs"]["originalType"], "objectEmbed");
+                assert_eq!(
+                    top[index]["attrs"]["originalJson"].as_str().unwrap(),
+                    serde_json::to_string(original).unwrap(),
+                    "never deleted: kept byte-exact"
+                );
+                assert_eq!(top[index]["attrs"]["data-block-id"], id);
+                assert_eq!(
+                    top[index]["attrs"]["contractVersion"].as_f64(),
+                    Some(crate::crdt_engine::block_contract::CONTRACT_VERSION as f64)
+                );
+            }
+            assert!(markdown(&app, "doc-embed-bad").contains("dream-report-7"));
+            assert!(
+                select(
+                    &app,
+                    "SELECT ?b WHERE { GRAPH ?g { ?b a mdoc:ObjectEmbed } }"
+                )
+                .await
+                .is_empty(),
+                "an opaque wrapper is not an embed"
+            );
+        });
+    });
+}
+
+/// The store's own XML face: read_document(format: "xml") written back with
+/// write_document(content, format: "xml") stores the same embed.
+#[test]
+fn object_embed_round_trips_through_the_stored_tiptap_xml() {
+    with_graph(|app| {
+        crate::app_runtime::async_runtime::block_on(async {
+            create(&app, "doc-embed-xml").await;
+            let content = vec![
+                json!({"type": "paragraph", "attrs": {"data-block-id": "p"}, "content": [text("Lead.")]}),
+                embed(Some("emb"), DREAM, "\"Straw\" <between> & the toes"),
+            ];
+            write_tiptap(&app, "doc-embed-xml", content.clone()).await;
+            let xml = crate::document_mcp_service::mcp_local_read_document(
+                app.clone(),
+                &json!({"graph_id": GRAPH, "document_id": "doc-embed-xml", "format": "xml", "maxChars": 1_000_000}),
+            )
+            .unwrap()["content"]
+                .as_str()
+                .unwrap()
+                .to_string();
+            assert!(xml.contains("<objectEmbed "), "{xml}");
+
+            // A fresh document: the content-string path reuses an existing
+            // fragment's ids positionally, and this trip must keep the XML's.
+            let result = crate::document_mutation_service::mcp_local_write_document(
+                app.clone(),
+                &json!({"graph_id": GRAPH, "document_id": "doc-embed-xml-back", "content": xml, "format": "xml"}),
+            )
+            .await
+            .unwrap();
+            assert!(warnings(&result).iter().all(|w| !is_rewrite(w)), "{result}");
+            assert_eq!(
+                semantic(&stored(&app, "doc-embed-xml-back")["content"]),
+                semantic(&Value::Array(content)),
+                "tiptapXml -> store keeps the embed exactly"
+            );
+            assert_eq!(
+                embedders(&app, DREAM).await.len(),
+                2,
+                "both documents embed it"
             );
         });
     });

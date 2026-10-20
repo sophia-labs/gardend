@@ -2911,6 +2911,97 @@ mod shacl_document_conformance_oracle {
         assert!(result.unwrap_err().starts_with("SHACL:"));
     }
 
+    const EMBED_IRI: &str = "urn:sophia:type:freud-dreams:workspace#DreamReport-meier";
+
+    /// The same record with a typed-object embed (block contract 2) after the
+    /// paragraph: `mdoc:ObjectEmbed` with its literal attrs and the real
+    /// `mdoc:embeds` URI edge.
+    fn document_record_with_embed() -> DocumentRecord {
+        let mut record = document_record();
+        let embed = TreeNodeSnapshot {
+            kind: "element".to_string(),
+            tag_name: Some("objectEmbed".to_string()),
+            text_content: None,
+            attributes: TreeNodeAttributes {
+                block_id: Some("block-e".to_string()),
+                extra: [
+                    ("iri", EMBED_IRI),
+                    ("graphId", "freud-dreams"),
+                    ("slot", "card"),
+                    ("label", "Meier: straw between the toes"),
+                    ("classLabel", "Dream report"),
+                ]
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+                ..TreeNodeAttributes::default()
+            },
+            children: Vec::new(),
+        };
+        record.tree.as_mut().unwrap().root.children.push(embed);
+        record
+    }
+
+    fn embed_subject() -> String {
+        format!("{}#block-block-e", document_subject(DOC))
+    }
+
+    /// CONFORMANCE: the REAL projection of an embed conforms to the declared
+    /// `ObjectEmbed` shape, whose `mdoc:embeds` is an IRI (sh:nodeKind sh:IRI).
+    #[test]
+    fn shacl_oracle_object_embed_conforms() {
+        let store = Store::new().expect("store");
+        reconcile_document_record(&store, &document_record_with_embed()).expect("reconcile");
+        let projection = read_back_tree_projection(&store);
+        let embed = embed_subject();
+        let embeds = format!("{MDOC_NS}embeds");
+        assert!(
+            projection.iter().any(|(s, p, o)| s == &embed
+                && p == &embeds
+                && matches!(o, Term::Uri(node) if node.as_str() == EMBED_IRI)),
+            "the persisted projection holds <block> mdoc:embeds <iri> as a node: {projection:?}"
+        );
+        let result = validate_desired(&projection, document_vocabulary());
+        assert!(
+            result.is_ok(),
+            "the REAL embed projection must conform to the ObjectEmbed shape: {result:?}"
+        );
+    }
+
+    /// TEETH: the declared shape is what makes the edge a node. The same
+    /// projection with `mdoc:embeds` as a string literal is REJECTED, and so is
+    /// an embed without its required `mdoc:iri`.
+    #[test]
+    fn shacl_oracle_object_embed_teeth() {
+        let store = Store::new().expect("store");
+        reconcile_document_record(&store, &document_record_with_embed()).expect("reconcile");
+        let embed = embed_subject();
+        let embeds = format!("{MDOC_NS}embeds");
+        let iri_p = format!("{MDOC_NS}iri");
+
+        let mut literal_edge = read_back_tree_projection(&store);
+        for (s, p, o) in literal_edge.iter_mut() {
+            if s == &embed && p == &embeds {
+                *o = Term::Lit(oxigraph::model::Literal::new_simple_literal(EMBED_IRI));
+            }
+        }
+        let result = validate_desired(&literal_edge, document_vocabulary());
+        assert!(
+            result.as_ref().is_err_and(|e| e.starts_with("SHACL:")),
+            "mdoc:embeds must be an IRI, never a literal: {result:?}"
+        );
+
+        let mut without_iri = read_back_tree_projection(&store);
+        let before = without_iri.len();
+        without_iri.retain(|(s, p, _)| !(s == &embed && p == &iri_p));
+        assert!(without_iri.len() < before, "dropped mdoc:iri");
+        let result = validate_desired(&without_iri, document_vocabulary());
+        assert!(
+            result.as_ref().is_err_and(|e| e.starts_with("SHACL:")),
+            "an ObjectEmbed without mdoc:iri must be rejected: {result:?}"
+        );
+    }
+
     /// SHACL-INEXPRESSIBLE COMPLEMENT (hand-checked, NOT silently skipped): the
     /// RECURSIVE tree integrity. rudof 0.2.12 has no sh:node recursion, so this is
     /// asserted directly via a SPARQL read-back of the PERSISTED store: every

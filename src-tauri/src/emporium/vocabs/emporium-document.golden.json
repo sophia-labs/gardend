@@ -33,6 +33,23 @@
             "rdf_types": [ "mdoc:Paragraph" ],
             "subject_rule": "<{subject}#block-{id}> or <{subject}#node-{n}>"
         },
+        "ObjectEmbed": {
+            "comment": "A typed-object embed <{subject}#block-{id}> — rdf:type mdoc:ObjectEmbed (block contract 2, the objectEmbed block atom). Carries mnemo:documentId, mdoc:nodeId, mdoc:textContent (the label snapshot, else the IRI), mdoc:siblingOrder, its attrs as literals (mdoc:iri, mdoc:graphId, mdoc:slot, mdoc:label, mdoc:classLabel), and mdoc:embeds: a REAL URI edge to the embedded object, emitted only for an absolute IRI, so 'which documents embed X' is a plain join. mdoc:iri is required (the normaliser wraps an objectEmbed without one as opaqueBlock). An atom: NO mdoc:childNode. DERIVED flat.",
+            "predicates": {
+                "mnemo:documentId": { "datatype": "string", "multi": false, "required": true },
+                "mdoc:nodeId": { "datatype": "string", "multi": false, "required": false },
+                "mdoc:textContent": { "datatype": "string", "multi": false, "required": false },
+                "mdoc:siblingOrder": { "datatype": "integer", "multi": false, "required": false },
+                "mdoc:iri": { "datatype": "string", "multi": false, "required": true },
+                "mdoc:embeds": { "datatype": "uri", "multi": false, "required": false, "comment": "the embedded object's IRI as a node (absent when mdoc:iri is not an absolute IRI)" },
+                "mdoc:graphId": { "datatype": "string", "multi": false, "required": false },
+                "mdoc:slot": { "datatype": "string", "multi": false, "required": false },
+                "mdoc:label": { "datatype": "string", "multi": false, "required": false },
+                "mdoc:classLabel": { "datatype": "string", "multi": false, "required": false }
+            },
+            "rdf_types": [ "mdoc:ObjectEmbed" ],
+            "subject_rule": "<{subject}#block-{id}> (gardend mints the id) or <{subject}#node-{n}>"
+        },
         "TextNode": {
             "comment": "A leaf text node <{subject}#node-{n}> — rdf:type mdoc:TextNode. Carries mnemo:documentId, mdoc:content (the text), and mdoc:siblingOrder (set by its parent loop). A leaf: NO mdoc:childNode. Code-defined span (serialize_tree_node text branch). DERIVED flat.",
             "predicates": {
@@ -44,7 +61,7 @@
             "subject_rule": "<{subject}#node-{n}> — anonymous text leaf"
         }
     },
-    "comment": "EA-2b+ SHACL retrofit contract for the DOCUMENT-TREE Meaningful Object (structural fork: a RECURSIVE TREE via mdoc:childNode, and the bare doc subject has NO rdf:type). NOT a served emporium pack — an AUTHORED mirror of the code-defined document_tree_triples span, whose sole consumer is vocab_to_shacl. SCOPE: the projection emits TYPED node subjects (each child carries rdf:type mdoc:{TagName}); this contract declares the node classes a representative tree exercises (XmlFragment + Paragraph + TextNode), each as an independent flat closed sh:NodeShape. The full mdoc:{TagName} class space (Heading/CodeBlock/Link/...) shares the SAME flat derivation. TWO things are SHACL-INEXPRESSIBLE here and stay reconcile-guaranteed + oracle-checked, NOT silently skipped: (1) the RECURSIVE tree (sh:node) — rudof 0.2.12 has no recursive node shapes; childNode-target existence is checked by a SPARQL read-back in the oracle; (2) the BARE doc subject <{subject}> (no rdf:type) is NOT emitted by document_tree_triples (other faces write it), so no node-shape targets it — out of scope for the tree-face oracle. mnemo: is MNEMO_NS, mdoc: is MDOC_NS.",
+    "comment": "EA-2b+ SHACL retrofit contract for the DOCUMENT-TREE Meaningful Object (structural fork: a RECURSIVE TREE via mdoc:childNode, and the bare doc subject has NO rdf:type). NOT a served emporium pack — an AUTHORED mirror of the code-defined document_tree_triples span, whose sole consumer is vocab_to_shacl. SCOPE: the projection emits TYPED node subjects (each child carries rdf:type mdoc:{TagName}); this contract declares the node classes a representative tree exercises (XmlFragment + Paragraph + TextNode, and ObjectEmbed for the typed-object embed and its mdoc:embeds edge), each as an independent flat closed sh:NodeShape. The full mdoc:{TagName} class space (Heading/CodeBlock/Link/...) shares the SAME flat derivation. TWO things are SHACL-INEXPRESSIBLE here and stay reconcile-guaranteed + oracle-checked, NOT silently skipped: (1) the RECURSIVE tree (sh:node) — rudof 0.2.12 has no recursive node shapes; childNode-target existence is checked by a SPARQL read-back in the oracle; (2) the BARE doc subject <{subject}> (no rdf:type) is NOT emitted by document_tree_triples (other faces write it), so no node-shape targets it — out of scope for the tree-face oracle. mnemo: is MNEMO_NS, mdoc: is MDOC_NS.",
     "description": "A document tree: a typed-node DAG rooted at mdoc:XmlFragment, with mdoc:childNode edges, sibling ordering, and per-node-type attribute predicates.",
     "name": "emporium-document",
     "namespaces": {
@@ -55,5 +72,5 @@
     },
     "primary_prefix": "mdoc",
     "title": "Emporium Document-Tree Vocabulary",
-    "version": "1.0.0"
+    "version": "1.1.0"
 }

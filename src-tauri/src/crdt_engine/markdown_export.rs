@@ -21,7 +21,10 @@
 //! one), multiple blocks inside a table cell (joined with a space), and the
 //! wikilink target (rendered as `[[label]]`). Unknown nodes degrade to their
 //! text content. An `opaqueBlock` (the block contract's wrapper for a node it
-//! does not know) renders as a fenced JSON block holding `originalJson`.
+//! does not know) renders as a fenced JSON block holding `originalJson`. An
+//! `objectEmbed` (a typed object embedded by IRI) renders as one quoted line,
+//! `> ⧉ Class — Title <iri>`, so an agent always sees what is embedded and
+//! where it lives (it imports back as a quote holding a link, not an embed).
 //!
 //! JSON authored as text is the one exception to escaping: a document whose
 //! whole content is unmarked text that parses as one JSON object or array
@@ -244,6 +247,7 @@ fn render_block(node: &Value, footnotes: &mut Vec<(String, String)>) -> Option<S
             let fence = "`".repeat(longest_run(&original, '`').max(2) + 1);
             format!("{fence}json\n{original}\n{fence}")
         }
+        "objectEmbed" => format!("> {}", object_embed_line(node)),
         "hardBreak" => return None,
         "doc" => render_blocks(children(node), footnotes),
         // Stray inline content at block level, or a block type Markdown has no
@@ -261,6 +265,53 @@ fn render_block(node: &Value, footnotes: &mut Vec<(String, String)>) -> Option<S
         }
     };
     Some(rendered)
+}
+
+/// The line an `objectEmbed` reads as: `⧉ <classLabel> — <label> <iri>`. A
+/// missing label drops its part (`⧉ <classLabel> <iri>`, `⧉ <label> <iri>`,
+/// `⧉ <iri>`); labels are one line of escaped text. The IRI is an autolink
+/// when CommonMark reads it as one, else a code span, so it is never parsed as
+/// markup and never lost; an embed with no IRI at all says so.
+fn object_embed_line(node: &Value) -> String {
+    let one_line = |key: &str| {
+        attr_str(node, key)
+            .map(|value| value.split_whitespace().collect::<Vec<_>>().join(" "))
+            .filter(|value| !value.is_empty())
+            .map(|value| escape_text(&value, false))
+    };
+    let mut parts = vec!["⧉".to_string()];
+    match (one_line("classLabel"), one_line("label")) {
+        (Some(class_label), Some(label)) => parts.push(format!("{class_label} — {label}")),
+        (Some(only), None) | (None, Some(only)) => parts.push(only),
+        (None, None) => {}
+    }
+    match attr_str(node, "iri")
+        .map(str::trim)
+        .filter(|iri| !iri.is_empty())
+    {
+        Some(iri) if is_autolink_uri(iri) => parts.push(format!("<{iri}>")),
+        Some(iri) => parts.push(code_span(iri)),
+        None => parts.push("(no iri)".to_string()),
+    }
+    parts.join(" ")
+}
+
+/// CommonMark's absolute-URI autolink: a scheme of 2 to 32 characters (a
+/// letter, then letters, digits, `+`, `.` or `-`), a colon, and no space,
+/// control character, `<` or `>`.
+fn is_autolink_uri(value: &str) -> bool {
+    let Some((scheme, _)) = value.split_once(':') else {
+        return false;
+    };
+    let scheme_ok = (2..=32).contains(&scheme.len())
+        && scheme.starts_with(|c: char| c.is_ascii_alphabetic())
+        && scheme
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '.' | '-'));
+    scheme_ok
+        && !value
+            .chars()
+            .any(|c| c.is_whitespace() || c.is_control() || matches!(c, '<' | '>'))
 }
 
 /// Render a run of consecutive flat `listItem`s as one tight list.
@@ -431,6 +482,7 @@ fn render_table_cell(cell: &Value, footnotes: &mut Vec<(String, String)>) -> Str
                 (!text.trim().is_empty()).then(|| text.trim().to_string())
             }
             "image" => Some(render_image(block)),
+            "objectEmbed" => Some(object_embed_line(block).replace('|', "\\|")),
             _ => {
                 let text = plain_text(block).replace('|', "\\|").replace('\n', " ");
                 (!text.trim().is_empty()).then(|| text.trim().to_string())

@@ -26,6 +26,7 @@ const BLOCK_TAGS: &[&str] = &[
     "mathBlock",
     "queryBlock",
     "opaqueBlock",
+    "objectEmbed",
     "table",
     "tableRow",
     "tableHeader",
@@ -66,6 +67,7 @@ const BLOCK_PROJECTION_TAGS: &[&str] = &[
     "mathBlock",
     "queryBlock",
     "opaqueBlock",
+    "objectEmbed",
 ];
 
 fn mark_name_to_tag(name: &str) -> &str {
@@ -700,6 +702,7 @@ fn block_type_for_node(node: &TreeNode) -> &'static str {
         Some("mathBlock") => "math",
         Some("queryBlock") => "query",
         Some("opaqueBlock") => "opaque",
+        Some("objectEmbed") => "object",
         Some("listItem") => match node.attributes.extra.get("listType").map(String::as_str) {
             Some("ordered") => "numbered",
             Some("task") => "todo",
@@ -871,6 +874,13 @@ fn atom_node_text(node: &TreeNode) -> Option<String> {
         // The block contract's wrapper for content it does not know: its
         // display text is the block's text.
         Some("opaqueBlock") => attrs.extra.get("text").cloned().unwrap_or_default(),
+        // The typed-object embed: its title snapshot, else the IRI it embeds.
+        Some("objectEmbed") => ["label", "iri"]
+            .iter()
+            .filter_map(|key| attrs.extra.get(*key))
+            .find(|value| !value.trim().is_empty())
+            .cloned()
+            .unwrap_or_default(),
         Some("queryBlock") => {
             let parts: Vec<&String> = [attrs.extra.get("comment"), attrs.extra.get("query")]
                 .into_iter()

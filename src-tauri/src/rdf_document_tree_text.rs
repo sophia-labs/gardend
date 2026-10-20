@@ -51,6 +51,11 @@ fn atom_node_text(node: &TreeNodeSnapshot) -> Option<String> {
             .clone()
             .or_else(|| node.attributes.extra.get("title").cloned())
             .or_else(|| node.attributes.src.clone()),
+        Some("objectEmbed") => ["label", "iri"]
+            .iter()
+            .filter_map(|key| node.attributes.extra.get(*key))
+            .find(|value| !value.trim().is_empty())
+            .cloned(),
         Some("queryBlock") => {
             let parts = ["comment", "query"]
                 .iter()

@@ -14,6 +14,7 @@ pub(super) fn node_type_uri(tag_name: &str) -> String {
         "codeBlock" => "CodeBlock",
         "horizontalRule" => "HorizontalRule",
         "image" => "ImageBlock",
+        "objectEmbed" => "ObjectEmbed",
         "strong" | "bold" => "Strong",
         "em" | "italic" => "Emphasis",
         "s" | "strike" => "Strikethrough",

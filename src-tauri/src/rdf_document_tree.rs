@@ -1,4 +1,5 @@
 use crate::{
+    crdt_engine::block_contract::is_absolute_iri,
     document_service::{DocumentRecord, TreeNodeSnapshot},
     rdf::{
         push_boolean_triple, push_integer_triple, push_string_triple, push_uri_triple, RdfTriple,
@@ -219,6 +220,20 @@ fn serialize_tree_node(
     for (key, value) in &node.attributes.extra {
         push_string_triple(triples, &node_uri, &format!("{MDOC_NS}{key}"), value);
     }
+    // The typed-object embed: beside the literal `mdoc:iri`, a real edge to the
+    // object, so "which documents embed X" is a plain join. Only for an
+    // absolute IRI (the normaliser's rule): a Y-sync or update_blocks value
+    // that is not one stays a literal and never reaches the store as a node.
+    if tag_name == "objectEmbed" {
+        if let Some(iri) = node
+            .attributes
+            .extra
+            .get("iri")
+            .filter(|iri| is_absolute_iri(iri))
+        {
+            push_uri_triple(triples, &node_uri, &format!("{MDOC_NS}embeds"), iri);
+        }
+    }
 
     if tag_name != "wikilink" {
         for (index, child) in node.children.iter().enumerate() {
@@ -262,10 +277,37 @@ mod tests {
     use crate::runtime_config::{DOCUMENT_SCHEMA_VERSION, LOCAL_GRAPH_ORIGIN, LOCAL_PROVIDER_ID};
     use std::collections::BTreeSet;
 
+    const EMBED_IRI: &str = "urn:sophia:type:freud-dreams:workspace#DreamReport-meier";
+
+    /// An `objectEmbed` block (block contract 2) as the tree snapshot holds it:
+    /// its attrs beyond the block id ride in `extra`.
+    fn object_embed_node(iri: &str) -> TreeNodeSnapshot {
+        TreeNodeSnapshot {
+            kind: "element".to_string(),
+            tag_name: Some("objectEmbed".to_string()),
+            text_content: None,
+            attributes: TreeNodeAttributes {
+                block_id: Some("block-e".to_string()),
+                extra: [
+                    ("iri", iri),
+                    ("slot", "card"),
+                    ("label", "Meier: straw between the toes"),
+                    ("classLabel", "Dream report"),
+                ]
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+                ..TreeNodeAttributes::default()
+            },
+            children: Vec::new(),
+        }
+    }
+
     /// A representative DocumentRecord whose tree exercises many node kinds:
     /// a heading (level), a block paragraph (nodeId + textContent), a nested
-    /// text node, and a link (href/target) — so `document_tree_triples` emits a
-    /// broad predicate spread.
+    /// text node, a link (href/target) and an object embed (literal attrs plus
+    /// the `mdoc:embeds` URI edge) — so `document_tree_triples` emits a broad
+    /// predicate spread.
     fn rich_record(paragraph_text: &str) -> DocumentRecord {
         let doc_id = "doc-drift";
         DocumentRecord {
@@ -346,6 +388,7 @@ mod tests {
                                 },
                             ],
                         },
+                        object_embed_node(EMBED_IRI),
                     ],
                 },
             }),
@@ -418,6 +461,53 @@ mod tests {
             cover, union,
             "the three partitions must cover DOCUMENT_LEVEL_PREDICATES exactly"
         );
+    }
+
+    /// The embed projects as `mdoc:ObjectEmbed` with its attrs as literals and
+    /// a REAL URI edge `<block> mdoc:embeds <iri>` (so "which documents embed
+    /// X" is a join); an IRI that is not absolute keeps its literal and gets no
+    /// edge, so it can never reach the store's N-Triples as a node.
+    #[test]
+    fn object_embed_projects_a_uri_edge_to_the_object_beside_its_literals() {
+        let record = rich_record("x");
+        let lines: Vec<String> = document_tree_triples(&record)
+            .iter()
+            .map(format_rdf_triple)
+            .collect();
+        let block = format!("{}#block-block-e", record.rdf_subject);
+        for expected in [
+            format!("<{block}> <{RDF_TYPE}> <{MDOC_NS}ObjectEmbed> ."),
+            format!("<{block}> <{MDOC_NS}embeds> <{EMBED_IRI}> ."),
+            format!("<{block}> <{MDOC_NS}iri> \"{EMBED_IRI}\" ."),
+            format!("<{block}> <{MDOC_NS}classLabel> \"Dream report\" ."),
+            format!("<{block}> <{MDOC_NS}textContent> \"Meier: straw between the toes\" ."),
+        ] {
+            assert!(
+                lines.contains(&expected),
+                "missing {expected}\n{}",
+                lines.join("\n")
+            );
+        }
+        let edges = |record: &DocumentRecord| -> Vec<String> {
+            document_tree_triples(record)
+                .iter()
+                .map(format_rdf_triple)
+                .filter(|line| line.contains(&format!("<{MDOC_NS}embeds>")))
+                .collect()
+        };
+        assert_eq!(edges(&record).len(), 1);
+        for not_absolute in ["dream-7", "/objects/7", "urn:has spaces", "x> <y"] {
+            let mut bent = rich_record("x");
+            bent.tree.as_mut().unwrap().root.children[2] = object_embed_node(not_absolute);
+            assert!(
+                edges(&bent).is_empty(),
+                "{not_absolute:?} must not become a node"
+            );
+            assert!(document_tree_triples(&bent)
+                .iter()
+                .map(format_rdf_triple)
+                .any(|line| line.contains(&format!("<{MDOC_NS}iri>"))));
+        }
     }
 
     #[test]

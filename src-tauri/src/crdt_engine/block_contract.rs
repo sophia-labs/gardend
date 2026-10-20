@@ -9,8 +9,9 @@
 //! `unsupportedMark` placeholders of 272912a. The dump is committed at
 //! `tests/fixtures/block_contract/editor-kernel-9eece44.schema.json` and a
 //! parity test asserts the node set, content expressions, attrs and marks
-//! match it exactly — except `opaqueBlock`, which gardend adds and the editor
-//! does not have yet (it is `render-only` until the frontend ships its node).
+//! match it exactly — except the nodes gardend adds that the editor fixture
+//! does not have yet (`AWAITING_EDITOR`: `opaqueBlock`, and since contract 2
+//! `objectEmbed`; each is `render-only` until the frontend ships its node).
 //! The contract is emitted content-addressed as `block-contract.v1.json`
 //! (canonical key order at every depth, 2-space indent, trailing newline;
 //! `sha256` over the compact canonical JSON of everything else — the shape of
@@ -30,7 +31,19 @@
 //! - *unknown*: wrapped as `opaqueBlock{originalType, originalJson, text,
 //!   contractVersion}` with `originalJson` the node's exact serialization. It
 //!   projects as `mdoc:OpaqueBlock` with `mdoc:originalType`. Never deleted,
-//!   never guessed.
+//!   never guessed. A known node that breaks its own contract is wrapped the
+//!   same way: a leaf carrying content, or an `objectEmbed` without an
+//!   absolute `iri` (an embed that points nowhere is not an embed).
+//!
+//! **Object embed** (contract 2; the typed-objects injerto,
+//! plans/2026-10-20-typed-objects §D8.3 and §4 in the hub). `objectEmbed` is a
+//! block atom that references a typed object by IRI: `iri` (absolute,
+//! required), `graphId` (optional; this graph when absent), `slot` (`inline`,
+//! `card` or `pane`; `card` when absent), `label` and `classLabel` (snapshots
+//! of the object's title and class label, kept for readers that cannot resolve
+//! it) and `data-block-id`. The object is a reference, never copied content.
+//! It projects as `mdoc:ObjectEmbed` with the attrs as literals plus a real
+//! edge `<block> mdoc:embeds <iri>`, so "which documents embed X" is a join.
 //!
 //! Unknown marks are kept verbatim (losing a format loses no text). Every
 //! rewrite, and every unknown mark, is reported in the write's `warnings`
@@ -67,17 +80,36 @@ use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 
 /// Monotonic. Nodes are never removed from a later version: a deprecated
-/// node gets a known-equivalent rewrite rule instead.
-pub(crate) const CONTRACT_VERSION: u64 = 1;
+/// node gets a known-equivalent rewrite rule instead. Every version that
+/// learns a node bumps it, because an `opaqueBlock` records the version that
+/// wrapped it: the migration that unwraps opaque objects whose `originalType`
+/// a later version knows (document primitives §2.5) must tell "wrapped because
+/// this version did not know the type" from "wrapped because the node broke
+/// the contract of a version that did".
+///
+/// - 1: the editor-kernel document schema (9eece44) plus `opaqueBlock`.
+/// - 2: `objectEmbed`.
+///
+/// `CONTRACT_SCHEMA` names the shape of the emitted document (and the file,
+/// `block-contract.v1.json`), not the vocabulary: like K1's
+/// `sophia.object-kinds.v1` with its revision, the shape stays v1 while the
+/// version counts the vocabulary.
+pub(crate) const CONTRACT_VERSION: u64 = 2;
 pub(crate) const CONTRACT_SCHEMA: &str = "sophia.block-contract.v1";
 pub(crate) const OPAQUE_BLOCK: &str = "opaqueBlock";
+/// The typed-object embed (contract 2).
+pub(crate) const OBJECT_EMBED: &str = "objectEmbed";
+/// The slots an `objectEmbed` can ask for; a reader takes an absent or other
+/// value as `card`.
+pub(crate) const OBJECT_EMBED_SLOTS: &[&str] = &["inline", "card", "pane"];
 /// Nodes gardend adds to the contract that the web editor schema does not
 /// have yet. The parity test allows exactly these; the frontend clears the
-/// list by shipping the node.
-pub(crate) const AWAITING_EDITOR: &[&str] = &[OPAQUE_BLOCK];
+/// list by shipping the node (and gardend by refreshing the editor fixture).
+pub(crate) const AWAITING_EDITOR: &[&str] = &[OPAQUE_BLOCK, OBJECT_EMBED];
 
 /// Node types whose `data-block-id` gardend mints when it writes them (the
-/// former `content_parse::BLOCK_ID_TYPES`, plus `opaqueBlock`). The editor's
+/// former `content_parse::BLOCK_ID_TYPES`, plus `opaqueBlock` and
+/// `objectEmbed`). The editor's
 /// BlockId extension also carries ids on `tableCell`, `tableHeader` and
 /// `queryBlock`, which gardend never mints (`blockId: "carried"`).
 pub(crate) const MINTED_BLOCK_IDS: &[&str] = &[
@@ -90,6 +122,7 @@ pub(crate) const MINTED_BLOCK_IDS: &[&str] = &[
     "image",
     "mathBlock",
     OPAQUE_BLOCK,
+    OBJECT_EMBED,
 ];
 
 const LIST_CONTAINERS: &[&str] = &["bulletList", "orderedList", "taskList"];
@@ -475,6 +508,18 @@ pub(crate) const NODES: &[NodeSpec] = &[
         lossless: true,
         state: State::RenderOnly,
     },
+    NodeSpec {
+        name: OBJECT_EMBED,
+        group: Some("block"),
+        content: None,
+        marks: None,
+        inline: false,
+        atom: true,
+        attrs: &[&["classLabel", "graphId", "iri", "label", "slot"], ID],
+        markdown: "> ⧉ classLabel — label <iri> (imports as a quote with a link)",
+        lossless: false,
+        state: State::RenderOnly,
+    },
 ];
 
 /// The order of this list is the canonical mark order (`canonical_mark_cmp`):
@@ -639,6 +684,26 @@ pub(crate) fn is_block_id_minted(name: &str) -> bool {
     MINTED_BLOCK_IDS.contains(&name)
 }
 
+/// An absolute IRI, by the same parser the RDF store uses (`oxiri`, through
+/// `NamedNode::new`): a scheme, and nothing an IRI cannot hold (spaces, `<`,
+/// `>`, `"`, `{`, `}`, …). The normaliser admits an `objectEmbed` only with
+/// such an `iri`, and the projection emits `mdoc:embeds <iri>` only for one, so
+/// a value that would break the store's N-Triples never reaches it.
+pub(crate) fn is_absolute_iri(value: &str) -> bool {
+    oxigraph::model::NamedNode::new(value).is_ok()
+}
+
+/// Why an `objectEmbed`'s `iri` attr does not make it an embed, or None when
+/// it does: an embed that points nowhere is not one.
+pub(crate) fn object_embed_iri_problem(iri: Option<&Value>) -> Option<String> {
+    match iri {
+        None | Some(Value::Null) => Some("has no iri".to_string()),
+        Some(Value::String(iri)) if is_absolute_iri(iri) => None,
+        Some(Value::String(iri)) => Some(format!("has an iri that is not absolute ({iri:?})")),
+        Some(_) => Some("has an iri that is not a string".to_string()),
+    }
+}
+
 impl NodeSpec {
     /// The node's allowed attrs, sorted.
     pub(crate) fn attr_names(&self) -> Vec<&'static str> {
@@ -710,12 +775,17 @@ fn contract_content() -> Value {
     json!({
         "schema": CONTRACT_SCHEMA,
         "contractVersion": CONTRACT_VERSION,
-        "derivedFrom": "Shrubbery packages/editor-kernel (sophia-labs/shrubbery, derived at pre-publication commit 9eece44) kernelExtensions({collaborative:true}) document profile, plus opaqueBlock",
+        "derivedFrom": "Shrubbery packages/editor-kernel (sophia-labs/shrubbery, derived at pre-publication commit 9eece44) kernelExtensions({collaborative:true}) document profile, plus opaqueBlock and objectEmbed",
         "losslessMeans": LOSSLESS_MEANS,
         "unknownMarks": "preserved verbatim, never wrapped",
         "opaqueBlock": {
             "attrs": {"originalType": "the unknown node's type", "originalJson": "the node's exact JSON serialization, kept byte-exact", "text": "plain text for display", "contractVersion": "the contract version that wrapped it"},
             "rdfType": "http://mnemosyne.dev/doc#OpaqueBlock",
+        },
+        "objectEmbed": {
+            "attrs": {"iri": "the embedded object's absolute IRI (required: without one the node is wrapped as opaqueBlock)", "graphId": "the graph holding the object (absent: this graph)", "slot": "inline | card | pane (absent or other: card)", "label": "snapshot of the object's title, for readers that cannot resolve it", "classLabel": "snapshot of the object's class label"},
+            "rdfType": "http://mnemosyne.dev/doc#ObjectEmbed",
+            "rdfEdge": "http://mnemosyne.dev/doc#embeds",
         },
         "nodes": nodes,
         "marks": marks,
@@ -1054,11 +1124,13 @@ impl Normaliser<'_> {
         }
         match spec.content {
             None => {
-                if children_of(node).is_empty() {
-                    vec![node.clone()]
-                } else {
-                    vec![self.opaque(node, path, "is a leaf node carrying content")]
+                if !children_of(node).is_empty() {
+                    return vec![self.opaque(node, path, "is a leaf node carrying content")];
                 }
+                if name == OBJECT_EMBED {
+                    return vec![self.object_embed(node, path)];
+                }
+                vec![node.clone()]
             }
             Some("inline*") => self.textblock(node, path),
             Some("text*") => self.code_block(node, path),
@@ -1066,6 +1138,29 @@ impl Normaliser<'_> {
             Some("tableRow+") => vec![self.table(node, path)],
             Some(_) => vec![node.clone()],
         }
+    }
+
+    /// `objectEmbed`: canonical with an absolute `iri`; opaque without one. A
+    /// `slot` outside inline/card/pane is kept as written, with a note (a
+    /// reader takes it as `card`).
+    fn object_embed(&mut self, node: &Value, path: &str) -> Value {
+        if let Some(why) = object_embed_iri_problem(attr(node, &["iri"])) {
+            return self.opaque(node, path, &why);
+        }
+        if let Some(slot) = attr(node, &["slot"]) {
+            if !slot
+                .as_str()
+                .is_some_and(|slot| OBJECT_EMBED_SLOTS.contains(&slot))
+            {
+                self.note(
+                    path,
+                    format!(
+                        "objectEmbed slot {slot} is not inline, card or pane; kept, read as card"
+                    ),
+                );
+            }
+        }
+        node.clone()
     }
 
     fn check_inline(&mut self, node: &Value, path: &str) {

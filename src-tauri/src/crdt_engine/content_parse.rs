@@ -1066,11 +1066,18 @@ const XML_NODE_TAGS: &[(&str, &str)] = &[
     ("tableheader", "tableHeader"),
     ("tablecell", "tableCell"),
     ("queryblock", "queryBlock"),
+    ("objectembed", "objectEmbed"),
 ];
 
 const XML_INLINE_ATOM_TYPES: &[&str] =
     &["footnote", "wikilink", "tagChip", "mathInline", "hardBreak"];
-const XML_LEAF_BLOCK_TYPES: &[&str] = &["horizontalRule", "image", "mathBlock", "queryBlock"];
+const XML_LEAF_BLOCK_TYPES: &[&str] = &[
+    "horizontalRule",
+    "image",
+    "mathBlock",
+    "queryBlock",
+    "objectEmbed",
+];
 const KNOWN_TIPTAP_NODE_TYPES: &[&str] = &[
     "doc",
     "paragraph",
@@ -1085,6 +1092,7 @@ const KNOWN_TIPTAP_NODE_TYPES: &[&str] = &[
     "tableRow",
     "tableHeader",
     "tableCell",
+    "objectEmbed",
 ];
 
 pub(crate) fn tiptap_xml_to_tiptap_json(xml: &str) -> Result<Value, String> {
@@ -1572,6 +1580,7 @@ fn tiptap_node_text(node: &Value) -> String {
         "wikilink" => attr_string(node, &["label", "blockPreview"]),
         "mathInline" | "mathBlock" => attr_string(node, &["src"]),
         "image" => attr_string(node, &["alt", "src"]),
+        "objectEmbed" => attr_string(node, &["label", "iri"]),
         _ => node
             .get("content")
             .and_then(Value::as_array)

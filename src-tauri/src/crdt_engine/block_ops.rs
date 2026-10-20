@@ -1682,6 +1682,19 @@ async fn block_update(app: &AppHandle, operation: &CrdtOperation) -> ApplyOperat
                                 }
                             }
                         }
+                        // An attr edit never reaches the normaliser, so a bad
+                        // embed IRI is stored as written, with a receipt (the
+                        // projection emits no mdoc:embeds edge for it).
+                        if tag == super::block_contract::OBJECT_EMBED {
+                            if let Some(why) = edit.attrs.get("iri").and_then(|iri| {
+                                super::block_contract::object_embed_iri_problem(Some(iri))
+                            }) {
+                                warnings.push(format!(
+                                    "block-contract preserved {}: objectEmbed {why}; stored verbatim, and it projects no mdoc:embeds edge",
+                                    edit.block_id
+                                ));
+                            }
+                        }
                         update_block_attributes(txn, element, &edit.attrs);
                         updated.push(edit.block_id.clone());
                     }

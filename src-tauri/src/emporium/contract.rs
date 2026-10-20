@@ -2054,8 +2054,18 @@ agt:Attunement a agt:ReadOperation ; agt:readsAcross agt:Song, agt:Memory, agt:V
         assert_eq!(c.primary_prefix, "mdoc");
         assert_eq!(c.primary_namespace(), "http://mnemosyne.dev/doc#");
         let keys: Vec<&str> = c.classes.keys().map(String::as_str).collect();
-        assert_eq!(keys, vec!["Paragraph", "TextNode", "XmlFragment"]);
+        assert_eq!(
+            keys,
+            vec!["ObjectEmbed", "Paragraph", "TextNode", "XmlFragment"]
+        );
         assert_eq!(c.classes["XmlFragment"].rdf_types, vec!["mdoc:XmlFragment"]);
+        // The typed-object embed: its IRI is required, and `mdoc:embeds` is the
+        // real URI edge to the object (an object property, single).
+        assert_eq!(c.classes["ObjectEmbed"].rdf_types, vec!["mdoc:ObjectEmbed"]);
+        assert!(c.classes["ObjectEmbed"].predicates["mdoc:iri"].required);
+        let embeds = &c.classes["ObjectEmbed"].predicates["mdoc:embeds"];
+        assert_eq!(embeds.datatype, Datatype::uri);
+        assert!(!embeds.multi && !embeds.required);
         // childNode is the recursive tree edge — multi, object property (uri).
         let cn = &c.classes["XmlFragment"].predicates["mdoc:childNode"];
         assert_eq!(cn.datatype, Datatype::uri);

@@ -241,6 +241,8 @@ fn canonical_content_is_a_byte_for_byte_no_op() {
                "originalJson": "{\"type\":\"callout\"}", "text": "", "contractVersion": 1}}),
         json!({"type": "unsupportedBlock", "attrs": {"nodeName": "x"}}),
         json!({"type": "heading", "attrs": {"level": 5}, "content": [{"type": "text", "text": "h5 stays"}]}),
+        object_embed(),
+        json!({"type": "objectEmbed", "attrs": {"iri": "https://example.org/objects/7"}}),
     ];
     let (out, receipts) = block_contract::normalise_doc_content(&canonical, "canonical");
     assert!(receipts.is_empty(), "{receipts:?}");
@@ -759,4 +761,337 @@ fn container_ids_are_never_silently_dropped() {
                                 "content": [{"type": "paragraph"}]})
         ]
     );
+}
+
+// ---------------------------------------------------------------------------
+// objectEmbed (contract 2): a block atom that references a typed object by IRI
+// ---------------------------------------------------------------------------
+
+const DREAM_IRI: &str = "urn:sophia:type:freud-dreams:workspace#DreamReport-meier";
+
+/// The canonical embed, every attr the contract names (§4's "Embed block").
+fn object_embed() -> Value {
+    json!({"type": "objectEmbed", "attrs": {
+        "data-block-id": "emb",
+        "iri": DREAM_IRI,
+        "graphId": "freud-dreams",
+        "slot": "card",
+        "label": "Meier: straw between the toes",
+        "classLabel": "Dream report"}})
+}
+
+fn embed_with(attrs: Value) -> Value {
+    json!({"type": "objectEmbed", "attrs": attrs})
+}
+
+#[test]
+fn object_embed_is_a_minted_render_only_block_atom_awaiting_the_editor() {
+    let spec = block_contract::node_spec("objectEmbed").expect("objectEmbed is in the contract");
+    assert_eq!(spec.group, Some("block"));
+    assert_eq!(spec.content, None);
+    assert!(spec.atom && !spec.inline);
+    assert_eq!(spec.state, block_contract::State::RenderOnly);
+    assert_eq!(
+        spec.attr_names(),
+        [
+            "classLabel",
+            "data-block-id",
+            "graphId",
+            "iri",
+            "label",
+            "slot"
+        ]
+    );
+    assert!(block_contract::is_block_id_minted("objectEmbed"));
+    assert!(AWAITING_EDITOR.contains(&"objectEmbed"));
+    assert_eq!(CONTRACT_VERSION, 2, "contract 2 learned objectEmbed");
+    // The emitted contract says what the node means beyond its attr names.
+    let contract: Value = serde_json::from_str(CONTRACT_FILE).unwrap();
+    assert_eq!(
+        contract["objectEmbed"]["rdfEdge"],
+        "http://mnemosyne.dev/doc#embeds"
+    );
+    let node = contract["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["name"] == "objectEmbed")
+        .unwrap();
+    assert_eq!(node["blockId"], "minted");
+}
+
+#[test]
+fn canonical_object_embed_passes_byte_for_byte_and_is_idempotent() {
+    let content = vec![
+        object_embed(),
+        embed_with(json!({"iri": "https://example.org/objects/7", "slot": "inline"})),
+        embed_with(json!({"iri": "mailto:vera@example.org", "slot": "pane", "label": ""})),
+    ];
+    let (out, receipts) = block_contract::normalise_doc_content(&content, "embed");
+    assert!(receipts.is_empty(), "{receipts:?}");
+    assert_eq!(
+        serde_json::to_string(&out).unwrap(),
+        serde_json::to_string(&content).unwrap()
+    );
+    let (again, again_receipts) = block_contract::normalise_doc_content(&out, "embed-again");
+    assert_eq!(again, out);
+    assert!(again_receipts.is_empty());
+}
+
+#[test]
+fn an_object_embed_without_an_absolute_iri_is_wrapped_opaque_with_a_receipt() {
+    for (case, attrs, why) in [
+        (
+            "missing",
+            json!({"data-block-id": "e1", "label": "orphan"}),
+            "has no iri",
+        ),
+        (
+            "null",
+            json!({"data-block-id": "e2", "iri": null}),
+            "has no iri",
+        ),
+        (
+            "empty",
+            json!({"data-block-id": "e3", "iri": ""}),
+            "has an iri that is not absolute (\"\")",
+        ),
+        (
+            "relative",
+            json!({"data-block-id": "e4", "iri": "dream-report-7", "label": "Meier"}),
+            "has an iri that is not absolute (\"dream-report-7\")",
+        ),
+        (
+            "path",
+            json!({"data-block-id": "e5", "iri": "/objects/7"}),
+            "has an iri that is not absolute (\"/objects/7\")",
+        ),
+        (
+            "spaces",
+            json!({"data-block-id": "e6", "iri": "urn:has spaces"}),
+            "has an iri that is not absolute (\"urn:has spaces\")",
+        ),
+        (
+            "number",
+            json!({"data-block-id": "e7", "iri": 7}),
+            "has an iri that is not a string",
+        ),
+    ] {
+        let node = embed_with(attrs);
+        let (out, receipts) = block_contract::normalise_doc_content(&[node.clone()], case);
+        assert_eq!(out.len(), 1, "{case}");
+        let opaque = &out[0];
+        assert_eq!(opaque["type"], "opaqueBlock", "{case}: {opaque}");
+        assert_eq!(opaque["attrs"]["originalType"], "objectEmbed", "{case}");
+        assert_eq!(
+            opaque["attrs"]["originalJson"],
+            serde_json::to_string(&node).unwrap(),
+            "{case}: the embed is kept byte-exact, never deleted"
+        );
+        assert_eq!(
+            opaque["attrs"]["contractVersion"], CONTRACT_VERSION,
+            "{case}"
+        );
+        assert_eq!(
+            opaque["attrs"]["data-block-id"], node["attrs"]["data-block-id"],
+            "{case}: the block keeps its id"
+        );
+        // The wrapper's display text is the embed's label, else its iri.
+        let shown = match (&node["attrs"]["label"], &node["attrs"]["iri"]) {
+            (Value::String(label), _) => label.clone(),
+            (_, Value::String(iri)) => iri.clone(),
+            (_, Value::Number(n)) => n.to_string(),
+            _ => String::new(),
+        };
+        assert_eq!(opaque["attrs"]["text"], shown, "{case}");
+        assert_eq!(
+            receipts,
+            vec![format!(
+                "block-contract unknown content[0]: objectEmbed {why}; wrapped as opaqueBlock (originalJson kept byte-exact)"
+            )],
+            "{case}"
+        );
+        // The wrapper is canonical: a second pass is a no-op.
+        let (again, again_receipts) = block_contract::normalise_doc_content(&out, "second");
+        assert_eq!(again, out, "{case}");
+        assert!(again_receipts.is_empty(), "{case}: {again_receipts:?}");
+    }
+}
+
+#[test]
+fn an_object_embed_carrying_content_is_wrapped_opaque_like_any_atom() {
+    let node = json!({"type": "objectEmbed", "attrs": {"iri": DREAM_IRI},
+        "content": [{"type": "paragraph", "content": [{"type": "text", "text": "smuggled"}]}]});
+    let (out, receipts) = block_contract::normalise_doc_content(&[node], "leaf");
+    assert_eq!(out[0]["type"], "opaqueBlock");
+    assert_eq!(out[0]["attrs"]["text"], "smuggled", "text kept for display");
+    assert!(
+        receipts[0].contains("objectEmbed is a leaf node carrying content"),
+        "{receipts:?}"
+    );
+}
+
+#[test]
+fn an_object_embed_inside_a_paragraph_is_hoisted_beside_it() {
+    let para = json!({"type": "paragraph", "attrs": {"data-block-id": "p"}, "content": [
+        {"type": "text", "text": "see "},
+        object_embed(),
+        {"type": "text", "text": " above"}]});
+    let (out, receipts) = block_contract::normalise_doc_content(&[para], "hoist");
+    let kinds: Vec<&str> = out.iter().map(|n| n["type"].as_str().unwrap()).collect();
+    assert_eq!(kinds, ["paragraph", "objectEmbed", "paragraph"]);
+    assert_eq!(out[1], object_embed(), "the embed itself is untouched");
+    assert_eq!(receipts.len(), 1, "{receipts:?}");
+    assert!(receipts[0].contains("objectEmbed hoisted out of paragraph"));
+}
+
+#[test]
+fn an_object_embed_slot_outside_the_three_is_kept_with_a_note() {
+    let node = embed_with(json!({"data-block-id": "s", "iri": DREAM_IRI, "slot": "billboard"}));
+    let (out, receipts) = block_contract::normalise_doc_content(&[node.clone()], "slot");
+    assert_eq!(out, vec![node], "kept as written");
+    assert_eq!(
+        receipts,
+        vec!["block-contract preserved content[0]: objectEmbed slot \"billboard\" is not inline, card or pane; kept, read as card".to_string()]
+    );
+    assert!(receipts
+        .iter()
+        .all(|w| !block_contract::is_rewrite_warning(w)));
+}
+
+#[test]
+fn markdown_export_renders_object_embeds_as_one_quoted_line() {
+    let md = |attrs: Value| {
+        super::markdown_export::tiptap_json_to_markdown(
+            &json!({"type": "doc", "content": [embed_with(attrs)]}),
+        )
+    };
+    assert_eq!(
+        md(object_embed()["attrs"].clone()),
+        format!("> ⧉ Dream report — Meier: straw between the toes <{DREAM_IRI}>")
+    );
+    // Fallbacks: a missing label drops its part, never the line.
+    assert_eq!(
+        md(json!({"iri": DREAM_IRI, "classLabel": "Dream report"})),
+        format!("> ⧉ Dream report <{DREAM_IRI}>")
+    );
+    assert_eq!(
+        md(json!({"iri": DREAM_IRI, "label": "Meier", "classLabel": "  "})),
+        format!("> ⧉ Meier <{DREAM_IRI}>")
+    );
+    assert_eq!(md(json!({"iri": DREAM_IRI})), format!("> ⧉ <{DREAM_IRI}>"));
+    // Labels are one line of escaped text.
+    assert_eq!(
+        md(json!({"iri": "https://example.org/x", "label": "a *b*\nc", "classLabel": "T"})),
+        "> ⧉ T — a \\*b\\* c <https://example.org/x>"
+    );
+    // A value that is not an autolink (an update_blocks or Y-sync write) is a
+    // code span; an embed with no IRI at all says so.
+    assert_eq!(
+        md(json!({"iri": "dream-7", "label": "Meier"})),
+        "> ⧉ Meier `dream-7`"
+    );
+    assert_eq!(md(json!({"label": "Meier"})), "> ⧉ Meier (no iri)");
+    // Between paragraphs, and inside a quote, it is its own block.
+    let doc = json!({"type": "doc", "content": [
+        {"type": "paragraph", "content": [{"type": "text", "text": "Before."}]},
+        object_embed(),
+        {"type": "blockquote", "content": [object_embed()]},
+        {"type": "paragraph", "content": [{"type": "text", "text": "After."}]}]});
+    let line = format!("⧉ Dream report — Meier: straw between the toes <{DREAM_IRI}>");
+    assert_eq!(
+        super::markdown_export::tiptap_json_to_markdown(&doc),
+        format!("Before.\n\n> {line}\n\n> > {line}\n\nAfter.")
+    );
+    // In a table cell it is the same line, inline.
+    let table = json!({"type": "doc", "content": [{"type": "table", "content": [
+        {"type": "tableRow", "content": [
+            {"type": "tableHeader", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Object"}]}]}]},
+        {"type": "tableRow", "content": [
+            {"type": "tableCell", "content": [object_embed()]}]}]}]});
+    let rendered = super::markdown_export::tiptap_json_to_markdown(&table);
+    assert!(rendered.contains(&format!("| {line} |")), "{rendered}");
+}
+
+/// What the block projection (read_blocks, get_block, the plain-text body)
+/// and the tree (RDF) see of an embed.
+#[test]
+fn object_embed_projects_as_an_object_block_whose_text_is_its_label_else_its_iri() {
+    let doc = json!({"type": "doc", "content": [
+        {"type": "paragraph", "attrs": {"data-block-id": "p"}, "content": [{"type": "text", "text": "Lead."}]},
+        object_embed(),
+        embed_with(json!({"data-block-id": "bare", "iri": DREAM_IRI, "label": " "}))]});
+    let snapshot = super::projection::materialize_tiptap_json(&doc, "doc-embed");
+    let blocks = snapshot.blocks_json.as_array().unwrap();
+    assert_eq!(blocks.len(), 3, "both embeds are blocks: {blocks:?}");
+    assert_eq!(blocks[1]["id"], "emb");
+    assert_eq!(blocks[1]["type"], "object");
+    assert_eq!(blocks[1]["content"], "Meier: straw between the toes");
+    assert_eq!(blocks[2]["type"], "object");
+    assert_eq!(blocks[2]["content"], DREAM_IRI, "no label: the IRI");
+    assert!(
+        snapshot.body.contains("Meier: straw between the toes"),
+        "{}",
+        snapshot.body
+    );
+    let embed = &snapshot.tree_json["root"]["children"][1];
+    assert_eq!(embed["tagName"], "objectEmbed");
+    assert_eq!(embed["attributes"]["blockId"], "emb");
+    assert_eq!(embed["attributes"]["extra"]["iri"], DREAM_IRI);
+    assert_eq!(embed["attributes"]["extra"]["classLabel"], "Dream report");
+}
+
+/// Y.Doc ↔ TipTap JSON ↔ tiptapXml: the embed survives every face of the
+/// store's own representation, attrs exact.
+#[test]
+fn object_embed_round_trips_through_the_ydoc_and_tiptap_xml() {
+    let doc = json!({"type": "doc", "content": [
+        {"type": "paragraph", "attrs": {"data-block-id": "p"}, "content": [{"type": "text", "text": "Lead."}]},
+        object_embed(),
+        // XML-hostile attribute values: quotes, angle brackets, ampersands.
+        embed_with(json!({"data-block-id": "hostile", "iri": "https://example.org/o?a=1&b=2",
+                          "label": "\"Straw\" <between> & toes", "classLabel": "Dream report", "slot": "inline"}))]});
+    let ydoc = super::builder::ydoc_from_tiptap_json(&doc);
+    let read = super::projection::ydoc_to_tiptap_json(&ydoc);
+    assert_eq!(read, doc, "Y.Doc -> TipTap JSON keeps the embed exactly");
+
+    let xml = super::projection::ydoc_to_tiptap_xml(&ydoc);
+    assert!(
+        xml.contains(&format!(
+            "<objectEmbed classLabel=\"Dream report\" data-block-id=\"emb\" graphId=\"freud-dreams\" iri=\"{DREAM_IRI}\" label=\"Meier: straw between the toes\" slot=\"card\"></objectEmbed>"
+        )),
+        "{xml}"
+    );
+    let parsed = super::content_parse::tiptap_xml_to_tiptap_json(&xml).unwrap();
+    assert_eq!(
+        parsed, doc,
+        "tiptapXml -> TipTap JSON keeps the embed exactly"
+    );
+
+    // And the parsed form is canonical: the normaliser leaves it alone.
+    let (normalised, receipts) =
+        block_contract::normalise_doc_content(parsed["content"].as_array().unwrap(), "xml");
+    assert!(receipts.is_empty(), "{receipts:?}");
+    assert_eq!(normalised, *doc["content"].as_array().unwrap());
+    // A second trip through a fresh Y.Doc is the same XML (a fixed point).
+    let again = super::builder::ydoc_from_tiptap_json(&parsed);
+    assert_eq!(super::projection::ydoc_to_tiptap_xml(&again), xml);
+}
+
+/// The content-string XML path (`write_document(content, format: "xml")`)
+/// mints the embed's block id, as it does for every minted type.
+#[test]
+fn the_xml_content_parser_mints_an_object_embed_block_id() {
+    let parsed = super::content_parse::parse_write_content_for_operation(
+        &format!("<paragraph>Lead.</paragraph><objectEmbed iri=\"{DREAM_IRI}\" slot=\"card\" label=\"Meier\"></objectEmbed>"),
+        Some("xml"),
+        "op-xml",
+    )
+    .unwrap();
+    let embed = &parsed.tiptap_json["content"][1];
+    assert_eq!(embed["type"], "objectEmbed", "{}", parsed.tiptap_json);
+    assert_eq!(embed["attrs"]["iri"], DREAM_IRI);
+    assert_eq!(embed["attrs"]["label"], "Meier");
+    let id = embed["attrs"]["data-block-id"].as_str().unwrap();
+    assert!(id.starts_with("block-"), "{id}");
 }

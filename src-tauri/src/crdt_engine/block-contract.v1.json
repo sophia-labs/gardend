@@ -1,6 +1,6 @@
 {
-  "contractVersion": 1,
-  "derivedFrom": "Shrubbery packages/editor-kernel (sophia-labs/shrubbery, derived at pre-publication commit 9eece44) kernelExtensions({collaborative:true}) document profile, plus opaqueBlock",
+  "contractVersion": 2,
+  "derivedFrom": "Shrubbery packages/editor-kernel (sophia-labs/shrubbery, derived at pre-publication commit 9eece44) kernelExtensions({collaborative:true}) document profile, plus opaqueBlock and objectEmbed",
   "losslessMeans": "markdown -> store -> markdown keeps the node, its text and its semantic attributes (level, listType, indent, checked, language, src, alt, title, href). Block ids, source/PDF provenance, tags, outline state and presentation attributes (textAlign, size, colwidth, font) are never carried by Markdown.",
   "marks": [
     {
@@ -688,8 +688,41 @@
       "marks": null,
       "name": "opaqueBlock",
       "state": "render-only"
+    },
+    {
+      "atom": true,
+      "attrs": [
+        "classLabel",
+        "data-block-id",
+        "graphId",
+        "iri",
+        "label",
+        "slot"
+      ],
+      "blockId": "minted",
+      "content": null,
+      "group": "block",
+      "inline": false,
+      "markdown": {
+        "form": "> ⧉ classLabel — label <iri> (imports as a quote with a link)",
+        "lossless": false
+      },
+      "marks": null,
+      "name": "objectEmbed",
+      "state": "render-only"
     }
   ],
+  "objectEmbed": {
+    "attrs": {
+      "classLabel": "snapshot of the object's class label",
+      "graphId": "the graph holding the object (absent: this graph)",
+      "iri": "the embedded object's absolute IRI (required: without one the node is wrapped as opaqueBlock)",
+      "label": "snapshot of the object's title, for readers that cannot resolve it",
+      "slot": "inline | card | pane (absent or other: card)"
+    },
+    "rdfEdge": "http://mnemosyne.dev/doc#embeds",
+    "rdfType": "http://mnemosyne.dev/doc#ObjectEmbed"
+  },
   "opaqueBlock": {
     "attrs": {
       "contractVersion": "the contract version that wrapped it",
@@ -700,6 +733,6 @@
     "rdfType": "http://mnemosyne.dev/doc#OpaqueBlock"
   },
   "schema": "sophia.block-contract.v1",
-  "sha256": "0a9e7d044490161b0b8a7a4025d1c89623b3a413cc24fddfd83144af29fdac38",
+  "sha256": "f5ff84a250b55a286a5d8ff1bd828c4a6e68d317c461617458b63d25e8a9663c",
   "unknownMarks": "preserved verbatim, never wrapped"
 }

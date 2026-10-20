@@ -2317,6 +2317,8 @@ mod loopback_self_host_visitor_fence_unit {
             json!({"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"x","marks":[{"type":"link","attrs":{"href":"javascript:alert(1)"}}]}]}]}),
             json!({"type":"doc","content":[{"type":"paragraph","content":[{"type":"wikilink","attrs":{"targetGraphId":"owner-private"}}]}]}),
             json!({"type":"doc","content":[{"type":"opaqueBlock"}]}),
+            // An embed can point at an object in a graph the visitor cannot read.
+            json!({"type":"doc","content":[{"type":"objectEmbed","attrs":{"iri":"urn:sophia:object:owner-private"}}]}),
         ] {
             let (mut links, mut chars) = (0, 0);
             assert!(

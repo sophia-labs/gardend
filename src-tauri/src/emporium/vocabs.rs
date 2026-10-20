@@ -105,8 +105,10 @@ pub(crate) const SONG_GOLDEN_SHA: &str =
 /// SHACL-inexpressible in rudof 0.2.12 and stays reconcile-guaranteed + oracle-checked).
 pub(crate) const DOCUMENT_GOLDEN_JSON: &str = include_str!("vocabs/emporium-document.golden.json");
 /// Pinned sha256 — recompute with `shasum -a 256 src/emporium/vocabs/emporium-document.golden.json`.
+/// 1.1.0 (2026-10-20) declares `ObjectEmbed` (block contract 2's `objectEmbed`
+/// and its `mdoc:embeds` edge); 1.0.0 was `d866b574…11843cd`.
 pub(crate) const DOCUMENT_GOLDEN_SHA: &str =
-    "d866b574fa15b5d34f48081db5aeb11edfe70ff5aa2dad4bf4f87f15311843cd";
+    "b216b4cfc850d16db869ad97527219feec72642b05182bd06c899711ce4d840f";
 
 /// The `emporium-workspace` retrofit contract (the 3 mdoc-namespaced entity classes
 /// of the 10-class union, flat shapes DERIVED; the once-at-seed rdfs:subClassOf
