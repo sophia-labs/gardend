@@ -1162,7 +1162,7 @@
     },
     {
       "name": "write_document",
-      "description": "Replace a local document through the same CRDT document.write path used by hosted-compatible writes. Accepts either plain text, markdown, HTML, or TipTap XML content, or a canonical TipTap JSON document without a lossy string roundtrip. Requires documentId (or document_id) and exactly one of content or tiptapJson (or tiptap_json); a call without them is refused.",
+      "description": "Replace a local document through the same CRDT document.write path used by hosted-compatible writes. Accepts either plain text, markdown, HTML, or TipTap XML content, or a canonical TipTap JSON document without a lossy string roundtrip. Requires documentId (or document_id) and exactly one of content or tiptapJson (or tiptap_json); a call without them is refused. To embed a typed object (a dream report, a run item, any resource with an absolute IRI) in the document, put this block in tiptapJson.content: {\"type\":\"objectEmbed\",\"attrs\":{\"iri\":\"<the object's absolute IRI>\",\"slot\":\"card\",\"label\":\"<its title>\",\"classLabel\":\"<its class label>\"}} (slot is inline, card or pane; add graphId when the object lives in another graph, and data-block-id to address the block later). The object is referenced, not copied; an objectEmbed without an absolute iri is stored as an opaqueBlock with a warning. read_document markdown shows it as \"> ⧉ <classLabel> — <label> <iri>\".",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1572,7 +1572,7 @@
     },
     {
       "name": "insert_blocks",
-      "description": "Insert one or more blocks into a local document through the desktop Yjs document CRDT. Accepts plain text, markdown, HTML, or TipTap XML content; or a structured blocks array. Optionally inserts after/before a reference blockId, or at a given index.",
+      "description": "Insert one or more blocks into a local document through the desktop Yjs document CRDT. Accepts plain text, markdown, HTML, or TipTap XML content; a TipTap JSON document (tiptapJson {\"type\":\"doc\",\"content\":[...]}); or a structured blocks array. Optionally inserts after/before a reference blockId, or at a given index. To embed a typed object (a dream report, a run item, any resource with an absolute IRI), insert tiptapJson {\"type\":\"doc\",\"content\":[{\"type\":\"objectEmbed\",\"attrs\":{\"iri\":\"<the object's absolute IRI>\",\"slot\":\"card\",\"label\":\"<its title>\",\"classLabel\":\"<its class label>\"}}]} (slot is inline, card or pane; add graphId when the object lives in another graph). The object is referenced, not copied; an objectEmbed without an absolute iri is stored as an opaqueBlock with a warning. update_blocks changes its attrs (iri, label, ...); read_document markdown shows it as \"> ⧉ <classLabel> — <label> <iri>\".",
       "inputSchema": {
         "type": "object",
         "required": [
