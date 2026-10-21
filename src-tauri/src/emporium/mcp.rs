@@ -19,9 +19,13 @@
 
 use crate::app_error::{AppError, AppResult};
 use crate::app_runtime::AppHandle;
-use crate::emporium::contract::Datatype;
+use crate::emporium::chamber_ontology::{
+    list_chamber_ontologies, resolve_chamber_ontology_version,
+};
+use crate::emporium::contract::{Datatype, VocabularyContract};
 use crate::emporium::memory_applier::open_memory_store;
-use crate::emporium::terms::{term_for, Value as TermValue};
+use crate::emporium::terms::{sha256_text, term_for, Value as TermValue};
+use crate::emporium::type_catalog::class_catalog;
 use crate::emporium::violation_ledger::VLOG_NS;
 use crate::emporium::vocabs::{all_contracts, find_contract, VocabContract};
 use crate::mcp_arg_utils::{mcp_arg_string, mcp_arg_usize, mcp_required_graph_id};
@@ -31,33 +35,98 @@ use oxigraph::sparql::{QueryResults, SparqlEvaluator};
 use serde_json::Value;
 
 /// Local handler for the `emporium_vocab` MCP tool. Reads `name` (camelCase or
-/// snake_case via `mcp_arg_string`) and an optional `version` (default
-/// `latest`). Returns the catalog when `name` is absent, the resolved contract
-/// when present, or a validation error when the name/version is unknown.
-pub(crate) fn mcp_local_emporium_vocab(arguments: &Value) -> AppResult<Value> {
+/// snake_case via `mcp_arg_string`), an optional `version` (default `latest`)
+/// and an optional `graphId`. Returns the catalog when `name` is absent, the
+/// resolved contract when present, or a not-found error when the name/version
+/// is unknown.
+///
+/// With a `graphId` the graph's own types answer too (D3, 2026-10-20): the
+/// catalog lists its domain ontologies (active and superseded, `source:
+/// "domain"`) after the built-ins, and a name the built-ins do not have
+/// resolves to the graph's domain ontology of that name (embedded wins, as
+/// `resolve_ingest_contract` does): `latest` is the active version, any other
+/// version that exact one. Every named read carries `classCatalog`, one entry
+/// per class with its derived JSON Schema (a built-in's label falls back to
+/// the class name).
+pub(crate) fn mcp_local_emporium_vocab(app: &AppHandle, arguments: &Value) -> AppResult<Value> {
+    let graph_id = mcp_arg_string(arguments, &["graphId", "graph_id"]);
+    match graph_id {
+        Some(graph_id) => {
+            let store = open_memory_store(app, &graph_id).map_err(AppError::not_found)?;
+            emporium_vocab_payload(arguments, Some((&store, &graph_id)))
+        }
+        None => emporium_vocab_payload(arguments, None),
+    }
+}
+
+/// [`mcp_local_emporium_vocab`] over an already-open graph store (or none).
+pub(crate) fn emporium_vocab_payload(
+    arguments: &Value,
+    graph: Option<(&oxigraph::store::Store, &str)>,
+) -> AppResult<Value> {
     let name = mcp_arg_string(arguments, &["name", "vocab", "vocabulary"]);
     let version = mcp_arg_string(arguments, &["version"]).unwrap_or_else(|| "latest".to_string());
 
     let Some(name) = name else {
-        return Ok(catalog_payload());
+        return catalog_payload(graph);
     };
 
-    let contract = find_contract(&name, &version).ok_or_else(|| {
-        AppError::not_found(format!(
-            "emporium vocabulary not found: name={name} version={version}"
-        ))
-    })?;
-
-    contract_payload(&contract)
+    if let Some(contract) = find_contract(&name, &version) {
+        return contract_payload(&contract);
+    }
+    if let Some((store, graph_id)) = graph {
+        if let Some(payload) = domain_payload(store, graph_id, &name, &version)? {
+            return Ok(payload);
+        }
+    }
+    Err(AppError::not_found(format!(
+        "emporium vocabulary not found: name={name} version={version}{}",
+        if graph.is_some() {
+            ""
+        } else {
+            " (a graph's own types are found with graphId)"
+        }
+    )))
 }
 
-/// The catalog view — every registered vocabulary's summary row.
-fn catalog_payload() -> Value {
-    let vocabularies: Vec<Value> = all_contracts().iter().map(contract_summary).collect();
-    serde_json::json!({ "vocabularies": vocabularies })
+/// The catalog view — every registered vocabulary's summary row, then (with
+/// a graph) each of the graph's domain ontology versions, each with its own
+/// `classCatalog`, and a top-level `classCatalog` of the graph's types: every
+/// class of its ACTIVE domain ontologies (the built-ins' classes are read by
+/// name, so the listing stays small).
+pub(crate) fn catalog_payload(graph: Option<(&oxigraph::store::Store, &str)>) -> AppResult<Value> {
+    let mut vocabularies: Vec<Value> = all_contracts().iter().map(contract_summary).collect();
+    let Some((store, graph_id)) = graph else {
+        return Ok(serde_json::json!({ "vocabularies": vocabularies }));
+    };
+    let mut graph_types: Vec<Value> = Vec::new();
+    for record in list_chamber_ontologies(store, graph_id).map_err(AppError::internal)? {
+        let parsed: Option<VocabularyContract> = serde_json::from_str(&record.contract_json).ok();
+        let catalog = parsed
+            .as_ref()
+            .map(|c| class_catalog(c, &record.version))
+            .unwrap_or_default();
+        if record.status == "active" {
+            graph_types.extend(catalog.iter().cloned());
+        }
+        vocabularies.push(serde_json::json!({
+            "name": record.name,
+            "version": record.version,
+            "namespace": parsed.as_ref().map(|c| c.primary_namespace().to_string()),
+            "sha": sha256_text(&record.contract_json),
+            "title": parsed.as_ref().map(|c| c.title.clone()),
+            "source": "domain",
+            "status": record.status,
+            "ontologySubject": record.subject,
+            "classes": parsed.as_ref().map(|c| c.classes.keys().cloned().collect::<Vec<_>>()),
+            "classCatalog": catalog,
+        }));
+    }
+    Ok(serde_json::json!({ "vocabularies": vocabularies, "classCatalog": graph_types }))
 }
 
-/// A single vocabulary summary row (matches the HTTP `/emporium/vocabs` shape).
+/// A single vocabulary summary row (matches the HTTP `/emporium/vocabs` shape,
+/// plus `source: "builtin"`).
 fn contract_summary(contract: &VocabContract) -> Value {
     serde_json::json!({
         "name": contract.name,
@@ -71,16 +140,21 @@ fn contract_summary(contract: &VocabContract) -> Value {
         "registryStatus": contract.registry_status,
         "slugAliases": contract.slug_aliases,
         "compatibilityAliases": contract.compatibility_aliases,
+        "source": "builtin",
     })
 }
 
 /// The full contract payload: summary metadata + the canonical JSON body as
-/// structured content. The body is parsed (not re-serialized for the wire) so
-/// MCP clients receive structure; the sha still pins the canonical bytes.
-fn contract_payload(contract: &VocabContract) -> AppResult<Value> {
+/// structured content + the class catalogue. The body is parsed (not
+/// re-serialized for the wire) so MCP clients receive structure; the sha
+/// still pins the canonical bytes.
+pub(crate) fn contract_payload(contract: &VocabContract) -> AppResult<Value> {
     let contract_json: Value = serde_json::from_str(contract.json).map_err(|error| {
         AppError::serialization(format!("parse embedded vocab contract: {error}"))
     })?;
+    let class_catalog = crate::emporium::contract::get_vocabulary(contract.name)
+        .map(|parsed| class_catalog(parsed, contract.version))
+        .unwrap_or_default();
     Ok(serde_json::json!({
         "name": contract.name,
         "version": contract.version,
@@ -93,8 +167,52 @@ fn contract_payload(contract: &VocabContract) -> AppResult<Value> {
         "registryStatus": contract.registry_status,
         "slugAliases": contract.slug_aliases,
         "compatibilityAliases": contract.compatibility_aliases,
+        "source": "builtin",
         "contract": contract_json,
+        "classCatalog": class_catalog,
     }))
+}
+
+/// A graph's domain ontology `name` at `version` (`latest` = active), in the
+/// same envelope as a built-in, with `source: "domain"`, its lifecycle and
+/// every version of that name. `Ok(None)` when the graph has none.
+pub(crate) fn domain_payload(
+    store: &oxigraph::store::Store,
+    graph_id: &str,
+    name: &str,
+    version: &str,
+) -> AppResult<Option<Value>> {
+    let Some(resolved) = resolve_chamber_ontology_version(store, graph_id, name, version)
+        .map_err(AppError::internal)?
+    else {
+        return Ok(None);
+    };
+    let records = list_chamber_ontologies(store, graph_id).map_err(AppError::internal)?;
+    let this = records.iter().find(|r| r.subject == resolved.subject);
+    let versions: Vec<Value> = records
+        .iter()
+        .filter(|r| r.name == name)
+        .map(|r| serde_json::json!({ "version": r.version, "status": r.status, "ontologySubject": r.subject }))
+        .collect();
+    let contract_json: Value = serde_json::from_str(&resolved.contract_json).map_err(|error| {
+        AppError::serialization(format!("parse domain ontology contract: {error}"))
+    })?;
+    let contract = &resolved.contract;
+    Ok(Some(serde_json::json!({
+        "name": contract.name,
+        "version": resolved.version,
+        "namespace": contract.primary_namespace(),
+        "sha": sha256_text(&resolved.contract_json),
+        "title": contract.title,
+        "source": "domain",
+        "status": this.map(|r| r.status.clone()),
+        "ontologySubject": resolved.subject,
+        "supersedes": this.and_then(|r| r.supersedes.clone()),
+        "supersededBy": this.and_then(|r| r.superseded_by.clone()),
+        "versions": versions,
+        "contract": contract_json,
+        "classCatalog": class_catalog(contract, &resolved.version),
+    })))
 }
 
 /// Local handler for the `emporium_violations` MCP tool: a read-only SPARQL
@@ -202,7 +320,7 @@ mod tests {
 
     #[test]
     fn emporium_vocab_without_name_returns_catalog() {
-        let result = mcp_local_emporium_vocab(&serde_json::json!({})).unwrap();
+        let result = emporium_vocab_payload(&serde_json::json!({}), None).unwrap();
         let vocabularies = result
             .get("vocabularies")
             .and_then(Value::as_array)
@@ -272,7 +390,8 @@ mod tests {
 
     #[test]
     fn emporium_vocab_returns_named_contract_with_body() {
-        let result = mcp_local_emporium_vocab(&serde_json::json!({ "name": "workflow" })).unwrap();
+        let result =
+            emporium_vocab_payload(&serde_json::json!({ "name": "workflow" }), None).unwrap();
         assert_eq!(result.get("name").and_then(Value::as_str), Some("workflow"));
         assert_eq!(
             result.get("sha").and_then(Value::as_str),
@@ -292,15 +411,16 @@ mod tests {
 
     #[test]
     fn emporium_vocab_accepts_snake_and_camel_version() {
-        assert!(mcp_local_emporium_vocab(
-            &serde_json::json!({ "name": "workflow", "version": "1.0.0" })
+        assert!(emporium_vocab_payload(
+            &serde_json::json!({ "name": "workflow", "version": "1.0.0" }),
+            None
         )
         .is_ok());
     }
 
     #[test]
     fn emporium_vocab_unknown_name_is_not_found() {
-        let err = mcp_local_emporium_vocab(&serde_json::json!({ "name": "nope" })).unwrap_err();
+        let err = emporium_vocab_payload(&serde_json::json!({ "name": "nope" }), None).unwrap_err();
         assert_eq!(err.kind(), crate::app_error::AppErrorKind::NotFound);
     }
 }

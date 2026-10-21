@@ -180,6 +180,120 @@ pub(crate) fn stored_contract_json_for_subject(
     Ok(None)
 }
 
+/// One `chm:DomainOntology` record of this chamber graph, any lifecycle status.
+#[derive(Debug, Clone)]
+pub(crate) struct ChamberRecord {
+    pub(crate) subject: String,
+    pub(crate) name: String,
+    pub(crate) version: String,
+    /// `"active"` or `"superseded"`.
+    pub(crate) status: String,
+    /// The RAW stored `chm:contractJson` literal.
+    pub(crate) contract_json: String,
+    pub(crate) supersedes: Option<String>,
+    pub(crate) superseded_by: Option<String>,
+}
+
+/// Every `chm:DomainOntology` record in this graph's chamber, active and
+/// superseded, sorted by (name, version subject). The read the type catalogue
+/// (`emporium_vocab` with a `graphId`) lists, and the store a pinned
+/// `<vocab>@<version>` is resolved from. A record with no `chm:contractJson`
+/// is skipped here (it cannot be served); [`resolve_chamber_ontology`] stays
+/// the loud path for the active one.
+pub(crate) fn list_chamber_ontologies(
+    store: &Store,
+    graph_id: &str,
+) -> Result<Vec<ChamberRecord>, String> {
+    let chamber = chamber_projection_graph_iri(graph_id);
+    let query = format!(
+        "SELECT ?s ?name ?version ?status ?json ?sup ?supBy WHERE {{ GRAPH <{chamber}> {{ \
+           ?s a <{CHM_NS}DomainOntology> ; \
+              <{CHM_NS}ontologyName> ?name ; \
+              <{CHM_NS}ontologyVersion> ?version ; \
+              <{CHM_NS}status> ?status ; \
+              <{CHM_NS}contractJson> ?json . \
+           OPTIONAL {{ ?s <{CHM_NS}supersedes> ?sup }} \
+           OPTIONAL {{ ?s <{CHM_NS}supersededBy> ?supBy }} \
+         }} }} ORDER BY ?name ?s"
+    );
+    let solutions = match SparqlEvaluator::new()
+        .parse_query(&query)
+        .map_err(|e| format!("parse chamber listing query: {e}"))?
+        .on_store(store)
+        .execute()
+        .map_err(|e| format!("execute chamber listing query: {e}"))?
+    {
+        QueryResults::Solutions(s) => s,
+        _ => return Err("chamber listing query expected SELECT solutions".to_string()),
+    };
+    let mut records: Vec<ChamberRecord> = Vec::new();
+    for sol in solutions {
+        let sol = sol.map_err(|e| format!("chamber listing row: {e}"))?;
+        let subject = match sol.get("s") {
+            Some(oxigraph::model::Term::NamedNode(n)) => n.as_str().to_string(),
+            _ => continue,
+        };
+        if records.iter().any(|r| r.subject == subject) {
+            continue;
+        }
+        let text = |var: &str| sol.get(var).and_then(|t| literal_value(t).ok());
+        let iri = |var: &str| match sol.get(var) {
+            Some(oxigraph::model::Term::NamedNode(n)) => Some(n.as_str().to_string()),
+            Some(oxigraph::model::Term::Literal(l)) => Some(l.value().to_string()),
+            _ => None,
+        };
+        let (Some(name), Some(version), Some(status), Some(contract_json)) =
+            (text("name"), text("version"), text("status"), text("json"))
+        else {
+            continue;
+        };
+        records.push(ChamberRecord {
+            subject,
+            name,
+            version,
+            status,
+            contract_json,
+            supersedes: iri("sup"),
+            superseded_by: iri("supBy"),
+        });
+    }
+    Ok(records)
+}
+
+/// Resolve ONE version of a chamber ontology: `"latest"` is the active record
+/// ([`resolve_chamber_ontology`]); any other string is that exact
+/// `chm:ontologyVersion`, active OR superseded, so a pinned version stays
+/// readable after a new one supersedes it. `Ok(None)` when there is none.
+pub(crate) fn resolve_chamber_ontology_version(
+    store: &Store,
+    graph_id: &str,
+    ontology_name: &str,
+    version: &str,
+) -> Result<Option<ResolvedOntology>, String> {
+    if version == "latest" {
+        return resolve_chamber_ontology(store, graph_id, ontology_name);
+    }
+    let Some(record) = list_chamber_ontologies(store, graph_id)?
+        .into_iter()
+        .find(|r| r.name == ontology_name && r.version == version)
+    else {
+        return Ok(None);
+    };
+    let contract: VocabularyContract =
+        serde_json::from_str(&record.contract_json).map_err(|e| {
+            format!(
+                "chamber ontology <{}> chm:contractJson does not parse to a VocabularyContract: {e}",
+                record.subject
+            )
+        })?;
+    Ok(Some(ResolvedOntology {
+        contract,
+        subject: record.subject,
+        version: record.version,
+        contract_json: record.contract_json,
+    }))
+}
+
 /// Resolve the [`VocabularyContract`] an ingest's `vocab` names — the TWO-TIER
 /// (A ⊂ B) resolver the CHAMBER instance path uses. Tries the EMBEDDED registry
 /// FIRST ([`get_vocabulary`]); on a miss, falls back to the agent's RUNTIME

@@ -391,6 +391,8 @@ mod source_sync;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod document_kind_store_tests;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
+mod typed_objects_tests;
+#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod workflow_plan_tests;
 mod sparql_admission;
 mod sparql_cursor;

@@ -210,7 +210,7 @@ pub(super) async fn mcp_local_workflow_plan_compose(
         .get("moves")
         .filter(|moves| moves.as_array().is_some_and(|moves| !moves.is_empty()))
         .ok_or_else(|| AppError::validation("moves is required: a non-empty list of moves"))?;
-    let moves = moves_value
+    let mut moves = moves_value
         .as_array()
         .into_iter()
         .flatten()
@@ -218,6 +218,7 @@ pub(super) async fn mcp_local_workflow_plan_compose(
         .map(|(index, value)| parse_move(index + 1, value))
         .collect::<Result<Vec<_>, _>>()
         .map_err(AppError::validation)?;
+    bind_item_classes(&app, &graph_id, &mut moves)?;
     let before = load_graph(&app, &graph_id, &names.draft)?;
     let (after, operations) = apply_moves(&names, &before, &moves).map_err(AppError::validation)?;
     let before_set: HashSet<&Triple> = before.iter().collect();
@@ -230,6 +231,55 @@ pub(super) async fn mcp_local_workflow_plan_compose(
     update.push_str(&insert_data(&names.authoring, &event));
     run_update(&app, &graph_id, update).await?;
     read_result(&app, &graph_id, &names).await
+}
+
+/// Resolve each step move's `itemClass` against this graph's types (D4): a
+/// known class becomes its IRI, its `<vocab>@<version>` pin and its derived
+/// JSON Schema; an unknown one keeps the IRI it names, so the move is still
+/// accepted and the report says the class is not a type of this graph.
+fn bind_item_classes(app: &AppHandle, graph_id: &str, moves: &mut [Move]) -> AppResult<()> {
+    if !moves
+        .iter()
+        .any(|m| matches!(m, Move::UpsertStep(step) if step.item_class.is_some()))
+    {
+        return Ok(());
+    }
+    let store = graph_store(app, graph_id)?;
+    for (index, change) in moves.iter_mut().enumerate() {
+        let Move::UpsertStep(step) = change else {
+            continue;
+        };
+        let Some(reference) = &step.item_class else {
+            continue;
+        };
+        let resolved =
+            crate::emporium::type_catalog::resolve_class_reference(&store, graph_id, reference)
+                .map_err(|error| {
+                    AppError::validation(format!("move {} (upsert_step): {error}", index + 1))
+                })?;
+        step.item_binding = Some(match resolved {
+            crate::emporium::type_catalog::ClassReference::Known(class) => ItemClassBinding {
+                iri: class.iri.clone(),
+                pin: Some(class.pin()),
+                schema: Some(class.json_schema().to_string()),
+            },
+            crate::emporium::type_catalog::ClassReference::Unknown { iri } => ItemClassBinding {
+                iri,
+                pin: None,
+                schema: None,
+            },
+        });
+    }
+    Ok(())
+}
+
+fn graph_store(
+    app: &AppHandle,
+    graph_id: &str,
+) -> AppResult<std::sync::Arc<oxigraph::store::Store>> {
+    let graph_dir =
+        crate::graph_paths::existing_graph_dir(app, graph_id).map_err(AppError::storage)?;
+    crate::rdf_service::open_graph_store(&graph_dir).map_err(AppError::rdf)
 }
 
 /// One finding a person may publish (Shrubbery's `publishableFindings`): an
@@ -277,10 +327,54 @@ fn block_id_shaped(id: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | ':' | '-'))
 }
 
-/// An item's finding. One whose JSON names no `documentId` (none, null or
+/// Which keys of an item Publish reads (D2 `presentation.roles`): by default
+/// the convention `quote`, `note`, `documentId`, `blockId`; a class that
+/// declares roles names its own keys for each.
+#[derive(Debug, Clone)]
+struct FindingKeys {
+    quote: String,
+    note: String,
+    document: String,
+    block: String,
+}
+
+impl Default for FindingKeys {
+    fn default() -> Self {
+        Self {
+            quote: "quote".into(),
+            note: "note".into(),
+            document: "documentId".into(),
+            block: "blockId".into(),
+        }
+    }
+}
+
+impl FindingKeys {
+    /// The class's roles over the convention, role by role.
+    fn of(roles: &crate::emporium::contract::PresentationRoles) -> Self {
+        let default = Self::default();
+        Self {
+            quote: roles.quote.clone().unwrap_or(default.quote),
+            note: roles.note.clone().unwrap_or(default.note),
+            document: roles.document.clone().unwrap_or(default.document),
+            block: roles.block.clone().unwrap_or(default.block),
+        }
+    }
+
+    fn is_role(&self, key: &str) -> bool {
+        key == self.quote || key == self.note || key == self.document || key == self.block
+    }
+}
+
+/// An item's finding. One whose JSON names no document (none, null or
 /// empty) is about `fallback`, the destination's document, when there is one;
 /// one with no note says its other fields instead (`composed_note`).
-fn finding_of(index: i64, json: &str, fallback: Option<&str>) -> Option<Finding> {
+fn finding_of(
+    index: i64,
+    json: &str,
+    fallback: Option<&str>,
+    keys: &FindingKeys,
+) -> Option<Finding> {
     let value: Value = serde_json::from_str(json).ok()?;
     let text = |key: &str| {
         value
@@ -290,7 +384,7 @@ fn finding_of(index: i64, json: &str, fallback: Option<&str>) -> Option<Finding>
             .filter(|text| !text.is_empty())
             .map(str::to_string)
     };
-    let document_id = match value.get("documentId") {
+    let document_id = match value.get(keys.document.as_str()) {
         None | Some(Value::Null) => fallback?,
         Some(Value::String(id)) if id.trim().is_empty() => fallback?,
         Some(Value::String(id)) => id.as_str(),
@@ -302,10 +396,10 @@ fn finding_of(index: i64, json: &str, fallback: Option<&str>) -> Option<Finding>
     Some(Finding {
         index,
         document_id: document_id.to_string(),
-        quote: text("quote")?,
-        note: text("note").or_else(|| composed_note(&value))?,
+        quote: text(&keys.quote)?,
+        note: text(&keys.note).or_else(|| composed_note(&value, keys))?,
         block_id: value
-            .get("blockId")
+            .get(keys.block.as_str())
             .and_then(Value::as_str)
             .filter(|block| !block.is_empty())
             .map(str::to_string),
@@ -319,11 +413,11 @@ fn finding_of(index: i64, json: &str, fallback: Option<&str>) -> Option<Finding>
 /// item whose only text is its quote has none. Shrubbery's `composedNote`
 /// (`cell/graph-plan.ts`) is the same rule, so what the workflow pane offers
 /// to publish is what this writes.
-fn composed_note(item: &Value) -> Option<String> {
+fn composed_note(item: &Value, keys: &FindingKeys) -> Option<String> {
     let parts: Vec<String> = item
         .as_object()?
         .iter()
-        .filter(|(key, _)| !matches!(key.as_str(), "quote" | "documentId" | "blockId" | "note"))
+        .filter(|(key, _)| !keys.is_role(key))
         .filter_map(|(key, value)| {
             let value = value.as_str()?.trim();
             (!value.is_empty()).then(|| format!("{}: {value}", key_as_words(key)))
@@ -466,6 +560,24 @@ pub(super) async fn mcp_local_workflow_plan_publish(
         })?,
     };
     let fallback = destination.and_then(|destination| destination.document_id.as_deref());
+    // A class-bound collection publishes by its class's roles (D2), falling
+    // back to the key convention role by role.
+    let keys = match collection_classes(&draft).get(&collection) {
+        Some(binding) => {
+            let store = graph_store(&app, &graph_id)?;
+            crate::emporium::type_catalog::resolve_pinned_class(
+                &store,
+                &graph_id,
+                &binding.class,
+                binding.pin.as_deref(),
+            )
+            .map_err(AppError::internal)?
+            .and_then(|class| class.class().presentation.clone())
+            .map(|presentation| FindingKeys::of(&presentation.roles))
+            .unwrap_or_default()
+        }
+        None => FindingKeys::default(),
+    };
     let run_triples = load_graph(&app, &graph_id, &run_graph)?;
     let run = Plan::new(&run_triples);
     let Some(run_node) = run.typed("GraphPlanRun").first().copied() else {
@@ -492,7 +604,7 @@ pub(super) async fn mcp_local_workflow_plan_publish(
     for (position, item) in &items {
         let finding = run
             .literal(item, &format!("{WF}json"))
-            .and_then(|json| finding_of(position + 1, json, fallback));
+            .and_then(|json| finding_of(position + 1, json, fallback, &keys));
         let Some(finding) = finding else {
             skipped += 1;
             continue;
@@ -718,14 +830,220 @@ pub(super) async fn mcp_local_workflow_run_record(
         )));
     }
     let run_graph = names.run_graph(&run_id);
-    let triples = run_record_triples(&run_graph, turtle).map_err(AppError::validation)?;
+    let mut triples = run_record_triples(&run_graph, turtle).map_err(AppError::validation)?;
+    // Typed items (D5): the items of a class-bound collection gain their
+    // class's triples, or are marked unfit, in this same transaction.
+    let draft = load_graph(&app, &graph_id, &names.draft)?;
+    let classes = collection_classes(&draft);
+    let mut typing = None;
+    if !classes.is_empty() {
+        let store = graph_store(&app, &graph_id)?;
+        let typed = typed_item_triples(&store, &graph_id, &run_graph, &triples, &classes)?;
+        let mut seen: HashSet<Triple> = triples.iter().cloned().collect();
+        for triple in typed.triples {
+            if seen.insert(triple.clone()) {
+                triples.push(triple);
+            }
+        }
+        typing = Some((typed.typed, typed.unfit));
+    }
     let mut update = format!("CLEAR SILENT GRAPH <{run_graph}>");
     if !triples.is_empty() {
         update.push_str(" ;\n");
         update.push_str(&insert_data(&run_graph, &triples));
     }
     run_update(&app, &graph_id, update).await?;
-    Ok(json!({ "graph": run_graph, "triples": triples.len() }))
+    let mut result = json!({ "graph": run_graph, "triples": triples.len() });
+    if let Some((typed, unfit)) = typing {
+        result["typed"] = json!(typed);
+        result["unfit"] = json!(unfit);
+    }
+    Ok(result)
+}
+
+/// What typing a run's items adds (D5).
+struct TypedItems {
+    triples: Vec<Triple>,
+    typed: usize,
+    unfit: usize,
+}
+
+/// For each `wf:Item` of a class-bound collection: its `wf:json` mapped to
+/// the class's triples through the class contract (strict coercion, nested
+/// values as child nodes under the item, the derived shapes as the gate),
+/// `wf:itemVocab` (the pin it was typed at), and testimony: `wf:producedBy`
+/// (the being the run cast for the step whose class it is, from `<run#step-n>
+/// wf:castAgent`: for a check's items the maker, never the checker), for a
+/// checked collection `wf:checkedBy` (the checker's being), and
+/// `prov:generatedAtTime` (the item's own, else the run's
+/// `prov:endedAtTime`, else now). An item that does not fit is `a wf:Unfit`
+/// with `wf:itemClass` (the class it was meant to be) and one `wf:violation`
+/// per problem, never dropped. Every subject is the item or a node under it,
+/// so all of it stays in the run's namespace.
+fn typed_item_triples(
+    store: &oxigraph::store::Store,
+    graph_id: &str,
+    run_graph: &str,
+    run_triples: &[Triple],
+    classes: &BTreeMap<String, CollectionClass>,
+) -> AppResult<TypedItems> {
+    use crate::emporium::type_catalog::{project_item, resolve_pinned_class, term_to_oxigraph};
+    let run = Plan::new(run_triples);
+    let p = |name: &str| format!("{WF}{name}");
+    let generated = format!("{PROV}generatedAtTime");
+    // step IRI → the being cast for it.
+    let cast: BTreeMap<&str, &str> = run
+        .typed("StepRun")
+        .into_iter()
+        .filter_map(|step_run| {
+            Some((
+                run.iri_of(step_run, &p("step"))?,
+                run.iri_of(step_run, &p("castAgent"))?,
+            ))
+        })
+        .collect();
+    let ended = run
+        .typed("GraphPlanRun")
+        .first()
+        .and_then(|node| {
+            run.values(node, &format!("{PROV}endedAtTime"))
+                .first()
+                .copied()
+        })
+        .and_then(|term| match term {
+            Term::Literal(literal) => Some(literal.clone()),
+            _ => None,
+        });
+    let now = Literal::new_typed_literal(
+        chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        NamedNode::new_unchecked(XSD_DATE_TIME),
+    );
+    let mut contracts: BTreeMap<&str, Option<crate::emporium::type_catalog::ResolvedClass>> =
+        BTreeMap::new();
+    for (collection, binding) in classes {
+        let resolved =
+            resolve_pinned_class(store, graph_id, &binding.class, binding.pin.as_deref())
+                .map_err(AppError::internal)?;
+        contracts.insert(collection.as_str(), resolved);
+    }
+    let mut out = TypedItems {
+        triples: Vec::new(),
+        typed: 0,
+        unfit: 0,
+    };
+    let in_run = |iri: &str| {
+        iri.strip_prefix(run_graph)
+            .is_some_and(|rest| rest.starts_with('#'))
+    };
+    for item in run.typed("Item") {
+        let Some(collection) = run.iri_of(item, &p("inCollection")) else {
+            continue;
+        };
+        let Some(binding) = classes.get(collection) else {
+            continue;
+        };
+        let subject = NamedNode::new_unchecked(item.to_string());
+        let resolved = contracts.get(collection).cloned().flatten();
+        let projected: Result<Vec<Triple>, Vec<String>> =
+            match (&resolved, run.literal(item, &p("json"))) {
+                (None, _) => Err(vec![format!(
+                    "the class {} ({}) is not a type of this graph",
+                    binding.class,
+                    binding.pin.as_deref().unwrap_or("no version pinned")
+                )]),
+                (Some(_), None) => Err(vec!["the item has no wf:json".to_string()]),
+                (Some(class), Some(json)) => match serde_json::from_str::<Value>(json) {
+                    Err(error) => Err(vec![format!("wf:json is not JSON: {error}")]),
+                    Ok(value) => {
+                        project_item(&class.contract, &class.class_name, item, &value, run_graph)
+                            .map(|projection| {
+                                projection
+                                    .into_iter()
+                                    .map(|(s, p, o)| {
+                                        Triple::new(
+                                            NamedNode::new_unchecked(s),
+                                            NamedNode::new_unchecked(p),
+                                            term_to_oxigraph(&o),
+                                        )
+                                    })
+                                    .collect()
+                            })
+                    }
+                },
+            };
+        match projected {
+            Ok(triples) => {
+                if let Some(stray) = triples.iter().find_map(|t| {
+                    subject_iri(t).filter(|s| *s != item && !s.starts_with(&format!("{item}/")))
+                }) {
+                    return Err(AppError::internal(format!(
+                        "typing {item} produced a triple about {stray}, outside the item"
+                    )));
+                }
+                out.triples.extend(triples);
+                out.typed += 1;
+            }
+            Err(violations) => {
+                out.triples.push(Triple::new(
+                    subject.clone(),
+                    iri(RDF_TYPE),
+                    iri(&p("Unfit")),
+                ));
+                out.triples.push(Triple::new(
+                    subject.clone(),
+                    iri(&p("itemClass")),
+                    NamedNode::new_unchecked(binding.class.clone()),
+                ));
+                for violation in violations {
+                    out.triples.push(Triple::new(
+                        subject.clone(),
+                        iri(&p("violation")),
+                        text(&violation),
+                    ));
+                }
+                out.unfit += 1;
+            }
+        }
+        if let Some(pin) = resolved
+            .as_ref()
+            .map(|class| class.pin())
+            .or(binding.pin.clone())
+        {
+            out.triples.push(Triple::new(
+                subject.clone(),
+                iri(&p("itemVocab")),
+                text(&pin),
+            ));
+        }
+        if run.values(item, &p("producedBy")).is_empty() {
+            if let Some(agent) = cast.get(binding.origin.as_str()) {
+                out.triples.push(Triple::new(
+                    subject.clone(),
+                    iri(&p("producedBy")),
+                    NamedNode::new_unchecked(agent.to_string()),
+                ));
+            }
+        }
+        // A check passed it on: the maker made it, the checker checked it.
+        if binding.producer != binding.origin && run.values(item, &p("checkedBy")).is_empty() {
+            if let Some(checker) = cast.get(binding.producer.as_str()) {
+                out.triples.push(Triple::new(
+                    subject.clone(),
+                    iri(&p("checkedBy")),
+                    NamedNode::new_unchecked(checker.to_string()),
+                ));
+            }
+        }
+        if run.values(item, &generated).is_empty() {
+            out.triples.push(Triple::new(
+                subject.clone(),
+                iri(&generated),
+                ended.clone().unwrap_or_else(|| now.clone()),
+            ));
+        }
+        debug_assert!(in_run(item));
+    }
+    Ok(out)
 }
 
 /// The distinct triples of `turtle`, each about the run whose graph is
@@ -792,9 +1110,7 @@ async fn run_update(app: &AppHandle, graph_id: &str, update: String) -> AppResul
 }
 
 fn load_graph(app: &AppHandle, graph_id: &str, graph_iri: &str) -> AppResult<Vec<Triple>> {
-    let graph_dir =
-        crate::graph_paths::existing_graph_dir(app, graph_id).map_err(AppError::storage)?;
-    let store = crate::rdf_service::open_graph_store(&graph_dir).map_err(AppError::rdf)?;
+    let store = graph_store(app, graph_id)?;
     let graph =
         NamedNode::new(graph_iri).map_err(|error| AppError::validation(error.to_string()))?;
     store
@@ -823,6 +1139,14 @@ async fn read_result(app: &AppHandle, graph_id: &str, names: &PlanNames) -> AppR
         }
     }
     let mut result = plan_view(&draft, names);
+    for problem in item_class_views(app, graph_id, &draft, &mut result)? {
+        if !problems
+            .iter()
+            .any(|known| known.message == problem.message)
+        {
+            problems.push(problem);
+        }
+    }
     for source in result["sources"].as_array_mut().into_iter().flatten() {
         let title = source["documentId"]
             .as_str()
@@ -842,6 +1166,106 @@ async fn read_result(app: &AppHandle, graph_id: &str, names: &PlanNames) -> AppR
     });
     result["authoring"] = json!({ "recent": recent_events(&authoring) });
     Ok(result)
+}
+
+/// What only this cell can see about the steps' classes (D4): each
+/// class-bound step's `itemClass` becomes the class's catalogue view (label,
+/// plural, fields) or `{iri, known: false}`; `collections` lists every
+/// collection a step produces, with the class of its items (a check's items
+/// are the class of what it checks); and a class this graph does not have, or
+/// a pin it does not have, is a problem (source "types").
+fn item_class_views(
+    app: &AppHandle,
+    graph_id: &str,
+    draft: &[Triple],
+    result: &mut Value,
+) -> AppResult<Vec<Problem>> {
+    let plan = Plan::new(draft);
+    let p = |name: &str| format!("{WF}{name}");
+    let steps = plan.typed("AgentNode");
+    let classes = collection_classes(draft);
+    let bound: Vec<(&str, &str, Option<&str>)> = steps
+        .iter()
+        .filter_map(|step| {
+            let class = plan.iri_of(step, &p("itemClass"))?;
+            Some((*step, class, plan.literal(step, &p("itemVocab"))))
+        })
+        .collect();
+    let mut problems = Vec::new();
+    let mut views: BTreeMap<String, Value> = BTreeMap::new();
+    if !bound.is_empty() {
+        let store = graph_store(app, graph_id)?;
+        for (step, class, pin) in &bound {
+            let found =
+                crate::emporium::type_catalog::resolve_pinned_class(&store, graph_id, class, *pin)
+                    .map_err(AppError::internal)?;
+            let view = match found {
+                Some(resolved) => resolved.summary(),
+                None => {
+                    let now = crate::emporium::type_catalog::resolve_class_iri(
+                        &store, graph_id, class, false,
+                    )
+                    .map_err(AppError::internal)?;
+                    let message = match (now, pin) {
+                        (Some(_), Some(pin)) => format!(
+                            "{}'s wf:itemVocab names {pin}, which this graph does not define",
+                            local_id(step)
+                        ),
+                        _ => format!(
+                            "{}'s wf:itemClass names {}, which is not a type of this graph",
+                            local_id(step),
+                            local_id(class)
+                        ),
+                    };
+                    problems.push(Problem {
+                        focus: step.to_string(),
+                        message,
+                        source: "types",
+                    });
+                    json!({ "iri": class, "known": false })
+                }
+            };
+            views.insert(step.to_string(), view);
+        }
+        let fill = |list: &mut Value| {
+            for step in list.as_array_mut().into_iter().flatten() {
+                let Some(id) = step["id"].as_str().map(str::to_string) else {
+                    continue;
+                };
+                if let Some((_, view)) = views.iter().find(|(iri, _)| local_id(iri) == id) {
+                    step["itemClass"] = view.clone();
+                }
+            }
+        };
+        for phase in result["phases"].as_array_mut().into_iter().flatten() {
+            fill(&mut phase["steps"]);
+        }
+        if let Some(unplaced) = result.get_mut("unplacedSteps") {
+            fill(unplaced);
+        }
+    }
+    let collections: Vec<Value> = steps
+        .iter()
+        .filter_map(|step| {
+            let produces = plan.iri_of(step, &p("produces"))?;
+            let mut entry = json!({ "id": local_id(produces), "producedBy": local_id(step) });
+            if let Some(class) = classes.get(produces) {
+                let view = views
+                    .get(&class.origin)
+                    .cloned()
+                    .unwrap_or_else(|| json!({ "iri": class.class }));
+                entry["itemClass"] = json!({
+                    "iri": class.class,
+                    "label": view.get("label").cloned().unwrap_or(Value::Null),
+                    "plural": view.get("plural").cloned().unwrap_or(Value::Null),
+                    "known": view.get("known").cloned().unwrap_or(json!(true)),
+                });
+            }
+            Some(entry)
+        })
+        .collect();
+    result["collections"] = json!(collections);
+    Ok(problems)
 }
 
 /// What only this cell can see about the documents the plan's sources and
@@ -984,8 +1408,24 @@ struct StepMove {
     checks: Option<String>,
     produces: Option<String>,
     item_schema: Option<String>,
+    /// `itemClass` as given: a class IRI or `<vocab>:<Class>` (D4).
+    item_class: Option<String>,
+    /// What `item_class` resolved to in this graph's types, filled in before
+    /// the moves apply (compose has the store; `apply_moves` does not).
+    item_binding: Option<ItemClassBinding>,
     /// The sources it reads (`wf:reads`), in the order given, each once.
     reads: Vec<String>,
+}
+
+/// A step's class, as compose writes it (D4): `wf:itemClass <iri>`, and for a
+/// class this graph has, `wf:itemVocab "<vocab>@<version>"` (the pin) and
+/// `wf:itemSchema` (its derived JSON Schema, replacing any hand schema). An
+/// unknown class keeps only its IRI, which the report then names.
+#[derive(Debug, Clone)]
+struct ItemClassBinding {
+    iri: String,
+    pin: Option<String>,
+    schema: Option<String>,
 }
 
 /// A `wf:Source`: a document, or the blocks of one from `from_block`
@@ -1037,6 +1477,7 @@ fn parse_move(index: usize, value: &Value) -> Result<Move, String> {
             "checks",
             "produces",
             "itemSchema",
+            "itemClass",
             "reads",
         ],
         "upsert_source" => &["op", "id", "label", "documentId", "fromBlock", "toBlock"],
@@ -1165,6 +1606,23 @@ fn parse_move(index: usize, value: &Value) -> Result<Move, String> {
                     ))
                 }
             };
+            let item_class = match object.get("itemClass") {
+                None | Some(Value::Null) => None,
+                Some(Value::String(class)) if !class.trim().is_empty() => {
+                    Some(class.trim().to_string())
+                }
+                Some(_) => {
+                    return Err(format!(
+                        "{at}: itemClass must be a class: its IRI or <vocab>:<Class> \
+                         (e.g. \"workspace:DreamReport\")"
+                    ))
+                }
+            };
+            if item_class.is_some() && item_schema.is_some() {
+                return Err(format!(
+                    "{at}: give itemClass or itemSchema, not both; a class derives its item schema"
+                ));
+            }
             Move::UpsertStep(StepMove {
                 id: id_field("id")?,
                 phase: id_field("phase")?,
@@ -1177,6 +1635,8 @@ fn parse_move(index: usize, value: &Value) -> Result<Move, String> {
                 checks: optional_id("checks")?,
                 produces: optional_id("produces")?,
                 item_schema,
+                item_class,
+                item_binding: None,
                 reads,
             })
         }
@@ -1413,8 +1873,25 @@ fn apply_moves(
                         node_term(produces),
                     ));
                 }
-                if let Some(schema) = &step.item_schema {
-                    added.push(Triple::new(subject.clone(), p("itemSchema"), text(schema)));
+                match &step.item_binding {
+                    Some(binding) => {
+                        added.push(Triple::new(
+                            subject.clone(),
+                            p("itemClass"),
+                            NamedNode::new_unchecked(binding.iri.clone()),
+                        ));
+                        if let Some(pin) = &binding.pin {
+                            added.push(Triple::new(subject.clone(), p("itemVocab"), text(pin)));
+                        }
+                        if let Some(schema) = &binding.schema {
+                            added.push(Triple::new(subject.clone(), p("itemSchema"), text(schema)));
+                        }
+                    }
+                    None => {
+                        if let Some(schema) = &step.item_schema {
+                            added.push(Triple::new(subject.clone(), p("itemSchema"), text(schema)));
+                        }
+                    }
                 }
                 for read in &step.reads {
                     added.push(Triple::new(subject.clone(), p("reads"), node_term(read)));
@@ -1837,7 +2314,7 @@ fn step_view(plan: &Plan<'_>, step: &str) -> Value {
             .filter(Value::is_object)
             .unwrap_or_else(|| json!(schema))
     });
-    json!({
+    let mut view = json!({
         "id": local_id(step),
         "label": plan.literal(step, &p("label")),
         "agentType": plan.literal(step, &p("agentType")),
@@ -1849,7 +2326,81 @@ fn step_view(plan: &Plan<'_>, step: &str) -> Value {
         "instructions": plan.literal(step, &p("instructions")),
         "itemSchema": item_schema,
         "reads": plan.iris(step, &p("reads")).into_iter().map(local_id).collect::<Vec<_>>(),
-    })
+    });
+    // A class-bound step (D4): the class IRI here, its catalogue view filled
+    // in by `read_result`, which has the store.
+    if let Some(class) = plan.iri_of(step, &p("itemClass")) {
+        view["itemClass"] = json!({ "iri": class });
+    }
+    if let Some(pin) = plan.literal(step, &p("itemVocab")) {
+        view["itemVocab"] = json!(pin);
+    }
+    view
+}
+
+/// Which class the items of each collection are (D4/D5), by collection IRI:
+/// the producing step's `wf:itemClass` (and its pin), or, for a check, the
+/// class of the collection it checks (a check passes its items through), with
+/// the step whose class it is (`origin`, whose cast being made the items).
+#[derive(Debug, Clone)]
+struct CollectionClass {
+    producer: String,
+    origin: String,
+    class: String,
+    pin: Option<String>,
+}
+
+fn collection_classes(draft: &[Triple]) -> BTreeMap<String, CollectionClass> {
+    let plan = Plan::new(draft);
+    let p = |name: &str| format!("{WF}{name}");
+    let steps = plan.typed("AgentNode");
+    let mut classes: BTreeMap<String, CollectionClass> = BTreeMap::new();
+    for step in &steps {
+        let (Some(produces), Some(class)) = (
+            plan.iri_of(step, &p("produces")),
+            plan.iri_of(step, &p("itemClass")),
+        ) else {
+            continue;
+        };
+        classes.insert(
+            produces.to_string(),
+            CollectionClass {
+                producer: step.to_string(),
+                origin: step.to_string(),
+                class: class.to_string(),
+                pin: plan.literal(step, &p("itemVocab")).map(str::to_string),
+            },
+        );
+    }
+    // Checks inherit, through chains of checks (at most one per step).
+    for _ in 0..steps.len() {
+        let mut changed = false;
+        for step in &steps {
+            let (Some(produces), Some(checks)) = (
+                plan.iri_of(step, &p("produces")),
+                plan.iri_of(step, &p("checks")),
+            ) else {
+                continue;
+            };
+            if classes.contains_key(produces) || plan.iri_of(step, &p("itemClass")).is_some() {
+                continue;
+            }
+            if let Some(checked) = classes.get(checks).cloned() {
+                classes.insert(
+                    produces.to_string(),
+                    CollectionClass {
+                        producer: step.to_string(),
+                        ..checked
+                    },
+                );
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    classes
 }
 
 fn source_view(plan: &Plan<'_>, source: &str) -> Value {
@@ -2220,11 +2771,13 @@ fn structure_problems(triples: &[Triple], draft_iri: &str) -> Vec<Problem> {
             ));
         }
         let has_schema = !plan.values(step, &p("itemSchema")).is_empty();
+        // A class-bound step's schema is its class's; when the class is not a
+        // type of this graph, the types check names that instead.
+        let has_class = !plan.values(step, &p("itemClass")).is_empty();
         match plan.literal(step, &p("itemSchema")) {
-            None if !has_schema && checks.is_none() => problems.push(Problem::structure(
-                step,
-                format!("{short} has no wf:itemSchema"),
-            )),
+            None if !has_schema && !has_class && checks.is_none() => problems.push(
+                Problem::structure(step, format!("{short} has no wf:itemSchema")),
+            ),
             Some(schema)
                 if !serde_json::from_str::<Value>(schema)
                     .is_ok_and(|parsed| parsed.is_object()) =>

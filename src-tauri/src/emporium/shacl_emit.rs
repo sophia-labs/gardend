@@ -46,8 +46,9 @@ fn datatype_to_xsd(dt: Datatype) -> &'static str {
         Datatype::double => "http://www.w3.org/2001/XMLSchema#double",
         Datatype::boolean => "http://www.w3.org/2001/XMLSchema#boolean",
         Datatype::dateTime => "http://www.w3.org/2001/XMLSchema#dateTime",
-        // Object property — handled by the caller via sh:nodeKind, never here.
-        Datatype::uri => "http://www.w3.org/2001/XMLSchema#anyURI",
+        // Object property / nested node — handled by the caller via
+        // sh:nodeKind (and sh:node), never here.
+        Datatype::uri | Datatype::object => "http://www.w3.org/2001/XMLSchema#anyURI",
     }
 }
 
@@ -75,91 +76,9 @@ fn node_shape_iri(contract: &VocabularyContract, class_name: &str) -> String {
 /// Pure function of the contract — no I/O, no store, deterministic.
 pub(crate) fn vocab_to_shacl(contract: &VocabularyContract) -> String {
     let mut out = String::new();
-    out.push_str("@prefix sh: <http://www.w3.org/ns/shacl#> .\n");
-    out.push_str("@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .\n");
-    out.push_str("@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\n\n");
-
-    for (class_name, class) in &contract.classes {
-        // Classes with no rdf:type cannot be targeted (registry-only, never
-        // minted) — emit no shape (see module docs).
-        if class.rdf_types.is_empty() {
-            continue;
-        }
-
-        // Target ONLY the class-discriminating rdf:types — those in the
-        // contract's PRIMARY namespace (e.g. mem:SourceReference). Foreign
-        // upper-ontology types (e.g. prov:Entity) are deliberately NOT targeted:
-        // they are SHARED across classes (both SourceReference and EvidenceLink
-        // are a prov:Entity), so targeting them would make EvidenceLink's shape
-        // also fire on every SourceReference — cross-class target bleed that
-        // wrongly demands the sister class's required predicates. The primary
-        // type is the discriminator; the foreign types are still ASSERTED on the
-        // instance (and permitted by the closed shape via rdf:type), just not
-        // used as a shape target. A class with no primary-namespace rdf:type is
-        // not targetable here and emits no shape.
-        let primary_ns = contract.primary_namespace();
-        let target_types: Vec<String> = class
-            .rdf_types
-            .iter()
-            .filter_map(|t| contract.expand(t).ok())
-            .filter(|uri| uri.starts_with(primary_ns))
-            .collect();
-        if target_types.is_empty() {
-            continue;
-        }
-
-        let shape_iri = node_shape_iri(contract, class_name);
-        out.push_str(&format!("<{shape_iri}> a sh:NodeShape ;\n"));
-        for type_uri in &target_types {
-            out.push_str(&format!("    sh:targetClass <{type_uri}> ;\n"));
-        }
-
-        // Closed shape: only the declared predicates (plus rdf:type, which is
-        // structural and present on every instance) are permitted. A rogue
-        // predicate outside the contract is a violation — the SHACL image of the
-        // frozen-vocab guard.
-        out.push_str("    sh:closed true ;\n");
-        out.push_str(&format!(
-            "    sh:ignoredProperties ( <{RDF_TYPE_URI}> ) ;\n"
-        ));
-
-        for (curie, pred) in &class.predicates {
-            let path = match contract.expand(curie) {
-                Ok(uri) => uri,
-                // A predicate CURIE that does not expand is a contract bug; skip
-                // it rather than emit a syntactically-broken shape.
-                Err(_) => continue,
-            };
-            out.push_str("    sh:property [\n");
-            out.push_str(&format!("        sh:path <{path}> ;\n"));
-            match pred.datatype {
-                Datatype::uri => {
-                    // Object property — constrain to IRI nodes, not a datatype.
-                    out.push_str("        sh:nodeKind sh:IRI ;\n");
-                }
-                literal => {
-                    out.push_str(&format!(
-                        "        sh:datatype <{}> ;\n",
-                        datatype_to_xsd(literal)
-                    ));
-                }
-            }
-            if pred.required {
-                out.push_str("        sh:minCount 1 ;\n");
-            }
-            if !pred.multi {
-                out.push_str("        sh:maxCount 1 ;\n");
-            }
-            out.push_str("    ] ;\n");
-        }
-
-        // Terminate the shape (replace the trailing " ;\n" with " .\n").
-        if out.ends_with(" ;\n") {
-            out.truncate(out.len() - " ;\n".len());
-            out.push_str(" .\n\n");
-        } else {
-            out.push_str(".\n\n");
-        }
+    out.push_str(SHAPES_PREFIXES);
+    for class_name in contract.classes.keys() {
+        out.push_str(&class_shape_turtle(contract, class_name));
     }
 
     // Append the contract's RAW §3 shapes VERBATIM (the membrane-scoped, cross-
@@ -187,6 +106,194 @@ pub(crate) fn vocab_to_shacl(contract: &VocabularyContract) -> String {
         }
     }
 
+    out
+}
+
+const SHAPES_PREFIXES: &str = "@prefix sh: <http://www.w3.org/ns/shacl#> .\n\
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .\n\
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\n\n";
+
+const RDFS_LABEL_URI: &str = "http://www.w3.org/2000/01/rdf-schema#label";
+const RDFS_COMMENT_URI: &str = "http://www.w3.org/2000/01/rdf-schema#comment";
+
+/// A Turtle string literal for contract-authored text (labels, descriptions):
+/// oxigraph's N-Triples form, which is valid Turtle and escapes everything.
+fn turtle_text(text: &str) -> String {
+    oxigraph::model::Literal::new_simple_literal(text).to_string()
+}
+
+/// The primary-namespace type of a nested class (what `sh:class` names).
+fn nested_class_iri(contract: &VocabularyContract, class_name: &str) -> Option<String> {
+    let primary = contract.primary_namespace();
+    contract
+        .classes
+        .get(class_name)?
+        .rdf_types
+        .iter()
+        .filter_map(|t| contract.expand(t).ok())
+        .find(|uri| uri.starts_with(primary))
+}
+
+/// The shapes ONE class needs, as a standalone Turtle document: its own
+/// NodeShape and, for each nested `object` predicate, the nested class's shape
+/// (transitively), so a nested node is judged by its class's shape. What a run record
+/// validates an item against. A class with no targetable
+/// type yields only the prefixes.
+pub(crate) fn class_to_shacl(contract: &VocabularyContract, class_name: &str) -> String {
+    let mut out = String::from(SHAPES_PREFIXES);
+    let mut seen = std::collections::BTreeSet::new();
+    let mut queue = vec![class_name.to_string()];
+    while let Some(name) = queue.pop() {
+        if !seen.insert(name.clone()) {
+            continue;
+        }
+        out.push_str(&class_shape_turtle(contract, &name));
+        if let Some(class) = contract.classes.get(&name) {
+            for pred in class.predicates.values() {
+                if pred.datatype == Datatype::object {
+                    if let Some(nested) = &pred.class {
+                        queue.push(nested.clone());
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// One class's NodeShape (no prefixes), or nothing for a class with no
+/// targetable primary-namespace type (see the module docs).
+fn class_shape_turtle(contract: &VocabularyContract, class_name: &str) -> String {
+    let mut out = String::new();
+    let Some(class) = contract.classes.get(class_name) else {
+        return out;
+    };
+    // Classes with no rdf:type cannot be targeted (registry-only, never
+    // minted) — emit no shape (see module docs).
+    if class.rdf_types.is_empty() {
+        return out;
+    }
+
+    // Target ONLY the class-discriminating rdf:types — those in the
+    // contract's PRIMARY namespace (e.g. mem:SourceReference). Foreign
+    // upper-ontology types (e.g. prov:Entity) are deliberately NOT targeted:
+    // they are SHARED across classes (both SourceReference and EvidenceLink
+    // are a prov:Entity), so targeting them would make EvidenceLink's shape
+    // also fire on every SourceReference — cross-class target bleed that
+    // wrongly demands the sister class's required predicates. The primary
+    // type is the discriminator; the foreign types are still ASSERTED on the
+    // instance (and permitted by the closed shape via rdf:type), just not
+    // used as a shape target. A class with no primary-namespace rdf:type is
+    // not targetable here and emits no shape.
+    let primary_ns = contract.primary_namespace();
+    let target_types: Vec<String> = class
+        .rdf_types
+        .iter()
+        .filter_map(|t| contract.expand(t).ok())
+        .filter(|uri| uri.starts_with(primary_ns))
+        .collect();
+    if target_types.is_empty() {
+        return out;
+    }
+
+    let shape_iri = node_shape_iri(contract, class_name);
+    out.push_str(&format!("<{shape_iri}> a sh:NodeShape ;\n"));
+    for type_uri in &target_types {
+        out.push_str(&format!("    sh:targetClass <{type_uri}> ;\n"));
+    }
+    // The class's names (D2), for agents reading the shapes: non-validating.
+    if let Some(label) = class.label.as_deref().filter(|l| !l.trim().is_empty()) {
+        out.push_str(&format!(
+            "    <{RDFS_LABEL_URI}> {} ;\n",
+            turtle_text(label)
+        ));
+    }
+    if let Some(description) = class
+        .description
+        .as_deref()
+        .filter(|d| !d.trim().is_empty())
+    {
+        out.push_str(&format!(
+            "    <{RDFS_COMMENT_URI}> {} ;\n",
+            turtle_text(description)
+        ));
+    }
+
+    // Closed shape: only the declared predicates (plus rdf:type, which is
+    // structural and present on every instance) are permitted. A rogue
+    // predicate outside the contract is a violation — the SHACL image of the
+    // frozen-vocab guard.
+    out.push_str("    sh:closed true ;\n");
+    out.push_str(&format!(
+        "    sh:ignoredProperties ( <{RDF_TYPE_URI}> ) ;\n"
+    ));
+
+    for (curie, pred) in &class.predicates {
+        let path = match contract.expand(curie) {
+            Ok(uri) => uri,
+            // A predicate CURIE that does not expand is a contract bug; skip
+            // it rather than emit a syntactically-broken shape.
+            Err(_) => continue,
+        };
+        out.push_str("    sh:property [\n");
+        out.push_str(&format!("        sh:path <{path}> ;\n"));
+        // The field's names (D2): `sh:name` / `sh:description` are SHACL's own
+        // non-validating property-shape characteristics.
+        if let Some(label) = pred.label.as_deref().filter(|l| !l.trim().is_empty()) {
+            out.push_str(&format!("        sh:name {} ;\n", turtle_text(label)));
+        }
+        if let Some(description) = pred.description.as_deref().filter(|d| !d.trim().is_empty()) {
+            out.push_str(&format!(
+                "        sh:description {} ;\n",
+                turtle_text(description)
+            ));
+        }
+        match pred.datatype {
+            Datatype::uri => {
+                // Object property — constrain to IRI nodes, not a datatype.
+                out.push_str("        sh:nodeKind sh:IRI ;\n");
+            }
+            Datatype::object => {
+                // A nested node of another class of this vocabulary: a node
+                // typed with that class, which that class's own (targeted,
+                // closed) shape then judges. `sh:class` rather than `sh:node`:
+                // rudof's native engine (0.2.9 IR / 0.2.12 validation) runs a
+                // closed check with an empty allowed set over the PARENT when a
+                // closed shape's property carries `sh:node`, refusing every
+                // field of a fitting item (reproduced standalone, 2026-10-20).
+                // Nested nodes are always minted typed, so the two say the same.
+                out.push_str("        sh:nodeKind sh:BlankNodeOrIRI ;\n");
+                if let Some(nested_iri) = pred
+                    .class
+                    .as_deref()
+                    .and_then(|nested| nested_class_iri(contract, nested))
+                {
+                    out.push_str(&format!("        sh:class <{nested_iri}> ;\n"));
+                }
+            }
+            literal => {
+                out.push_str(&format!(
+                    "        sh:datatype <{}> ;\n",
+                    datatype_to_xsd(literal)
+                ));
+            }
+        }
+        if pred.required {
+            out.push_str("        sh:minCount 1 ;\n");
+        }
+        if !pred.multi {
+            out.push_str("        sh:maxCount 1 ;\n");
+        }
+        out.push_str("    ] ;\n");
+    }
+
+    // Terminate the shape (replace the trailing " ;\n" with " .\n").
+    if out.ends_with(" ;\n") {
+        out.truncate(out.len() - " ;\n".len());
+        out.push_str(" .\n\n");
+    } else {
+        out.push_str(".\n\n");
+    }
     out
 }
 

@@ -1,7 +1,7 @@
 {
-  "restSurfaceSha256": "628a6b1d60e2fcf12267e62c0d4d50e24a7efc1c92551d2aac37cb5fbbf58fc6",
-  "mcpSurfaceSha256": "d80bc2f81fbd83c5b95906936b5053741cc9ea7058f8efcd49986b765bd240fa",
-  "effectRegistrySha256": "fdc64d25fd6feea605a854f0c612c75c65a9b4b23c4c990739176f0ccd5e9659",
+  "restSurfaceSha256": "1a71ea9f522ee49b7e69ffa76cc4329886baa6de894a201efab7fe6d9d4c117e",
+  "mcpSurfaceSha256": "ed7ed6724c7529f7d53a1e2b1930347dc588825291e0ff983e78064ff5b80855",
+  "effectRegistrySha256": "d77ae2f0a8830028440bfeb8c670ec845470722729b176d4ad843b5b239d1857",
   "restGlobal": [
     "GET /api/artifacts/ingestion/approaches",
     "GET /api/artifacts/ingestion/docling/status",
@@ -62,6 +62,8 @@
     "GET /documents/{graph_id}/{document_id}/blocks",
     "GET /documents/{graph_id}/{document_id}/export",
     "GET /emporium/heads/{graph_id}",
+    "GET /emporium/vocabs/{graph_id}",
+    "GET /emporium/vocabs/{graph_id}/{name}/{version}",
     "GET /emporium/objects/{graph_id}/{vocab}/{class}",
     "GET /emporium/objects/{graph_id}/{vocab}/{class}/{address}",
     "GET /entities/{graph_id}/{entity_type}",
@@ -232,7 +234,6 @@
     "POST /v1/time-travel/{graph_id}/restores/{operation_id}/cancel": "loopback_cancel_restore_operation"
   },
   "mcpGlobal": [
-    "emporium_vocab",
     "list_artifact_kinds"
   ],
   "mcpJobGraph": [
@@ -307,6 +308,8 @@
     "edit_block_text",
     "edit_comment",
     "emporium_heads",
+    "emporium_vocab",
+    "emporium_describe",
     "emporium_list",
     "emporium_query",
     "emporium_read",

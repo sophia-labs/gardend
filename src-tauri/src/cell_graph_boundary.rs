@@ -2741,9 +2741,19 @@ mod tests {
             "notes"
         );
         assert_eq!(
-            bind("emporium_vocab", serde_json::json!({})).unwrap(),
+            bind("list_artifact_kinds", serde_json::json!({})).unwrap(),
             serde_json::json!({}),
             "a global tool is left as it is"
+        );
+        // emporium_vocab reads the graph's own types (typed objects D3), so it
+        // is graph-bound: the graph is filled in, another graph is refused.
+        assert_eq!(
+            bind("emporium_vocab", serde_json::json!({})).unwrap()["graphId"],
+            "notes"
+        );
+        assert_eq!(
+            bind("emporium_vocab", serde_json::json!({"graphId": "other"})),
+            Err(CellGraphBoundaryError::GraphMismatch)
         );
         assert_eq!(
             bind(

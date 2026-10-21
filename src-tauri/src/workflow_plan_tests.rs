@@ -12,14 +12,14 @@ use crate::mcp_dispatch_registry::{lookup, McpCallCtx};
 use serde_json::{json, Value};
 use std::sync::Arc;
 
-const GRAPH: &str = "workflow-plan";
-const WF: &str = "http://mnemosyne.dev/workflow#";
+pub(super) const GRAPH: &str = "workflow-plan";
+pub(super) const WF: &str = "http://mnemosyne.dev/workflow#";
 const FREUD_FIXTURE: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/tests/fixtures/workflow_plan/graph-plan-freud-ch1.sparql.json"
 ));
 
-fn with_graph(test: impl FnOnce(&McpCallCtx<'_>)) {
+pub(super) fn with_graph(test: impl FnOnce(&McpCallCtx<'_>)) {
     let _serial = crate::tauri_runtime::profile_env_serial()
         .lock()
         .unwrap_or_else(|e| e.into_inner());
@@ -57,18 +57,18 @@ fn with_graph(test: impl FnOnce(&McpCallCtx<'_>)) {
 }
 
 /// One `tools/call` through the registry entry, as `mcp_tool_dispatch` runs it.
-fn call(ctx: &McpCallCtx<'_>, name: &str, mut args: Value) -> Result<Value, String> {
+pub(super) fn call(ctx: &McpCallCtx<'_>, name: &str, mut args: Value) -> Result<Value, String> {
     args["graphId"] = json!(GRAPH);
     let entry = lookup(name).unwrap_or_else(|| panic!("no dispatch entry for {name}"));
     crate::app_runtime::async_runtime::block_on((entry.handler)(ctx, &args))
         .map_err(|error| error.to_string())
 }
 
-fn ok(ctx: &McpCallCtx<'_>, name: &str, args: Value) -> Value {
+pub(super) fn ok(ctx: &McpCallCtx<'_>, name: &str, args: Value) -> Value {
     call(ctx, name, args.clone()).unwrap_or_else(|error| panic!("{name} {args}: {error}"))
 }
 
-fn create(ctx: &McpCallCtx<'_>, title: &str) -> (String, Value) {
+pub(super) fn create(ctx: &McpCallCtx<'_>, title: &str) -> (String, Value) {
     let created = ok(ctx, "workflow_plan_create", json!({ "title": title }));
     let id = created["documentId"]
         .as_str()
@@ -77,7 +77,7 @@ fn create(ctx: &McpCallCtx<'_>, title: &str) -> (String, Value) {
     (id, created)
 }
 
-fn messages(read: &Value) -> Vec<String> {
+pub(super) fn messages(read: &Value) -> Vec<String> {
     read["report"]["problems"]
         .as_array()
         .unwrap_or_else(|| panic!("no report.problems: {read}"))
@@ -86,7 +86,7 @@ fn messages(read: &Value) -> Vec<String> {
         .collect()
 }
 
-fn problem<'a>(read: &'a Value, message: &str) -> &'a Value {
+pub(super) fn problem<'a>(read: &'a Value, message: &str) -> &'a Value {
     read["report"]["problems"]
         .as_array()
         .into_iter()
@@ -96,7 +96,7 @@ fn problem<'a>(read: &'a Value, message: &str) -> &'a Value {
 }
 
 /// `?s ?p ?o` of one named graph, as N-Triples terms.
-fn graph_rows(ctx: &McpCallCtx<'_>, graph: &str) -> Vec<Value> {
+pub(super) fn graph_rows(ctx: &McpCallCtx<'_>, graph: &str) -> Vec<Value> {
     let result = ok(
         ctx,
         "sparql_query",
@@ -620,9 +620,9 @@ fn the_tools_are_registered_with_scopes_in_every_source_of_truth() {
 // supervised service such as the self-host Vehicle) does not hold. The RDF
 // writes inside the tools take no second scope check.
 
-const MASTER: &str = "workflow-plan-test-master-key";
+pub(super) const MASTER: &str = "workflow-plan-test-master-key";
 
-fn loopback_state(
+pub(super) fn loopback_state(
     app: crate::app_runtime::AppHandle,
     dir: &std::path::Path,
 ) -> Arc<crate::loopback_state::LoopbackState> {
@@ -665,7 +665,7 @@ fn loopback_state(
     })
 }
 
-fn client_token(
+pub(super) fn client_token(
     app: &crate::app_runtime::AppHandle,
     grant: Option<&str>,
     scopes: Option<&[&str]>,
@@ -684,7 +684,7 @@ fn client_token(
 }
 
 /// One JSON-RPC call to `/mcp` with `token`: the result, or the error message.
-async fn rpc(
+pub(super) async fn rpc(
     state: &Arc<crate::loopback_state::LoopbackState>,
     token: &str,
     method: &str,
@@ -713,7 +713,7 @@ async fn rpc(
     }
 }
 
-async fn tool_call(
+pub(super) async fn tool_call(
     state: &Arc<crate::loopback_state::LoopbackState>,
     token: &str,
     name: &str,
@@ -886,7 +886,10 @@ fn write_run(ctx: &McpCallCtx<'_>, workflow: &str, run_id: &str, items: &[(&str,
     );
 }
 
-fn stored_comments(ctx: &McpCallCtx<'_>, document_id: &str) -> serde_json::Map<String, Value> {
+pub(super) fn stored_comments(
+    ctx: &McpCallCtx<'_>,
+    document_id: &str,
+) -> serde_json::Map<String, Value> {
     use yrs::types::ToJson;
     use yrs::{ReadTxn, Transact};
     let graph_dir = crate::graph_paths::existing_graph_dir(&ctx.app, GRAPH).unwrap();
@@ -1212,7 +1215,7 @@ fn write_book(ctx: &McpCallCtx<'_>, document_id: &str, title: &str) {
     );
 }
 
-fn step<'a>(read: &'a Value, id: &str) -> &'a Value {
+pub(super) fn step<'a>(read: &'a Value, id: &str) -> &'a Value {
     read["phases"]
         .as_array()
         .into_iter()

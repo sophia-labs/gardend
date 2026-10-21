@@ -6,7 +6,8 @@
 # (`GRAPH_PLAN_LIMITS`). What needs more than one node (reads from an earlier
 # phase, one producer per collection, the step, phase, source and destination
 # counts, a parseable item schema, the shapes of document and block ids, what
-# `wf:reads` and `wf:receives` point at) is checked in `workflow_plan_mcp.rs`.
+# `wf:reads` and `wf:receives` point at, whether `wf:itemClass` is a type of
+# this graph) is checked in `workflow_plan_mcp.rs`.
 #
 # Every property shape is named and carries one constraint, so its
 # `sh:message` can say exactly what is wrong, worded like the TS compiler.
@@ -77,6 +78,7 @@ gp:StepShape a sh:NodeShape ;
         gp:StepProducesOne , gp:StepProducesIri ,
         gp:StepChecksOne , gp:StepChecksIri ,
         gp:StepItemSchemaOne , gp:StepItemSchemaText , gp:StepItemSchemaLength ,
+        gp:StepItemClassOne , gp:StepItemClassIri , gp:StepItemVocabOne , gp:StepItemVocabText ,
         gp:StepReadsIri .
 
 gp:StepPhaseRequired a sh:PropertyShape ; sh:path wf:inPhase ; sh:minCount 1 ;
@@ -135,6 +137,18 @@ gp:StepItemSchemaText a sh:PropertyShape ; sh:path wf:itemSchema ; sh:datatype x
     sh:message "{$this}'s wf:itemSchema must be text, not {?value}" .
 gp:StepItemSchemaLength a sh:PropertyShape ; sh:path wf:itemSchema ; sh:maxLength 4000 ;
     sh:message "{$this}'s item schema is too long" .
+
+# A step that names a class (`wf:itemClass`, typed objects D4) holds one, an
+# IRI, and the `<vocab>@<version>` it was composed against (`wf:itemVocab`);
+# whether the class is a type of this graph is the cell's check.
+gp:StepItemClassOne a sh:PropertyShape ; sh:path wf:itemClass ; sh:maxCount 1 ;
+    sh:message "{$this} has more than one wf:itemClass; it needs exactly one" .
+gp:StepItemClassIri a sh:PropertyShape ; sh:path wf:itemClass ; sh:nodeKind sh:IRI ;
+    sh:message "{$this}'s wf:itemClass must be an IRI, not {?value}" .
+gp:StepItemVocabOne a sh:PropertyShape ; sh:path wf:itemVocab ; sh:maxCount 1 ;
+    sh:message "{$this} has more than one wf:itemVocab; it needs exactly one" .
+gp:StepItemVocabText a sh:PropertyShape ; sh:path wf:itemVocab ; sh:datatype xsd:string ;
+    sh:message "{$this}'s wf:itemVocab must be text, not {?value}" .
 
 gp:StepReadsIri a sh:PropertyShape ; sh:path wf:reads ; sh:nodeKind sh:IRI ;
     sh:message "{$this}'s wf:reads must be an IRI, not {?value}" .

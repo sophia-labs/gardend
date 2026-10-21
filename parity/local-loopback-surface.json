@@ -1455,6 +1455,18 @@
       "scopes": ["rdf.query"]
     },
     {
+      "method": "GET",
+      "path": "/emporium/vocabs/{graph_id}",
+      "status": "implemented-local-emporium",
+      "scopes": ["rdf.query"]
+    },
+    {
+      "method": "GET",
+      "path": "/emporium/vocabs/{graph_id}/{name}/{version}",
+      "status": "implemented-local-emporium",
+      "scopes": ["rdf.query"]
+    },
+    {
       "method": "POST",
       "path": "/emporium/objects/{graph_id}/{vocab}",
       "status": "implemented-local-emporium",
@@ -1599,6 +1611,13 @@
     },
     {
       "name": "emporium_vocab",
+      "status": "implemented",
+      "scopes": [
+        "rdf.query"
+      ]
+    },
+    {
+      "name": "emporium_describe",
       "status": "implemented",
       "scopes": [
         "rdf.query"

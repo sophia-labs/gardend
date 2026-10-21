@@ -22,6 +22,7 @@ pub(crate) mod chamber_ontology;
 pub(crate) mod class_dispatch;
 pub(crate) mod content;
 pub(crate) mod contract;
+pub(crate) mod describe;
 #[cfg(test)]
 #[path = "../datasheet_identity_tests.rs"]
 mod datasheet_identity_tests;
@@ -64,6 +65,9 @@ pub(crate) mod subject_rule;
 pub(crate) mod survey;
 pub(crate) mod sweep;
 pub(crate) mod terms;
+pub(crate) mod type_catalog;
+#[cfg(test)]
+mod type_catalog_tests;
 pub(crate) mod violation_ledger;
 pub(crate) mod vocab_routes;
 pub(crate) mod vocabs;
