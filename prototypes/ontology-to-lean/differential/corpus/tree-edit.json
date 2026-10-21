@@ -1,0 +1,314 @@
+{
+  "schema": "sophia.tree-edit-corpus.v1",
+  "note": "Draft corpus for the minimal-edit oracle (DESIGN.md §2.15). Unit U13 copies it to gardend prototypes/ontology-to-lean/differential/corpus/tree-edit.json. Each scenario: build `current` with the real builder (builder::ydoc_from_tiptap_json), build the desired fragment from `desired` (TipTap nodes) or `desiredMarkdown` (through the real write-path parser and normaliser, ids Adopt), plan with the real planner, emit with the real emitter, then check `expect` and the laws T1-T6. `keptIds`: current block ids whose Y element survives (same BranchID). `reinsertedIds`: ids present after the write on a NEW element. `summary` is PlanSummary over the top level. Byte counts are UTF-8.",
+  "scenarios": [
+    {
+      "name": "identical-zero-ops",
+      "format": "tiptapJson",
+      "ids": "bound",
+      "current": [
+        {"type": "paragraph", "attrs": {"data-block-id": "a"}, "content": [{"type": "text", "text": "Alpha"}]},
+        {"type": "paragraph", "attrs": {"data-block-id": "b"}, "content": [{"type": "text", "text": "Beta"}]}
+      ],
+      "desired": [
+        {"type": "paragraph", "attrs": {"data-block-id": "a"}, "content": [{"type": "text", "text": "Alpha"}]},
+        {"type": "paragraph", "attrs": {"data-block-id": "b"}, "content": [{"type": "text", "text": "Beta"}]}
+      ],
+      "expect": {"zeroOps": true, "keptIds": ["a", "b"], "summary": {"kept": 2, "patched": 0, "inserted": 0, "removed": 0}}
+    },
+    {
+      "name": "one-paragraph-changed",
+      "format": "tiptapJson",
+      "ids": "bound",
+      "current": [
+        {"type": "paragraph", "attrs": {"data-block-id": "a"}, "content": [{"type": "text", "text": "Alpha"}]},
+        {"type": "paragraph", "attrs": {"data-block-id": "b"}, "content": [{"type": "text", "text": "Beta"}]}
+      ],
+      "desired": [
+        {"type": "paragraph", "attrs": {"data-block-id": "a"}, "content": [{"type": "text", "text": "Alpha"}]},
+        {"type": "paragraph", "attrs": {"data-block-id": "b"}, "content": [{"type": "text", "text": "Beta prime"}]}
+      ],
+      "expect": {"keptIds": ["a", "b"], "summary": {"kept": 1, "patched": 1, "inserted": 0, "removed": 0}, "ops": {"textBytesInserted": 6, "textBytesDeleted": 0, "nodesInserted": 0, "nodesRemoved": 0}}
+    },
+    {
+      "name": "insert-at-top",
+      "format": "tiptapJson",
+      "ids": "bound",
+      "current": [
+        {"type": "paragraph", "attrs": {"data-block-id": "a"}, "content": [{"type": "text", "text": "Alpha"}]},
+        {"type": "paragraph", "attrs": {"data-block-id": "b"}, "content": [{"type": "text", "text": "Beta"}]}
+      ],
+      "desired": [
+        {"type": "heading", "attrs": {"data-block-id": "n", "level": 1}, "content": [{"type": "text", "text": "New"}]},
+        {"type": "paragraph", "attrs": {"data-block-id": "a"}, "content": [{"type": "text", "text": "Alpha"}]},
+        {"type": "paragraph", "attrs": {"data-block-id": "b"}, "content": [{"type": "text", "text": "Beta"}]}
+      ],
+      "expect": {"keptIds": ["a", "b"], "summary": {"kept": 2, "patched": 0, "inserted": 1, "removed": 0}}
+    },
+    {
+      "name": "delete-middle",
+      "format": "tiptapJson",
+      "ids": "bound",
+      "current": [
+        {"type": "paragraph", "attrs": {"data-block-id": "a"}, "content": [{"type": "text", "text": "Alpha"}]},
+        {"type": "paragraph", "attrs": {"data-block-id": "b"}, "content": [{"type": "text", "text": "Beta"}]},
+        {"type": "paragraph", "attrs": {"data-block-id": "c"}, "content": [{"type": "text", "text": "Gamma"}]}
+      ],
+      "desired": [
+        {"type": "paragraph", "attrs": {"data-block-id": "a"}, "content": [{"type": "text", "text": "Alpha"}]},
+        {"type": "paragraph", "attrs": {"data-block-id": "c"}, "content": [{"type": "text", "text": "Gamma"}]}
+      ],
+      "expect": {"keptIds": ["a", "c"], "summary": {"kept": 2, "patched": 0, "inserted": 0, "removed": 1}}
+    },
+    {
+      "name": "move-is-delete-plus-insert",
+      "format": "tiptapJson",
+      "ids": "bound",
+      "current": [
+        {"type": "paragraph", "attrs": {"data-block-id": "a"}, "content": [{"type": "text", "text": "Alpha"}]},
+        {"type": "paragraph", "attrs": {"data-block-id": "b"}, "content": [{"type": "text", "text": "Beta"}]},
+        {"type": "paragraph", "attrs": {"data-block-id": "c"}, "content": [{"type": "text", "text": "Gamma"}]}
+      ],
+      "desired": [
+        {"type": "paragraph", "attrs": {"data-block-id": "c"}, "content": [{"type": "text", "text": "Gamma"}]},
+        {"type": "paragraph", "attrs": {"data-block-id": "a"}, "content": [{"type": "text", "text": "Alpha"}]},
+        {"type": "paragraph", "attrs": {"data-block-id": "b"}, "content": [{"type": "text", "text": "Beta"}]}
+      ],
+      "expect": {"keptIds": ["a", "b"], "reinsertedIds": ["c"], "summary": {"kept": 2, "patched": 0, "inserted": 1, "removed": 1}}
+    },
+    {
+      "name": "bold-a-range",
+      "format": "tiptapJson",
+      "ids": "bound",
+      "current": [
+        {"type": "paragraph", "attrs": {"data-block-id": "a"}, "content": [{"type": "text", "text": "Hello world"}]}
+      ],
+      "desired": [
+        {"type": "paragraph", "attrs": {"data-block-id": "a"}, "content": [
+          {"type": "text", "text": "Hello "},
+          {"type": "text", "text": "world", "marks": [{"type": "bold"}]}
+        ]}
+      ],
+      "expect": {"keptIds": ["a"], "summary": {"kept": 0, "patched": 1, "inserted": 0, "removed": 0}, "ops": {"formatRanges": 1, "textBytesInserted": 0, "textBytesDeleted": 0}}
+    },
+    {
+      "name": "builder-shape-adjacent-texts-are-zero-ops",
+      "comment": "builder.rs writes one Y.XmlText per TipTap text node, so `current` holds two adjacent XmlTexts; the editor (y-tiptap) and the desired model group them. Equal content must be zero ops whatever the segmentation (1,117 of the book's 2,469 blocks have adjacent XmlTexts).",
+      "format": "tiptapJson",
+      "ids": "bound",
+      "current": [
+        {"type": "paragraph", "attrs": {"data-block-id": "a"}, "content": [
+          {"type": "text", "text": "Hello "},
+          {"type": "text", "text": "world"}
+        ]}
+      ],
+      "desired": [
+        {"type": "paragraph", "attrs": {"data-block-id": "a"}, "content": [{"type": "text", "text": "Hello world"}]}
+      ],
+      "expect": {"zeroOps": true, "keptIds": ["a"]}
+    },
+    {
+      "name": "link-schema-defaults-are-zero-ops",
+      "comment": "A link written by the editor carries the schema defaults (target _blank, rel noopener…); an agent's link names only href. Same to the editor, so zero ops.",
+      "format": "tiptapJson",
+      "ids": "bound",
+      "current": [
+        {"type": "paragraph", "attrs": {"data-block-id": "a"}, "content": [
+          {"type": "text", "text": "see", "marks": [{"type": "link", "attrs": {"href": "https://example.org", "target": "_blank", "rel": "noopener noreferrer nofollow", "class": null, "title": null}}]}
+        ]}
+      ],
+      "desired": [
+        {"type": "paragraph", "attrs": {"data-block-id": "a"}, "content": [
+          {"type": "text", "text": "see", "marks": [{"type": "link", "attrs": {"href": "https://example.org"}}]}
+        ]}
+      ],
+      "expect": {"zeroOps": true, "keptIds": ["a"]}
+    },
+    {
+      "name": "heading-level-change",
+      "format": "tiptapJson",
+      "ids": "bound",
+      "current": [
+        {"type": "heading", "attrs": {"data-block-id": "h", "level": 2}, "content": [{"type": "text", "text": "Title"}]}
+      ],
+      "desired": [
+        {"type": "heading", "attrs": {"data-block-id": "h", "level": 3}, "content": [{"type": "text", "text": "Title"}]}
+      ],
+      "expect": {"keptIds": ["h"], "ops": {"attrsSet": 1, "textBytesInserted": 0, "textBytesDeleted": 0, "nodesInserted": 0, "nodesRemoved": 0}}
+    },
+    {
+      "name": "list-indent-change",
+      "format": "tiptapJson",
+      "ids": "bound",
+      "current": [
+        {"type": "listItem", "attrs": {"data-block-id": "li", "listType": "bullet", "indent": 0}, "content": [
+          {"type": "paragraph", "attrs": {"data-block-id": "lp"}, "content": [{"type": "text", "text": "item"}]}
+        ]}
+      ],
+      "desired": [
+        {"type": "listItem", "attrs": {"data-block-id": "li", "listType": "bullet", "indent": 1}, "content": [
+          {"type": "paragraph", "attrs": {"data-block-id": "lp"}, "content": [{"type": "text", "text": "item"}]}
+        ]}
+      ],
+      "expect": {"keptIds": ["li", "lp"], "ops": {"attrsSet": 1, "nodesInserted": 0, "nodesRemoved": 0}}
+    },
+    {
+      "name": "table-cell-edit-is-nested",
+      "format": "tiptapJson",
+      "ids": "bound",
+      "current": [
+        {"type": "table", "content": [
+          {"type": "tableRow", "content": [
+            {"type": "tableCell", "attrs": {"data-block-id": "c1"}, "content": [{"type": "paragraph", "attrs": {"data-block-id": "p1"}, "content": [{"type": "text", "text": "1"}]}]},
+            {"type": "tableCell", "attrs": {"data-block-id": "c2"}, "content": [{"type": "paragraph", "attrs": {"data-block-id": "p2"}, "content": [{"type": "text", "text": "2"}]}]}
+          ]}
+        ]}
+      ],
+      "desired": [
+        {"type": "table", "content": [
+          {"type": "tableRow", "content": [
+            {"type": "tableCell", "attrs": {"data-block-id": "c1"}, "content": [{"type": "paragraph", "attrs": {"data-block-id": "p1"}, "content": [{"type": "text", "text": "1"}]}]},
+            {"type": "tableCell", "attrs": {"data-block-id": "c2"}, "content": [{"type": "paragraph", "attrs": {"data-block-id": "p2"}, "content": [{"type": "text", "text": "two"}]}]}
+          ]}
+        ]}
+      ],
+      "expect": {"keptIds": ["c1", "c2", "p1", "p2"], "summary": {"kept": 0, "patched": 1, "inserted": 0, "removed": 0}, "ops": {"nodesInserted": 0, "nodesRemoved": 0}}
+    },
+    {
+      "name": "object-embed-label-change-keeps-the-atom",
+      "format": "tiptapJson",
+      "ids": "bound",
+      "current": [
+        {"type": "objectEmbed", "attrs": {"data-block-id": "e", "iri": "urn:sophia:type:freud-dreams:workspace#DreamReport-meier", "label": "Old", "slot": "card"}}
+      ],
+      "desired": [
+        {"type": "objectEmbed", "attrs": {"data-block-id": "e", "iri": "urn:sophia:type:freud-dreams:workspace#DreamReport-meier", "label": "New", "slot": "card"}}
+      ],
+      "expect": {"keptIds": ["e"], "ops": {"attrsSet": 1, "nodesInserted": 0, "nodesRemoved": 0}}
+    },
+    {
+      "name": "hard-break-inserted-mid-text",
+      "format": "tiptapJson",
+      "ids": "bound",
+      "current": [
+        {"type": "paragraph", "attrs": {"data-block-id": "a"}, "content": [{"type": "text", "text": "line one line two"}]}
+      ],
+      "desired": [
+        {"type": "paragraph", "attrs": {"data-block-id": "a"}, "content": [
+          {"type": "text", "text": "line one"},
+          {"type": "hardBreak"},
+          {"type": "text", "text": "line two"}
+        ]}
+      ],
+      "expect": {"keptIds": ["a"], "summary": {"kept": 0, "patched": 1, "inserted": 0, "removed": 0}, "opsAtLeast": {"nodesInserted": 1}}
+    },
+    {
+      "name": "markdown-keeps-a-comment-mark",
+      "comment": "Markdown cannot carry commentMark (block-contract.v1.json: lossless false). The word keeps its comment; one character is added.",
+      "format": "markdown",
+      "ids": "adopt",
+      "current": [
+        {"type": "paragraph", "attrs": {"data-block-id": "a"}, "content": [
+          {"type": "text", "text": "Hello "},
+          {"type": "text", "text": "world", "marks": [{"type": "commentMark", "attrs": {"commentId": "c1"}}]}
+        ]}
+      ],
+      "desiredMarkdown": "Hello world!",
+      "expect": {"keptIds": ["a"], "ops": {"textBytesInserted": 1, "textBytesDeleted": 0}, "commentMarkedText": {"c1": "world"}}
+    },
+    {
+      "name": "markdown-keeps-an-unexpressible-query-block",
+      "format": "markdown",
+      "ids": "adopt",
+      "current": [
+        {"type": "paragraph", "attrs": {"data-block-id": "a"}, "content": [{"type": "text", "text": "Intro"}]},
+        {"type": "queryBlock", "attrs": {"data-block-id": "q", "query": "SELECT ?s WHERE { ?s ?p ?o } LIMIT 5"}},
+        {"type": "paragraph", "attrs": {"data-block-id": "b"}, "content": [{"type": "text", "text": "End"}]}
+      ],
+      "desiredMarkdown": "Intro\n\nEnd changed",
+      "expect": {"keptIds": ["a", "q", "b"], "summary": {"kept": 2, "patched": 1, "inserted": 0, "removed": 0}}
+    },
+    {
+      "name": "markdown-keeps-provenance-attributes",
+      "format": "markdown",
+      "ids": "adopt",
+      "current": [
+        {"type": "paragraph", "attrs": {"data-block-id": "a", "data-source-page": "12", "data-pdf-page": 12}, "content": [{"type": "text", "text": "Text"}]}
+      ],
+      "desiredMarkdown": "Text",
+      "expect": {"zeroOps": true, "keptIds": ["a"]}
+    },
+    {
+      "name": "markdown-image-keeps-an-object-embed",
+      "comment": "read_document renders an objectEmbed as `> ⧉ Class — Title <iri>` (markdown_export.rs header); sending that line back keeps the embed.",
+      "format": "markdown",
+      "ids": "adopt",
+      "current": [
+        {"type": "paragraph", "attrs": {"data-block-id": "a"}, "content": [{"type": "text", "text": "Before"}]},
+        {"type": "objectEmbed", "attrs": {"data-block-id": "e", "iri": "urn:sophia:type:freud-dreams:workspace#DreamReport-meier", "label": "Meier", "classLabel": "Dream report", "slot": "card"}}
+      ],
+      "desiredMarkdownFromCurrent": {"editBlock": "a", "newText": "Before, edited"},
+      "expect": {"keptIds": ["a", "e"], "summary": {"kept": 1, "patched": 1, "inserted": 0, "removed": 0}}
+    },
+    {
+      "name": "adopt-ids-same-structure",
+      "comment": "Ports document_ops.rs block_id_reuse_tests::reuses_existing_ids_positionally_on_same_structure.",
+      "format": "markdown",
+      "ids": "adopt",
+      "current": [
+        {"type": "paragraph", "attrs": {"data-block-id": "a"}, "content": [{"type": "text", "text": "One"}]},
+        {"type": "paragraph", "attrs": {"data-block-id": "b"}, "content": [{"type": "text", "text": "Two"}]}
+      ],
+      "desiredMarkdown": "One\n\nTwo edited",
+      "expect": {"keptIds": ["a", "b"], "summary": {"kept": 1, "patched": 1, "inserted": 0, "removed": 0}}
+    },
+    {
+      "name": "adopt-ids-append",
+      "comment": "Ports appended_blocks_keep_fresh_ids.",
+      "format": "markdown",
+      "ids": "adopt",
+      "current": [
+        {"type": "paragraph", "attrs": {"data-block-id": "a"}, "content": [{"type": "text", "text": "One"}]}
+      ],
+      "desiredMarkdown": "One\n\nTwo",
+      "expect": {"keptIds": ["a"], "summary": {"kept": 1, "patched": 0, "inserted": 1, "removed": 0}, "insertedIdsAreMinted": true}
+    },
+    {
+      "name": "bound-id-rename-keeps-the-element",
+      "format": "tiptapJson",
+      "ids": "bound",
+      "current": [
+        {"type": "paragraph", "attrs": {"data-block-id": "a"}, "content": [{"type": "text", "text": "Same"}]}
+      ],
+      "desired": [
+        {"type": "paragraph", "attrs": {"data-block-id": "z"}, "content": [{"type": "text", "text": "Same"}]}
+      ],
+      "expect": {"sameElementAs": {"z": "a"}, "ops": {"attrsSet": 1, "nodesInserted": 0, "nodesRemoved": 0, "textBytesInserted": 0}}
+    },
+    {
+      "name": "restore-states-everything",
+      "format": "restore",
+      "ids": "bound",
+      "current": [
+        {"type": "paragraph", "attrs": {"data-block-id": "a", "data-source-page": "12"}, "content": [{"type": "text", "text": "Text"}]}
+      ],
+      "desired": [
+        {"type": "paragraph", "attrs": {"data-block-id": "a"}, "content": [{"type": "text", "text": "Text"}]}
+      ],
+      "expect": {"keptIds": ["a"], "ops": {"attrsRemoved": 1, "textBytesInserted": 0}}
+    },
+    {
+      "name": "multibyte-text-offsets",
+      "comment": "The book's text has em dashes, curly quotes, umlauts; yrs offsets are UTF-8 bytes.",
+      "format": "tiptapJson",
+      "ids": "bound",
+      "current": [
+        {"type": "paragraph", "attrs": {"data-block-id": "a"}, "content": [{"type": "text", "text": "Der jüngere Strümpell — “Traum”"}]}
+      ],
+      "desired": [
+        {"type": "paragraph", "attrs": {"data-block-id": "a"}, "content": [{"type": "text", "text": "Der jüngere Strümpell — der “Traum” 🌙"}]}
+      ],
+      "expect": {"keptIds": ["a"], "ops": {"textBytesDeleted": 0}, "resultText": {"a": "Der jüngere Strümpell — der “Traum” 🌙"}}
+    }
+  ]
+}
