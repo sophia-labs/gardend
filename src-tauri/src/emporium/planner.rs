@@ -2277,7 +2277,9 @@ fn generic_value(json: &Json, datatype: crate::emporium::contract::Datatype) -> 
         return None;
     }
     Some(match datatype {
-        Datatype::uri => Value::Uri(
+        // The generic lane takes no nested object (it is not a node minter):
+        // an `object` value there is the IRI of the node, as for `uri`.
+        Datatype::uri | Datatype::object => Value::Uri(
             json.as_str()
                 .map(str::to_string)
                 .unwrap_or_else(|| json.to_string()),
@@ -2314,6 +2316,80 @@ fn generic_value(json: &Json, datatype: crate::emporium::contract::Datatype) -> 
             }
         }
     })
+}
+
+/// [`generic_value`] for testimony that must not be quietly repaired: the same
+/// coercion, but a value it would silently turn into something else is an
+/// error naming what was expected (a number that does not parse would become
+/// 0, a non-boolean `false`, an object or a list its JSON text, an IRI that is
+/// not absolute an invalid-IRI placeholder). `Ok(None)` for JSON `null`.
+/// `object` is not a scalar: the caller maps nested values itself.
+pub(crate) fn generic_value_strict(
+    json: &Json,
+    datatype: crate::emporium::contract::Datatype,
+) -> Result<Option<Value>, String> {
+    use crate::emporium::contract::Datatype;
+    if json.is_null() {
+        return Ok(None);
+    }
+    let what = |expected: &str| format!("expected {expected}, got {json}");
+    let fits = match datatype {
+        Datatype::string => json.is_string() || json.is_number() || json.is_boolean(),
+        Datatype::uri => json
+            .as_str()
+            .is_some_and(|iri| oxigraph::model::NamedNode::new(iri).is_ok() && (iri.contains(':'))),
+        Datatype::integer | Datatype::long => {
+            json.as_i64().is_some()
+                || json
+                    .as_f64()
+                    .is_some_and(|f| f.fract() == 0.0 && f.is_finite())
+                || json
+                    .as_str()
+                    .is_some_and(|s| s.trim().parse::<i64>().is_ok())
+        }
+        Datatype::double | Datatype::float => {
+            json.as_f64().is_some_and(f64::is_finite)
+                || json
+                    .as_str()
+                    .is_some_and(|s| s.trim().parse::<f64>().is_ok_and(f64::is_finite))
+        }
+        Datatype::boolean => json.is_boolean(),
+        Datatype::dateTime => {
+            json.as_i64().is_some()
+                || json
+                    .as_str()
+                    .is_some_and(|s| chrono::DateTime::parse_from_rfc3339(s.trim()).is_ok())
+        }
+        Datatype::object => return Err(what("a nested object")),
+    };
+    if !fits {
+        return Err(what(match datatype {
+            Datatype::string => "text",
+            Datatype::uri => "an absolute IRI",
+            Datatype::integer | Datatype::long => "a whole number",
+            Datatype::double | Datatype::float => "a number",
+            Datatype::boolean => "true or false",
+            Datatype::dateTime => "an ISO 8601 date-time",
+            Datatype::object => "a nested object",
+        }));
+    }
+    // Trim numeric text so `generic_value`'s parse sees what was checked.
+    let trimmed;
+    let json = match (datatype, json.as_str()) {
+        (
+            Datatype::integer
+            | Datatype::long
+            | Datatype::double
+            | Datatype::float
+            | Datatype::dateTime,
+            Some(text),
+        ) => {
+            trimmed = Json::String(text.trim().to_string());
+            &trimmed
+        }
+        _ => json,
+    };
+    Ok(generic_value(json, datatype))
 }
 
 /// Resolve a record field key against a class predicate CURIE: a field matches if
@@ -2467,6 +2543,24 @@ pub(crate) fn plan_generic_compute(
             let Some(raw) = field_for_predicate(&record.fields, curie) else {
                 continue; // absent — render_class_triples enforces required-ness.
             };
+            // A nested object (`datatype: "object"`) is written by the workflow
+            // run record, which mints the child node under its item; this lane
+            // takes only the IRI of an existing node for it. A JSON object here
+            // would otherwise stringify into an invalid IRI: refuse it loudly.
+            if pspec.datatype == crate::emporium::contract::Datatype::object {
+                let nested = match raw {
+                    Json::Array(arr) => arr.iter().any(|v| !v.is_string() && !v.is_null()),
+                    other => !other.is_string() && !other.is_null(),
+                };
+                if nested {
+                    return Err(PlanError(format!(
+                        "generic record [{idx}] ({class_name}): {curie} is a nested {} object; \
+                         emporium_write takes the IRI of an existing node for it, not the object \
+                         itself (nested values are minted by workflow_run_record)",
+                        pspec.class.as_deref().unwrap_or("?")
+                    )));
+                }
+            }
             if pspec.multi {
                 // A multi predicate accepts a JSON array (one value per element) or
                 // a lone scalar (a single-element list).

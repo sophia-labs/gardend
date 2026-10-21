@@ -211,7 +211,9 @@ pub(crate) enum Value {
 /// `term_for` for the shapes the mint actually feeds it.
 pub(crate) fn term_for(value: &Value, datatype: Datatype) -> Term {
     match datatype {
-        Datatype::uri => match value {
+        // A nested object's node is named by an IRI, minted by the caller
+        // (`<parent>/<key>`); as a term it is an IRI like any reference.
+        Datatype::uri | Datatype::object => match value {
             Value::Placeholder(name) => Term::Placeholder(name.clone()),
             Value::Uri(s) | Value::Str(s) => Term::Uri(NamedNode::new(s).unwrap_or_else(|_| {
                 NamedNode::new("urn:wf-emit:invalid-uri").expect("fallback IRI is valid")

@@ -42,6 +42,30 @@ pub(crate) enum Datatype {
     double,
     boolean,
     dateTime,
+    /// A nested object (D2 "Nesting", 2026-10-20): the value is a node of
+    /// ANOTHER class of the same vocabulary, named by [`PredicateSpec::class`].
+    /// SHACL derives `sh:node <NestedShape>` + `sh:nodeKind sh:BlankNodeOrIRI`;
+    /// JSON Schema inlines the nested class's object schema. No built-in golden
+    /// uses it; the paths that cannot hold a nested node (generic-lane writes,
+    /// criteria) treat it as an IRI reference.
+    object,
+}
+
+impl Datatype {
+    /// The contract token (`"string"`, `"dateTime"`, `"object"`, ...).
+    pub(crate) fn token(self) -> &'static str {
+        match self {
+            Datatype::string => "string",
+            Datatype::uri => "uri",
+            Datatype::integer => "integer",
+            Datatype::long => "long",
+            Datatype::float => "float",
+            Datatype::double => "double",
+            Datatype::boolean => "boolean",
+            Datatype::dateTime => "dateTime",
+            Datatype::object => "object",
+        }
+    }
 }
 
 /// One predicate on one class, keyed by CURIE in [`ClassSpec::predicates`].
@@ -62,6 +86,63 @@ pub(crate) struct PredicateSpec {
     #[serde(default)]
     #[allow(dead_code)]
     pub(crate) face_only: bool,
+    /// How people and agents name the field ("Who"). Optional (D2); the field
+    /// key stands in when absent.
+    #[serde(default)]
+    pub(crate) label: Option<String>,
+    /// One line for agents and people about what the field holds (D2).
+    #[serde(default)]
+    pub(crate) description: Option<String>,
+    /// For `datatype: "object"`: the NAME of the nested class, another class
+    /// of the same vocabulary (D2 "Nesting"). Ignored for scalar datatypes.
+    #[serde(default)]
+    pub(crate) class: Option<String>,
+}
+
+/// The `roles` of a class presentation (D2): which field keys Publish and the
+/// "Show in the book" door read. Each value is a predicate key (local name).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct PresentationRoles {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) quote: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) note: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) document: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) block: Option<String>,
+}
+
+impl PresentationRoles {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.quote.is_none()
+            && self.note.is_none()
+            && self.document.is_none()
+            && self.block.is_none()
+    }
+}
+
+/// How people see a class (D2): closed DATA the face resolver reads, never
+/// code. Every key names a predicate of the class by its local name.
+/// `fieldOrder` lists keys first; unlisted keys still render after them.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub(crate) struct ClassPresentation {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) subtitle: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) field_order: Vec<String>,
+    /// key → one of the seven nucleus DisplayKinds.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub(crate) kinds: BTreeMap<String, String>,
+    /// key → unit, for metric fields.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub(crate) units: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "PresentationRoles::is_empty")]
+    pub(crate) roles: PresentationRoles,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -250,6 +331,19 @@ pub(crate) struct ClassSpec {
     #[serde(default)]
     #[allow(dead_code)]
     pub(crate) authoring_grain: Option<serde_json::Value>,
+    /// How people and agents name the class ("Dream report"). Optional (D2);
+    /// the class name stands in when absent.
+    #[serde(default)]
+    pub(crate) label: Option<String>,
+    /// The plural ("Dream reports"), what a stack of them is called.
+    #[serde(default)]
+    pub(crate) plural: Option<String>,
+    /// One line for agents and people about what an instance is.
+    #[serde(default)]
+    pub(crate) description: Option<String>,
+    /// How people see an instance (D2). Absent on every built-in golden.
+    #[serde(default)]
+    pub(crate) presentation: Option<ClassPresentation>,
 }
 
 /// Label → URI/doc-id slug rule (must match any reverse parse downstream).

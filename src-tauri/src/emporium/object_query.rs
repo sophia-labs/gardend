@@ -170,6 +170,7 @@ fn legal_ops_for(datatype: Datatype) -> &'static [CriteriaOp] {
         Datatype::string => &[CriteriaOp::Eq, CriteriaOp::Contains],
         Datatype::dateTime => &[CriteriaOp::Eq, CriteriaOp::Before, CriteriaOp::After],
         Datatype::uri
+        | Datatype::object
         | Datatype::integer
         | Datatype::long
         | Datatype::float
@@ -300,7 +301,7 @@ fn format_literal_criterion(
     value: &Value,
 ) -> Result<String, QueryEmitError> {
     match datatype {
-        Datatype::uri => {
+        Datatype::uri | Datatype::object => {
             unreachable!("uri eq is a direct triple pattern, handled by the caller before here")
         }
         Datatype::string => {
@@ -386,7 +387,8 @@ fn build_criteria_body(
         }
         let var = format!("?v{var_idx}");
         match (pred_spec.datatype, op) {
-            (Datatype::uri, CriteriaOp::Eq) => {
+            // A nested object is a node: matched by its IRI, as a reference is.
+            (Datatype::uri | Datatype::object, CriteriaOp::Eq) => {
                 let uri = parse_uri_criterion_value(key, &value)?;
                 body.push_str(&format!("?s <{predicate_uri}> <{uri}> . "));
             }
