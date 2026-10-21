@@ -34,10 +34,34 @@ Scroll, zoom, selection and the active tool are per viewer and never go in the Y
 * Arrow bindings follow the pinned build, `@excalidraw/excalidraw 0.18.0-4ce38fb`, which has no `focus`/`gap`:
   `startBinding` / `endBinding` = `{ "elementId", "fixedPoint": [0.5, 0.5], "mode": "orbit" }`. The arrow's
   `x, y` is its first point and `points` are relative to it; a tool-routed arrow runs from outline to outline
-  along the centre-to-centre line, 6 px outside each shape (Excalidraw's binding gap, 5 + strokeWidth/2).
+  along the centre-to-centre line, 5.5 px outside each shape (Excalidraw's binding gap, 5 + strokeWidth/2, with the thin stroke below).
 * Links: a shape linked to a document has `link = "mnemosyne://document/<graphId>/<documentId>"` and
   `customData.mnemosyne = { kind, graphId, id, title }` (the Files canvas scheme, `excalidraw-scene-links.ts`).
   A link to anything else (`iri`, `url`) is the string itself.
+
+## How new elements look (the Sophia hand)
+
+Gardend's tools and Shrubbery's pen draw new elements with the same values, so a board reads as one hand. These are
+defaults for **new** elements only; an element already on a board is never rewritten to match.
+
+| | value |
+|---|---|
+| `roughness` | `0` (architect, no wobble) |
+| `strokeWidth` | `1` (thin) |
+| `fillStyle` | `solid` |
+| `roundness` | `{type: 3}` on rectangles and notes, `{type: 2}` on diamonds, `null` on ellipses, arrows and lines |
+| `fontFamily` | `6` (Nunito, the built-in family closest to Sophia's text), `fontSize` 20 |
+| `strokeColor` | `#1d1c19`, Sophia ink (the old default `#1e1e1e` still reads as `black`) |
+| arrows | a tool-drawn arrow is a thin, sharp, straight segment (`elbowed: false`); a person's pen draws elbow arrows (`elbowed: true`). A tool re-route of an elbow arrow makes it straight |
+
+The colour names of `whiteboard_apply` are Sophia hues (light values, from `reference.css`; Excalidraw's dark theme
+inverts the canvas by filter): `green` fern-600 on fern-100, `yellow` ochre-600 on ochre-100, `red` carmine-700 on
+carmine-100, `blue` cobalt-500 on cobalt-100, `violet` indigo-600 on indigo-100, `grey` parchment-500 on parchment-100,
+`black` ink. A board drawn with the earlier open-color picks still reads back by the same names.
+
+An arrow's label sits on its middle. When a label would touch the shapes (the default `near` gap is 60 px), the tool
+pushes apart a shape **made in the same call** along the line between the two centres until the label clears both;
+shapes already on the board are never moved for it.
 
 ## Attribution
 
