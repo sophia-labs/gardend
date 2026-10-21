@@ -1358,7 +1358,7 @@
     },
     {
       "name": "read_blocks",
-      "description": "Read paginated local document blocks from persisted block projections.",
+      "description": "Read paginated local document blocks from persisted block projections. Start at offset (a block index; negative counts from the end) or at blockId, an id that read_blocks or get_block gave you: block ids are not sequential, so never make one up, and an id the document does not have is an error. limit defaults to 50 (at most 200); to read a few paragraphs around block index i, pass offset i-k and a small limit. Each block carries its index and blockId.",
       "inputSchema": {
         "type": "object",
         "required": [

@@ -519,6 +519,44 @@ fn create_document_once_is_normalised_with_receipts() {
     });
 }
 
+/// read_blocks from a block id starts at that block; an id the document does
+/// not have is an error, as in get_block. (2026-10-21: a workflow agent guessed
+/// a block id, was handed the book's title page instead, and asked again 15
+/// times.)
+#[test]
+fn read_blocks_from_an_unknown_block_id_is_an_error() {
+    with_graph(|app| {
+        crate::app_runtime::async_runtime::block_on(async {
+            create(&app, "doc-read-from").await;
+            write_tiptap(
+                &app,
+                "doc-read-from",
+                ["a", "b", "c"]
+                    .iter()
+                    .map(|id| json!({"type": "paragraph", "attrs": {"data-block-id": id}, "content": [text(id)]}))
+                    .collect(),
+            )
+            .await;
+            let from = |block_id: &str| {
+                let args = json!({"graph_id": GRAPH, "document_id": "doc-read-from",
+                                  "blockId": block_id, "limit": 1});
+                let app = app.clone();
+                async move { crate::document_mcp_blocks::mcp_local_read_blocks(app, &args).await }
+            };
+
+            let read = from("b").await.unwrap();
+            assert_eq!(read["blocks"][0]["blockId"], "b", "{read}");
+            assert_eq!(read["offset"], read["blocks"][0]["index"], "{read}");
+
+            let err = from("block-c31fee14").await.unwrap_err();
+            assert!(
+                err.contains("block-c31fee14 not found in document doc-read-from"),
+                "{err}"
+            );
+        });
+    });
+}
+
 #[test]
 fn canonical_content_is_stored_verbatim_without_receipts() {
     with_graph(|app| {

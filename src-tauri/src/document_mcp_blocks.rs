@@ -34,11 +34,13 @@ pub(super) async fn mcp_local_read_blocks(
     let include_ids = mcp_arg_bool(arguments, &["includeIds", "include_ids"], true);
     let format = mcp_arg_string(arguments, &["format"]).unwrap_or_else(|| "markdown".to_string());
 
+    // An id the document does not have is an error, as in get_block: starting
+    // at block 0 instead hands a reader the wrong text without saying so.
     let mut start = if let Some(block_id) = mcp_arg_string(arguments, &["blockId", "block_id"]) {
         blocks
             .iter()
             .position(|block| block.id == block_id)
-            .unwrap_or(0)
+            .ok_or_else(|| format!("block {block_id} not found in document {document_id}"))?
     } else {
         let offset = mcp_arg_isize(arguments, &["offset"], 0);
         if offset < 0 {
