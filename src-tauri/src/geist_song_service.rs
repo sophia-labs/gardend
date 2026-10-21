@@ -40,10 +40,15 @@ pub(super) fn mcp_local_music(
     let store = read_song_store_for(&graph_dir, &graph_id, &observer)?;
     // `music` is a memory.read operation. Rendering a Song must not rewrite its
     // source, rebuild its document/RDF projections, or mark the graph edited.
-    // A missing Song is rendered from the in-memory default; `sing` remains the
-    // explicit write/materialization path. Graph lookup's existing bootstrap
-    // behavior is a separate contract, not made read-only by this change.
-    Ok(song_music_json(&store))
+    // A missing Song is rendered from the in-memory default (the commons' seeded
+    // verse; a witness's empty Song); `sing` remains the explicit
+    // write/materialization path. Graph lookup's existing bootstrap behavior is a
+    // separate contract, not made read-only by this change.
+    let mut music = song_music_json(&store);
+    if !observer.is_empty() && store.verses.is_empty() && store.coda.is_none() {
+        music["note"] = serde_json::json!("no Song yet");
+    }
+    Ok(music)
 }
 
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
@@ -166,6 +171,48 @@ mod music_read_tests {
             let value = mcp_local_music(app, &serde_json::json!({"graphId":"song-read"})).unwrap();
             assert!(value["activeVerseCount"].as_u64().unwrap() > 0);
             assert_files_unchanged(&profile, &before);
+        });
+    }
+
+    /// A witness that has never sung has no Song: `music` says so, with no
+    /// verse and nothing written. Its first verse is its Song's only verse.
+    /// The commons Song still opens with its seeded verse.
+    #[test]
+    fn a_witness_that_never_sang_has_no_song() {
+        const WITNESS: &str = "agent-0123456789abcdef";
+        const SEED: &str = "I keep translating you";
+        with_graph(|app, profile| {
+            let before = files_at(&profile);
+            let value = mcp_local_music(
+                app.clone(),
+                &serde_json::json!({"graphId":"song-read","observerAgentId":WITNESS}),
+            )
+            .unwrap();
+            assert_eq!(value["verses"], serde_json::json!([]), "{value}");
+            assert_eq!(value["activeVerseCount"], 0, "{value}");
+            assert_eq!(value["note"], "no Song yet", "{value}");
+            assert_files_unchanged(&profile, &before);
+
+            mcp_local_sing(
+                app.clone(),
+                &serde_json::json!({
+                    "graphId":"song-read", "observer_agent_id": WITNESS,
+                    "verse":"First words of my own."
+                }),
+            )
+            .unwrap();
+            let value = mcp_local_music(
+                app.clone(),
+                &serde_json::json!({"graphId":"song-read","observer_agent_id":WITNESS}),
+            )
+            .unwrap();
+            assert_eq!(value["activeVerseCount"], 1, "{value}");
+            assert!(!value.to_string().contains(SEED), "{value}");
+            assert!(value.get("note").is_none(), "{value}");
+
+            let commons =
+                mcp_local_music(app, &serde_json::json!({"graphId":"song-read"})).unwrap();
+            assert!(commons["verses"][0].as_str().unwrap().contains(SEED));
         });
     }
 

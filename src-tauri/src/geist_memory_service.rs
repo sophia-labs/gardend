@@ -1,7 +1,7 @@
 use crate::app_runtime::AppHandle;
 use crate::{
     clock::{epoch_millis, timestamp},
-    emporium::planner::memory_record_subject,
+    emporium::planner::{memory_record_subject, record_observer},
     emporium::schemas::{IngestPayload, IngestRequest, MemoryRecordIn, SourceRefIn},
     emporium::spine::{apply_and_assert, gather_and_plan},
     geist_memory_archive::write_memory_archive_document,
@@ -11,6 +11,7 @@ use crate::{
         LocalMemoryArchiveRecord, LocalMemoryRecord,
     },
     graph_service::touch_graph_updated_at,
+    loopback_agent_memory::OBSERVER_ARGUMENT_KEYS,
     mcp_utils::{
         mcp_arg_string, mcp_arg_string_vec, mcp_arg_u64, mcp_arg_u64_vec, mcp_arg_usize,
         mcp_graph_id_or_default,
@@ -33,9 +34,15 @@ const SUPERSEDED_BY_PRED: &str = "http://mnemosyne.dev/memory#supersededBy";
 /// projection never diverge — append on ok, nothing on halt). Returns
 /// `{ok, subject, supersededSubject?, error?}`.
 ///
+/// The queue is the COMMONS: only a record filed with no observer enters it.
+/// A record filed under an `observer_agent_id` lives in that witness's
+/// `:projection:memory:agent:{id}` graph (and the memory event log, which
+/// names it), never unattributed in the shared queue, so a recall with no
+/// observer cannot read a witness's memory.
+///
 /// The legacy flat `mnemo:Memory` projection is still materialized from the queue
-/// (recall reads the queue in v1); the new `:projection:memory` projection is
-/// shadow-built ADDITIVELY alongside it.
+/// (commons recall reads the queue in v1); the new `:projection:memory` projection
+/// is shadow-built ADDITIVELY alongside it.
 pub(super) async fn mcp_local_remember(
     app: AppHandle,
     arguments: &serde_json::Value,
@@ -62,6 +69,9 @@ pub(crate) async fn ingest_memory_record(
 /// provenance-less entry LOUD-REJECTS the whole batch BEFORE any apply. The batch
 /// applies atomically (one loud-halt plan); the queue is appended transactionally
 /// (only the records the apply accepted, which in v1 is all-or-halt).
+///
+/// A batch is one witness's act: an `observer_agent_id` on the call is every
+/// record's, and a record naming another observer rejects the whole batch.
 pub(super) async fn mcp_local_remember_batch(
     app: AppHandle,
     arguments: &serde_json::Value,
@@ -74,9 +84,23 @@ pub(super) async fn mcp_local_remember_batch(
     if raw_records.is_empty() {
         return Err("records is empty".to_string());
     }
+    let batch_observer = mcp_arg_string(arguments, OBSERVER_ARGUMENT_KEYS);
     let mut records = Vec::with_capacity(raw_records.len());
     for (i, raw) in raw_records.iter().enumerate() {
-        records.push(build_remember_record(raw).map_err(|e| format!("records[{i}]: {e}"))?);
+        let mut record = build_remember_record(raw).map_err(|e| format!("records[{i}]: {e}"))?;
+        if let Some(observer) = &batch_observer {
+            match record.observer_agent_id.as_deref() {
+                None => record.observer_agent_id = Some(observer.clone()),
+                Some(own) if own == observer => {}
+                Some(own) => {
+                    return Err(format!(
+                        "records[{i}] names observer {own}, but the batch is filed for {observer}; \
+                         a remember_batch call is one witness's act"
+                    ))
+                }
+            }
+        }
+        records.push(record);
     }
     let outcome = ingest_memory_batch(&app, &graph_id, records).await?;
     Ok(outcome.into_json())
@@ -213,7 +237,7 @@ fn build_remember_record(arguments: &serde_json::Value) -> Result<MemoryRecordIn
         confidence: None,
         valence: None,
         agent_id: mcp_arg_string(arguments, &["agent_id", "agentId"]),
-        observer_agent_id: mcp_arg_string(arguments, &["observer_agent_id", "observerAgentId"]),
+        observer_agent_id: mcp_arg_string(arguments, OBSERVER_ARGUMENT_KEYS),
         tags: mcp_arg_string_vec(arguments, &["tags"]),
         supersedes_ref: mcp_arg_string(arguments, &["supersedes_ref", "supersedesRef"]),
         contradicts_ref: mcp_arg_string(arguments, &["contradicts_ref", "contradictsRef"]),
@@ -232,8 +256,9 @@ async fn ingest_one_memory(
 
 /// The shared apply path for `remember` / `remember_batch`: validate the shape
 /// (the LOUD 400 gate), recompute the minted subjects, run the spine + the memory
-/// apply fork, and — ONLY on a successful apply — append the legacy queue rows so
-/// the queue and the projection never diverge.
+/// apply fork, and — ONLY on a successful apply — append the commons queue rows
+/// (records filed with no observer) so the queue and the commons projection
+/// never diverge.
 async fn ingest_memory_batch(
     app: &AppHandle,
     graph_id: &str,
@@ -245,7 +270,13 @@ async fn ingest_memory_batch(
         .iter()
         .map(|r| memory_record_subject(graph_id, r))
         .collect();
-    let queue_contents: Vec<String> = records.iter().map(|r| r.content.clone()).collect();
+    // The commons queue takes only commons records: a witnessed record is that
+    // witness's alone (`record_observer`, the planner's own read of it).
+    let queue_contents: Vec<String> = records
+        .iter()
+        .filter(|r| record_observer(r).is_empty())
+        .map(|r| r.content.clone())
+        .collect();
 
     let request = IngestRequest {
         vocab: "memory".to_string(),
@@ -292,10 +323,17 @@ async fn ingest_memory_batch(
         });
     }
 
-    // Apply succeeded → append the legacy queue rows TRANSACTIONALLY. A queue
+    // Apply succeeded → append the commons queue rows TRANSACTIONALLY. A queue
     // write failure here is itself loud (the projection already committed, so the
     // caller must know the queue lagged).
-    append_memory_queue(app, graph_id, &queue_contents)?;
+    if queue_contents.is_empty() {
+        // A witnessed write: nothing for the commons queue, but the graph changed.
+        let graph_dir = existing_graph_dir(app, graph_id)?;
+        touch_graph_updated_at(&graph_dir)?;
+        touch_profile_updated_at(app)?;
+    } else {
+        append_memory_queue(app, graph_id, &queue_contents)?;
+    }
 
     Ok(RememberOutcome {
         ok: true,
@@ -308,8 +346,10 @@ async fn ingest_memory_batch(
 }
 
 /// Append `contents` to the legacy `memory-queue.json` + re-materialize the flat
-/// `mnemo:Memory` projection (recall still reads the queue in v1). Mirrors the old
-/// `remember` queue mutation, batched.
+/// `mnemo:Memory` projection (commons recall still reads the queue in v1). Mirrors
+/// the old `remember` queue mutation, batched. The caller passes commons records
+/// only: the queue carries no observer, so a witnessed row here would read as
+/// everyone's.
 fn append_memory_queue(app: &AppHandle, graph_id: &str, contents: &[String]) -> Result<(), String> {
     if contents.is_empty() {
         return Ok(());
@@ -369,10 +409,24 @@ fn superseded_subjects_from_plan(plan: &crate::emporium::planner::Plan) -> Vec<S
     out
 }
 
+/// `care` and `archive_memories` edit the commons queue by number. Under an
+/// observer they would edit the commons for a witness (whose memories are not
+/// in the queue), so they refuse.
+fn refuse_witnessed_queue_edit(tool: &str, arguments: &serde_json::Value) -> Result<(), String> {
+    match mcp_arg_string(arguments, OBSERVER_ARGUMENT_KEYS) {
+        Some(observer) => Err(format!(
+            "{tool} works on the commons memory queue, by number; the memories of a witness \
+             ({observer}) are not in it. Call {tool} without observer_agent_id."
+        )),
+        None => Ok(()),
+    }
+}
+
 pub(super) fn mcp_local_care_memories(
     app: AppHandle,
     arguments: &serde_json::Value,
 ) -> Result<serde_json::Value, String> {
+    refuse_witnessed_queue_edit("care", arguments)?;
     let graph_id = mcp_graph_id_or_default(&app, arguments)?;
     let numbers = mcp_arg_u64_vec(arguments, &["numbers"]);
     let graph_dir = existing_graph_dir(&app, &graph_id)?;
@@ -405,6 +459,7 @@ pub(super) fn mcp_local_archive_memories(
     app: AppHandle,
     arguments: &serde_json::Value,
 ) -> Result<serde_json::Value, String> {
+    refuse_witnessed_queue_edit("archive_memories", arguments)?;
     let graph_id = mcp_graph_id_or_default(&app, arguments)?;
     let keep = mcp_arg_usize(arguments, &["keep"], 50);
     if keep < 1 {
@@ -652,6 +707,205 @@ mod headless_tests {
         if let Err(payload) = result {
             std::panic::resume_unwind(payload);
         }
+    }
+
+    /// A fresh profile with one graph, for the witness tests below.
+    fn with_lab(name: &str, graph_id: &str, check: impl FnOnce(AppHandle)) {
+        let _serial = env_serial().lock().unwrap_or_else(|p| p.into_inner());
+        let profile = temp_profile(name);
+        std::env::set_var("GARDEN_PROFILE_DIR", &profile);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let app = mock_app();
+            seed_graph(&app, graph_id);
+            check(app);
+        }));
+        std::env::remove_var("GARDEN_PROFILE_DIR");
+        let _ = std::fs::remove_dir_all(&profile);
+        if let Err(payload) = result {
+            std::panic::resume_unwind(payload);
+        }
+    }
+
+    const WITNESS: &str = "agent-0123456789abcdef";
+    const OTHER_WITNESS: &str = "agent-fedcba9876543210";
+
+    fn remember(app: &AppHandle, arguments: serde_json::Value) -> serde_json::Value {
+        crate::app_runtime::async_runtime::block_on(mcp_local_remember(app.clone(), &arguments))
+            .expect("remember")
+    }
+
+    fn recall(app: &AppHandle, arguments: serde_json::Value) -> Vec<String> {
+        crate::geist_memory_recall_service::mcp_local_recall_memories(app.clone(), &arguments)
+            .expect("recall")["memories"]
+            .as_array()
+            .expect("memories")
+            .iter()
+            .map(|memory| memory["content"].as_str().unwrap_or_default().to_string())
+            .collect()
+    }
+
+    /// A memory filed under an observer lives in that witness's graph only: a
+    /// recall with no observer (the commons) never shows it, unattributed or
+    /// otherwise, and another witness never sees it. A memory filed with no
+    /// observer is the commons', and no witness's.
+    #[test]
+    fn a_witnessed_memory_never_reaches_the_commons() {
+        let graph = "witness-lab";
+        with_lab("witnessed", graph, |app| {
+            let stored = remember(
+                &app,
+                serde_json::json!({
+                    "graphId": graph,
+                    "observer_agent_id": WITNESS,
+                    "content": "only the witness keeps this",
+                    "block_ids": ["b1"],
+                    "document_id": "d1",
+                }),
+            );
+            assert_eq!(stored["ok"], true, "{stored}");
+            assert_eq!(
+                recall(&app, serde_json::json!({"graphId": graph, "limit": 100})),
+                Vec::<String>::new(),
+                "a recall with no observer reads the commons, and a witness's memory is not in it"
+            );
+            assert_eq!(
+                recall(
+                    &app,
+                    serde_json::json!({"graphId": graph, "observer_agent_id": WITNESS})
+                ),
+                vec!["only the witness keeps this".to_string()]
+            );
+            assert_eq!(
+                recall(
+                    &app,
+                    serde_json::json!({"graphId": graph, "observerAgentId": OTHER_WITNESS})
+                ),
+                Vec::<String>::new()
+            );
+            let queue = read_memory_store(&existing_graph_dir(&app, graph).unwrap(), graph)
+                .expect("read the queue");
+            assert!(queue.memories.is_empty(), "{:?}", queue.memories);
+
+            remember(
+                &app,
+                serde_json::json!({
+                    "graphId": graph,
+                    "content": "the commons keeps this",
+                    "block_ids": ["b2"],
+                    "document_id": "d1",
+                }),
+            );
+            assert_eq!(
+                recall(&app, serde_json::json!({"graphId": graph, "limit": 100})),
+                vec!["the commons keeps this".to_string()]
+            );
+            assert_eq!(
+                recall(
+                    &app,
+                    serde_json::json!({"graphId": graph, "observer_agent_id": WITNESS})
+                ),
+                vec!["only the witness keeps this".to_string()]
+            );
+        });
+    }
+
+    /// `remember_batch`'s own observer is every record's: the records land in
+    /// that witness's graph, none in the commons; a record naming another
+    /// witness is refused, and nothing is filed.
+    #[test]
+    fn a_batch_is_filed_for_its_observer() {
+        let graph = "witness-batch-lab";
+        with_lab("batch", graph, |app| {
+            let batch = |records: serde_json::Value| {
+                crate::app_runtime::async_runtime::block_on(mcp_local_remember_batch(
+                    app.clone(),
+                    &serde_json::json!({
+                        "graphId": graph,
+                        "observer_agent_id": WITNESS,
+                        "records": records,
+                    }),
+                ))
+            };
+            let refused = batch(serde_json::json!([
+                {"content": "mine", "block_ids": ["b1"]},
+                {"content": "forged", "block_ids": ["b2"], "observer_agent_id": OTHER_WITNESS},
+            ]));
+            assert!(
+                refused
+                    .as_ref()
+                    .is_err_and(|error| error.contains(OTHER_WITNESS)),
+                "{refused:?}"
+            );
+            let filed = batch(serde_json::json!([
+                {"content": "first of mine", "block_ids": ["b1"]},
+                {"content": "second of mine", "block_ids": ["b2"], "observerAgentId": WITNESS},
+            ]))
+            .expect("a batch for its own observer");
+            assert_eq!(filed["ok"], true, "{filed}");
+            assert_eq!(
+                recall(&app, serde_json::json!({"graphId": graph, "limit": 100})),
+                Vec::<String>::new()
+            );
+            let mut own = recall(
+                &app,
+                serde_json::json!({"graphId": graph, "observer_agent_id": WITNESS}),
+            );
+            own.sort();
+            assert_eq!(own, vec!["first of mine", "second of mine"]);
+            assert_eq!(
+                recall(
+                    &app,
+                    serde_json::json!({"graphId": graph, "observer_agent_id": OTHER_WITNESS})
+                ),
+                Vec::<String>::new()
+            );
+        });
+    }
+
+    /// `care` and `archive_memories` work on the commons queue by number. Under
+    /// an observer they would edit the commons for a witness, so they refuse.
+    #[test]
+    fn care_and_archive_refuse_an_observer() {
+        let graph = "witness-care-lab";
+        with_lab("care", graph, |app| {
+            remember(
+                &app,
+                serde_json::json!({
+                    "graphId": graph,
+                    "content": "a commons memory",
+                    "block_ids": ["b1"],
+                }),
+            );
+            let queue_path = existing_graph_dir(&app, graph)
+                .unwrap()
+                .join("memory/memory-queue.json");
+            let before = std::fs::read(&queue_path).expect("the commons queue");
+            let cared = mcp_local_care_memories(
+                app.clone(),
+                &serde_json::json!({"graphId": graph, "numbers": [1], "observer_agent_id": WITNESS}),
+            );
+            assert!(
+                cared.as_ref().is_err_and(|error| error.contains("commons")),
+                "{cared:?}"
+            );
+            let archived = mcp_local_archive_memories(
+                app.clone(),
+                &serde_json::json!({"graphId": graph, "keep": 1, "observerAgentId": WITNESS}),
+            );
+            assert!(
+                archived
+                    .as_ref()
+                    .is_err_and(|error| error.contains("commons")),
+                "{archived:?}"
+            );
+            assert_eq!(std::fs::read(&queue_path).unwrap(), before);
+            let cared = mcp_local_care_memories(
+                app.clone(),
+                &serde_json::json!({"graphId": graph, "numbers": [1]}),
+            )
+            .expect("care in the commons");
+            assert_eq!(cared["cared"], serde_json::json!([1]));
+        });
     }
 
     fn run_remember_violations_trace() {

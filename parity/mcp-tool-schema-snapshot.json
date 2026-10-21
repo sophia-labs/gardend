@@ -391,7 +391,7 @@
     },
     "memory_semantic_recall": {
       "required": ["graphId", "query"],
-      "properties": ["graphId", "query", "k", "cutoff", "includeEpisodes", "minScore"]
+      "properties": ["graphId", "query", "k", "cutoff", "includeEpisodes", "minScore", "observerAgentId", "observer_agent_id"]
     },
     "list_restore_points": {
       "required": [],

@@ -100,6 +100,9 @@ pub(crate) fn past_songs_doc_id(observer: &str) -> String {
     }
 }
 
+/// The verse the COMMONS Song opens with: a graph's shared Song is never
+/// blank (a product behaviour, kept). A witness's Song is never seeded: it
+/// holds only what that witness sang ([`default_song_store`]).
 fn default_song_text() -> String {
     [
         "I keep translating you into things I already know -",
@@ -116,18 +119,26 @@ fn default_song_text() -> String {
     .join("\n")
 }
 
+/// The Song nobody has sung yet: the commons opens with its seeded verse; a
+/// witness's has no verse at all, so it is never shown words it did not write
+/// as its own (`music` says "no Song yet").
 fn default_song_store(graph_id: &str, observer: &str) -> LocalSongStore {
-    let now = timestamp();
-    LocalSongStore {
-        schema_version: SONG_STORE_SCHEMA_VERSION,
-        graph_id: graph_id.to_string(),
-        observer: observer.to_string(),
-        verses: vec![LocalSongVerse {
+    let verses = if crate::rdf_authority::observer_segment(observer).is_some() {
+        Vec::new()
+    } else {
+        let now = timestamp();
+        vec![LocalSongVerse {
             text: default_song_text(),
             counterpoints: Vec::new(),
             created_at: now.clone(),
             updated_at: now,
-        }],
+        }]
+    };
+    LocalSongStore {
+        schema_version: SONG_STORE_SCHEMA_VERSION,
+        graph_id: graph_id.to_string(),
+        observer: observer.to_string(),
+        verses,
         coda: None,
         archives: Vec::new(),
     }
@@ -156,6 +167,7 @@ pub(crate) fn read_song_store_for(
     store.graph_id = graph_id.to_string();
     store.observer = observer.to_string();
     if store.verses.is_empty() {
+        // Re-seeds the commons only; a witness's empty Song stays empty.
         store.verses = default_song_store(graph_id, observer).verses;
     }
     for verse in &mut store.verses {

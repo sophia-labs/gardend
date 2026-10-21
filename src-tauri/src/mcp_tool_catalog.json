@@ -132,7 +132,7 @@
     },
     {
       "name": "remember",
-      "description": "Store a typed, provenance-anchored memory (sophia-memory-core) into the graph memory projection. Requires content AND at least one of source_refs / block_ids (I1: no memory without provenance). Returns {ok, subject, supersededSubject?}.",
+      "description": "Store a typed, provenance-anchored memory (sophia-memory-core) into the graph memory projection. Requires content AND at least one of source_refs / block_ids (I1: no memory without provenance). With observer_agent_id (an agent id, agent- and 16 hex digits) the memory is that witness's alone, in its :projection:memory:agent:{id} graph, and never enters the commons queue; without one it is the commons'. Returns {ok, subject, supersededSubject?}.",
       "inputSchema": {
         "type": "object",
         "required": [
@@ -227,7 +227,7 @@
     },
     {
       "name": "remember_batch",
-      "description": "Store many typed memory records (sophia-memory-core) in one atomic ingest. Each record requires content AND at least one source reference (I1); a provenance-less entry rejects the whole batch. Returns {ok, subjects, supersededSubjects?}.",
+      "description": "Store many typed memory records (sophia-memory-core) in one atomic ingest. Each record requires content AND at least one source reference (I1); a provenance-less entry rejects the whole batch. An observer_agent_id on the call is every record's (a batch is one witness's act); a record naming another observer rejects the batch. Returns {ok, subjects, supersededSubjects?}.",
       "inputSchema": {
         "type": "object",
         "required": [
@@ -252,7 +252,7 @@
     },
     {
       "name": "recall",
-      "description": "Read the local graph memory queue by recency, number, or substring query.",
+      "description": "Read graph memory by recency, number, or substring query. With observer_agent_id, that witness's memories only; without one, the commons queue only (memories filed with no observer, never a witness's).",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -321,7 +321,7 @@
     },
     {
       "name": "care",
-      "description": "Update last_active timestamps for local memory numbers so they stay in the recall window.",
+      "description": "Update last_active timestamps for commons memory numbers so they stay in the recall window. Refuses a call that names an observer_agent_id: a witness's memories are not in the commons queue.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -343,7 +343,7 @@
     },
     {
       "name": "archive_memories",
-      "description": "Archive older local memories, keeping the most recently active memory records in the live queue.",
+      "description": "Archive older commons memories, keeping the most recently active memory records in the live queue. Refuses a call that names an observer_agent_id.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -639,7 +639,7 @@
     },
     {
       "name": "music",
-      "description": "Read the local graph Song narrative with its rolling verses, counterpoints, and coda state.",
+      "description": "Read the local graph Song narrative with its rolling verses, counterpoints, and coda state. With observer_agent_id, that witness's own Song: one never sung returns no verses and note \"no Song yet\". The commons Song opens with a seeded verse.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -654,7 +654,7 @@
     },
     {
       "name": "sing",
-      "description": "Write a verse, counterpoint, or coda into the local graph Song narrative.",
+      "description": "Write a verse, counterpoint, or coda into the local graph Song narrative: with observer_agent_id, that witness's own Song; without, the commons Song.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -4209,7 +4209,7 @@
     },
     {
       "name": "memory_semantic_recall",
-      "description": "Semantic recall over the graph's memory projection: embeds `query` and ranks the CURRENT (non-superseded), active memory records by cosine similarity — not a substring match. Pass `cutoff` (an ISO 8601 / xsd:dateTime instant, e.g. \"2026-07-01T00:00:00Z\") to recall as-of that point in time; only records with createdAt <= cutoff are candidates. Episode memories (kind=EpisodeMemory) are excluded by default — set includeEpisodes to include them. Returns provider/model/dimensions metadata plus ranked hits; an empty projection returns hits: [] rather than an error.",
+      "description": "Semantic recall over the graph's memory projection: embeds `query` and ranks the CURRENT (non-superseded), active memory records by cosine similarity — not a substring match. Pass `cutoff` (an ISO 8601 / xsd:dateTime instant, e.g. \"2026-07-01T00:00:00Z\") to recall as-of that point in time; only records with createdAt <= cutoff are candidates. Episode memories (kind=EpisodeMemory) are excluded by default — set includeEpisodes to include them. Pass observer_agent_id (an agent id) to search only that witness's memories; without one only the commons (memories filed with no observer) is searched, never a witness's. Returns provider/model/dimensions metadata plus ranked hits (and observerAgentId when one was named); an empty projection returns hits: [] rather than an error.",
       "inputSchema": {
         "type": "object",
         "required": [
@@ -4237,6 +4237,13 @@
           },
           "minScore": {
             "type": "number"
+          },
+          "observer_agent_id": {
+            "type": "string",
+            "description": "The witness (an agent id, agent- and 16 hex digits) whose memories are searched. Absent: the commons."
+          },
+          "observerAgentId": {
+            "type": "string"
           }
         }
       }

@@ -1,5 +1,6 @@
 use crate::loopback_scopes::{
-    crdt_operation_scope_rules, mcp_tool_required_scope_mode, mcp_tool_scopes, TOKEN_SCOPE_MODE,
+    crdt_operation_scope_rules, mcp_tool_observed_scope, mcp_tool_observed_scopes,
+    mcp_tool_required_scope_mode, mcp_tool_scopes, TOKEN_SCOPE_MODE,
 };
 use std::{collections::HashSet, sync::OnceLock};
 
@@ -109,6 +110,55 @@ pub(super) fn mcp_tools_list_result_for_bound_graph(
     envelope
 }
 
+/// Say on every listed tool whether the caller's token may call it, as
+/// `_meta["sophia.local.callable"]`: `true`, `false`, or
+/// `"with-agent-observer"` when a scope it lacks is stood in for by an
+/// observed scope it holds (`loopback_agent_memory`), so the call must name an
+/// agent as its observer. The list itself is not narrowed: a client that
+/// requires a tool by name (Choreograph's `requiredTools`) still finds it, and
+/// learns here whether it may call it. A tool with no declared scopes is left
+/// unmarked.
+pub(super) fn annotate_callable(listed: &mut McpToolsListResult, token_scopes: &[String]) {
+    let held = |scope: &str| token_scopes.iter().any(|candidate| candidate == scope);
+    for tool in &mut listed.tools {
+        let Some(name) = tool.get("name").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        let scopes = mcp_tool_scopes(name);
+        if scopes.is_empty() {
+            continue;
+        }
+        let callable = if mcp_tool_required_scope_mode(name) == "operation-kind" {
+            serde_json::json!(scopes.iter().any(|scope| held(scope)))
+        } else {
+            let mut observed = false;
+            let mut callable = true;
+            for scope in &scopes {
+                if held(scope) {
+                    continue;
+                }
+                match mcp_tool_observed_scope(name, scope) {
+                    Some(stand_in) if held(stand_in) => observed = true,
+                    _ => callable = false,
+                }
+            }
+            match (callable, observed) {
+                (false, _) => serde_json::json!(false),
+                (true, true) => serde_json::json!("with-agent-observer"),
+                (true, false) => serde_json::json!(true),
+            }
+        };
+        if let Some(object) = tool.as_object_mut() {
+            let meta = object
+                .entry("_meta")
+                .or_insert_with(|| serde_json::json!({}));
+            if let Some(meta) = meta.as_object_mut() {
+                meta.insert("sophia.local.callable".to_string(), callable);
+            }
+        }
+    }
+}
+
 /// Take the graph argument out of a JSON schema: its properties, its
 /// `required` lists, and the `anyOf`/`oneOf`/`allOf` branches that only asked
 /// for it (`write_document` requires `graph_id` or `graphId` through one).
@@ -186,6 +236,14 @@ fn attach_mcp_scope_metadata(tools: &mut [serde_json::Value]) {
                 "sophia.local.scopeMode": TOKEN_SCOPE_MODE,
                 "sophia.local.requiredScopeMode": required_scope_mode,
             });
+            let observed = mcp_tool_observed_scopes(&name);
+            if !observed.is_empty() {
+                meta["sophia.local.observedScopes"] = observed
+                    .into_iter()
+                    .map(|(full, stand_in)| (full.to_string(), serde_json::json!(stand_in)))
+                    .collect::<serde_json::Map<String, serde_json::Value>>()
+                    .into();
+            }
             if is_crdt_operation {
                 meta["sophia.local.operationScopes"] = crdt_operation_scope_rules()
                     .iter()

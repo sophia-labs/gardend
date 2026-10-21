@@ -333,7 +333,7 @@ async fn handle_mcp_request(
                 }
                 return mcp_success(request.id, result);
             }
-            let listed = match bound {
+            let mut listed = match bound {
                 Some(_) => crate::mcp_tool_registry::mcp_tools_list_result_for_bound_graph(
                     &state.cell_graph,
                     token_scopes,
@@ -345,6 +345,9 @@ async fn handle_mcp_request(
                     optional,
                 ),
             };
+            // What this token may call of what is listed (an unbound list is
+            // narrowed by the cell role only).
+            crate::mcp_tool_registry::annotate_callable(&mut listed, token_scopes);
             let mut result =
                 serde_json::to_value(listed).expect("McpToolsListResult always serializes");
             // Tools lent by local services (`service_mcp`): none unless a

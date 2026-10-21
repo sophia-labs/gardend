@@ -1546,14 +1546,20 @@
       "status": "implemented-local-memory-store",
       "scopes": [
         "memory.write"
-      ]
+      ],
+      "observedScopes": {
+        "memory.write": "memory.write.observed"
+      }
     },
     {
       "name": "remember_batch",
       "status": "implemented-local-memory-store",
       "scopes": [
         "memory.write"
-      ]
+      ],
+      "observedScopes": {
+        "memory.write": "memory.write.observed"
+      }
     },
     {
       "name": "recall",
@@ -1660,7 +1666,10 @@
       "status": "implemented-local-song-store",
       "scopes": [
         "memory.write"
-      ]
+      ],
+      "observedScopes": {
+        "memory.write": "memory.write.observed"
+      }
     },
     {
       "name": "surface",
@@ -1789,7 +1798,10 @@
       "status": "implemented-local-value-store",
       "scopes": [
         "salience.write"
-      ]
+      ],
+      "observedScopes": {
+        "salience.write": "salience.write.observed"
+      }
     },
     {
       "name": "get_values",
@@ -1803,7 +1815,10 @@
       "status": "implemented-local-value-store",
       "scopes": [
         "salience.write"
-      ]
+      ],
+      "observedScopes": {
+        "salience.write": "salience.write.observed"
+      }
     },
     {
       "name": "get_block_values",
