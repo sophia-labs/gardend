@@ -189,7 +189,9 @@ struct Anchor {
 }
 
 /// Does the combined hash of `count` desired segments from `start` equal the image's hash? A single node's
-/// image hash is its own hash; several are folded with FNV in order.
+/// image hash is its own hash; several are folded with FNV in order. Pinned definition (U7 must follow it):
+/// hash = `Fnv64` over `write_u64(node_hash)` of each parsed node in order, or the node's own hash when
+/// count == 1.
 fn image_hash_matches(side: &dyn Side, start: usize, count: usize, want: u64) -> bool {
     if count == 1 && side.hash(start) == want {
         return true;
@@ -544,8 +546,8 @@ pub(crate) fn plan_children(
 
 /// The patch of one matched element; `None` when nothing differs under the policy.
 pub(crate) fn plan_node(
-    current: &CurrentNode,
-    desired: &DesiredNode,
+    current: &super::types::CurrentNode,
+    desired: &super::types::DesiredNode,
     policy: &WritePolicy,
 ) -> Option<NodePatch> {
     let mut set: BTreeMap<String, Value> = BTreeMap::new();
