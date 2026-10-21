@@ -359,7 +359,10 @@ fn run_phases(
         }
     };
     if check_cancelled(jobs, operation_id, &graph_dir, &backup_pointer_id)? {
+        // The forward restore has already reached live rooms and been saved as new revisions, so a cancel
+        // here must restore the backup forward too, or the job would say "rolled back" over restored content.
         let error = "restore cancelled after apply".to_string();
+        rollback_after_failure(app, graph_id, &graph_dir, &backup_pointer_id, operation_id);
         finish_rolled_back(jobs, operation_id, &error, &backup_pointer_id);
         return Err(AppError::conflict(error));
     }
@@ -1268,7 +1271,9 @@ mod tests {
         let bytes = std::fs::read(document_ydoc_state_path(graph_dir, doc_id)).expect("sidecar");
         let doc =
             crate::crdt_engine::forward_restore::doc_from_update_bytes(&bytes).expect("decode");
-        crate::crdt_engine::projection::tiptap_json_in(&yrs::Transact::transact(&doc)).to_string()
+        let txn = yrs::Transact::transact(&doc);
+        let text = crate::crdt_engine::projection::tiptap_json_in(&txn).to_string();
+        text
     }
 
     fn ask(graph_dir: &Path, graph_id: &str, doc_id: &str, needle: &str) -> bool {

@@ -249,10 +249,36 @@ pub(super) fn mcp_write_document_response(
         .filter_map(|block| json_string(block.get("id")))
         .collect::<Vec<_>>();
     let previews = block_previews(&blocks);
-    let warnings = outcome_value
+    let mut warnings = outcome_value
         .get("warnings")
         .cloned()
         .unwrap_or_else(|| serde_json::json!([]));
+    // A person's edit wins over the agent's (DESIGN §5.2, Q2): when a block changed on both sides since the
+    // agent's expectedRevision, the person's version stays and the agent's change to it is not applied. Say so,
+    // with the block ids, or the agent reads `success` and never redoes it. Absent when nothing conflicted.
+    let live_edits = outcome_value
+        .pointer("/crdt/liveEdits")
+        .filter(|live| {
+            live.get("conflicts")
+                .and_then(serde_json::Value::as_array)
+                .is_some_and(|conflicts| !conflicts.is_empty())
+        })
+        .cloned();
+    if let (Some(live), Some(list)) = (&live_edits, warnings.as_array_mut()) {
+        let ids = live["conflicts"]
+            .as_array()
+            .map(|ids| {
+                ids.iter()
+                    .filter_map(serde_json::Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            })
+            .unwrap_or_default();
+        list.push(serde_json::json!(format!(
+            "live edits kept: a person changed blocks {ids} since your expectedRevision, so their version stays \
+             and your changes to those blocks were not applied; read them again and redo your change"
+        )));
+    }
     let source_format = outcome_value
         .get("sourceFormat")
         .cloned()
@@ -268,7 +294,7 @@ pub(super) fn mcp_write_document_response(
             }
         });
 
-    serde_json::json!({
+    let mut response = serde_json::json!({
         "success": true,
         "graph_id": graph_id,
         "graphId": graph_id,
@@ -285,7 +311,11 @@ pub(super) fn mcp_write_document_response(
         "source_format": source_format.clone(),
         "sourceFormat": source_format.clone(),
         "warnings": warnings,
-    })
+    });
+    if let Some(live) = live_edits {
+        response["liveEdits"] = live;
+    }
+    response
 }
 
 #[cfg(test)]

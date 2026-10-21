@@ -405,8 +405,12 @@ fn specimen_receipts_are_byte_identical_to_a_fresh_write() {
             "a fresh write reports other receipts"
         );
 
-        // The same specimen into the document that already holds it: same receipts, same content. (Blocks the
-        // normaliser mints get ids from the operation id, so only ids may differ.)
+        // The same specimen into the document that already holds it: same receipts, and nothing changes at
+        // all. The ids the normaliser mints for this operation are not the caller's, so the blocks keep the
+        // ids they got the first time (no Yjs operation, no broadcast, no new revision).
+        let room = room_of(env, "spec-a");
+        let state_before_again = room_state(&room);
+        let mut rx_again = room.subscribe_updates_for_test();
         let again = write_tiptap(env, "spec-a", specimen());
         assert_eq!(
             warnings(&again),
@@ -415,9 +419,22 @@ fn specimen_receipts_are_byte_identical_to_a_fresh_write() {
         );
         let again_doc = stored(env, "spec-a");
         assert_eq!(
-            without_ids(&again_doc),
-            without_ids(&first_doc),
-            "the second specimen write changed content beyond block ids"
+            again_doc, first_doc,
+            "the second specimen write changed the document (ids included)"
+        );
+        assert_eq!(
+            room_state(&room),
+            state_before_again,
+            "the second specimen write changed the room's Y.Doc"
+        );
+        assert!(
+            drain_updates(&mut rx_again).is_empty(),
+            "the second specimen write broadcast an update"
+        );
+        assert_eq!(
+            revision(&again),
+            revision(&first),
+            "the second specimen write minted a revision"
         );
         let ids_after = block_ids(&again_doc);
         for given in ["anchor", "bl", "ol", "pimg", "co", "pm"] {
@@ -633,6 +650,62 @@ fn unflushed_person_edit_survives_expected_revision_write() {
         assert!(
             live_edits_conflicts(&outcome).is_empty(),
             "nothing conflicted: {outcome}"
+        );
+    });
+}
+
+/// Vera's ruling Q2 through the MCP handler: the person and the agent both changed the first paragraph since
+/// the agent's revision. The person's version stays, and the agent's MCP reply names the block, in
+/// `liveEdits.conflicts` and in a warning, so it can read the block again and redo its change.
+#[test]
+fn mcp_write_reports_the_block_the_person_won() {
+    with_env(|env| {
+        create(env, "conflict");
+        let first = write_tiptap(
+            env,
+            "conflict",
+            vec![
+                paragraph("p1", "First paragraph"),
+                paragraph("p2", "Second paragraph"),
+            ],
+        );
+        let expected = revision(&first);
+        let read_by_agent = read_markdown(env, "conflict");
+
+        let room = room_of(env, "conflict");
+        let person = person_synced(&room);
+        let typed = person_types(&person, 0, " PERSON", false);
+        assert!(run(room.apply_client_update(&typed)).unwrap());
+
+        let edited = read_by_agent.replace("First paragraph", "First paragraph, said the agent");
+        assert_ne!(edited, read_by_agent);
+        let reply = write(
+            env,
+            "conflict",
+            json!({"content": edited, "format": "markdown", "expectedRevision": expected}),
+        )
+        .unwrap();
+
+        assert_eq!(
+            block_texts(&room_json(&room)),
+            vec![
+                "First paragraph PERSON".to_string(),
+                "Second paragraph".to_string(),
+            ],
+            "the person's version of the first paragraph did not win"
+        );
+        let conflicts: Vec<String> = reply["liveEdits"]["conflicts"]
+            .as_array()
+            .unwrap_or_else(|| panic!("the MCP reply carries no liveEdits.conflicts: {reply}"))
+            .iter()
+            .filter_map(|id| id.as_str().map(str::to_string))
+            .collect();
+        assert_eq!(conflicts, vec!["p1".to_string()], "{reply}");
+        assert!(
+            warnings(&reply)
+                .iter()
+                .any(|w| w.starts_with("live edits kept") && w.contains("p1")),
+            "no warning names the block the person won: {reply}"
         );
     });
 }

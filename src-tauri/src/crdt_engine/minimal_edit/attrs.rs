@@ -221,10 +221,14 @@ fn any_to_json(any: &yrs::Any) -> Value {
         Any::String(s) => Value::String(s.to_string()),
         Any::Buffer(b) => serde_json::json!(b.as_ref()),
         Any::Array(items) => Value::Array(items.iter().map(any_to_json).collect()),
+        // Sorted by key: yrs keeps a map in a HashMap, and serde_json here preserves insertion order, so
+        // unsorted output would differ from run to run (I10).
         Any::Map(entries) => Value::Object(
             entries
                 .iter()
                 .map(|(k, v)| (k.to_string(), any_to_json(v)))
+                .collect::<std::collections::BTreeMap<_, _>>()
+                .into_iter()
                 .collect(),
         ),
     }

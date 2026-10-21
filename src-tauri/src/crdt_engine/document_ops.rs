@@ -421,7 +421,22 @@ pub(crate) async fn document_write_classified(
         }
         IdPolicy::Adopt { minted }
     } else {
-        IdPolicy::Bound
+        // tiptapJson and blocks have been through the block-contract normaliser,
+        // which mints ids for the nodes it rewrites or hoists (flattened list
+        // items, paragraphs split around an image, items without ids). Those are
+        // not the caller's: only ids the caller sent are bound, or the same write
+        // twice would re-id those blocks every time.
+        let mut minted = std::collections::BTreeSet::new();
+        collect_block_ids(&content_nodes, &mut minted);
+        let mut sent = std::collections::BTreeSet::new();
+        if let Some(raw) = payload.get("tiptapJson") {
+            collect_id_strings(raw, &mut sent);
+        }
+        if let Some(raw) = payload.get("blocks") {
+            collect_id_strings(raw, &mut sent);
+        }
+        minted.retain(|id| !sent.contains(id));
+        IdPolicy::Adopt { minted }
     };
     let policy = WritePolicy { format, ids };
     let desired = minimal_edit::model::desired_from_tiptap_nodes(&content_nodes, &policy);
@@ -716,6 +731,25 @@ fn collect_block_ids(nodes: &[Value], out: &mut std::collections::BTreeSet<Strin
         if let Some(children) = node.get("content").and_then(Value::as_array) {
             collect_block_ids(children, out);
         }
+    }
+}
+
+/// Every string under an id key (`id`, `blockId`, `data-block-id`) anywhere in a caller's payload value: the
+/// ids the caller sent, whatever the carrier's shape.
+fn collect_id_strings(value: &Value, out: &mut std::collections::BTreeSet<String>) {
+    match value {
+        Value::Object(map) => {
+            for (key, child) in map {
+                if matches!(key.as_str(), "id" | "blockId" | "data-block-id") {
+                    if let Some(id) = child.as_str().filter(|id| !id.is_empty()) {
+                        out.insert(id.to_string());
+                    }
+                }
+                collect_id_strings(child, out);
+            }
+        }
+        Value::Array(items) => items.iter().for_each(|item| collect_id_strings(item, out)),
+        _ => {}
     }
 }
 
