@@ -37,6 +37,10 @@ use yrs::{
 };
 
 use super::block_ops::{self, js_finite_number, js_string_value};
+use super::minimal_edit::{
+    self, CurrentFragment, DesiredFragment, EmitStats, IdPolicy, LiveEdits, PlanSummary,
+    SourceFormat, WritePolicy,
+};
 
 fn obj(value: &Value) -> Map<String, Value> {
     value.as_object().cloned().unwrap_or_default()
@@ -144,10 +148,16 @@ fn supplied_comments_match(doc: &yrs::Doc, comments: &Map<String, Value>) -> boo
 /// replay is admissible at expected+1 only when both cold and hot semantic
 /// state already equal the requested write. Anything else conflicts before a
 /// broadcast or update-v1.bin write can occur.
+///
+/// "Already applied" is asked of the planner: the hot Y.Doc equals the request
+/// when planning the request against it is a no-op (and the supplied comments
+/// are stored), and the cold record equals the request when it carries the
+/// title and the very projection the hot Doc has. The two are read in sequence
+/// under the Doc lock, never in nested transactions.
 async fn preflight_document_write_revision(
-    document_id: &str,
     title: &str,
-    desired_tiptap_json: &Value,
+    desired: &DesiredFragment,
+    policy: &WritePolicy,
     comments: &Map<String, Value>,
     existing_record: Option<&DocumentRecord>,
     room: &Room,
@@ -174,29 +184,24 @@ async fn preflight_document_write_revision(
             "revision conflict: expected {expected}, actual {current}; replay record is missing"
         ));
     };
-    let desired = projection::materialize_tiptap_json(desired_tiptap_json, document_id);
-    // A run's marks are a set: the order a write names them in is the caller's
-    // (a markdown nesting, an agent's JSON), the order the store holds is the
-    // contract's, and a record saved by an older build may hold any. All three
-    // are compared in the canonical order, or a retried write that names two
-    // marks in another order than the contract's conflicts with its own
-    // already-applied result.
-    let desired_in_order = super::block_contract::canonical_mark_order(&desired.tiptap_json);
-    let record_in_order = record
-        .tiptap_json
-        .as_ref()
-        .map(super::block_contract::canonical_mark_order);
-    let cold_matches = record.title == title
-        && record_in_order.as_ref() == Some(&desired_in_order)
-        && record.body.eq(&desired.body);
-    let hot_matches = room
+    let (hot_matches, live_json) = room
         .with_doc(|doc| {
-            let current = projection::materialize_ydoc(doc, document_id);
-            super::block_contract::canonical_mark_order(&current.tiptap_json) == desired_in_order
-                && current.body.eq(&desired.body)
-                && supplied_comments_match(doc, comments)
+            let txn = doc.transact();
+            let current = match txn.get_xml_fragment("content") {
+                Some(fragment) => minimal_edit::model::read_fragment(&txn, &fragment, policy),
+                None => CurrentFragment::default(),
+            };
+            let noop = minimal_edit::plan::plan_fragment(&current, desired, policy).is_noop();
+            let live_json = projection::tiptap_json_in(&txn);
+            drop(txn);
+            (noop && supplied_comments_match(doc, comments), live_json)
         })
         .await;
+    // The record is compared with the hot projection in the canonical mark
+    // order (`tiptap_json_matches`): a run's marks are a set, and a record saved
+    // by an older build may hold any order.
+    let cold_matches =
+        record.title == title && tiptap_json_matches(record.tiptap_json.as_ref(), Some(&live_json));
     if !cold_matches || !hot_matches {
         return Err(format!(
             "revision conflict: expected {expected}, actual {current}; replay content differs"
@@ -354,6 +359,22 @@ pub(crate) async fn document_write_classified(
         crate::ids::normalize_title(&title)?
     };
 
+    // A scene kind (the Flow board, the whiteboard) is not a TipTap fragment:
+    // a content write would add a `content` root to a board that has none and
+    // show nothing. Refuse it and name the tool that does write the board.
+    let document_kind = resolve_document_kind(app, &graph_id, &document_id).await?;
+    if crate::whiteboard::is_scene_kind(document_kind.as_deref()) {
+        let (kind, tool) = if crate::whiteboard::is_whiteboard(document_kind.as_deref()) {
+            ("whiteboard", "whiteboard_apply")
+        } else {
+            ("Flow board", "flow_seed_board")
+        };
+        return Err(ApplyOperationError::terminal(format!(
+            "write_document: the document {document_id:?} is a {kind}, not a text document, so \
+             content cannot be written to it. Use {tool} to change it."
+        )));
+    }
+
     // Rewrite the room's fragment in one transaction: live collaborators
     // receive the change as a normal sync update.
     let registry = app.state::<RoomRegistry>();
@@ -377,74 +398,138 @@ pub(crate) async fn document_write_classified(
         .and_then(Value::as_object)
         .cloned()
         .unwrap_or_default();
-    let desired_tiptap_json = json!({
-        "type": "doc",
-        "content": content_nodes,
-    });
+    // The carrier decides what the write states (DESIGN §2.3): a `tiptapJson`
+    // payload owns every attribute and mark, a `content` string only what its
+    // format can say, a `blocks` array only the simplified block's fields.
+    let format = if payload.get("tiptapJson").is_some_and(Value::is_object) {
+        SourceFormat::TiptapJson
+    } else if from_parsed_content {
+        SourceFormat::from_parsed(source_format.as_deref().unwrap_or(""))
+    } else {
+        SourceFormat::Blocks
+    };
+    // Ids the content parser minted for this operation mean nothing and a
+    // matched block keeps its current id. Markdown and plain text carry no ids,
+    // so every id in the parse was minted; XML and HTML may carry the caller's
+    // own, which are the ids that occur in the content string.
+    let ids = if from_parsed_content {
+        let mut minted = std::collections::BTreeSet::new();
+        collect_block_ids(&content_nodes, &mut minted);
+        if matches!(format, SourceFormat::Xml | SourceFormat::Html) {
+            let content = payload
+                .get("content")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            minted.retain(|id| !content.contains(id.as_str()));
+        }
+        IdPolicy::Adopt { minted }
+    } else {
+        IdPolicy::Bound
+    };
+    let policy = WritePolicy { format, ids };
+    let desired = minimal_edit::model::desired_from_tiptap_nodes(&content_nodes, &policy);
+
+    let expected_revision = payload.get("expectedRevision");
     let revision_disposition = preflight_document_write_revision(
-        &document_id,
         &title,
-        &desired_tiptap_json,
+        &desired,
+        &policy,
         &comments,
         existing_record.as_ref(),
         &room,
-        payload.get("expectedRevision"),
+        expected_revision,
     )
     .await?;
 
+    // What the agent read: the record at the revision it names. Only then is
+    // the record a base for the three-way rebase of a live edit it never saw.
+    let rebase_base = if minimal_edit::REBASE_ON_LIVE_EDITS {
+        match (
+            expected_revision.and_then(Value::as_u64),
+            existing_record.as_ref(),
+        ) {
+            (Some(expected), Some(record)) if record.revision == expected => record
+                .tiptap_json
+                .as_ref()
+                .and_then(|json| json.get("content"))
+                .and_then(Value::as_array)
+                .map(|nodes| minimal_edit::model::desired_from_tiptap_nodes(nodes, &policy)),
+            _ => None,
+        }
+    } else {
+        None
+    };
+
+    let mut write_outcome: Option<DocumentWriteOutcome> = None;
     if revision_disposition == DocumentWriteRevisionDisposition::Apply {
-        let mut content_nodes = desired_tiptap_json
-            .get("content")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-        room.update_doc(|_doc, txn| {
-            // doc.get_or_insert_* opens its own transaction and panics while one
-            // is live (yrs 0.27) — use the in-transaction variants.
-            let fragment = txn.get_or_insert_xml_fragment("content");
-            // Block-id stability across rewrites: a `write_document(content=…)`
-            // wipes + rebuilds the whole fragment, and the content-string parser
-            // mints FRESH random ids. That silently invalidates any block id a
-            // caller obtained before the write (a subsequent edit_block_text on
-            // the old id fails "Block not found"). Reuse the prior fragment's
-            // ids POSITIONALLY so an in-place edit (same block structure,
-            // changed text) keeps stable ids. Only on the parsed-content path;
-            // ids carried in `tiptapJson`/`blocks` payloads are left untouched.
-            if from_parsed_content {
-                let existing_ids = block_ops::block_ids_in_fragment(txn, &fragment);
-                reuse_block_ids_positionally(&mut content_nodes, &existing_ids);
-            }
-            let len = fragment.len(txn);
-            if len > 0 {
-                fragment.remove_range(txn, 0, len);
-            }
-            builder::append_nodes(txn, &fragment, &content_nodes);
-            if !comments.is_empty() {
-                let comments_map = txn.get_or_insert_map("comments");
-                // Signed by the server, as edit_comment's are (2026-10-14).
-                let author = crate::comment_authorship::CommentAuthor::from_payload(&payload);
-                for (comment_id, data) in &comments {
-                    let mut data = data.clone();
-                    if let Value::Object(object) = &mut data {
+        let outcome = room
+            .update_doc(|_doc, txn| {
+                // doc.get_or_insert_* opens its own transaction and panics while
+                // one is live (yrs 0.27): use the in-transaction variants.
+                let fragment = txn.get_or_insert_xml_fragment("content");
+                let read_started = std::time::Instant::now();
+                let current = minimal_edit::model::read_fragment(&*txn, &fragment, &policy);
+                let read_ms = elapsed_ms(read_started);
+
+                let plan_started = std::time::Instant::now();
+                let (desired, live_edits) = match rebase_base.as_ref() {
+                    Some(base) => {
+                        minimal_edit::rebase::rebase_on_live(base, &current, desired, &policy)
+                    }
+                    None => (desired, LiveEdits::default()),
+                };
+                let plan = minimal_edit::plan::plan_fragment(&current, &desired, &policy);
+                let plan_ms = elapsed_ms(plan_started);
+
+                let emit_started = std::time::Instant::now();
+                let stats =
+                    minimal_edit::emit::emit_fragment(txn, &fragment, &current, &plan)?;
+                let mut comments_written = 0u32;
+                if !comments.is_empty() {
+                    let comments_map = txn.get_or_insert_map("comments");
+                    // Signed by the server, as edit_comment's are (2026-10-14).
+                    let author = crate::comment_authorship::CommentAuthor::from_payload(&payload);
+                    for (comment_id, data) in &comments {
+                        let mut data = data.clone();
                         let stored = match comments_map.get(&*txn, comment_id.as_str()) {
-                            Some(Out::Any(any)) => any_json(&any).as_object().cloned(),
+                            Some(Out::Any(any)) => Some(any_json(&any)),
                             _ => None,
                         };
-                        let claimed = object.get("author").cloned();
-                        crate::comment_authorship::sign_comment(
-                            object,
-                            &author,
-                            claimed.as_ref(),
-                            stored.as_ref(),
-                        );
+                        if let Value::Object(object) = &mut data {
+                            let claimed = object.get("author").cloned();
+                            crate::comment_authorship::sign_comment(
+                                object,
+                                &author,
+                                claimed.as_ref(),
+                                stored.as_ref().and_then(Value::as_object),
+                            );
+                        }
+                        // An unchanged comment is not written again: a write
+                        // that sends back what is stored changes nothing.
+                        if stored
+                            .as_ref()
+                            .is_some_and(|stored| json_semantically_equal(stored, &data))
+                        {
+                            continue;
+                        }
+                        comments_map.insert(txn, comment_id.as_str(), builder::json_to_any(&data));
+                        comments_written += 1;
                     }
-                    comments_map.insert(txn, comment_id.as_str(), builder::json_to_any(&data));
                 }
-            }
-            Ok(())
-        })
-        .await
-        .map_err(ApplyOperationError::retryable_after_hot_commit)?;
+                let emit_ms = elapsed_ms(emit_started);
+                Ok(DocumentWriteOutcome {
+                    stats,
+                    summary: plan.summary,
+                    live_edits,
+                    comments_written,
+                    read_ms,
+                    plan_ms,
+                    emit_ms,
+                })
+            })
+            .await
+            .map_err(ApplyOperationError::retryable_after_hot_commit)?;
+        write_outcome = Some(outcome);
     }
     #[cfg(test)]
     if let Err(error) = maybe_fail_document_write_after_hot_for_test(&operation.operation_id) {
@@ -456,19 +541,40 @@ pub(crate) async fn document_write_classified(
 
     // Materialize projections from the post-write doc state and persist via
     // the same save_document path the desktop frontend uses.
-    let record_result = persist_room_document_with_expected_revision(
-        app,
-        &graph_id,
-        &document_id,
-        &title,
-        &room,
-        &operation.operation_id,
-        payload.get("expectedRevision"),
-        recreation
+    //
+    // A write that changed nothing persists nothing: zero Yjs operations, no
+    // comment written, no projection owed, the record already carries this title.
+    // With `expectedRevision` the write persists as always, because the contract
+    // bumps the revision of an equal write at `expected`.
+    let no_op_write = expected_revision.map_or(true, Value::is_null)
+        && recreation.is_none()
+        && write_outcome
             .as_ref()
-            .map(|tombstone| tombstone.deletion_id.as_str()),
-    )
-    .await;
+            .is_some_and(|outcome| outcome.stats.counts.is_zero() && outcome.comments_written == 0)
+        && !room.needs_projection_flush()
+        && existing_record
+            .as_ref()
+            .is_some_and(|record| record.title == title);
+    let record_result = match (no_op_write, existing_record.as_ref()) {
+        (true, Some(record)) => serde_json::to_value(record)
+            .map_err(|error| format!("serialize unchanged document record: {error}")),
+        _ => {
+            persist_room_document_with_expected_revision(
+                app,
+                &graph_id,
+                &document_id,
+                &title,
+                &room,
+                &operation.operation_id,
+                expected_revision,
+                recreation
+                    .as_ref()
+                    .map(|tombstone| tombstone.deletion_id.as_str()),
+            )
+            .await
+        }
+    };
+    let persisted = !no_op_write;
     let record_value = match record_result {
         Ok(record) => record,
         Err(error) => {
@@ -552,171 +658,85 @@ pub(crate) async fn document_write_classified(
             .collect::<Vec<_>>(),
         "sourceFormat": source_format,
         "warnings": warnings,
+        "crdt": crdt_report(write_outcome.as_ref(), persisted),
     }))
 }
 
-/// Top-level TipTap node types that carry a `data-block-id` (the set
-/// `ensure_block_ids` stamps, owned by the block contract). Only these
-/// participate in positional id reuse.
-const BLOCK_ID_NODE_TYPES: &[&str] = super::block_contract::MINTED_BLOCK_IDS;
+/// What one content write did to the Y.Doc, measured in the transaction that did it.
+struct DocumentWriteOutcome {
+    stats: EmitStats,
+    summary: PlanSummary,
+    live_edits: LiveEdits,
+    comments_written: u32,
+    read_ms: f64,
+    plan_ms: f64,
+    emit_ms: f64,
+}
 
-/// Overwrite each freshly-minted top-level block id with the prior fragment's
-/// id at the SAME position, so an in-place rewrite (same block structure,
-/// changed text) keeps stable ids. Blocks past the old length keep their fresh
-/// ids (genuinely new content). Non-block-id node types are skipped on both
-/// sides so the positional alignment matches the parser's own id assignment.
-///
-/// This only fires on the parsed-`content`-string path, where every id was
-/// random and meaningless anyway — so reuse never clobbers a caller-meant id.
-fn reuse_block_ids_positionally(content_nodes: &mut [Value], existing_ids: &[String]) {
-    if existing_ids.is_empty() {
-        return;
+fn elapsed_ms(started: std::time::Instant) -> f64 {
+    started.elapsed().as_secs_f64() * 1000.0
+}
+
+/// The `crdt` field of a write's result: the counted Yjs operations, the plan's shape, the live edits a
+/// rebase kept, the writer's client id and clock range (the attribution seam), timings, and whether the
+/// write persisted. A replay (already applied, nothing run) reports zero operations.
+fn crdt_report(outcome: Option<&DocumentWriteOutcome>, persisted: bool) -> Value {
+    fn to_json<T: serde::Serialize>(value: &T) -> Value {
+        serde_json::to_value(value).unwrap_or(Value::Null)
     }
-    let mut next_existing = 0usize;
-    for node in content_nodes.iter_mut() {
-        let node_type = node
-            .get("type")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
-        if !BLOCK_ID_NODE_TYPES.contains(&node_type.as_str()) {
-            continue;
-        }
-        let Some(existing_id) = existing_ids.get(next_existing) else {
-            break; // ran out of prior ids — remaining blocks keep fresh ids
-        };
-        next_existing += 1;
-        if let Some(obj) = node.as_object_mut() {
-            let attrs = obj.entry("attrs".to_string()).or_insert_with(|| json!({}));
-            if let Some(attrs_obj) = attrs.as_object_mut() {
-                attrs_obj.insert("data-block-id".into(), json!(existing_id));
-                // The parser may also have stamped a legacy `blockId`; keep the
-                // two faces consistent (read_block_id prefers data-block-id).
-                if attrs_obj.contains_key("blockId") {
-                    attrs_obj.insert("blockId".into(), json!(existing_id));
+    match outcome {
+        Some(outcome) => json!({
+            "ops": to_json(&outcome.stats.counts),
+            "plan": to_json(&outcome.summary),
+            "liveEdits": to_json(&outcome.live_edits),
+            "clientId": outcome.stats.client_id,
+            "clocks": [outcome.stats.clock_before, outcome.stats.clock_after],
+            "commentsWritten": outcome.comments_written,
+            "ms": {"read": outcome.read_ms, "plan": outcome.plan_ms, "emit": outcome.emit_ms},
+            "persisted": persisted,
+        }),
+        None => json!({
+            "ops": to_json(&minimal_edit::OpCounts::default()),
+            "plan": to_json(&PlanSummary::default()),
+            "liveEdits": to_json(&LiveEdits::default()),
+            "replayed": true,
+            "persisted": persisted,
+        }),
+    }
+}
+
+/// Every block id (`data-block-id` or `blockId`) in a TipTap node list, at any depth.
+fn collect_block_ids(nodes: &[Value], out: &mut std::collections::BTreeSet<String>) {
+    for node in nodes {
+        if let Some(attrs) = node.get("attrs").and_then(Value::as_object) {
+            for key in ["data-block-id", "blockId"] {
+                if let Some(id) = attrs.get(key).and_then(Value::as_str) {
+                    if !id.is_empty() {
+                        out.insert(id.to_string());
+                    }
                 }
             }
+        }
+        if let Some(children) = node.get("content").and_then(Value::as_array) {
+            collect_block_ids(children, out);
         }
     }
 }
 
-#[cfg(test)]
-mod block_id_reuse_tests {
-    use super::*;
-
-    fn block(node_type: &str, id: &str, text: &str) -> Value {
-        json!({
-            "type": node_type,
-            "attrs": { "data-block-id": id },
-            "content": [{ "type": "text", "text": text }],
-        })
-    }
-
-    fn id_of(node: &Value) -> Option<&str> {
-        node.get("attrs")
-            .and_then(|a| a.get("data-block-id"))
-            .and_then(Value::as_str)
-    }
-
-    /// The regression: an in-place rewrite (same block structure, changed text)
-    /// must reuse the prior fragment's ids positionally so a block id held by a
-    /// caller before the write survives it (else edit_block_text → "Block not
-    /// found"). Fresh-minted ids are replaced by the existing ids at each
-    /// position.
-    #[test]
-    fn reuses_existing_ids_positionally_on_same_structure() {
-        let existing = vec![
-            "block-OLD0".to_string(),
-            "block-OLD1".to_string(),
-            "block-OLD2".to_string(),
-        ];
-        let mut nodes = vec![
-            block("heading", "block-fresh0", "Title v2"),
-            block("paragraph", "block-fresh1", "Edited paragraph."),
-            block("paragraph", "block-fresh2", "Another edit."),
-        ];
-        reuse_block_ids_positionally(&mut nodes, &existing);
-        assert_eq!(id_of(&nodes[0]), Some("block-OLD0"));
-        assert_eq!(id_of(&nodes[1]), Some("block-OLD1"));
-        assert_eq!(id_of(&nodes[2]), Some("block-OLD2"));
-    }
-
-    /// Growth: the prefix reuses prior ids; blocks past the old length keep
-    /// their freshly-minted ids (genuinely new content).
-    #[test]
-    fn appended_blocks_keep_fresh_ids() {
-        let existing = vec!["block-OLD0".to_string(), "block-OLD1".to_string()];
-        let mut nodes = vec![
-            block("paragraph", "block-fresh0", "one"),
-            block("paragraph", "block-fresh1", "two"),
-            block("paragraph", "block-fresh2", "three (new)"),
-            block("paragraph", "block-fresh3", "four (new)"),
-        ];
-        reuse_block_ids_positionally(&mut nodes, &existing);
-        assert_eq!(id_of(&nodes[0]), Some("block-OLD0"));
-        assert_eq!(id_of(&nodes[1]), Some("block-OLD1"));
-        assert_eq!(id_of(&nodes[2]), Some("block-fresh2"));
-        assert_eq!(id_of(&nodes[3]), Some("block-fresh3"));
-    }
-
-    /// Shrink: only the surviving prefix reuses ids; no panic, no leftover.
-    #[test]
-    fn shrink_keeps_prefix_ids() {
-        let existing = vec![
-            "block-OLD0".to_string(),
-            "block-OLD1".to_string(),
-            "block-OLD2".to_string(),
-            "block-OLD3".to_string(),
-        ];
-        let mut nodes = vec![block("paragraph", "block-fresh0", "only one now")];
-        reuse_block_ids_positionally(&mut nodes, &existing);
-        assert_eq!(id_of(&nodes[0]), Some("block-OLD0"));
-    }
-
-    /// First write (no prior fragment): nothing to reuse, fresh ids untouched.
-    #[test]
-    fn no_existing_ids_is_a_noop() {
-        let mut nodes = vec![block("paragraph", "block-fresh0", "hello")];
-        reuse_block_ids_positionally(&mut nodes, &[]);
-        assert_eq!(id_of(&nodes[0]), Some("block-fresh0"));
-    }
-
-    /// Non-block-id node types are skipped on the payload side so positional
-    /// alignment matches the parser's own id assignment (the parser only stamps
-    /// BLOCK_ID_TYPES). A stray inline-ish node between blocks must not consume
-    /// an existing id slot.
-    #[test]
-    fn skips_non_block_id_node_types() {
-        let existing = vec!["block-OLD0".to_string(), "block-OLD1".to_string()];
-        let mut nodes = vec![
-            block("paragraph", "block-fresh0", "para 0"),
-            json!({ "type": "text", "text": "stray inline" }),
-            block("paragraph", "block-fresh1", "para 1"),
-        ];
-        reuse_block_ids_positionally(&mut nodes, &existing);
-        assert_eq!(id_of(&nodes[0]), Some("block-OLD0"));
-        // the stray non-block node is untouched and consumed no id slot
-        assert_eq!(id_of(&nodes[1]), None);
-        assert_eq!(id_of(&nodes[2]), Some("block-OLD1"));
-    }
-
-    /// A legacy `blockId` attr is kept consistent with `data-block-id` so
-    /// read_block_id (which prefers data-block-id) and any blockId reader agree.
-    #[test]
-    fn keeps_legacy_block_id_attr_consistent() {
-        let existing = vec!["block-OLD0".to_string()];
-        let mut nodes = vec![json!({
-            "type": "paragraph",
-            "attrs": { "data-block-id": "block-fresh0", "blockId": "block-fresh0" },
-            "content": [{ "type": "text", "text": "x" }],
-        })];
-        reuse_block_ids_positionally(&mut nodes, &existing);
-        assert_eq!(id_of(&nodes[0]), Some("block-OLD0"));
-        assert_eq!(
-            nodes[0]["attrs"]["blockId"].as_str(),
-            Some("block-OLD0"),
-            "legacy blockId must track data-block-id"
-        );
+/// JSON equality that reads a whole number the same however it was stored: the Y.Doc keeps every number
+/// as an f64, a caller's JSON may say `1`.
+fn json_semantically_equal(left: &Value, right: &Value) -> bool {
+    match (left, right) {
+        (Value::Number(a), Value::Number(b)) => a.as_f64() == b.as_f64(),
+        (Value::Array(a), Value::Array(b)) => {
+            a.len() == b.len() && a.iter().zip(b).all(|(a, b)| json_semantically_equal(a, b))
+        }
+        (Value::Object(a), Value::Object(b)) => {
+            a.len() == b.len()
+                && a.iter()
+                    .all(|(key, a)| b.get(key).is_some_and(|b| json_semantically_equal(a, b)))
+        }
+        _ => left == right,
     }
 }
 
@@ -3456,13 +3476,21 @@ pub(crate) async fn ingest_markdown_original_steps_classified(
             .unwrap_or(&[]),
         &operation.operation_id,
     );
+    // A re-ingest into the same id changes only what differs: the parser mints
+    // every id of a markdown parse, so a matched block keeps its current id, and
+    // what markdown cannot say (a comment mark, an outline state) stays.
+    let mut minted = std::collections::BTreeSet::new();
+    collect_block_ids(&content_nodes, &mut minted);
+    let policy = WritePolicy {
+        format: SourceFormat::Markdown,
+        ids: IdPolicy::Adopt { minted },
+    };
+    let desired = minimal_edit::model::desired_from_tiptap_nodes(&content_nodes, &policy);
     room.update_doc(move |_doc, txn| {
         let fragment = txn.get_or_insert_xml_fragment("content");
-        let len = fragment.len(txn);
-        if len > 0 {
-            fragment.remove_range(txn, 0, len);
-        }
-        builder::append_nodes(txn, &fragment, &content_nodes);
+        let current = minimal_edit::model::read_fragment(&*txn, &fragment, &policy);
+        let plan = minimal_edit::plan::plan_fragment(&current, &desired, &policy);
+        minimal_edit::emit::emit_fragment(txn, &fragment, &current, &plan)?;
         Ok(())
     })
     .await

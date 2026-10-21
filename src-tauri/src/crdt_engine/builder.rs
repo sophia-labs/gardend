@@ -44,7 +44,35 @@ pub(crate) fn insert_node_at<F: XmlFragment>(
     index: u32,
     node: &Value,
 ) {
-    unimplemented!("U5")
+    let node_type = node.get("type").and_then(Value::as_str);
+    if node_type == Some("text") {
+        let text = node.get("text").and_then(Value::as_str).unwrap_or("");
+        if text.is_empty() {
+            return;
+        }
+        let text_ref = parent.insert(txn, index, XmlTextPrelim::new(""));
+        match marks_to_attrs(node.get("marks")) {
+            Some(attrs) => text_ref.insert_with_attributes(txn, 0, text, attrs),
+            None => text_ref.insert(txn, 0, text),
+        }
+        return;
+    }
+
+    let tag = node_type.unwrap_or("paragraph");
+    let element = parent.insert(txn, index, XmlElementPrelim::empty(tag));
+    if let Some(attrs) = node.get("attrs").and_then(Value::as_object) {
+        for (key, value) in attrs {
+            if value.is_null() {
+                continue;
+            }
+            element.insert_attribute(txn, key.clone(), json_to_any(value));
+        }
+    }
+    // The children of a new element go in with the builder's own append: the element is fresh, so
+    // appending in order is inserting at 0, 1, 2…
+    if let Some(content) = node.get("content").and_then(Value::as_array) {
+        append_nodes(txn, &element, content);
+    }
 }
 
 fn append_node<F: XmlFragment>(txn: &mut TransactionMut<'_>, parent: &F, node: &Value) {
