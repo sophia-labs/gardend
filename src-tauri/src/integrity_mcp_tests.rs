@@ -662,15 +662,29 @@ fn reader_args(extra: Value) -> Value {
 
 /// Writes the book; returns the id of its first block.
 async fn book(state: &Arc<LoopbackState>) -> String {
-    tool(state, MASTER, "write_document", json!({
-        "graphId": GRAPH, "documentId": "book", "title": "Book",
-        "content": "Dreams are the royal road. A second sentence follows.",
-    }))
+    tool(
+        state,
+        MASTER,
+        "write_document",
+        json!({
+            "graphId": GRAPH, "documentId": "book", "title": "Book",
+            "content": "Dreams are the royal road. A second sentence follows.",
+        }),
+    )
     .await
     .unwrap();
-    let ids = tool(state, MASTER, "read_document",
-        json!({ "graphId": GRAPH, "documentId": "book", "format": "ids_only" })).await.unwrap();
-    ids["block_ids"][0].as_str().expect("a first block").to_string()
+    let ids = tool(
+        state,
+        MASTER,
+        "read_document",
+        json!({ "graphId": GRAPH, "documentId": "book", "format": "ids_only" }),
+    )
+    .await
+    .unwrap();
+    ids["block_ids"][0]
+        .as_str()
+        .expect("a first block")
+        .to_string()
 }
 
 #[test]
@@ -679,10 +693,17 @@ fn edit_comment_stores_the_readers_keys_verbatim_and_refuses_the_rest() {
         crate::app_runtime::async_runtime::block_on(async {
             book(&state).await;
             let anchor = json!({ "page": 3, "chapter": 0, "prefix": "Dreams are the ", "suffix": " A second" });
-            tool(&state, MASTER, "edit_comment", reader_args(json!({
-                "commentId": "ok", "text": "my note", "find": "royal road",
-                "kind": "comment", "color": "pink", "anchor": anchor, "madeIn": "reader",
-            }))).await.unwrap();
+            tool(
+                &state,
+                MASTER,
+                "edit_comment",
+                reader_args(json!({
+                    "commentId": "ok", "text": "my note", "find": "royal road",
+                    "kind": "comment", "color": "pink", "anchor": anchor, "madeIn": "reader",
+                })),
+            )
+            .await
+            .unwrap();
             let comments = stored_comments(&state, "book").await;
             assert_eq!(comments["ok"]["kind"], "comment", "{comments}");
             assert_eq!(comments["ok"]["color"], "pink");
@@ -701,13 +722,24 @@ fn edit_comment_stores_the_readers_keys_verbatim_and_refuses_the_rest() {
                 (json!({"anchor": "p3"}), "anchor must be an object"),
                 (json!({"anchor": {"page": 0}}), "anchor.page"),
                 (json!({"anchor": {"chapter": -1}}), "anchor.chapter"),
-                (json!({"anchor": {"prefix": "x".repeat(201)}}), "anchor.prefix"),
-                (json!({"anchor": {"cfi": "epubcfi(/6/4)"}}), "anchor.cfi is not allowed"),
-            ].into_iter().enumerate() {
+                (
+                    json!({"anchor": {"prefix": "x".repeat(201)}}),
+                    "anchor.prefix",
+                ),
+                (
+                    json!({"anchor": {"cfi": "epubcfi(/6/4)"}}),
+                    "anchor.cfi is not allowed",
+                ),
+            ]
+            .into_iter()
+            .enumerate()
+            {
                 let mut args = reader_args(extra);
                 args["commentId"] = json!(format!("bad-{n}"));
                 args["text"] = json!("x");
-                let error = tool(&state, MASTER, "edit_comment", args).await.expect_err(needle);
+                let error = tool(&state, MASTER, "edit_comment", args)
+                    .await
+                    .expect_err(needle);
                 assert!(error.contains(needle), "{error} should mention {needle}");
             }
             // The raw op refuses too, and writes nothing.
@@ -737,12 +769,23 @@ fn a_highlight_may_be_empty_but_a_comment_may_not() {
             assert_eq!(comments["h1"]["quotedText"], "royal road");
 
             // The same highlight, set again with no text, stays a highlight.
-            tool(&state, MASTER, "edit_comment", reader_args(json!({ "commentId": "h1", "color": "blue" })))
-                .await.expect("a stored highlight needs no text either");
+            tool(
+                &state,
+                MASTER,
+                "edit_comment",
+                reader_args(json!({ "commentId": "h1", "color": "blue" })),
+            )
+            .await
+            .expect("a stored highlight needs no text either");
             assert_eq!(stored_comments(&state, "book").await["h1"]["color"], "blue");
 
-            for extra in [json!({"commentId": "c1"}), json!({"commentId": "c2", "kind": "comment"})] {
-                let error = tool(&state, MASTER, "edit_comment", reader_args(extra)).await.expect_err("no text");
+            for extra in [
+                json!({"commentId": "c1"}),
+                json!({"commentId": "c2", "kind": "comment"}),
+            ] {
+                let error = tool(&state, MASTER, "edit_comment", reader_args(extra))
+                    .await
+                    .expect_err("no text");
                 assert!(error.contains("text is required"), "{error}");
             }
         });
@@ -755,19 +798,41 @@ fn the_readers_keys_survive_every_later_edit() {
         crate::app_runtime::async_runtime::block_on(async {
             book(&state).await;
             let anchor = json!({ "chapter": 2, "prefix": "a", "suffix": "b" });
-            tool(&state, MASTER, "edit_comment", reader_args(json!({
-                "commentId": "k", "text": "first", "find": "royal road",
-                "kind": "comment", "color": "green", "anchor": anchor, "madeIn": "reader",
-            }))).await.unwrap();
+            tool(
+                &state,
+                MASTER,
+                "edit_comment",
+                reader_args(json!({
+                    "commentId": "k", "text": "first", "find": "royal road",
+                    "kind": "comment", "color": "green", "anchor": anchor, "madeIn": "reader",
+                })),
+            )
+            .await
+            .unwrap();
             let keep = |comments: &Value| {
                 for key in READER_KEYS {
-                    assert_eq!(comments["k"][key], if key == "anchor" { anchor.clone() } else {
-                        json!({"kind": "comment", "color": "green", "madeIn": "reader"})[key].clone() }, "{key}: {comments}");
+                    assert_eq!(
+                        comments["k"][key],
+                        if key == "anchor" {
+                            anchor.clone()
+                        } else {
+                            json!({"kind": "comment", "color": "green", "madeIn": "reader"})[key]
+                                .clone()
+                        },
+                        "{key}: {comments}"
+                    );
                 }
             };
             keep(&stored_comments(&state, "book").await);
 
-            tool(&state, MASTER, "edit_comment", reader_args(json!({ "commentId": "k", "text": "second" }))).await.unwrap();
+            tool(
+                &state,
+                MASTER,
+                "edit_comment",
+                reader_args(json!({ "commentId": "k", "text": "second" })),
+            )
+            .await
+            .unwrap();
             let comments = stored_comments(&state, "book").await;
             assert_eq!(comments["k"]["text"], "second");
             keep(&comments);
@@ -799,9 +864,15 @@ fn editcomments_after_a_direct_room_write_keeps_the_entry() {
     with_gardend("reader-direct", |state| {
         crate::app_runtime::async_runtime::block_on(async {
             book(&state).await;
-            let path = crate::ydoc_paths::checked_document_ydoc_state_path(&graph_dir(&state), "book").unwrap();
-            let room = state.app.state::<RoomRegistry>()
-                .get_or_create(&format!("doc:{GRAPH}:book"), path).await.unwrap();
+            let path =
+                crate::ydoc_paths::checked_document_ydoc_state_path(&graph_dir(&state), "book")
+                    .unwrap();
+            let room = state
+                .app
+                .state::<RoomRegistry>()
+                .get_or_create(&format!("doc:{GRAPH}:book"), path)
+                .await
+                .unwrap();
             let entry = json!({
                 "author": "Vera", "authorId": "user:vera", "text": "worth a note", "quotedText": "royal road",
                 "createdAt": 1_792_000_000_000u64, "updatedAt": 1_792_000_000_000u64, "resolved": false,
@@ -812,9 +883,15 @@ fn editcomments_after_a_direct_room_write_keeps_the_entry() {
             room.update_doc(move |_doc, txn| {
                 use yrs::{Map as _, WriteTxn as _};
                 let comments = txn.get_or_insert_map("comments");
-                comments.insert(txn, "rd-1", crate::crdt_engine::builder::json_to_any(&written));
+                comments.insert(
+                    txn,
+                    "rd-1",
+                    crate::crdt_engine::builder::json_to_any(&written),
+                );
                 Ok::<_, String>(())
-            }).await.unwrap();
+            })
+            .await
+            .unwrap();
 
             let placed = tool(&state, MASTER, "crdt_operation", json!({
                 "kind": "document.editComments", "graphId": GRAPH, "documentId": "book",
@@ -828,7 +905,11 @@ fn editcomments_after_a_direct_room_write_keeps_the_entry() {
                 assert_eq!(stored[key], entry[key], "{key}: {stored}");
             }
             assert_eq!(stored["createdAt"], entry["createdAt"], "{stored}");
-            assert_eq!(stored["blockId"].is_string(), true, "the text is marked: {stored}");
+            assert_eq!(
+                stored["blockId"].is_string(),
+                true,
+                "the text is marked: {stored}"
+            );
         });
     });
 }
@@ -838,9 +919,18 @@ fn read_document_hands_an_agent_the_notes() {
     with_gardend("reader-read", |state| {
         crate::app_runtime::async_runtime::block_on(async {
             let block = book(&state).await;
-            let plain = tool(&state, MASTER, "read_document", json!({ "graphId": GRAPH, "documentId": "book" }))
-                .await.unwrap();
-            assert!(plain.get("comments").is_none() && plain.get("commentCount").is_none(), "{plain}");
+            let plain = tool(
+                &state,
+                MASTER,
+                "read_document",
+                json!({ "graphId": GRAPH, "documentId": "book" }),
+            )
+            .await
+            .unwrap();
+            assert!(
+                plain.get("comments").is_none() && plain.get("commentCount").is_none(),
+                "{plain}"
+            );
 
             tool(&state, MASTER, "edit_comment", reader_args(json!({
                 "commentId": "b-note", "text": "why royal?", "blockId": block, "find": "royal road", "author": "Vera",
@@ -851,8 +941,14 @@ fn read_document_hands_an_agent_the_notes() {
                 "anchor": {"chapter": 1, "prefix": "A "},
             }))).await.unwrap();
 
-            let read = tool(&state, MASTER, "read_document", json!({ "graphId": GRAPH, "documentId": "book" }))
-                .await.unwrap();
+            let read = tool(
+                &state,
+                MASTER,
+                "read_document",
+                json!({ "graphId": GRAPH, "documentId": "book" }),
+            )
+            .await
+            .unwrap();
             assert_eq!(read["commentCount"], 2, "{read}");
             let comments = read["comments"].as_array().unwrap();
             assert_eq!(comments.len(), 2);
@@ -864,18 +960,44 @@ fn read_document_hands_an_agent_the_notes() {
             assert_eq!(note["color"], "pink");
             assert_eq!(note["anchor"], json!({"page": 2}));
             assert_eq!(note["resolved"], false);
-            assert!(note["blockId"].is_string() && note["createdAt"].is_number() && note["author"].is_string(), "{note}");
-            assert!(note.get("madeIn").is_none() && note.get("updatedAt").is_none(), "compact: {note}");
+            assert!(
+                note["blockId"].is_string()
+                    && note["createdAt"].is_number()
+                    && note["author"].is_string(),
+                "{note}"
+            );
+            assert!(
+                note.get("madeIn").is_none() && note.get("updatedAt").is_none(),
+                "compact: {note}"
+            );
             let mark = comments.iter().find(|c| c["id"] == "a-mark").unwrap();
-            assert_eq!((mark["kind"].as_str(), mark["text"].as_str()), (Some("highlight"), Some("")));
+            assert_eq!(
+                (mark["kind"].as_str(), mark["text"].as_str()),
+                (Some("highlight"), Some(""))
+            );
             // Stable order: createdAt, then id.
-            let again = tool(&state, MASTER, "read_document", json!({ "graphId": GRAPH, "documentId": "book" }))
-                .await.unwrap();
+            let again = tool(
+                &state,
+                MASTER,
+                "read_document",
+                json!({ "graphId": GRAPH, "documentId": "book" }),
+            )
+            .await
+            .unwrap();
             assert_eq!(again["comments"], read["comments"]);
 
-            let left_out = tool(&state, MASTER, "read_document",
-                json!({ "graphId": GRAPH, "documentId": "book", "includeComments": false })).await.unwrap();
-            assert!(left_out.get("comments").is_none() && left_out.get("commentCount").is_none(), "{left_out}");
+            let left_out = tool(
+                &state,
+                MASTER,
+                "read_document",
+                json!({ "graphId": GRAPH, "documentId": "book", "includeComments": false }),
+            )
+            .await
+            .unwrap();
+            assert!(
+                left_out.get("comments").is_none() && left_out.get("commentCount").is_none(),
+                "{left_out}"
+            );
         });
     });
 }

@@ -38,10 +38,10 @@ pub mod web_clip_ops;
 #[doc(hidden)]
 pub mod workspace_ops;
 
-#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
-mod flow_board_flush_tests;
 #[cfg(test)]
 mod comment_anchoring_tests;
+#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
+mod flow_board_flush_tests;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod persistence_tests;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]

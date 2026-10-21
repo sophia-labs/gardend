@@ -22,13 +22,13 @@ pub(crate) mod chamber_ontology;
 pub(crate) mod class_dispatch;
 pub(crate) mod content;
 pub(crate) mod contract;
-pub(crate) mod describe;
 #[cfg(test)]
 #[path = "../datasheet_identity_tests.rs"]
 mod datasheet_identity_tests;
 #[cfg(test)]
 #[path = "../datasheet_import_tests.rs"]
 mod datasheet_import_tests;
+pub(crate) mod describe;
 #[cfg(test)]
 mod domain_kit_tests;
 #[cfg(test)]

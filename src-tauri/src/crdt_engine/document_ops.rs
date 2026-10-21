@@ -1377,7 +1377,10 @@ pub(super) async fn materialize_room_document(
                     String::new()
                 };
                 let txn = doc.transact();
-                (txn.encode_state_as_update_v1(&yrs::StateVector::default()), body)
+                (
+                    txn.encode_state_as_update_v1(&yrs::StateVector::default()),
+                    body,
+                )
             })
             .await;
         let ydoc_b64 = base64::engine::general_purpose::STANDARD.encode(ydoc_state);

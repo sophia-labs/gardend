@@ -148,9 +148,15 @@ mod tests {
             (json!({"anchor":{"page":0}}), "anchor.page"),
             (json!({"anchor":{"page":1.5}}), "anchor.page"),
             (json!({"anchor":{"chapter":-1}}), "anchor.chapter"),
-            (json!({"anchor":{"prefix":"x".repeat(201)}}), "anchor.prefix"),
+            (
+                json!({"anchor":{"prefix":"x".repeat(201)}}),
+                "anchor.prefix",
+            ),
             (json!({"anchor":{"suffix":7}}), "anchor.suffix"),
-            (json!({"anchor":{"cfi":"epubcfi(/6/4)"}}), "anchor.cfi is not allowed"),
+            (
+                json!({"anchor":{"cfi":"epubcfi(/6/4)"}}),
+                "anchor.cfi is not allowed",
+            ),
         ] {
             let error = check(payload.clone()).expect_err(&payload.to_string());
             assert!(error.contains(needle), "{error} should mention {needle}");

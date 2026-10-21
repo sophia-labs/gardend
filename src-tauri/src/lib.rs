@@ -26,7 +26,6 @@ mod chat_persistence;
 mod clock;
 mod comment_authorship;
 mod comment_reader_keys;
-mod document_comments_read;
 pub mod conversation_archive;
 pub mod crdt_engine;
 mod crdt_operation_audit;
@@ -43,6 +42,7 @@ mod datasheet_import;
 mod datasheet_keyvalues;
 mod document_block_projection;
 mod document_block_rendering;
+mod document_comments_read;
 mod document_create_once_mcp;
 mod document_delete_service;
 mod document_digest_connections;
@@ -269,6 +269,8 @@ mod service_mcp;
 // which is seeded by the platform rather than a bundled welcome graph.
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod block_contract_store_tests;
+#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
+mod document_kind_store_tests;
 mod graph_incarnation_admission;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod json_text_face_store_tests;
@@ -296,6 +298,7 @@ mod pdf_ingest_payloads;
 mod pdf_ingest_submission;
 mod pdf_ingest_upload;
 mod pdf_ingestion_commands;
+mod pdf_ocr_text_layer;
 mod pdf_parsers;
 mod pdf_pipeline;
 mod pdf_pipeline_catalog;
@@ -305,8 +308,6 @@ mod pdf_pipeline_engine_specs;
 mod pdf_pipeline_python_runtime;
 mod pdf_pipeline_resolution;
 mod pdf_pipeline_runtime;
-mod pdf_ocr_text_layer;
-mod scan_text_service;
 mod pdf_pymupdf_job;
 mod pdf_runtime_processes;
 mod pdf_runtimes;
@@ -355,6 +356,7 @@ mod salience_value_config;
 mod salience_value_scoring;
 mod salience_value_store;
 mod salience_wire_context;
+mod scan_text_service;
 mod search_lexical_projection;
 mod search_projection_service;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
@@ -388,12 +390,6 @@ mod source_pull_budget;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod source_pull_tree_tests;
 mod source_sync;
-#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
-mod document_kind_store_tests;
-#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
-mod typed_objects_tests;
-#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
-mod workflow_plan_tests;
 mod sparql_admission;
 mod sparql_cursor;
 mod storage;
@@ -408,14 +404,19 @@ mod time_travel_restore_service;
 mod time_travel_service;
 mod time_travel_store;
 mod time_travel_types;
+#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
+mod typed_objects_tests;
 mod verbalize;
 mod visitor_fence;
 mod web_fetch;
+#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
+mod workflow_plan_tests;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod write_placement_store_tests;
 // Native title-bar appearance (macOS overlay/frameless modes). GUI-only: pulls
 // Tauri webview/window APIs (WebviewWindowBuilder, ns_window, objc2), so it is
 // excluded from the headless cell build.
+mod whiteboard;
 #[cfg(feature = "desktop")]
 mod window_settings;
 mod wire_predicates;
@@ -425,7 +426,6 @@ mod wire_traversal_payloads;
 mod wire_traversal_service;
 mod workflow_authoring_mcp;
 mod workflow_book_mcp;
-mod whiteboard;
 mod workflow_plan_mcp;
 mod workflow_run_mcp;
 mod workspace_document_projection;

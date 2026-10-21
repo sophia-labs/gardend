@@ -45,9 +45,6 @@ use crate::{
     },
     entity_find::mcp_local_find,
     flow_board_mcp::{mcp_local_flow_export_board, mcp_local_flow_seed_board},
-    whiteboard::mcp::{
-        mcp_local_whiteboard_apply, mcp_local_whiteboard_create, mcp_local_whiteboard_read,
-    },
     geist_memory_backfill::mcp_local_backfill_memory_projection,
     geist_memory_recall_service::mcp_local_recall_memories,
     geist_memory_service::{
@@ -97,6 +94,9 @@ use crate::{
         mcp_local_delete_restore_point, mcp_local_diff_restore_points,
         mcp_local_get_restore_operation, mcp_local_get_restore_point,
         mcp_local_list_restore_points, mcp_local_restore_to_restore_point,
+    },
+    whiteboard::mcp::{
+        mcp_local_whiteboard_apply, mcp_local_whiteboard_create, mcp_local_whiteboard_read,
     },
     wire_traversal_service::mcp_local_traverse_wires,
     workflow_authoring_mcp::mcp_local_workflow_authoring_session,
