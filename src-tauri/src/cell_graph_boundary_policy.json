@@ -1,7 +1,7 @@
 {
   "restSurfaceSha256": "628a6b1d60e2fcf12267e62c0d4d50e24a7efc1c92551d2aac37cb5fbbf58fc6",
   "mcpSurfaceSha256": "d80bc2f81fbd83c5b95906936b5053741cc9ea7058f8efcd49986b765bd240fa",
-  "effectRegistrySha256": "ff648bef175c001093f00830fe33cdea4e87cea2d3c86ffbcf36269ddd6acf4a",
+  "effectRegistrySha256": "fdc64d25fd6feea605a854f0c612c75c65a9b4b23c4c990739176f0ccd5e9659",
   "restGlobal": [
     "GET /api/artifacts/ingestion/approaches",
     "GET /api/artifacts/ingestion/docling/status",

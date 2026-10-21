@@ -109,9 +109,10 @@ impl SupervisionTiming {
 #[derive(Default)]
 pub(crate) struct LocalServiceHost {
     services: Mutex<BTreeMap<String, ServiceRuntime>>,
-    /// The MCP token of each running child → its service id. Kept apart from
-    /// `services` so authenticating a request never waits on a spawn.
-    service_tokens: RwLock<BTreeMap<String, String>>,
+    /// The MCP token of each running child → its service (and what its
+    /// manifest grants it). Kept apart from `services` so authenticating a
+    /// request never waits on a spawn.
+    service_tokens: RwLock<BTreeMap<String, ServiceTokenOwner>>,
     /// The delegation tokens handed to services that asked for them.
     delegations: RwLock<DelegationRegistry>,
     /// gardend's own API as a child reaches it (`http://127.0.0.1:<port>`),
@@ -147,6 +148,15 @@ pub(crate) struct Delegation {
     /// W6: the Sophia account it acts for, whose fence may admit a write in
     /// the visitors' folder (`visitor_fence`); `None` for everyone else.
     pub(crate) visitor: Option<crate::visitor_fence::VisitorAccount>,
+}
+
+/// The service a supervised child's own MCP token belongs to, and whether
+/// its manifest asks for agent memory (`"agentMemory": true`), which adds the
+/// observed writes to the token's scopes (`loopback_agent_memory`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ServiceTokenOwner {
+    pub(crate) service_id: String,
+    pub(crate) agent_memory: bool,
 }
 
 #[derive(Default)]
@@ -270,6 +280,9 @@ struct ResolvedServiceManifest {
     delegate_caller: bool,
     /// `acceptsModelKey`: the caller's own `X-Model-Key` is forwarded to it.
     accepts_model_key: bool,
+    /// `agentMemory`: its own token may write the memory, Song and valuations
+    /// of an agent a call names as its observer (`loopback_agent_memory`).
+    agent_memory: bool,
     /// `mcp`: the MCP endpoint whose tools gardend lists and forwards on its
     /// own `/mcp` (`service_mcp`).
     mcp: Option<ServiceMcp>,
@@ -429,6 +442,11 @@ struct ServiceManifestFile {
     /// (default false: the header is dropped).
     #[serde(default)]
     accepts_model_key: bool,
+    /// Let the service's own token write the memory, Song and valuations of
+    /// the agents it runs: the agent a call names as its observer, never the
+    /// commons (default false; `loopback_agent_memory`).
+    #[serde(default)]
+    agent_memory: bool,
     /// Lend the service's MCP tools to gardend's `/mcp` (`ServiceMcp`).
     #[serde(default)]
     mcp: Option<ServiceMcpFile>,
@@ -639,7 +657,7 @@ impl LocalServiceHost {
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .values()
-            .any(|service_id| *service_id == delegation.service_id);
+            .any(|owner| owner.service_id == delegation.service_id);
         if !running {
             return None;
         }
@@ -711,6 +729,12 @@ impl LocalServiceHost {
 
     /// The service a supervised child's own MCP token belongs to.
     pub(crate) fn service_token_owner(&self, token: &str) -> Option<String> {
+        self.service_token(token).map(|owner| owner.service_id)
+    }
+
+    /// The service a supervised child's own MCP token belongs to, with what
+    /// its manifest grants that token.
+    pub(crate) fn service_token(&self, token: &str) -> Option<ServiceTokenOwner> {
         if token.is_empty() {
             return None;
         }
@@ -721,7 +745,13 @@ impl LocalServiceHost {
             .cloned()
     }
 
-    fn set_service_token(&self, service_id: &str, previous: Option<&str>, next: Option<&str>) {
+    fn set_service_token(
+        &self,
+        service_id: &str,
+        previous: Option<&str>,
+        next: Option<&str>,
+        agent_memory: bool,
+    ) {
         let mut tokens = self
             .service_tokens
             .write()
@@ -730,7 +760,13 @@ impl LocalServiceHost {
             tokens.remove(previous);
         }
         if let Some(next) = next {
-            tokens.insert(next.to_string(), service_id.to_string());
+            tokens.insert(
+                next.to_string(),
+                ServiceTokenOwner {
+                    service_id: service_id.to_string(),
+                    agent_memory,
+                },
+            );
         }
     }
 
@@ -939,7 +975,12 @@ impl LocalServiceHost {
             );
         }
 
-        self.set_service_token(service_id, runtime.mcp_token.as_deref(), Some(&mcp_token));
+        self.set_service_token(
+            service_id,
+            runtime.mcp_token.as_deref(),
+            Some(&mcp_token),
+            manifest.agent_memory,
+        );
         runtime.port = Some(port);
         runtime.internal_secret = Some(internal_secret);
         runtime.mcp_token = Some(mcp_token);
@@ -1019,7 +1060,7 @@ impl LocalServiceHost {
 
     /// Clear what identified a child that is gone.
     fn forget_process(&self, service_id: &str, runtime: &mut ServiceRuntime) {
-        self.set_service_token(service_id, runtime.mcp_token.as_deref(), None);
+        self.set_service_token(service_id, runtime.mcp_token.as_deref(), None, false);
         self.forget_delegations(service_id);
         runtime.mcp_token = None;
         runtime.port = None;
@@ -1770,6 +1811,7 @@ fn resolve_service_manifest(
                 display_name: None,
                 delegate_caller: false,
                 accepts_model_key: false,
+                agent_memory: false,
                 mcp: None,
             });
         }
@@ -1854,6 +1896,7 @@ fn read_service_manifest(
             .filter(|name| !name.is_empty()),
         delegate_caller: parsed.delegate_caller,
         accepts_model_key: parsed.accepts_model_key,
+        agent_memory: parsed.agent_memory,
         mcp: parsed.mcp.map(|mcp| mcp.resolve(path)).transpose()?,
     })
 }
@@ -2094,7 +2137,7 @@ mod tests {
             None,
             "no running process, nothing to hand a token to"
         );
-        host.set_service_token("vehicle", None, Some("sophia-svc-process"));
+        host.set_service_token("vehicle", None, Some("sophia-svc-process"), false);
         let t0 = Instant::now();
         let minute = Duration::from_secs(60);
         let first = host.delegate_at(owner.clone(), t0).unwrap();
@@ -2167,6 +2210,65 @@ mod tests {
                 .delegate_caller
         );
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// `"agentMemory": true` in `service.json` asks for the observed writes;
+    /// a manifest that does not say so gets none, and neither does its token.
+    #[test]
+    fn a_manifest_asks_for_agent_memory() {
+        let dir = std::env::temp_dir().join(format!("garden-agent-memory-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("service.json");
+        std::fs::write(
+            &path,
+            br#"{"serviceId":"vehicle","command":"node","agentMemory":true}"#,
+        )
+        .unwrap();
+        assert!(
+            read_service_manifest(&path, "vehicle")
+                .unwrap()
+                .agent_memory
+        );
+        std::fs::write(&path, br#"{"serviceId":"vehicle","command":"node"}"#).unwrap();
+        assert!(
+            !read_service_manifest(&path, "vehicle")
+                .unwrap()
+                .agent_memory
+        );
+        let _ = std::fs::remove_dir_all(dir);
+
+        let host = LocalServiceHost::default();
+        host.set_service_token("vehicle", None, Some("sophia-svc-plain"), false);
+        host.set_service_token("choreograph", None, Some("sophia-svc-compute"), true);
+        assert_eq!(
+            host.service_token("sophia-svc-plain")
+                .map(|owner| owner.agent_memory),
+            Some(false)
+        );
+        assert_eq!(
+            host.service_token("sophia-svc-compute"),
+            Some(ServiceTokenOwner {
+                service_id: "choreograph".into(),
+                agent_memory: true
+            })
+        );
+        let plain = crate::loopback_agent_memory::service_token_scopes(false);
+        assert_eq!(
+            plain,
+            crate::loopback_token_grants::grant_profile_scopes(
+                crate::loopback_token_grants::MEMBER_GRANT_PROFILE
+            ),
+            "a service that does not ask holds the member grant, as before"
+        );
+        for scope in ["memory.write.observed", "salience.write.observed"] {
+            assert!(!plain.iter().any(|held| held == scope), "{scope}");
+        }
+        let compute = crate::loopback_agent_memory::service_token_scopes(true);
+        assert!(compute.iter().any(|held| held == "memory.write.observed"));
+        assert!(compute.iter().any(|held| held == "salience.write.observed"));
+        for full in ["memory.write", "salience.write", "rdf.update"] {
+            assert!(!compute.iter().any(|held| held == full), "{full}");
+        }
     }
 
     #[test]

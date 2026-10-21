@@ -22,6 +22,11 @@ struct LocalMcpToolScopeEntry {
     scopes: Vec<String>,
     #[serde(default)]
     required_scope_mode: Option<String>,
+    /// A full scope this tool requires → the narrower scope that admits the
+    /// tool in its place for a call that names an agent observer
+    /// (`loopback_agent_memory`): `{"memory.write": "memory.write.observed"}`.
+    #[serde(default)]
+    observed_scopes: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -140,6 +145,28 @@ pub(crate) fn mcp_tool_scopes(name: &str) -> Vec<&'static str> {
         .unwrap_or_default()
 }
 
+/// The scope that admits `name` in place of `required_scope` for a call that
+/// names an agent observer, when the effect registry declares one.
+pub(crate) fn mcp_tool_observed_scope(name: &str, required_scope: &str) -> Option<&'static str> {
+    local_mcp_tool_scope_entry(name)
+        .and_then(|entry| entry.observed_scopes.get(required_scope))
+        .map(String::as_str)
+}
+
+/// Every `(full scope, observed scope)` pair the effect registry declares for
+/// `name` (empty for most tools).
+pub(crate) fn mcp_tool_observed_scopes(name: &str) -> Vec<(&'static str, &'static str)> {
+    local_mcp_tool_scope_entry(name)
+        .map(|entry| {
+            entry
+                .observed_scopes
+                .iter()
+                .map(|(full, observed)| (full.as_str(), observed.as_str()))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn local_mcp_tool_scope_entry(name: &str) -> Option<&'static LocalMcpToolScopeEntry> {
     local_mcp_tool_scope_entries()
         .iter()
@@ -181,6 +208,50 @@ mod tests {
             mcp_tool_required_scope_mode("write_document"),
             STATIC_SCOPE_SELECTION_MODE
         );
+    }
+
+    /// The observed scopes stand in for one full scope each, on the Geist
+    /// write tools only, and are the service-only scopes of
+    /// `loopback_agent_memory`, never catalog scopes.
+    #[test]
+    fn observed_scopes_admit_only_the_geist_writes() {
+        use std::collections::BTreeSet;
+        let service_only = crate::loopback_agent_memory::AGENT_MEMORY_SCOPES
+            .iter()
+            .map(LoopbackScopeDetail::key)
+            .collect::<BTreeSet<_>>();
+        let catalog = crate::loopback_scope_catalog::loopback_scope_keys()
+            .into_iter()
+            .collect::<BTreeSet<_>>();
+        let mut declared = BTreeSet::new();
+        for entry in local_mcp_tool_scope_entries() {
+            for (full, observed) in &entry.observed_scopes {
+                assert!(
+                    entry.scopes.contains(full),
+                    "{}: {observed} stands in for {full}, which it does not require",
+                    entry.name
+                );
+                assert!(service_only.contains(observed.as_str()), "{observed}");
+                assert!(!catalog.contains(observed.as_str()), "{observed}");
+                declared.insert(entry.name.as_str());
+            }
+        }
+        assert_eq!(
+            declared,
+            BTreeSet::from(["remember", "remember_batch", "revaluate", "sing", "value"])
+        );
+        assert_eq!(
+            mcp_tool_observed_scope("remember", "memory.write"),
+            Some("memory.write.observed")
+        );
+        assert_eq!(
+            mcp_tool_observed_scope("value", "salience.write"),
+            Some("salience.write.observed")
+        );
+        for commons in ["care", "archive_memories", "backfill_memory_projection"] {
+            assert_eq!(mcp_tool_observed_scope(commons, "memory.write"), None);
+        }
+        assert_eq!(mcp_tool_observed_scope("remember", "rdf.update"), None);
     }
 
     #[test]

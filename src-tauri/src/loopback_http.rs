@@ -3,7 +3,6 @@ use crate::{
     loopback_client_token_service::resolve_loopback_client_token_record,
     loopback_self_host::{AccessGrant, AccessIdentity},
     loopback_state::LoopbackState,
-    loopback_token_grants::{grant_profile_scopes, MEMBER_GRANT_PROFILE},
     runtime_config::LOOPBACK_BIND_HOST,
 };
 use axum::{
@@ -251,10 +250,14 @@ pub(crate) fn loopback_caller(
                 .collect(),
         });
     }
-    if let Some(service_id) = state.services.service_token_owner(token) {
+    if let Some(owner) = state.services.service_token(token) {
+        // The member grant, and the observed writes when its manifest asks
+        // for agent memory (`loopback_agent_memory`).
         return Ok(LoopbackCaller {
-            principal: LoopbackPrincipal::LocalService { service_id },
-            scopes: grant_profile_scopes(MEMBER_GRANT_PROFILE),
+            principal: LoopbackPrincipal::LocalService {
+                service_id: owner.service_id,
+            },
+            scopes: crate::loopback_agent_memory::service_token_scopes(owner.agent_memory),
         });
     }
     match resolve_loopback_client_token_record(&state.app, token) {

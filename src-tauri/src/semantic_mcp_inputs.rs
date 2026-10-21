@@ -93,6 +93,12 @@ pub(super) fn memory_semantic_recall_input_from_mcp_args(
             .get("minScore")
             .and_then(serde_json::Value::as_f64)
             .map(|value| value as f32),
+        // Read as every Geist tool reads it (`observer_agent_id`, else
+        // `observerAgentId`; trimmed, empty is none).
+        observer_agent_id: crate::mcp_utils::mcp_arg_string(
+            arguments,
+            crate::loopback_agent_memory::OBSERVER_ARGUMENT_KEYS,
+        ),
     }
 }
 

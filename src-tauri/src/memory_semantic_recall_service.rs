@@ -1,5 +1,7 @@
-//! `memory_semantic_recall` — semantic recall over the `:projection:memory`
-//! commons graph. Reads the memory heads via SPARQL — live (CURRENT,
+//! `memory_semantic_recall` — semantic recall over one memory projection
+//! graph: a witness's (`:projection:memory:agent:{id}`) when the call names an
+//! observer, else the `:projection:memory` commons, never both. Reads the
+//! memory heads via SPARQL — live (CURRENT,
 //! non-superseded, active) heads by default, or heads reconstructed AS OF a
 //! past `cutoff` from `createdAt` + `supersedes` alone when one is given, so
 //! a record superseded only AFTER `cutoff` still surfaces as the as-of head
@@ -20,7 +22,7 @@
 use crate::app_runtime::AppHandle;
 use crate::{
     paths::existing_graph_dir,
-    rdf_authority::memory_projection_graph_iri,
+    rdf_authority::memory_projection_graph_iri_for,
     rdf_service::open_graph_store,
     runtime_config::XSD_NS,
     semantic_embedder::embed_texts,
@@ -50,6 +52,9 @@ pub(super) struct MemorySemanticRecallInput {
     pub(super) cutoff: Option<String>,
     pub(super) include_episodes: Option<bool>,
     pub(super) min_score: Option<f32>,
+    /// The witness whose memories are searched (`observer_agent_id`); none
+    /// searches the commons.
+    pub(super) observer_agent_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -74,6 +79,15 @@ pub(super) struct MemorySemanticRecallResult {
     pub(super) dimensions: usize,
     pub(super) candidate_count: usize,
     pub(super) hits: Vec<MemorySemanticRecallHit>,
+    /// The witness searched, echoed; absent for the commons.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) observer_agent_id: Option<String>,
+}
+
+/// The one memory graph a semantic recall searches: the witness's when the
+/// call names an observer, else the commons.
+fn semantic_recall_memory_graph(graph_id: &str, observer: Option<&str>) -> String {
+    memory_projection_graph_iri_for(graph_id, observer.unwrap_or(""))
 }
 
 pub(super) fn mcp_local_memory_semantic_recall(
@@ -118,7 +132,8 @@ pub(super) fn memory_semantic_recall(
     };
 
     let store = open_graph_store(&graph_dir)?;
-    let mem_graph = memory_projection_graph_iri(&input.graph_id);
+    let mem_graph =
+        semantic_recall_memory_graph(&input.graph_id, input.observer_agent_id.as_deref());
     let candidates = read_candidate_records(
         &store,
         &mem_graph,
@@ -139,6 +154,7 @@ pub(super) fn memory_semantic_recall(
             dimensions: spec.dimensions,
             candidate_count,
             hits: Vec::new(),
+            observer_agent_id: input.observer_agent_id,
         });
     }
 
@@ -161,6 +177,7 @@ pub(super) fn memory_semantic_recall(
         dimensions: spec.dimensions,
         candidate_count,
         hits,
+        observer_agent_id: input.observer_agent_id,
     })
 }
 
@@ -695,5 +712,99 @@ mod tests {
         let error = rank_candidates(candidates, &query_vector, &[], 10, 0.0)
             .expect_err("vector count mismatch must error");
         assert!(error.contains("fastembed returned"));
+    }
+}
+
+/// Semantic recall and witnesses, through the real memory path: memories filed
+/// by `remember` under an observer and in the commons, read back by the tool.
+#[cfg(all(test, feature = "headless"))]
+mod observer_tests {
+    use super::*;
+    use crate::graph_service::{create_graph_service, CreateGraphInput};
+
+    const GRAPH: &str = "semantic-witness-lab";
+    const WITNESS: &str = "agent-0123456789abcdef";
+    const SILENT: &str = "agent-00000000000000aa";
+
+    fn with_lab(check: impl FnOnce(AppHandle)) {
+        let _serial = crate::tauri_runtime::profile_env_serial()
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        let profile =
+            std::env::temp_dir().join(format!("garden-semantic-witness-{}", uuid::Uuid::new_v4()));
+        std::env::set_var("GARDEN_PROFILE_DIR", &profile);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let app = crate::tauri_runtime::build_mock_app_for_tests(true);
+            create_graph_service(
+                &app,
+                CreateGraphInput {
+                    graph_id: Some(GRAPH.to_string()),
+                    title: "Semantic witness lab".to_string(),
+                    description: None,
+                    operation_id: None,
+                },
+            )
+            .expect("create graph");
+            check(app);
+        }));
+        std::env::remove_var("GARDEN_PROFILE_DIR");
+        let _ = std::fs::remove_dir_all(&profile);
+        if let Err(payload) = result {
+            std::panic::resume_unwind(payload);
+        }
+    }
+
+    fn remember(app: &AppHandle, observer: Option<&str>, content: &str) {
+        let mut arguments = serde_json::json!({
+            "graphId": GRAPH,
+            "content": content,
+            "block_ids": ["b1"],
+        });
+        if let Some(observer) = observer {
+            arguments["observer_agent_id"] = serde_json::json!(observer);
+        }
+        let stored = crate::app_runtime::async_runtime::block_on(
+            crate::geist_memory_service::mcp_local_remember(app.clone(), &arguments),
+        )
+        .expect("remember");
+        assert_eq!(stored["ok"], true, "{stored}");
+    }
+
+    /// With an observer, semantic recall searches that witness's memories and
+    /// nothing else: a witness with none has no candidates, though the commons
+    /// and another witness have some (and the embedder is never asked).
+    #[test]
+    fn semantic_recall_searches_only_its_observers_memories() {
+        with_lab(|app| {
+            remember(&app, None, "the commons keeps a recipe");
+            remember(&app, Some(WITNESS), "the witness keeps a map");
+
+            let silent = mcp_local_memory_semantic_recall(
+                app.clone(),
+                &serde_json::json!({"graphId": GRAPH, "query": "recipe", "observerAgentId": SILENT}),
+            )
+            .expect("a witness with no memory is an empty answer, not an error");
+            assert_eq!(silent["candidateCount"], 0, "{silent}");
+            assert_eq!(silent["hits"], serde_json::json!([]), "{silent}");
+            assert_eq!(silent["observerAgentId"], SILENT, "{silent}");
+
+            // Each scope's candidates are its own memories and nobody else's.
+            let store = open_graph_store(&existing_graph_dir(&app, GRAPH).unwrap()).unwrap();
+            let contents = |observer: Option<&str>| {
+                read_candidate_records(
+                    &store,
+                    &semantic_recall_memory_graph(GRAPH, observer),
+                    false,
+                    None,
+                )
+                .unwrap()
+                .into_iter()
+                .map(|candidate| candidate.content)
+                .collect::<Vec<_>>()
+            };
+            assert_eq!(contents(None), vec!["the commons keeps a recipe"]);
+            assert_eq!(contents(Some(WITNESS)), vec!["the witness keeps a map"]);
+            assert!(contents(Some(SILENT)).is_empty());
+        });
     }
 }

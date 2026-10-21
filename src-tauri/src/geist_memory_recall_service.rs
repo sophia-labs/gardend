@@ -59,8 +59,10 @@ pub(super) fn mcp_local_recall_memories(
     // Per-observer recall (Variant B): when the caller supplies an observer identity
     // (the agt:Agent IRI the choreograph `withObserver` seam injects), read from THAT
     // witness's perspective graph via the current-head SPARQL path (`recall_for_observer`)
-    // — never the flat shared queue, which would leak other agents' memories. Commons
-    // recall (no observer) keeps the legacy behavior. Note: `number` lookup is not
+    // — never the flat shared queue. Commons recall (no observer) reads the queue,
+    // which holds only memories filed with no observer (`geist_memory_service`
+    // appends a witnessed record to its witness's graph alone), so it never shows a
+    // witness's memory. Note: `number` lookup is not
     // supported per-observer; an observer-scoped call returns the current-head/query
     // recall from that perspective graph.
     if let Some(observer) = observer.as_deref() {

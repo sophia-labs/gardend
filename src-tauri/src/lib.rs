@@ -158,6 +158,7 @@ mod local_job_types;
 mod local_jobs;
 mod local_provider_keys;
 mod local_service_host;
+mod loopback_agent_memory;
 mod loopback_ai_routes;
 mod loopback_artifact_ingest_routes;
 mod loopback_artifact_routes;

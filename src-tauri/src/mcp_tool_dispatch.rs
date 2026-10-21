@@ -1,5 +1,6 @@
 use crate::{
-    loopback_scopes::{crdt_operation_scopes, mcp_tool_scopes},
+    loopback_agent_memory::observed_call_agent,
+    loopback_scopes::{crdt_operation_scopes, mcp_tool_observed_scope, mcp_tool_scopes},
     loopback_state::LoopbackState,
     mcp_dispatch_registry::{lookup, McpCallCtx},
     mcp_rpc_protocol::{
@@ -32,9 +33,19 @@ pub(crate) async fn handle_mcp_tool_call(
         Ok(scopes) => scopes,
         Err(error) => return mcp_error(id, -32602, error),
     };
+    // A scope the token lacks may be stood in for by its observed scope
+    // (`loopback_agent_memory`): then the call must name an agent observer,
+    // checked below on the arguments the tool will read.
+    let mut observed = None;
     for required_scope in required_scopes {
-        if let Some(error) = mcp_scope_error(token_scopes, id.clone(), required_scope) {
-            return error;
+        let Some(error) = mcp_scope_error(token_scopes, id.clone(), required_scope) else {
+            continue;
+        };
+        match mcp_tool_observed_scope(name, required_scope)
+            .filter(|scope| token_scopes.iter().any(|held| held == scope))
+        {
+            Some(scope) => observed = Some((required_scope, scope)),
+            None => return error,
         }
     }
 
@@ -48,6 +59,11 @@ pub(crate) async fn handle_mcp_tool_call(
         Ok(arguments) => arguments,
         Err(error) => return mcp_error(id, error.mcp_code(), error.mcp_message()),
     };
+    if let Some((required_scope, scope)) = observed {
+        if let Err(why) = observed_call_agent(name, &arguments) {
+            return observed_scope_refusal(id, name, required_scope, scope, &why);
+        }
+    }
 
     let ctx = McpCallCtx {
         app: state.app.clone(),
@@ -89,6 +105,24 @@ fn tool_failure_response(
 ) -> McpRpcResponse {
     let data = error.code().map(|code| serde_json::json!({ "code": code }));
     mcp_error_with_data(id, -32000, error.message(), data)
+}
+
+/// The usual `-32003` for the full scope a call lacks, saying why the
+/// observed scope the token holds does not admit this call.
+fn observed_scope_refusal(
+    id: Option<serde_json::Value>,
+    tool: &str,
+    required_scope: &str,
+    observed_scope: &str,
+    why: &str,
+) -> McpRpcResponse {
+    mcp_error(
+        id,
+        -32003,
+        format!(
+            "loopback token missing required scope {required_scope}: its {observed_scope} admits {tool} only for a call whose observer_agent_id is an agent id ({why})"
+        ),
+    )
 }
 
 fn mcp_call_required_scopes(

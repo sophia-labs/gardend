@@ -102,6 +102,9 @@ Optional fields:
 - `"acceptsModelKey": true` lets a caller's own model key (`X-Model-Key`)
   through to the service (below, "Public mode"). Every other service never
   sees that header. The default is false.
+- `"agentMemory": true` lets the service's own token write the memory, Song
+  and valuations of the agents it runs (below, "Agent memory"). The default is
+  false.
 
 - `"mcp": {"path": "/mcp", "graphs": ["<graph-id>", ...], "toolPrefix": "<prefix>_", "timeoutMs": 30000}`
   lends the service's MCP tools to gardend's own `/mcp` (below, "Lent MCP
@@ -240,7 +243,7 @@ When Garden starts a service it injects:
 PORT=<private localhost port>
 DATA_DIR=<garden profile>/services/{service_id}
 MNEMOSYNE_MCP_URL=http://127.0.0.1:<gardend port>/mcp
-MNEMOSYNE_MCP_ACCESS_TOKEN=<a member-scope token minted for this process>
+MNEMOSYNE_MCP_ACCESS_TOKEN=<a member-scope token minted for this process (plus "Agent memory")>
 MNEMOSYNE_INTERNAL_SERVICE_SECRET=<generated per-process secret>
 GARDEN_LOOPBACK_API_URL=http://127.0.0.1:<gardend port>
 GARDEN_SERVICE_ID=<service_id>
@@ -410,6 +413,21 @@ editor acts on a hosted owner's graph. For that request gardend also mints
 `X-Graph-ID`, `X-Graph-Owner` and `X-Sophia-Graph-Role`. Choreograph refuses a
 graph role without its graph, so requests that name no graph carry none of
 them.
+
+**Agent memory.** A service's own token (`MNEMOSYNE_MCP_ACCESS_TOKEN`) holds the
+member grant, which writes no memory. A service whose manifest says
+`"agentMemory": true` also holds two scopes no grant profile, client token or
+delegation carries: `memory.write.observed`, which admits `remember`,
+`remember_batch` and `sing`, and `salience.write.observed`, which admits `value`
+and `revaluate`, each only for a call whose `observer_agent_id` is an agent id
+(`agent-` and 16 lowercase hex digits). The write lands in that agent's own
+witness graphs (`…:projection:{memory|song|salience}:agent:{id}`), never in the
+commons; any other call is refused with `-32003` naming the full scope
+(`memory.write`, `salience.write`). The service decides which agent a call is
+for, so it must bind each agent's own id (Choreograph's host does, for every
+being). `tools/list` marks each tool `_meta["sophia.local.callable"]`: `true`,
+`false`, or `"with-agent-observer"`. Choreograph's manifest asks for it
+(`deploy/gardend-service-manifest.mjs` in Choreograph).
 
 **Delegation tokens.** A service whose manifest says `"delegateCaller": true`
 gets, with every graph-scoped request (and a Choreograph invocation that names
