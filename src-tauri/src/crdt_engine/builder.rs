@@ -35,6 +35,18 @@ pub(crate) fn append_nodes<F: XmlFragment>(
     }
 }
 
+/// Insert one TipTap node at `index` of `parent`, in exactly the shape `append_node` builds (one Y.XmlText
+/// per non-empty text node, null attrs skipped). `append_node` is left untouched; for a fresh parent,
+/// inserting nodes at 0, 1, 2… yields byte-identical structure to `append_nodes`.
+pub(crate) fn insert_node_at<F: XmlFragment>(
+    txn: &mut TransactionMut<'_>,
+    parent: &F,
+    index: u32,
+    node: &Value,
+) {
+    unimplemented!("U5")
+}
+
 fn append_node<F: XmlFragment>(txn: &mut TransactionMut<'_>, parent: &F, node: &Value) {
     let node_type = node.get("type").and_then(Value::as_str);
     if node_type == Some("text") {

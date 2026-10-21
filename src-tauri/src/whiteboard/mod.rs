@@ -5,6 +5,9 @@
 pub(crate) mod mcp;
 pub(crate) mod ops;
 pub(crate) mod outline;
+pub(crate) mod restore;
+#[cfg(test)]
+mod restore_tests;
 pub(crate) mod scene;
 #[cfg(test)]
 mod tests;

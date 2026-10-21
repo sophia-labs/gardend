@@ -271,11 +271,15 @@ mod service_mcp;
 mod block_contract_store_tests;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod document_kind_store_tests;
+#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
+mod forward_restore_store_tests;
 mod graph_incarnation_admission;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod json_text_face_store_tests;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod markdown_fidelity_store_tests;
+#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
+mod minimal_edit_store_tests;
 mod omphalos;
 #[cfg(feature = "desktop")]
 mod onboarding_archive;

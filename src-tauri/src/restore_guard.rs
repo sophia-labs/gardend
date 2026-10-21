@@ -107,6 +107,21 @@ pub(crate) fn require_no_active_restore(app: &AppHandle, _graph_id: &str) -> Res
     ))
 }
 
+tokio::task_local! {
+    /// The operation id of the restore this task is running, if any (the visitor fence's pattern,
+    /// visitor_fence.rs:941-944).
+    static RESTORE_OWNER: String;
+}
+
+/// Run `future` as the owner of the active restore `operation_id`: inside it, `require_no_active_restore`
+/// admits writes, because they are the restore's own. Every other task is still refused.
+pub(crate) async fn as_restore_owner<F: std::future::Future>(
+    operation_id: String,
+    future: F,
+) -> F::Output {
+    RESTORE_OWNER.scope(operation_id, future).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -25,10 +25,14 @@ pub mod document_ops;
 pub(crate) mod executor;
 pub(crate) mod flow_ops;
 pub(crate) mod flush_ops;
+pub(crate) mod forward_restore;
+#[cfg(test)]
+mod forward_restore_tests;
 #[doc(hidden)]
 pub mod import_archive_ops;
 pub(crate) mod import_vault_ops;
 pub(crate) mod markdown_export;
+pub(crate) mod minimal_edit;
 pub(crate) mod persistence_coordinator;
 pub mod projection;
 pub mod rooms;
@@ -40,6 +44,8 @@ pub mod workspace_ops;
 
 #[cfg(test)]
 mod comment_anchoring_tests;
+#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
+mod document_write_tests;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod flow_board_flush_tests;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
