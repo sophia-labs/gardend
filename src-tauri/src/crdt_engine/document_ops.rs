@@ -416,10 +416,7 @@ pub(crate) async fn document_write_classified(
         let mut minted = std::collections::BTreeSet::new();
         collect_block_ids(&content_nodes, &mut minted);
         if matches!(format, SourceFormat::Xml | SourceFormat::Html) {
-            let content = payload
-                .get("content")
-                .and_then(Value::as_str)
-                .unwrap_or("");
+            let content = payload.get("content").and_then(Value::as_str).unwrap_or("");
             minted.retain(|id| !content.contains(id.as_str()));
         }
         IdPolicy::Adopt { minted }
@@ -482,8 +479,7 @@ pub(crate) async fn document_write_classified(
                 let plan_ms = elapsed_ms(plan_started);
 
                 let emit_started = std::time::Instant::now();
-                let stats =
-                    minimal_edit::emit::emit_fragment(txn, &fragment, &current, &plan)?;
+                let stats = minimal_edit::emit::emit_fragment(txn, &fragment, &current, &plan)?;
                 let mut comments_written = 0u32;
                 if !comments.is_empty() {
                     let comments_map = txn.get_or_insert_map("comments");

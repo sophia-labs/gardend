@@ -41,8 +41,7 @@ fn combined_hash(children: &[DesiredChild], policy: &WritePolicy) -> u64 {
 /// this is a belt for the type).
 fn round_trip(nodes: Vec<Value>) -> Option<Vec<Value>> {
     let markdown = tiptap_json_to_markdown(&json!({"type": "doc", "content": nodes}));
-    let parsed =
-        parse_write_content_for_operation(&markdown, Some("markdown"), IMAGE_SEED).ok()?;
+    let parsed = parse_write_content_for_operation(&markdown, Some("markdown"), IMAGE_SEED).ok()?;
     let blocks = parsed
         .tiptap_json
         .get("content")

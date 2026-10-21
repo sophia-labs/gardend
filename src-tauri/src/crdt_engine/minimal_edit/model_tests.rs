@@ -211,7 +211,10 @@ fn desired_groups_consecutive_text_nodes() {
         panic!("expected a text group");
     };
     assert_eq!(
-        group.iter().map(|run| run.text.as_str()).collect::<Vec<_>>(),
+        group
+            .iter()
+            .map(|run| run.text.as_str())
+            .collect::<Vec<_>>(),
         vec!["a", "b", "c"]
     );
     assert!(group[0].marks.is_empty() && group[0].raw_marks.is_empty());
@@ -226,16 +229,30 @@ fn desired_groups_consecutive_text_nodes() {
     assert_eq!(last[0].text, "d");
 
     // ids: data-block-id wins, blockId is the fallback, empty strings are none
-    assert_eq!(block_id(json!({ "blockId": "x" }).as_object().unwrap()), Some("x".into()));
     assert_eq!(
-        block_id(json!({ "data-block-id": "a", "blockId": "b" }).as_object().unwrap()),
+        block_id(json!({ "blockId": "x" }).as_object().unwrap()),
+        Some("x".into())
+    );
+    assert_eq!(
+        block_id(
+            json!({ "data-block-id": "a", "blockId": "b" })
+                .as_object()
+                .unwrap()
+        ),
         Some("a".into())
     );
     assert_eq!(
-        block_id(json!({ "data-block-id": null, "blockId": "b" }).as_object().unwrap()),
+        block_id(
+            json!({ "data-block-id": null, "blockId": "b" })
+                .as_object()
+                .unwrap()
+        ),
         Some("b".into())
     );
-    assert_eq!(block_id(json!({ "data-block-id": "" }).as_object().unwrap()), None);
+    assert_eq!(
+        block_id(json!({ "data-block-id": "" }).as_object().unwrap()),
+        None
+    );
     assert_eq!(block_id(json!({}).as_object().unwrap()), None);
 
     // an element with only empty text has no children at all
@@ -294,7 +311,10 @@ fn unit_byte_offsets_are_utf8() {
         let run_text = block.insert(&mut txn, 0, XmlTextPrelim::new(""));
         run_text.insert(&mut txn, 0, "é");
         let mut bold = yrs::types::Attrs::new();
-        bold.insert("bold".into(), Any::Map(std::sync::Arc::new(Default::default())));
+        bold.insert(
+            "bold".into(),
+            Any::Map(std::sync::Arc::new(Default::default())),
+        );
         run_text.insert_with_attributes(&mut txn, 2, "—x", bold);
     }
     let fragment = read(&editor_doc, &policy);
@@ -362,7 +382,10 @@ fn segments_split_blocks_from_inline_runs() {
 
     let doc = doc_of(vec![quote.clone()]);
     let fragment = read(&doc, &policy);
-    assert_eq!(segments_cur(&element(&fragment.children[0]).children), expected);
+    assert_eq!(
+        segments_cur(&element(&fragment.children[0]).children),
+        expected
+    );
 
     let desired = desired_from_tiptap_nodes(&[quote], &policy);
     assert_eq!(
@@ -373,11 +396,21 @@ fn segments_split_blocks_from_inline_runs() {
     // block children alone are one Node each; a lone text run is one Inline
     let blocks = doc_of(vec![paragraph(vec![text("a")]), paragraph(vec![text("b")])]);
     let fragment = read(&blocks, &policy);
-    assert_eq!(segments_cur(&fragment.children), vec![Seg::Node(0), Seg::Node(1)]);
+    assert_eq!(
+        segments_cur(&fragment.children),
+        vec![Seg::Node(0), Seg::Node(1)]
+    );
     assert!(segments_cur(&[]).is_empty());
     assert!(segments_des(&[]).is_empty());
 
-    for tag in ["hardBreak", "mathInline", "footnote", "wikilink", "citation", "tagChip"] {
+    for tag in [
+        "hardBreak",
+        "mathInline",
+        "footnote",
+        "wikilink",
+        "citation",
+        "tagChip",
+    ] {
         assert!(is_inline_tag(tag), "{tag}");
     }
     for tag in ["paragraph", "image", "mathBlock", "objectEmbed", "listItem"] {
@@ -387,7 +420,11 @@ fn segments_split_blocks_from_inline_runs() {
 
 #[test]
 fn hash_ignores_block_ids() {
-    for format in [SourceFormat::TiptapJson, SourceFormat::Markdown, SourceFormat::Restore] {
+    for format in [
+        SourceFormat::TiptapJson,
+        SourceFormat::Markdown,
+        SourceFormat::Restore,
+    ] {
         let policy = policy(format);
         let with = |id_attrs: Value| {
             json!({
@@ -404,8 +441,16 @@ fn hash_ignores_block_ids() {
         let one = with(json!({ "data-block-id": "b1" }));
         let other = with(json!({ "data-block-id": "b2", "blockId": "legacy" }));
         for (a, b) in [(&none, &one), (&one, &other)] {
-            assert_eq!(current_hash(a, &policy), current_hash(b, &policy), "{format:?}");
-            assert_eq!(desired_hash(a, &policy), desired_hash(b, &policy), "{format:?}");
+            assert_eq!(
+                current_hash(a, &policy),
+                current_hash(b, &policy),
+                "{format:?}"
+            );
+            assert_eq!(
+                desired_hash(a, &policy),
+                desired_hash(b, &policy),
+                "{format:?}"
+            );
         }
         assert_eq!(current_hash(&none, &policy), desired_hash(&one, &policy));
         // a real difference still shows
@@ -413,7 +458,10 @@ fn hash_ignores_block_ids() {
             "type": "blockquote",
             "content": [{ "type": "paragraph", "content": [text("different")] }]
         });
-        assert_ne!(current_hash(&none, &policy), current_hash(&changed, &policy));
+        assert_ne!(
+            current_hash(&none, &policy),
+            current_hash(&changed, &policy)
+        );
     }
     // the id itself is still read
     let doc = doc_of(vec![json!({
@@ -435,29 +483,59 @@ fn hash_ignores_unstated_attrs_under_markdown_only() {
         "attrs": { "textAlign": "center", "collapsed": true, "data-source-id": "s" },
         "content": [text("same")]
     });
-    assert_eq!(current_hash(&plain, &markdown), current_hash(&aligned, &markdown));
-    assert_eq!(desired_hash(&plain, &markdown), desired_hash(&aligned, &markdown));
-    assert_ne!(current_hash(&plain, &tiptap), current_hash(&aligned, &tiptap));
-    assert_ne!(desired_hash(&plain, &tiptap), desired_hash(&aligned, &tiptap));
+    assert_eq!(
+        current_hash(&plain, &markdown),
+        current_hash(&aligned, &markdown)
+    );
+    assert_eq!(
+        desired_hash(&plain, &markdown),
+        desired_hash(&aligned, &markdown)
+    );
+    assert_ne!(
+        current_hash(&plain, &tiptap),
+        current_hash(&aligned, &tiptap)
+    );
+    assert_ne!(
+        desired_hash(&plain, &tiptap),
+        desired_hash(&aligned, &tiptap)
+    );
 
     // a stated attribute still counts under markdown
     let heading = |level: u32| json!({ "type": "heading", "attrs": { "level": level }, "content": [text("h")] });
-    assert_ne!(current_hash(&heading(1), &markdown), current_hash(&heading(2), &markdown));
+    assert_ne!(
+        current_hash(&heading(1), &markdown),
+        current_hash(&heading(2), &markdown)
+    );
     // and the schema default is no difference: a missing level is level 1
     let bare = json!({ "type": "heading", "content": [text("h")] });
-    assert_eq!(current_hash(&bare, &markdown), current_hash(&heading(1), &markdown));
+    assert_eq!(
+        current_hash(&bare, &markdown),
+        current_hash(&heading(1), &markdown)
+    );
 
     // unstated marks: a comment mark is invisible to markdown, visible to tiptapJson
     let commented = paragraph(vec![marked(
         "same",
         json!([{ "type": "commentMark", "attrs": { "commentId": "c1" } }]),
     )]);
-    assert_eq!(current_hash(&plain, &markdown), current_hash(&commented, &markdown));
-    assert_eq!(desired_hash(&plain, &markdown), desired_hash(&commented, &markdown));
-    assert_ne!(current_hash(&plain, &tiptap), current_hash(&commented, &tiptap));
+    assert_eq!(
+        current_hash(&plain, &markdown),
+        current_hash(&commented, &markdown)
+    );
+    assert_eq!(
+        desired_hash(&plain, &markdown),
+        desired_hash(&commented, &markdown)
+    );
+    assert_ne!(
+        current_hash(&plain, &tiptap),
+        current_hash(&commented, &tiptap)
+    );
     // stated marks count under both
     let bold = paragraph(vec![marked("same", json!([{ "type": "bold" }]))]);
-    assert_ne!(current_hash(&plain, &markdown), current_hash(&bold, &markdown));
+    assert_ne!(
+        current_hash(&plain, &markdown),
+        current_hash(&bold, &markdown)
+    );
 
     // a link the editor wrote equals one the agent wrote
     let editor_link = paragraph(vec![marked(
@@ -466,8 +544,14 @@ fn hash_ignores_unstated_attrs_under_markdown_only() {
             "href": "u", "target": "_blank", "rel": "noopener noreferrer nofollow", "class": null
         } }]),
     )]);
-    let agent_link = paragraph(vec![marked("l", json!([{ "type": "link", "attrs": { "href": "u" } }]))]);
-    assert_eq!(current_hash(&editor_link, &tiptap), desired_hash(&agent_link, &tiptap));
+    let agent_link = paragraph(vec![marked(
+        "l",
+        json!([{ "type": "link", "attrs": { "href": "u" } }]),
+    )]);
+    assert_eq!(
+        current_hash(&editor_link, &tiptap),
+        desired_hash(&agent_link, &tiptap)
+    );
 }
 
 #[test]

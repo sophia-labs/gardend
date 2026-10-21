@@ -12,8 +12,8 @@ use yrs::{Doc, Transact};
 use super::model;
 use super::plan::{plan_fragment, plan_node};
 use super::types::{
-    CurrentChild, CurrentFragment, DesiredChild, DesiredFragment, FragmentPlan, IdPolicy, MarkSet, NodePatch,
-    RawMarks, SourceFormat, Step, TextOp, TextRun, WritePolicy,
+    CurrentChild, CurrentFragment, DesiredChild, DesiredFragment, FragmentPlan, IdPolicy, MarkSet,
+    NodePatch, RawMarks, SourceFormat, Step, TextOp, TextRun, WritePolicy,
 };
 use crate::crdt_engine::builder::ydoc_from_tiptap_json;
 
@@ -37,7 +37,10 @@ fn markdown_policy(minted: &[&str]) -> WritePolicy {
     WritePolicy {
         format: SourceFormat::Markdown,
         ids: IdPolicy::Adopt {
-            minted: minted.iter().map(|id| id.to_string()).collect::<BTreeSet<_>>(),
+            minted: minted
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<BTreeSet<_>>(),
         },
     }
 }
@@ -191,7 +194,10 @@ fn assert_conserves(current: &[CurrentChild], steps: &[Step]) {
                         TextOp::Format { bytes, .. } => at += *bytes as usize,
                         TextOp::Insert { .. } => {}
                     }
-                    assert!(at <= whole.len(), "op runs past the text: {ops:?} on {whole:?}");
+                    assert!(
+                        at <= whole.len(),
+                        "op runs past the text: {ops:?} on {whole:?}"
+                    );
                     assert!(
                         whole.is_char_boundary(at),
                         "op ends inside a character: {ops:?} on {whole:?}"
@@ -264,7 +270,10 @@ fn case(name: &str) -> Case {
                 p("a", "Hello"),
                 json!({"type": "heading", "attrs": {"level": 2, "data-block-id": "h"},
                        "content": [text("Title")]}),
-                para("b", vec![text("plain "), marked("bold", json!([{"type": "bold"}]))]),
+                para(
+                    "b",
+                    vec![text("plain "), marked("bold", json!([{"type": "bold"}]))],
+                ),
                 para("c", vec![text("Hello "), text("world")]),
             ],
             // The last block is builder-shaped on one side only: the segmentation must not matter.
@@ -272,7 +281,10 @@ fn case(name: &str) -> Case {
                 p("a", "Hello"),
                 json!({"type": "heading", "attrs": {"level": 2, "data-block-id": "h"},
                        "content": [text("Title")]}),
-                para("b", vec![text("plain "), marked("bold", json!([{"type": "bold"}]))]),
+                para(
+                    "b",
+                    vec![text("plain "), marked("bold", json!([{"type": "bold"}]))],
+                ),
                 para("c", vec![text("Hello world")]),
             ],
             policy: tiptap,
@@ -516,7 +528,10 @@ fn identical_is_all_keep() {
     assert!(plan.is_noop(), "{:?}", plan.steps);
     assert_eq!(kinds(&plan.steps), vec!["keep"; 4]);
     assert_eq!(plan.summary.kept, 4);
-    assert_eq!(plan.summary.patched + plan.summary.inserted + plan.summary.removed, 0);
+    assert_eq!(
+        plan.summary.patched + plan.summary.inserted + plan.summary.removed,
+        0
+    );
 }
 
 #[test]
@@ -978,7 +993,11 @@ fn step_streams_conserve_children() {
                 nodes
                     .iter()
                     .enumerate()
-                    .filter(|(_, node)| node["text"].as_str().map_or(false, |t| t.chars().count() > 4))
+                    .filter(|(_, node)| {
+                        node["text"]
+                            .as_str()
+                            .map_or(false, |t| t.chars().count() > 4)
+                    })
                     .map(|(index, _)| index)
                     .collect()
             })
@@ -987,7 +1006,10 @@ fn step_streams_conserve_children() {
             continue;
         }
         let node = texts[seed.below(texts.len())];
-        let original = des[block]["content"][node]["text"].as_str().unwrap().to_string();
+        let original = des[block]["content"][node]["text"]
+            .as_str()
+            .unwrap()
+            .to_string();
         let mut chars: Vec<char> = original.chars().collect();
         let at = seed.below(chars.len());
         match seed.below(3) {
@@ -1031,21 +1053,31 @@ fn plan_is_deterministic() {
 
         // And planning twice against the same read model gives the same stream.
         let case = case(name);
-        with_plan(&case.cur, &case.des, &case.policy, |current, desired, plan| {
-            let again = plan_fragment(current, desired, &case.policy);
-            assert_eq!(&again, plan, "case {name}");
-        });
+        with_plan(
+            &case.cur,
+            &case.des,
+            &case.policy,
+            |current, desired, plan| {
+                let again = plan_fragment(current, desired, &case.policy);
+                assert_eq!(&again, plan, "case {name}");
+            },
+        );
     }
 
     // plan_node alone agrees with the Patch the fragment plan holds for the same pair (the T5 shape).
     let case = case("changed");
-    with_plan(&case.cur, &case.des, &case.policy, |current, desired, plan| {
-        let (CurrentChild::Element(cur), DesiredChild::Element(des)) =
-            (&current.children[1], &desired.children[1])
-        else {
-            panic!("blocks expected");
-        };
-        let alone = plan_node(cur, des, &case.policy).expect("the block changed");
-        assert_eq!(Step::Patch(alone), plan.steps[1]);
-    });
+    with_plan(
+        &case.cur,
+        &case.des,
+        &case.policy,
+        |current, desired, plan| {
+            let (CurrentChild::Element(cur), DesiredChild::Element(des)) =
+                (&current.children[1], &desired.children[1])
+            else {
+                panic!("blocks expected");
+            };
+            let alone = plan_node(cur, des, &case.policy).expect("the block changed");
+            assert_eq!(Step::Patch(alone), plan.steps[1]);
+        },
+    );
 }

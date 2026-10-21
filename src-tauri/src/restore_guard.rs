@@ -230,7 +230,10 @@ mod tests {
                 "op-1".to_string(),
                 async { require_no_active_restore(app, "g1") },
             ));
-            assert!(inside.is_ok(), "the restore's own task is admitted: {inside:?}");
+            assert!(
+                inside.is_ok(),
+                "the restore's own task is admitted: {inside:?}"
+            );
 
             // The scope ends with the future: the next caller is refused again.
             assert!(require_no_active_restore(app, "g1").is_err());

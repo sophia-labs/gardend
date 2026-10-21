@@ -118,12 +118,20 @@ fn tiptap_restore_reaches_snapshot_normal_form() {
     ]);
     let target = ydoc_from_tiptap_json(&snapshot);
     let current = ydoc_from_tiptap_json(&now);
-    assert_ne!(nf(&current), nf(&target), "the documents differ before the restore");
+    assert_ne!(
+        nf(&current),
+        nf(&target),
+        "the documents differ before the restore"
+    );
 
     let counts = restore(&current, &target, None);
 
     assert!(!counts.is_zero(), "something had to change");
-    assert_eq!(nf(&current), nf(&target), "the restored document is the snapshot");
+    assert_eq!(
+        nf(&current),
+        nf(&target),
+        "the restored document is the snapshot"
+    );
     // Block ids come back too (restore states everything and binds ids).
     let restored = normal_form(&tiptap_json_in(&current.transact()), true);
     let wanted = normal_form(&tiptap_json_in(&target.transact()), true);
@@ -148,8 +156,15 @@ fn unchanged_document_is_zero_ops() {
     let update = txn.encode_update_v1();
     drop(txn);
 
-    assert!(counts.is_zero(), "equal documents change nothing: {counts:?}");
-    assert!(update.len() <= 3, "the transaction's update is empty ({} bytes)", update.len());
+    assert!(
+        counts.is_zero(),
+        "equal documents change nothing: {counts:?}"
+    );
+    assert!(
+        update.len() <= 3,
+        "the transaction's update is empty ({} bytes)",
+        update.len()
+    );
     assert_eq!(current.transact().state_vector(), before);
 }
 
@@ -161,14 +176,23 @@ fn comments_map_restored() {
     let current = fork(&target);
     set_comment(&current, "c1", "edited after the capture");
     set_comment(&current, "c2", "added after the capture");
-    assert_ne!(map_json(&current, "comments"), map_json(&target, "comments"));
+    assert_ne!(
+        map_json(&current, "comments"),
+        map_json(&target, "comments")
+    );
 
     let counts = restore(&current, &target, None);
 
-    assert_eq!(map_json(&current, "comments"), map_json(&target, "comments"));
+    assert_eq!(
+        map_json(&current, "comments"),
+        map_json(&target, "comments")
+    );
     assert!(counts.map_keys_removed >= 1, "c2 is removed: {counts:?}");
     assert_eq!(
-        counts.nodes_inserted + counts.nodes_removed + counts.text_bytes_inserted + counts.text_bytes_deleted,
+        counts.nodes_inserted
+            + counts.nodes_removed
+            + counts.text_bytes_inserted
+            + counts.text_bytes_deleted,
         0,
         "the content was already equal: {counts:?}"
     );
@@ -236,7 +260,10 @@ fn flow_board_restored_by_ytree() {
         "a board never grows a TipTap content root"
     );
     let again = restore(&current, &target, Some(crate::flow_board::FLOW_BOARD_KIND));
-    assert!(again.is_zero(), "restoring twice is the same as once: {again:?}");
+    assert!(
+        again.is_zero(),
+        "restoring twice is the same as once: {again:?}"
+    );
 }
 
 #[test]
@@ -263,7 +290,9 @@ fn whiteboard_kind_restores_elements() {
     let counts = restore(&current, &target, Some(crate::whiteboard::WHITEBOARD_KIND));
 
     assert_eq!(counts.map_keys_set, 2, "a restored, b tombstoned");
-    assert!(crate::whiteboard::restore::scenes_equivalent(&current, &target));
+    assert!(crate::whiteboard::restore::scenes_equivalent(
+        &current, &target
+    ));
 }
 
 #[test]
@@ -299,13 +328,20 @@ fn reconnecting_client_converges() {
         .transact()
         .encode_diff_v1(&client_a.transact().state_vector());
     apply(&client_a, &to_a);
-    assert_ne!(nf(&client_a), nf(&snapshot), "A holds the post-capture state");
+    assert_ne!(
+        nf(&client_a),
+        nf(&snapshot),
+        "A holds the post-capture state"
+    );
 
     // The restore is a forward transaction on the server.
     let counts = restore(&server, &snapshot, None);
     assert!(!counts.is_zero());
     assert_eq!(nf(&server), nf(&snapshot));
-    assert_eq!(map_json(&server, "comments"), map_json(&snapshot, "comments"));
+    assert_eq!(
+        map_json(&server, "comments"),
+        map_json(&snapshot, "comments")
+    );
 
     // A reconnects: the server asks with its state vector, A answers with what the server lacks.
     let server_sv = server.transact().state_vector();
@@ -317,7 +353,11 @@ fn reconnecting_client_converges() {
         server_sv,
         "A knew nothing the server did not: its SyncStep2 changes nothing"
     );
-    assert_eq!(nf(&server), nf_before, "the post-capture content does not come back");
+    assert_eq!(
+        nf(&server),
+        nf_before,
+        "the post-capture content does not come back"
+    );
 
     // The server answers with the restore, and A converges on the snapshot.
     let to_a = server
@@ -325,7 +365,10 @@ fn reconnecting_client_converges() {
         .encode_diff_v1(&client_a.transact().state_vector());
     apply(&client_a, &to_a);
     assert_eq!(nf(&client_a), nf(&snapshot));
-    assert_eq!(map_json(&client_a, "comments"), map_json(&snapshot, "comments"));
+    assert_eq!(
+        map_json(&client_a, "comments"),
+        map_json(&snapshot, "comments")
+    );
 }
 
 #[test]
@@ -356,6 +399,12 @@ fn offline_edit_merges_on_top_of_the_restore() {
 
     assert_eq!(nf(&server), nf(&client_b), "server and B converge");
     let text = serde_json::to_string(&nf(&server)).expect("json");
-    assert!(text.contains("OFFLINE-B"), "the offline edit survives as an edit: {text}");
-    assert!(!text.contains("AFTER-CAPTURE"), "the restored text stays restored: {text}");
+    assert!(
+        text.contains("OFFLINE-B"),
+        "the offline edit survives as an edit: {text}"
+    );
+    assert!(
+        !text.contains("AFTER-CAPTURE"),
+        "the restored text stays restored: {text}"
+    );
 }

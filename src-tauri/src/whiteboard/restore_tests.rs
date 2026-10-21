@@ -87,7 +87,9 @@ fn run(current: &Doc, target: &Doc) -> OpCounts {
 }
 
 fn number(el: &Element, key: &str) -> f64 {
-    el[key].as_f64().unwrap_or_else(|| panic!("{key} is a number"))
+    el[key]
+        .as_f64()
+        .unwrap_or_else(|| panic!("{key} is a number"))
 }
 
 fn first_live_rectangle() -> Element {
@@ -125,9 +127,16 @@ fn restored_element_outranks_both_versions() {
     write_element(&current, &edited(&rect, 500.0, live_version, 999));
     let counts = run(&current, &target);
 
-    assert_eq!(counts.map_keys_set, 1, "only the edited element is rewritten");
+    assert_eq!(
+        counts.map_keys_set, 1,
+        "only the edited element is rewritten"
+    );
     let restored = element_of(&current, &id);
-    assert_eq!(number(&restored, "x"), number(&rect, "x"), "the target's geometry is back");
+    assert_eq!(
+        number(&restored, "x"),
+        number(&rect, "x"),
+        "the target's geometry is back"
+    );
     assert_eq!(
         number(&restored, "version") as i64,
         live_version + 1,
@@ -174,11 +183,24 @@ fn element_absent_in_target_is_tombstoned() {
 
     let counts = run(&current, &target);
 
-    assert_eq!(counts.map_keys_set, 1, "one tombstone written, the old one left alone");
+    assert_eq!(
+        counts.map_keys_set, 1,
+        "one tombstone written, the old one left alone"
+    );
     let tombstone = element_of(&current, "added-after-capture-0001");
-    assert_eq!(tombstone["isDeleted"], true, "the element stays as a tombstone, not a removed key");
-    assert_eq!(number(&tombstone, "version") as i64, 5, "version bumped past the live copy's");
-    assert_eq!(tombstone["type"], added["type"], "the rest of the element is kept");
+    assert_eq!(
+        tombstone["isDeleted"], true,
+        "the element stays as a tombstone, not a removed key"
+    );
+    assert_eq!(
+        number(&tombstone, "version") as i64,
+        5,
+        "version bumped past the live copy's"
+    );
+    assert_eq!(
+        tombstone["type"], added["type"],
+        "the rest of the element is kept"
+    );
     assert_eq!(
         number(&element_of(&current, "gone-before-0000000002"), "version") as i64,
         9,
@@ -204,7 +226,10 @@ fn element_missing_from_current_is_written_back_above_its_old_version() {
     assert!(counts.map_keys_set >= 1);
     let back = element_of(&current, &id);
     assert_eq!(back["isDeleted"], false);
-    assert_eq!(number(&back, "version") as i64, number(&rect, "version") as i64 + 1);
+    assert_eq!(
+        number(&back, "version") as i64,
+        number(&rect, "version") as i64 + 1
+    );
     assert!(scenes_equivalent(&current, &target));
 }
 
@@ -229,7 +254,11 @@ fn equal_scenes_are_zero_ops() {
     let counts = run(&current, &target);
 
     assert!(counts.is_zero(), "equal scenes change nothing: {counts:?}");
-    assert_eq!(current.transact().state_vector(), before, "no item was created");
+    assert_eq!(
+        current.transact().state_vector(),
+        before,
+        "no item was created"
+    );
     assert!(scenes_equivalent(&current, &target));
 }
 
@@ -247,7 +276,10 @@ fn fixture_round_trip() {
     // A person moves the box, deletes the note, draws something new, and recolours the page.
     let rect = first_live_rectangle();
     let rect_id = id_of(&rect);
-    write_element(&current, &edited(&rect, 640.0, number(&rect, "version") as i64 + 1, 77));
+    write_element(
+        &current,
+        &edited(&rect, 640.0, number(&rect, "version") as i64 + 1, 77),
+    );
     let note = fixture_elements()
         .into_iter()
         .find(|el| id_of(el) != rect_id && el["type"] == "rectangle" && el["isDeleted"] == false)
@@ -265,7 +297,10 @@ fn fixture_round_trip() {
         let meta = txn.get_or_insert_map("meta");
         meta.insert(&mut txn, "viewBackgroundColor", "#101010");
     }
-    assert!(!scenes_equivalent(&current, &target), "the boards differ before the restore");
+    assert!(
+        !scenes_equivalent(&current, &target),
+        "the boards differ before the restore"
+    );
     let pre_versions: Vec<(String, f64)> = scene_of_doc(&current)
         .elements
         .iter()
@@ -274,11 +309,28 @@ fn fixture_round_trip() {
 
     let counts = run(&current, &target);
 
-    assert!(counts.map_keys_set >= 3, "moved, undeleted and drawn elements were all rewritten");
-    assert_eq!(counts.map_keys_removed, 0, "nothing is ever removed, only tombstoned");
-    assert!(scenes_equivalent(&current, &target), "the restored board equals the snapshot");
-    assert_eq!(meta_json(&current)["viewBackgroundColor"], "#ffffff", "meta restored through ytree");
-    assert_eq!(element_of(&current, &note_id)["isDeleted"], false, "the deleted note is back");
+    assert!(
+        counts.map_keys_set >= 3,
+        "moved, undeleted and drawn elements were all rewritten"
+    );
+    assert_eq!(
+        counts.map_keys_removed, 0,
+        "nothing is ever removed, only tombstoned"
+    );
+    assert!(
+        scenes_equivalent(&current, &target),
+        "the restored board equals the snapshot"
+    );
+    assert_eq!(
+        meta_json(&current)["viewBackgroundColor"],
+        "#ffffff",
+        "meta restored through ytree"
+    );
+    assert_eq!(
+        element_of(&current, &note_id)["isDeleted"],
+        false,
+        "the deleted note is back"
+    );
     assert_eq!(
         element_of(&current, "drawn-after-capture-00001")["isDeleted"],
         true,

@@ -305,12 +305,9 @@ async fn restore_document_in_room(
     room: &Arc<Room>,
 ) -> Result<DocumentOutcome, String> {
     let id = doc_ref.document_id.as_str();
-    let bytes = crate::time_travel_store::read_document_bytes(
-        graph_dir,
-        &manifest.restore_point_id,
-        id,
-    )
-    .map_err(|error| format!("forward restore: read bytes of document {id}: {error}"))?;
+    let bytes =
+        crate::time_travel_store::read_document_bytes(graph_dir, &manifest.restore_point_id, id)
+            .map_err(|error| format!("forward restore: read bytes of document {id}: {error}"))?;
     let target = doc_from_update_bytes(&bytes)?;
     // The kind comes from the workspace just restored.
     let kind = resolve_document_kind(app, graph_id, id).await?;
@@ -364,18 +361,16 @@ fn normalize_numbers(value: Value) -> Value {
 fn root_map_json(doc: &Doc, name: &str) -> Value {
     let txn = doc.transact();
     match txn.get_map(name) {
-        Some(map) => normalize_numbers(serde_json::to_value(map.to_json(&txn)).unwrap_or(Value::Null)),
+        Some(map) => {
+            normalize_numbers(serde_json::to_value(map.to_json(&txn)).unwrap_or(Value::Null))
+        }
         None => json!({}),
     }
 }
 
 /// The current Y.Doc of a document or of the workspace as a scratch Doc: the live room's state when one
 /// is hosted, else the sidecar on disk (rooms this restore opened persist before they are evicted).
-async fn current_doc(
-    registry: &RoomRegistry,
-    key: &str,
-    state_path: &Path,
-) -> Result<Doc, String> {
+async fn current_doc(registry: &RoomRegistry, key: &str, state_path: &Path) -> Result<Doc, String> {
     if let Some(room) = registry.peek(key).await {
         let bytes = room
             .with_doc(|doc| {

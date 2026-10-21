@@ -827,7 +827,9 @@ fn verify_forward(
     let mut touched = manifest.clone();
     touched.documents.retain(|doc_ref| {
         report.documents_changed.contains(&doc_ref.document_id)
-            || report.documents_cold_restored.contains(&doc_ref.document_id)
+            || report
+                .documents_cold_restored
+                .contains(&doc_ref.document_id)
     });
     verify_restored(graph_dir, &touched)?;
     crate::app_runtime::async_runtime::block_on(verify_forward_restore(
@@ -1254,7 +1256,10 @@ mod tests {
             registry.peek(&format!("doc:{graph_id}:{doc_id}")),
         )?;
         Some(crate::app_runtime::async_runtime::block_on(room.with_doc(
-            |doc| crate::crdt_engine::projection::tiptap_json_in(&yrs::Transact::transact(doc)).to_string(),
+            |doc| {
+                crate::crdt_engine::projection::tiptap_json_in(&yrs::Transact::transact(doc))
+                    .to_string()
+            },
         )))
     }
 
@@ -1268,7 +1273,8 @@ mod tests {
 
     fn ask(graph_dir: &Path, graph_id: &str, doc_id: &str, needle: &str) -> bool {
         let store = crate::rdf_store_service::open_graph_store(graph_dir).expect("open store");
-        let projection_graph = crate::rdf_authority::document_projection_graph_iri(graph_id, doc_id);
+        let projection_graph =
+            crate::rdf_authority::document_projection_graph_iri(graph_id, doc_id);
         crate::rdf_query_service::execute_sparql_query(
             &store,
             &format!(
@@ -1293,7 +1299,10 @@ mod tests {
         let jobs = Arc::new(LocalJobRegistry::new(jobs_dir).expect("job registry"));
         let started = start_restore(app, jobs.clone(), graph_id, restore_point_id, false)
             .expect("start restore");
-        let operation_id = started["operationId"].as_str().expect("operation id").to_string();
+        let operation_id = started["operationId"]
+            .as_str()
+            .expect("operation id")
+            .to_string();
         for _ in 0..600 {
             let state = get_restore_operation(&jobs, &operation_id).expect("operation");
             if matches!(
@@ -1315,7 +1324,12 @@ mod tests {
         let graph_id = "restore-forward";
         let doc_id = "restore-doc";
         with_restore_graph(graph_id, |app, graph_dir| {
-            write_markdown(app, graph_id, doc_id, "RestoreSentinelOne is the captured content.");
+            write_markdown(
+                app,
+                graph_id,
+                doc_id,
+                "RestoreSentinelOne is the captured content.",
+            );
             let summary = capture_restore_point(app, graph_id, RestorePointTrigger::Manual, None)
                 .expect("capture restore point");
             let restore_point_id = summary["restorePointId"].as_str().expect("id").to_string();
@@ -1329,7 +1343,10 @@ mod tests {
             assert!(before.contains("RestoreSentinelTwo"));
 
             let state = run_restore_to_the_end(app, graph_id, &restore_point_id);
-            assert_eq!(state["state"], PHASE_SUCCEEDED, "restore settled as {state}");
+            assert_eq!(
+                state["state"], PHASE_SUCCEEDED,
+                "restore settled as {state}"
+            );
 
             let room = room_text(app, graph_id, doc_id).expect("a live room stays live");
             assert!(room.contains("RestoreSentinelOne"), "room: {room}");
@@ -1352,7 +1369,12 @@ mod tests {
         let graph_id = "restore-cold";
         let doc_id = "restore-doc";
         with_restore_graph(graph_id, |app, graph_dir| {
-            write_markdown(app, graph_id, doc_id, "RestoreSentinelOne is the captured content.");
+            write_markdown(
+                app,
+                graph_id,
+                doc_id,
+                "RestoreSentinelOne is the captured content.",
+            );
             let summary = capture_restore_point(app, graph_id, RestorePointTrigger::Manual, None)
                 .expect("capture restore point");
             let restore_point_id = summary["restorePointId"].as_str().expect("id").to_string();
@@ -1381,7 +1403,10 @@ mod tests {
             write_bytes(&sidecar, &[0xff; 16]).expect("corrupt the sidecar");
             let report = run();
             assert!(report.documents_cold_restored.is_empty(), "{report:?}");
-            assert!(report.documents_changed.contains(&doc_id.to_string()), "{report:?}");
+            assert!(
+                report.documents_changed.contains(&doc_id.to_string()),
+                "{report:?}"
+            );
             let room = room_text(app, graph_id, doc_id).expect("room");
             assert!(room.contains("RestoreSentinelOne") && !room.contains("RestoreSentinelTwo"));
             assert!(disk_text(graph_dir, doc_id).contains("RestoreSentinelOne"));
@@ -1402,7 +1427,10 @@ mod tests {
                 vec![doc_id.to_string()],
                 "{report:?}"
             );
-            assert!(!report.documents_changed.contains(&doc_id.to_string()), "{report:?}");
+            assert!(
+                !report.documents_changed.contains(&doc_id.to_string()),
+                "{report:?}"
+            );
             assert!(
                 room_text(app, graph_id, doc_id).is_none(),
                 "the cold path opens no room"

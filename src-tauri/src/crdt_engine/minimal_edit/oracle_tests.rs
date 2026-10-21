@@ -130,7 +130,9 @@ fn markdown_normalised(doc: &Value) -> Result<String, String> {
         Some("markdown"),
         "oracle-md-round-trip",
     )?;
-    Ok(markdown_export::tiptap_json_to_markdown(&parsed.tiptap_json))
+    Ok(markdown_export::tiptap_json_to_markdown(
+        &parsed.tiptap_json,
+    ))
 }
 
 /// The desired nodes of a scenario: TipTap nodes as given, or markdown through the real parser and normaliser.
@@ -224,7 +226,9 @@ fn top_level_branch_ids(doc: &Doc, fragment: &XmlFragmentRef) -> Vec<BranchID> {
 }
 
 fn find_block<'a>(node: &'a Value, id: &str) -> Option<&'a Value> {
-    if node["attrs"]["data-block-id"].as_str() == Some(id) || node["attrs"]["blockId"].as_str() == Some(id) {
+    if node["attrs"]["data-block-id"].as_str() == Some(id)
+        || node["attrs"]["blockId"].as_str() == Some(id)
+    {
         return Some(node);
     }
     node["content"]
@@ -249,9 +253,10 @@ fn node_text(node: &Value) -> String {
 /// Text carrying `commentMark` with `comment_id`, in document order.
 fn comment_marked_text(node: &Value, comment_id: &str, out: &mut String) {
     if node["type"] == "text" {
-        let marked = node["marks"].as_array().into_iter().flatten().any(|mark| {
-            mark["type"] == "commentMark" && mark["attrs"]["commentId"] == comment_id
-        });
+        let marked =
+            node["marks"].as_array().into_iter().flatten().any(|mark| {
+                mark["type"] == "commentMark" && mark["attrs"]["commentId"] == comment_id
+            });
         if marked {
             out.push_str(node["text"].as_str().unwrap_or(""));
         }
@@ -526,14 +531,19 @@ fn check_expect(
         }
     }
 
-    for id in array_of(&expect["keptIds"]).iter().filter_map(Value::as_str) {
+    for id in array_of(&expect["keptIds"])
+        .iter()
+        .filter_map(Value::as_str)
+    {
         match (before.get(id), after.get(id)) {
             (Some(was), Some(is)) if was == is => {}
             (Some(_), Some(_)) => problems.push(format!(
                 "expect.keptIds: block {id} now sits on a different Yjs element"
             )),
             (None, _) => problems.push(format!("expect.keptIds: block {id} is not in current")),
-            (_, None) => problems.push(format!("expect.keptIds: block {id} is gone after the write")),
+            (_, None) => problems.push(format!(
+                "expect.keptIds: block {id} is gone after the write"
+            )),
         }
     }
     for id in array_of(&expect["reinsertedIds"])
@@ -562,7 +572,10 @@ fn check_expect(
         }
     }
     if expect["insertedIdsAreMinted"] == true {
-        let fresh: Vec<&String> = after.keys().filter(|id| !before.contains_key(*id)).collect();
+        let fresh: Vec<&String> = after
+            .keys()
+            .filter(|id| !before.contains_key(*id))
+            .collect();
         if fresh.is_empty() {
             problems.push("expect.insertedIdsAreMinted: no new block id appeared".to_string());
         }
@@ -576,10 +589,22 @@ fn check_expect(
     }
 
     let summary = serde_json::to_value(applied.plan.summary).unwrap_or(Value::Null);
-    expect_counts("summary", &expect["summary"], &summary, false, &mut problems);
+    expect_counts(
+        "summary",
+        &expect["summary"],
+        &summary,
+        false,
+        &mut problems,
+    );
     let counts = serde_json::to_value(applied.stats.counts).unwrap_or(Value::Null);
     expect_counts("ops", &expect["ops"], &counts, false, &mut problems);
-    expect_counts("opsAtLeast", &expect["opsAtLeast"], &counts, true, &mut problems);
+    expect_counts(
+        "opsAtLeast",
+        &expect["opsAtLeast"],
+        &counts,
+        true,
+        &mut problems,
+    );
 
     if let Some(marked) = expect["commentMarkedText"].as_object() {
         for (comment_id, want) in marked {
@@ -782,7 +807,11 @@ fn tree_edit_corpus_laws() {
     let mut failures: Vec<String> = Vec::new();
     for sc in &scenarios {
         let run = run_scenario(sc);
-        assert!(names.insert(run.name.clone()), "duplicate scenario {}", run.name);
+        assert!(
+            names.insert(run.name.clone()),
+            "duplicate scenario {}",
+            run.name
+        );
         failures.extend(run.failures);
     }
     assert!(
@@ -811,7 +840,9 @@ fn oracle_flags_a_wrong_expectation() {
         run.failures
     );
     assert!(
-        run.failures.iter().any(|f| f.contains("expect.summary.kept")),
+        run.failures
+            .iter()
+            .any(|f| f.contains("expect.summary.kept")),
         "a wrong summary passed: {:?}",
         run.failures
     );

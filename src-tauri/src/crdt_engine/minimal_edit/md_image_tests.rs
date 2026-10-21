@@ -7,9 +7,7 @@ use serde_json::{json, Value};
 
 use super::md_image::{block_image, inline_atom_image};
 use super::model::desired_from_tiptap_nodes;
-use super::types::{
-    AtomImage, DesiredChild, IdPolicy, Image, SourceFormat, UnitKey, WritePolicy,
-};
+use super::types::{AtomImage, DesiredChild, IdPolicy, Image, SourceFormat, UnitKey, WritePolicy};
 use crate::crdt_engine::block_contract::normalise_doc_content;
 use crate::crdt_engine::content_parse::parse_write_content_for_operation;
 

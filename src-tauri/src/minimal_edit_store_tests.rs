@@ -62,9 +62,11 @@ fn with_env(test: impl FnOnce(&Env)) {
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     let previous = std::env::var_os("GARDEN_PROFILE_DIR");
-    let profile = std::env::temp_dir().join(format!("garden-minimal-edit-{}", uuid::Uuid::new_v4()));
+    let profile =
+        std::env::temp_dir().join(format!("garden-minimal-edit-{}", uuid::Uuid::new_v4()));
     std::env::set_var("GARDEN_PROFILE_DIR", &profile);
-    let jobs_dir = std::env::temp_dir().join(format!("garden-minimal-edit-jobs-{}", uuid::Uuid::new_v4()));
+    let jobs_dir =
+        std::env::temp_dir().join(format!("garden-minimal-edit-jobs-{}", uuid::Uuid::new_v4()));
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let app = crate::tauri_runtime::build_mock_app_for_tests(true);
         crate::graph_service::create_graph_service(
@@ -96,10 +98,12 @@ fn with_env(test: impl FnOnce(&Env)) {
 // ---------------------------------------------------------------------------
 
 fn create(env: &Env, document_id: &str) {
-    run(crate::mcp_workspace_crdt_service::mcp_local_create_document(
-        env.app.clone(),
-        &json!({"graphId": GRAPH, "documentId": document_id, "title": document_id}),
-    ))
+    run(
+        crate::mcp_workspace_crdt_service::mcp_local_create_document(
+            env.app.clone(),
+            &json!({"graphId": GRAPH, "documentId": document_id, "title": document_id}),
+        ),
+    )
     .unwrap();
 }
 
@@ -132,7 +136,8 @@ fn write_markdown(env: &Env, document_id: &str, markdown: &str) -> Value {
 
 /// A write at the executor level, whose result carries the `crdt` report (the MCP response does not).
 fn write_outcome(env: &Env, document_id: &str, args: Value) -> Result<Value, String> {
-    let payload = crate::document_mcp_write_payloads::mcp_write_document_payload(&args, document_id)?;
+    let payload =
+        crate::document_mcp_write_payloads::mcp_write_document_payload(&args, document_id)?;
     run(crate::crdt_queue::enqueue_crdt_operation(
         env.app.clone(),
         crate::crdt_queue::EnqueueCrdtOperationInput {
@@ -245,7 +250,9 @@ fn paragraph(id: &str, text: &str) -> Value {
 
 fn apply(doc: &Doc, update: &[u8]) {
     let update = Update::decode_v1(update).expect("decode update");
-    doc.transact_mut().apply_update(update).expect("apply update");
+    doc.transact_mut()
+        .apply_update(update)
+        .expect("apply update");
 }
 
 /// A browser: a second Y.Doc holding what the room holds now.
@@ -651,7 +658,12 @@ fn two_way_write_without_expected_revision_wins() {
         assert!(run(room.apply_client_update(&typed)).unwrap());
 
         let edited = read_by_agent.replace("Second paragraph", "Second paragraph edited");
-        let outcome = write_outcome(env, "two-way", json!({"content": edited, "format": "markdown"})).unwrap();
+        let outcome = write_outcome(
+            env,
+            "two-way",
+            json!({"content": edited, "format": "markdown"}),
+        )
+        .unwrap();
 
         assert_eq!(
             block_texts(&room_json(&room)),
@@ -707,24 +719,42 @@ fn comment_marks_survive_markdown_rewrite() {
             walk(doc, &mut out);
             out
         };
-        assert_eq!(commented(&stored(env, "marks")), "world", "the comment landed");
+        assert_eq!(
+            commented(&stored(env, "marks")),
+            "world",
+            "the comment landed"
+        );
 
         // An edit after the commented word.
         let markdown = read_markdown(env, "marks");
-        assert!(!markdown.contains("c1"), "markdown cannot carry the comment");
+        assert!(
+            !markdown.contains("c1"),
+            "markdown cannot carry the comment"
+        );
         let after = markdown.replace("plain tail.", "plain tail, extended.");
         assert_ne!(after, markdown);
         write_markdown(env, "marks", &after);
         let doc = stored(env, "marks");
-        assert_eq!(commented(&doc), "world", "an edit after the word dropped the comment");
+        assert_eq!(
+            commented(&doc),
+            "world",
+            "an edit after the word dropped the comment"
+        );
         assert_eq!(block_texts(&doc)[0], "Hello world, plain tail, extended.");
 
         // An edit before it.
         let before = after.replace("Hello", "Greetings");
         write_markdown(env, "marks", &before);
         let doc = stored(env, "marks");
-        assert_eq!(commented(&doc), "world", "an edit before the word dropped the comment");
-        assert_eq!(block_texts(&doc)[0], "Greetings world, plain tail, extended.");
+        assert_eq!(
+            commented(&doc),
+            "world",
+            "an edit before the word dropped the comment"
+        );
+        assert_eq!(
+            block_texts(&doc)[0],
+            "Greetings world, plain tail, extended."
+        );
 
         // The comment's entry in the document's comments map survived too.
         let room = room_of(env, "marks");
@@ -746,9 +776,8 @@ fn comment_marks_survive_markdown_rewrite() {
 fn vehicle_mirror_append_is_an_append() {
     with_env(|env| {
         let turn_one = "# Transcript\n\n**You:** first question\n\n**Sophia:** first answer";
-        let turn_two = format!(
-            "{turn_one}\n\n**You:** second question\n\n**Sophia:** second answer"
-        );
+        let turn_two =
+            format!("{turn_one}\n\n**You:** second question\n\n**Sophia:** second answer");
         create(env, "mirror");
         write_markdown(env, "mirror", turn_one);
         let room = room_of(env, "mirror");
@@ -796,8 +825,12 @@ fn scene_kind_write_refused_end_to_end() {
         let room = room_of(env, &board);
         let state_before = room_state(&room);
         let mut rx = room.subscribe_updates_for_test();
-        let error = write(env, &board, json!({"content": "# Not a document", "format": "markdown"}))
-            .expect_err("a content write to a whiteboard must be refused");
+        let error = write(
+            env,
+            &board,
+            json!({"content": "# Not a document", "format": "markdown"}),
+        )
+        .expect_err("a content write to a whiteboard must be refused");
         assert!(
             error.contains("whiteboard_apply"),
             "the refusal must name the right tool: {error}"
@@ -831,8 +864,12 @@ fn scene_kind_write_refused_end_to_end() {
             .to_string();
         let flow_room = room_of(env, &flow);
         let flow_state = room_state(&flow_room);
-        let error = write(env, &flow, json!({"content": "# Not a document", "format": "markdown"}))
-            .expect_err("a content write to a Flow board must be refused");
+        let error = write(
+            env,
+            &flow,
+            json!({"content": "# Not a document", "format": "markdown"}),
+        )
+        .expect_err("a content write to a Flow board must be refused");
         assert!(
             error.contains("flow_seed_board"),
             "the refusal must name the right tool: {error}"

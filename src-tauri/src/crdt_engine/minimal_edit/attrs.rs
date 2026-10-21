@@ -79,7 +79,8 @@ const CITATION_DEFAULTS: &[(&str, Dv)] = &[
     ("zoteroKey", Dv::Str("")),
 ];
 const TAG_CHIP_DEFAULTS: &[(&str, Dv)] = &[("name", Dv::Str(""))];
-const UNSUPPORTED_BLOCK_DEFAULTS: &[(&str, Dv)] = &[("nodeName", Dv::Str("")), ("text", Dv::Str(""))];
+const UNSUPPORTED_BLOCK_DEFAULTS: &[(&str, Dv)] =
+    &[("nodeName", Dv::Str("")), ("text", Dv::Str(""))];
 const OPAQUE_BLOCK_DEFAULTS: &[(&str, Dv)] = &[
     ("originalJson", Dv::Str("")),
     ("originalType", Dv::Str("")),
@@ -289,7 +290,14 @@ pub(crate) fn mark_stated(format: SourceFormat, mark: &str) -> bool {
         SourceFormat::TiptapJson | SourceFormat::Xml | SourceFormat::Restore => true,
         SourceFormat::Blocks => matches!(
             mark,
-            "bold" | "italic" | "strike" | "code" | "highlight" | "link" | "commentMark" | "wireMark"
+            "bold"
+                | "italic"
+                | "strike"
+                | "code"
+                | "highlight"
+                | "link"
+                | "commentMark"
+                | "wireMark"
         ),
         // markdown.lossless in block-contract.v1.json
         SourceFormat::Markdown => matches!(mark, "link" | "bold" | "code" | "italic" | "strike"),
@@ -411,11 +419,7 @@ fn text_node(text: String, marks: &MarkSet) -> Value {
     Value::Object(node)
 }
 
-fn normal_children(
-    content: &[Value],
-    with_ids: bool,
-    format: Option<SourceFormat>,
-) -> Vec<Value> {
+fn normal_children(content: &[Value], with_ids: bool, format: Option<SourceFormat>) -> Vec<Value> {
     let mut out = Vec::new();
     let mut pending: Option<(String, MarkSet)> = None;
     for node in content {
@@ -509,6 +513,11 @@ pub(crate) fn normal_form_stated(doc: &Value, format: SourceFormat, with_ids: bo
 pub(crate) fn raw_marks_to_y(marks: &RawMarks) -> yrs::types::Attrs {
     marks
         .iter()
-        .map(|(name, value)| (std::sync::Arc::<str>::from(name.as_str()), json_to_any(value)))
+        .map(|(name, value)| {
+            (
+                std::sync::Arc::<str>::from(name.as_str()),
+                json_to_any(value),
+            )
+        })
         .collect()
 }

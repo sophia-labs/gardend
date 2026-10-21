@@ -195,7 +195,10 @@ fn keep_plan_emits_an_empty_update() {
     let (stats, update) = emit_on(&doc, |cur| vec![Step::Keep; cur.children.len()]).unwrap();
     assert!(stats.counts.is_zero(), "an all-Keep plan counts nothing");
     assert_eq!(stats.clock_before, stats.clock_after);
-    assert!(update_is_empty(&update), "the update carries no insertion and no deletion");
+    assert!(
+        update_is_empty(&update),
+        "the update carries no insertion and no deletion"
+    );
     assert!(update.len() <= 3, "an empty update is the two zero counts");
     assert_eq!(ydoc_to_tiptap_json(&doc), before);
 
@@ -222,7 +225,10 @@ fn patch_keeps_branch_ids() {
         vec![
             Step::Keep,
             Step::Patch(NodePatch {
-                set: vec![("data-block-id".into(), json!("b2")), ("indent".into(), json!(1))],
+                set: vec![
+                    ("data-block-id".into(), json!("b2")),
+                    ("indent".into(), json!(1)),
+                ],
                 remove: vec![],
                 children: Some(vec![Step::Text(vec![
                     TextOp::Retain(4),
@@ -304,7 +310,10 @@ fn text_delta_retain_format_delete_insert() {
             run(" there", &[]),
         ]
     );
-    assert!(ids_before == all_ids(&doc), "the Y.XmlText kept its identity");
+    assert!(
+        ids_before == all_ids(&doc),
+        "the Y.XmlText kept its identity"
+    );
 }
 
 #[test]
@@ -502,11 +511,13 @@ fn multibyte_offsets_land_on_char_boundaries() {
     // A length that ends inside a character is refused, and nothing changes.
     let before = ydoc_to_tiptap_json(&doc);
     for bad in [
-        vec![TextOp::Retain(2)],               // inside ñ
+        vec![TextOp::Retain(2)],                    // inside ñ
         vec![TextOp::Retain(1), TextOp::Delete(1)], // inside ñ
         vec![TextOp::Retain(4), TextOp::Delete(2)], // inside → (3 bytes)
     ] {
-        let result = emit_on(&doc, |_| vec![patch_children(vec![Step::Text(bad.clone())])]);
+        let result = emit_on(&doc, |_| {
+            vec![patch_children(vec![Step::Text(bad.clone())])]
+        });
         assert!(result.is_err(), "{bad:?} must be refused");
     }
     assert_eq!(ydoc_to_tiptap_json(&doc), before);

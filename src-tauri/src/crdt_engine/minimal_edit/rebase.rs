@@ -66,9 +66,7 @@ impl Side for BaseSide<'_> {
             return None;
         }
         let node = self.node(seg)?;
-        Some(
-            self.images[seg].get_or_init(|| md_image::block_image(&node.json, self.policy)),
-        )
+        Some(self.images[seg].get_or_init(|| md_image::block_image(&node.json, self.policy)))
     }
     fn unexpressible(&self, seg: usize) -> bool {
         // A base node the write's format cannot say, absent from the desired content, was not removed by
@@ -269,15 +267,14 @@ pub(crate) fn rebase_on_live(
         let anchor = out
             .iter()
             .enumerate()
-            .filter_map(|(position, (at, _))| (*at).filter(|at| *at < index).map(|at| (at, position)))
+            .filter_map(|(position, (at, _))| {
+                (*at).filter(|at| *at < index).map(|at| (at, position))
+            })
             .max();
         let position = anchor.map_or(0, |(_, position)| position + 1);
         out.insert(
             position,
-            (
-                Some(index),
-                current_child_to_desired(child, policy),
-            ),
+            (Some(index), current_child_to_desired(child, policy)),
         );
         note(&mut edits.kept, &node.id);
     }

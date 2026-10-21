@@ -32,7 +32,8 @@ where
     'rounds: for d in 0..=limit {
         let mut k = -d;
         while k <= d {
-            let down = k == -d || (k != d && v[(k - 1 + offset) as usize] < v[(k + 1 + offset) as usize]);
+            let down =
+                k == -d || (k != d && v[(k - 1 + offset) as usize] < v[(k + 1 + offset) as usize]);
             let mut x = if down {
                 v[(k + 1 + offset) as usize]
             } else {
@@ -50,9 +51,7 @@ where
             }
             k += 2;
         }
-        let slice: Vec<i32> = (-d..=d)
-            .map(|k| v[(k + offset) as usize] as i32)
-            .collect();
+        let slice: Vec<i32> = (-d..=d).map(|k| v[(k + offset) as usize] as i32).collect();
         trace.push(slice);
     }
     let found = found?;

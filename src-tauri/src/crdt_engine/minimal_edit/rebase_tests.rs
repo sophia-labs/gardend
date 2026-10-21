@@ -95,7 +95,10 @@ fn untouched_block_keeps_live_edit() {
 fn agent_change_applies_when_live_unchanged() {
     let policy = json_policy();
     let base_nodes = vec![para("p1", "alpha"), para("p2", "beta")];
-    let wanted = vec![para("p1", "alpha"), para("p2", "beta rewritten by the agent")];
+    let wanted = vec![
+        para("p1", "alpha"),
+        para("p2", "beta rewritten by the agent"),
+    ];
     let (result, edits) = rebase_on_live(
         &desired_of(&base_nodes, &policy),
         &current_of(&base_nodes, &policy),
@@ -184,8 +187,10 @@ fn markdown_desired_against_json_base_uses_images() {
             ids: IdPolicy::Adopt { minted },
         }
     };
-    let markdown = "intro\n\n> ⧉ Person — Ada <https://example.com/o/1>\n\noutro changed by the agent";
-    let parsed = parse_write_content_for_operation(markdown, Some("markdown"), "rebase-test").unwrap();
+    let markdown =
+        "intro\n\n> ⧉ Person — Ada <https://example.com/o/1>\n\noutro changed by the agent";
+    let parsed =
+        parse_write_content_for_operation(markdown, Some("markdown"), "rebase-test").unwrap();
     let blocks = parsed.tiptap_json["content"].as_array().unwrap().clone();
     let blocks = normalise_doc_content(&blocks, "rebase-test").0;
     let policy = policy_md_ids(&blocks);

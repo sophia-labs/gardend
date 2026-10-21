@@ -96,11 +96,7 @@ async fn write_md_at(
     enqueue(app, "document.write", Some(document_id), payload).await
 }
 
-async fn write_md(
-    app: &crate::app_runtime::AppHandle,
-    document_id: &str,
-    markdown: &str,
-) -> Value {
+async fn write_md(app: &crate::app_runtime::AppHandle, document_id: &str, markdown: &str) -> Value {
     write_md_at(app, document_id, markdown, None).await.unwrap()
 }
 
@@ -228,8 +224,7 @@ fn ops_are_zero(result: &Value) -> bool {
         .all(|count| count.as_u64() == Some(0))
 }
 
-const FOUR_BLOCKS: &str =
-    "# Title\n\nFirst paragraph.\n\nSecond paragraph.\n\nThird paragraph.\n";
+const FOUR_BLOCKS: &str = "# Title\n\nFirst paragraph.\n\nSecond paragraph.\n\nThird paragraph.\n";
 const FOUR_BLOCKS_EDITED: &str =
     "# Title\n\nFirst paragraph.\n\nSecond paragraph, edited.\n\nThird paragraph.\n";
 
@@ -268,7 +263,10 @@ fn same_markdown_written_back_is_zero_ops_and_no_revision() {
             // What an agent reads, sent back as it read it, is the same document.
             let read_back = markdown(&app, "doc-same");
             let echoed = write_md(&app, "doc-same", &read_back).await;
-            assert!(ops_are_zero(&echoed), "read-then-write is a no-op: {echoed}");
+            assert!(
+                ops_are_zero(&echoed),
+                "read-then-write is a no-op: {echoed}"
+            );
             assert_eq!(revision(&app, "doc-same"), revision_before);
             assert!(no_update(&mut updates));
         });
@@ -343,7 +341,11 @@ fn preflight_replay_is_a_planner_noop() {
                 .expect("a write that is already applied is a replay, not a conflict");
             assert_eq!(replay["crdt"]["replayed"], true, "{replay}");
             assert!(ops_are_zero(&replay));
-            assert_eq!(revision(&app, "doc-replay"), r2, "a replay is not a revision");
+            assert_eq!(
+                revision(&app, "doc-replay"),
+                r2,
+                "a replay is not a revision"
+            );
             assert!(no_update(&mut updates));
             assert!(branch_ids(&room).await == ids_before);
 
@@ -425,7 +427,11 @@ fn whiteboard_and_flow_board_writes_are_refused() {
                 .expect_err("tiptapJson is refused too");
                 assert!(refused_json.contains(tool), "{refused_json}");
 
-                assert_eq!(revision(&app, document_id), revision_before, "nothing saved");
+                assert_eq!(
+                    revision(&app, document_id),
+                    revision_before,
+                    "nothing saved"
+                );
                 if let Some(room) = app
                     .state::<RoomRegistry>()
                     .peek(&format!("doc:{GRAPH}:{document_id}"))
@@ -484,7 +490,10 @@ fn ingest_rerun_is_minimal() {
 
             // The same pages again: the parser mints new ids, the room changes nothing.
             ingest(FOUR_BLOCKS).await;
-            assert!(no_update(&mut updates), "a re-ingest of equal text writes nothing");
+            assert!(
+                no_update(&mut updates),
+                "a re-ingest of equal text writes nothing"
+            );
             assert!(branch_ids(&room).await == branches_before);
             assert_eq!(block_ids(&stored(&app, "doc-ingest")), ids_before);
 

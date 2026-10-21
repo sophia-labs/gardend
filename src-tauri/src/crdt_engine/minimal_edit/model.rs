@@ -11,7 +11,7 @@ use yrs::types::xml::XmlOut;
 use yrs::{Any, Out, ReadTxn, Text, Xml, XmlFragment, XmlFragmentRef};
 
 use super::attrs::{
-    marks_from_tiptap, marks_from_y, mark_stated, node_attr_stated, sem_node_attrs, Fnv64,
+    mark_stated, marks_from_tiptap, marks_from_y, node_attr_stated, sem_node_attrs, Fnv64,
 };
 use super::types::{
     CurrentChild, CurrentFragment, CurrentNode, CurrentText, DesiredChild, DesiredFragment,
@@ -64,7 +64,12 @@ fn any_to_json(any: &Any) -> Value {
 
 /// The stated semantic attributes of a node, hashed in key order (BTreeMap), ids excluded by
 /// `node_attr_stated`.
-fn write_stated_attrs(fnv: &mut Fnv64, tag: &str, attrs: &Map<String, Value>, policy: &WritePolicy) {
+fn write_stated_attrs(
+    fnv: &mut Fnv64,
+    tag: &str,
+    attrs: &Map<String, Value>,
+    policy: &WritePolicy,
+) {
     let semantic = sem_node_attrs(tag, attrs);
     let stated: Vec<_> = semantic
         .iter()
@@ -137,7 +142,12 @@ impl InlineHasher {
 const PART_NODE: u8 = 0;
 const PART_INLINE: u8 = 1;
 
-fn hash_element(tag: &str, attrs: &Map<String, Value>, parts: &[(u8, u64)], policy: &WritePolicy) -> u64 {
+fn hash_element(
+    tag: &str,
+    attrs: &Map<String, Value>,
+    parts: &[(u8, u64)],
+    policy: &WritePolicy,
+) -> u64 {
     let mut fnv = Fnv64::new();
     fnv.write(&[b'N']);
     fnv.write_str(tag);
@@ -150,7 +160,11 @@ fn hash_element(tag: &str, attrs: &Map<String, Value>, parts: &[(u8, u64)], poli
     fnv.finish()
 }
 
-fn cur_inline_part(children: &[CurrentChild], range: Range<usize>, policy: &WritePolicy) -> Option<u64> {
+fn cur_inline_part(
+    children: &[CurrentChild],
+    range: Range<usize>,
+    policy: &WritePolicy,
+) -> Option<u64> {
     let mut hasher = InlineHasher::new();
     for child in &children[range] {
         match child {
@@ -169,7 +183,11 @@ fn cur_inline_part(children: &[CurrentChild], range: Range<usize>, policy: &Writ
     (hasher.units > 0).then(|| hasher.fnv.finish())
 }
 
-fn des_inline_part(children: &[DesiredChild], range: Range<usize>, policy: &WritePolicy) -> Option<u64> {
+fn des_inline_part(
+    children: &[DesiredChild],
+    range: Range<usize>,
+    policy: &WritePolicy,
+) -> Option<u64> {
     let mut hasher = InlineHasher::new();
     for child in &children[range] {
         match child {

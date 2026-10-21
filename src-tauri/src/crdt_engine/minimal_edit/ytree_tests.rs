@@ -43,9 +43,12 @@ fn normalize(value: Value) -> Value {
             .map(Value::Number)
             .unwrap_or(Value::Null),
         Value::Array(items) => Value::Array(items.into_iter().map(normalize).collect()),
-        Value::Object(entries) => {
-            Value::Object(entries.into_iter().map(|(k, v)| (k, normalize(v))).collect())
-        }
+        Value::Object(entries) => Value::Object(
+            entries
+                .into_iter()
+                .map(|(k, v)| (k, normalize(v)))
+                .collect(),
+        ),
         other => other,
     }
 }
@@ -76,9 +79,15 @@ fn equal_maps_are_zero_ops() {
 
     let counts = restore(&current, &target, &["documents"]);
 
-    assert!(counts.is_zero(), "equal trees must change nothing: {counts:?}");
+    assert!(
+        counts.is_zero(),
+        "equal trees must change nothing: {counts:?}"
+    );
     assert_eq!(state_vector(&current), before, "no item was created");
-    assert_eq!(root_json(&current, "documents"), root_json(&target, "documents"));
+    assert_eq!(
+        root_json(&current, "documents"),
+        root_json(&target, "documents")
+    );
 }
 
 #[test]
@@ -91,8 +100,14 @@ fn numbers_that_differ_only_in_representation_are_equal() {
 
 #[test]
 fn changed_any_value_is_one_set() {
-    let current = doc_with_map("documents", &[("a", Any::Number(1.0)), ("b", Any::from("x"))]);
-    let target = doc_with_map("documents", &[("a", Any::Number(1.0)), ("b", Any::from("y"))]);
+    let current = doc_with_map(
+        "documents",
+        &[("a", Any::Number(1.0)), ("b", Any::from("x"))],
+    );
+    let target = doc_with_map(
+        "documents",
+        &[("a", Any::Number(1.0)), ("b", Any::from("y"))],
+    );
 
     let counts = restore(&current, &target, &["documents"]);
 
@@ -103,7 +118,10 @@ fn changed_any_value_is_one_set() {
             ..OpCounts::default()
         }
     );
-    assert_eq!(root_json(&current, "documents"), json!({"a": 1.0, "b": "y"}));
+    assert_eq!(
+        root_json(&current, "documents"),
+        json!({"a": 1.0, "b": "y"})
+    );
 }
 
 #[test]
@@ -182,8 +200,14 @@ fn nested_map_recurses_and_keeps_identity() {
             other => panic!("nested map expected, got {other:?}"),
         }
     };
-    assert_eq!(inner_before, inner_after, "the nested map keeps its Yjs identity");
-    assert_eq!(root_json(&current, "documents"), root_json(&target, "documents"));
+    assert_eq!(
+        inner_before, inner_after,
+        "the nested map keeps its Yjs identity"
+    );
+    assert_eq!(
+        root_json(&current, "documents"),
+        root_json(&target, "documents")
+    );
 }
 
 fn array_len_and_items(doc: &Doc) -> Vec<Value> {
@@ -228,7 +252,10 @@ fn array_restore_is_minimal() {
             ..OpCounts::default()
         }
     );
-    assert_eq!(array_len_and_items(&current), vec![json!("a"), json!("b"), json!("c")]);
+    assert_eq!(
+        array_len_and_items(&current),
+        vec![json!("a"), json!("b"), json!("c")]
+    );
 
     // Items added after the capture are removed; the rest stay.
     let current = nested_doc(1.0, &["a", "post", "b"]);
@@ -272,7 +299,10 @@ fn array_restore_function_reaches_the_target_directly() {
 
 #[test]
 fn absent_target_root_clears_current() {
-    let current = doc_with_map("documents", &[("a", Any::Number(1.0)), ("b", Any::Number(2.0))]);
+    let current = doc_with_map(
+        "documents",
+        &[("a", Any::Number(1.0)), ("b", Any::Number(2.0))],
+    );
     let target = Doc::new(); // no `documents` root at all
 
     let counts = restore(&current, &target, &["documents"]);
@@ -303,7 +333,11 @@ fn unnamed_roots_untouched() {
         let comments = txn.get_or_insert_map("comments");
         comments.insert(&mut txn, "c1", Any::from("old"));
         let ledger = txn.get_or_insert_map("_operationLog");
-        ledger.insert(&mut txn, "op-sentinel", Any::from("applied after the capture"));
+        ledger.insert(
+            &mut txn,
+            "op-sentinel",
+            Any::from("applied after the capture"),
+        );
     }
     let target = doc_with_map("comments", &[("c1", Any::from("captured"))]);
 
@@ -361,11 +395,18 @@ fn flow_board_seed_round_trip() {
     // Restore A (the edited board, 'now') toward B (the golden board, the 'snapshot').
     let counts = restore(&edited, &golden, &["resource", "scene"]);
     assert!(!counts.is_zero(), "the boards differ, so something changed");
-    assert_eq!(export(&edited), export(&golden), "the exported boards are equal");
+    assert_eq!(
+        export(&edited),
+        export(&golden),
+        "the exported boards are equal"
+    );
 
     // And back again: now the other direction changes things, and a second restore is a no-op.
     let again = restore(&edited, &golden, &["resource", "scene"]);
-    assert!(again.is_zero(), "restoring twice is the same as once: {again:?}");
+    assert!(
+        again.is_zero(),
+        "restoring twice is the same as once: {again:?}"
+    );
 
     // A round trip through bytes: the restored board survives an encode/decode.
     let bytes = edited

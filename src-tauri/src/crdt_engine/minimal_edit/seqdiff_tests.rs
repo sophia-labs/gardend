@@ -104,11 +104,7 @@ fn myers_is_minimal_against_brute_force() {
         for b in &strings {
             let script = run(a, b, usize::MAX / 4).expect("uncapped never fails");
             let want = a.len() + b.len() - 2 * brute_lcs(a, b);
-            assert_eq!(
-                cost(&script),
-                want,
-                "a={a:?} b={b:?} script={script:?}"
-            );
+            assert_eq!(cost(&script), want, "a={a:?} b={b:?} script={script:?}");
         }
     }
 }
@@ -171,7 +167,10 @@ fn ties_put_delete_before_insert() {
             let script = run(a, b, 100).expect("within cap");
             for pair in script.windows(2) {
                 assert!(
-                    !matches!((&pair[0], &pair[1]), (Edit::Insert { .. }, Edit::Delete { .. })),
+                    !matches!(
+                        (&pair[0], &pair[1]),
+                        (Edit::Insert { .. }, Edit::Delete { .. })
+                    ),
                     "insert before delete: a={a:?} b={b:?} {script:?}"
                 );
             }
@@ -191,7 +190,9 @@ fn lis_is_longest_and_deterministic() {
                 .collect();
             let mut sorted = pick.clone();
             sorted.sort();
-            let ok = sorted.windows(2).all(|w| w[0].0 < w[1].0 && w[0].1 < w[1].1);
+            let ok = sorted
+                .windows(2)
+                .all(|w| w[0].0 < w[1].0 && w[0].1 < w[1].1);
             if ok && sorted.len() > best {
                 best = sorted.len();
             }
@@ -211,7 +212,11 @@ fn lis_is_longest_and_deterministic() {
             .map(|_| ((next() % 6) as usize, (next() % 6) as usize))
             .collect();
         let chain = longest_increasing_pairs(&pairs);
-        assert_eq!(chain.len(), brute(&pairs), "pairs={pairs:?} chain={chain:?}");
+        assert_eq!(
+            chain.len(),
+            brute(&pairs),
+            "pairs={pairs:?} chain={chain:?}"
+        );
         for w in chain.windows(2) {
             assert!(w[0].0 < w[1].0 && w[0].1 < w[1].1, "{chain:?}");
         }
@@ -235,7 +240,10 @@ fn lis_is_longest_and_deterministic() {
 #[test]
 fn affixes_do_not_overlap() {
     let eq = |x: &char, y: &char| x == y;
-    assert_eq!(common_affixes(&chars("abcdef"), &chars("abXdef"), eq), (2, 3));
+    assert_eq!(
+        common_affixes(&chars("abcdef"), &chars("abXdef"), eq),
+        (2, 3)
+    );
     // "aa" vs "aaa": the prefix takes all of the shorter side, so the suffix is empty.
     assert_eq!(common_affixes(&chars("aa"), &chars("aaa"), eq), (2, 0));
     assert_eq!(common_affixes(&chars("aaa"), &chars("aa"), eq), (2, 0));

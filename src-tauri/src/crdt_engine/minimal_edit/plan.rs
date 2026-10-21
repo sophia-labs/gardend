@@ -32,10 +32,9 @@ impl<'a> CurSide<'a> {
         let inline_hashes = segs
             .iter()
             .map(|seg| match seg {
-                Seg::Inline(range) => model::inline_hash(
-                    &model::units_cur(children, range.clone(), policy),
-                    policy,
-                ),
+                Seg::Inline(range) => {
+                    model::inline_hash(&model::units_cur(children, range.clone(), policy), policy)
+                }
                 Seg::Node(_) => 0,
             })
             .collect();
@@ -83,8 +82,9 @@ impl Side for CurSide<'_> {
         }
         let node = self.node(seg)?;
         Some(
-            node.image
-                .get_or_init(|| md_image::block_image(&model::current_node_json(node), self.policy)),
+            node.image.get_or_init(|| {
+                md_image::block_image(&model::current_node_json(node), self.policy)
+            }),
         )
     }
     fn unexpressible(&self, seg: usize) -> bool {
@@ -109,10 +109,9 @@ impl<'a> DesSide<'a> {
         let inline_hashes = segs
             .iter()
             .map(|seg| match seg {
-                Seg::Inline(range) => model::inline_hash(
-                    &model::units_des(children, range.clone(), policy),
-                    policy,
-                ),
+                Seg::Inline(range) => {
+                    model::inline_hash(&model::units_des(children, range.clone(), policy), policy)
+                }
                 Seg::Node(_) => 0,
             })
             .collect();
@@ -259,7 +258,10 @@ pub(crate) fn align(a: &dyn Side, b: &dyn Side, policy: &WritePolicy) -> Vec<Pai
     let mut by_key: BTreeMap<(&str, u64), VecDeque<usize>> = BTreeMap::new();
     for i in a_lo..a_hi {
         if !a_used[i] {
-            by_key.entry((a.tag(i), a.hash(i))).or_default().push_back(i);
+            by_key
+                .entry((a.tag(i), a.hash(i)))
+                .or_default()
+                .push_back(i);
         }
     }
     for j in b_lo..b_hi {
@@ -561,8 +563,8 @@ pub(crate) fn plan_node(
             continue;
         }
         let des_raw = desired.attrs.get(key).filter(|value| !value.is_null());
-        let stated = des_raw.is_some()
-            || attrs::node_attr_stated(policy.format, &desired.tag, key.as_str());
+        let stated =
+            des_raw.is_some() || attrs::node_attr_stated(policy.format, &desired.tag, key.as_str());
         if !stated {
             continue;
         }
@@ -639,7 +641,11 @@ fn units_equal(cur: &[Unit], des: &[Unit], format: SourceFormat) -> bool {
 }
 
 /// `(set, remove)` turning the current unit's marks into the desired unit's, for the marks the format states.
-fn format_diff(cur: &Unit, des: &Unit, format: SourceFormat) -> (Vec<(String, Value)>, Vec<String>) {
+fn format_diff(
+    cur: &Unit,
+    des: &Unit,
+    format: SourceFormat,
+) -> (Vec<(String, Value)>, Vec<String>) {
     let mut set = Vec::new();
     let mut remove = Vec::new();
     for (name, raw) in des.raw_marks.iter() {
@@ -1229,11 +1235,17 @@ impl<'a> Scan<'a> {
         }
 
         let left = consumed.or(prev);
-        let left_text = left.filter(|&u| self.char_of(u).is_some()).map(|u| self.child_of(u));
-        let right_text = right.filter(|&u| self.char_of(u).is_some()).map(|u| self.child_of(u));
+        let left_text = left
+            .filter(|&u| self.char_of(u).is_some())
+            .map(|u| self.child_of(u));
+        let right_text = right
+            .filter(|&u| self.char_of(u).is_some())
+            .map(|u| self.child_of(u));
         let gap = left.map(|u| self.child_of(u) + 1).unwrap_or(0);
 
-        let has_atom = inss.iter().any(|&d| matches!(self.du[d].key, UnitKey::Atom(_)));
+        let has_atom = inss
+            .iter()
+            .any(|&d| matches!(self.du[d].key, UnitKey::Atom(_)));
         if !has_atom {
             let inherited = self.inherited(left, right);
             let units: Vec<(char, Arc<RawMarks>)> = inss

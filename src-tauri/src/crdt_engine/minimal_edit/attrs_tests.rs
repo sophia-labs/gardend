@@ -134,23 +134,74 @@ fn carry_rules_state_what_each_format_can_say() {
         SourceFormat::Restore,
     ] {
         for id in ID_ATTRS {
-            assert!(!node_attr_stated(format, "paragraph", id), "{format:?} {id}");
+            assert!(
+                !node_attr_stated(format, "paragraph", id),
+                "{format:?} {id}"
+            );
         }
     }
-    assert!(node_attr_stated(SourceFormat::TiptapJson, "paragraph", "textAlign"));
-    assert!(node_attr_stated(SourceFormat::Restore, "paragraph", "data-tags"));
+    assert!(node_attr_stated(
+        SourceFormat::TiptapJson,
+        "paragraph",
+        "textAlign"
+    ));
+    assert!(node_attr_stated(
+        SourceFormat::Restore,
+        "paragraph",
+        "data-tags"
+    ));
     assert!(node_attr_stated(SourceFormat::Markdown, "heading", "level"));
-    assert!(node_attr_stated(SourceFormat::Markdown, "listItem", "indent"));
-    assert!(node_attr_stated(SourceFormat::Markdown, "codeBlock", "language"));
+    assert!(node_attr_stated(
+        SourceFormat::Markdown,
+        "listItem",
+        "indent"
+    ));
+    assert!(node_attr_stated(
+        SourceFormat::Markdown,
+        "codeBlock",
+        "language"
+    ));
     assert!(node_attr_stated(SourceFormat::Markdown, "image", "src"));
-    assert!(!node_attr_stated(SourceFormat::Markdown, "paragraph", "textAlign"));
-    assert!(!node_attr_stated(SourceFormat::Markdown, "paragraph", "collapsed"));
-    assert!(!node_attr_stated(SourceFormat::Markdown, "paragraph", "data-source-id"));
-    assert!(node_attr_stated(SourceFormat::Html, "paragraph", "textAlign"));
-    assert!(node_attr_stated(SourceFormat::Html, "paragraph", "data-pdf-page"));
-    assert!(!node_attr_stated(SourceFormat::Html, "paragraph", "data-tags"));
-    assert!(node_attr_stated(SourceFormat::Blocks, "listItem", "checked"));
-    assert!(!node_attr_stated(SourceFormat::Blocks, "listItem", "indent"));
+    assert!(!node_attr_stated(
+        SourceFormat::Markdown,
+        "paragraph",
+        "textAlign"
+    ));
+    assert!(!node_attr_stated(
+        SourceFormat::Markdown,
+        "paragraph",
+        "collapsed"
+    ));
+    assert!(!node_attr_stated(
+        SourceFormat::Markdown,
+        "paragraph",
+        "data-source-id"
+    ));
+    assert!(node_attr_stated(
+        SourceFormat::Html,
+        "paragraph",
+        "textAlign"
+    ));
+    assert!(node_attr_stated(
+        SourceFormat::Html,
+        "paragraph",
+        "data-pdf-page"
+    ));
+    assert!(!node_attr_stated(
+        SourceFormat::Html,
+        "paragraph",
+        "data-tags"
+    ));
+    assert!(node_attr_stated(
+        SourceFormat::Blocks,
+        "listItem",
+        "checked"
+    ));
+    assert!(!node_attr_stated(
+        SourceFormat::Blocks,
+        "listItem",
+        "indent"
+    ));
     assert!(!node_attr_stated(SourceFormat::Plain, "heading", "level"));
 }
 
@@ -273,8 +324,14 @@ fn write_value_is_order_independent_for_objects() {
     // numbers hash as f64
     assert_eq!(value_hash(&json!(1)), value_hash(&json!(1.0)));
     // content matters
-    assert_ne!(value_hash(&json!({ "a": 1 })), value_hash(&json!({ "a": 2 })));
-    assert_ne!(value_hash(&json!({ "a": 1 })), value_hash(&json!({ "b": 1 })));
+    assert_ne!(
+        value_hash(&json!({ "a": 1 })),
+        value_hash(&json!({ "a": 2 }))
+    );
+    assert_ne!(
+        value_hash(&json!({ "a": 1 })),
+        value_hash(&json!({ "b": 1 }))
+    );
 }
 
 fn rich_doc() -> Value {
@@ -315,7 +372,10 @@ fn normal_form_merges_adjacent_equal_text_and_sorts_marks() {
     let paragraph = &normal["content"][0];
     assert_eq!(paragraph["type"], "paragraph");
     // ids dropped, defaults filled, the null textAlign gone, numbers f64
-    assert_eq!(paragraph["attrs"], json!({ "collapsed": false, "indent": 0.0 }));
+    assert_eq!(
+        paragraph["attrs"],
+        json!({ "collapsed": false, "indent": 0.0 })
+    );
     // "Hel" + "" + "lo" merge (the same marks in any order); " w" stays apart; bold sorts before italic
     assert_eq!(
         paragraph["content"],
@@ -356,7 +416,11 @@ fn normal_form_is_idempotent() {
     for with_ids in [false, true] {
         let once = normal_form(&rich_doc(), with_ids);
         assert_eq!(normal_form(&once, with_ids), once, "with_ids {with_ids}");
-        for format in [SourceFormat::Markdown, SourceFormat::Html, SourceFormat::Blocks] {
+        for format in [
+            SourceFormat::Markdown,
+            SourceFormat::Html,
+            SourceFormat::Blocks,
+        ] {
             let once = normal_form_stated(&rich_doc(), format, with_ids);
             assert_eq!(
                 normal_form_stated(&once, format, with_ids),
@@ -429,7 +493,10 @@ fn normal_form_stated_drops_unstated_attrs_for_markdown() {
 
     // ids survive with_ids even though no format states them
     let with_ids = normal_form_stated(&doc, SourceFormat::Markdown, true);
-    assert_eq!(with_ids["content"][0]["attrs"], json!({ "data-block-id": "p1" }));
+    assert_eq!(
+        with_ids["content"][0]["attrs"],
+        json!({ "data-block-id": "p1" })
+    );
 
     // tiptapJson states everything
     assert_eq!(

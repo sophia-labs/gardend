@@ -68,10 +68,13 @@ fn with_env(test: impl FnOnce(&Env)) {
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     let previous = std::env::var_os("GARDEN_PROFILE_DIR");
-    let profile = std::env::temp_dir().join(format!("garden-forward-restore-{}", uuid::Uuid::new_v4()));
+    let profile =
+        std::env::temp_dir().join(format!("garden-forward-restore-{}", uuid::Uuid::new_v4()));
     std::env::set_var("GARDEN_PROFILE_DIR", &profile);
-    let jobs_dir =
-        std::env::temp_dir().join(format!("garden-forward-restore-jobs-{}", uuid::Uuid::new_v4()));
+    let jobs_dir = std::env::temp_dir().join(format!(
+        "garden-forward-restore-jobs-{}",
+        uuid::Uuid::new_v4()
+    ));
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let app = crate::tauri_runtime::build_mock_app_for_tests(true);
         crate::graph_service::create_graph_service(
@@ -108,10 +111,12 @@ fn paragraph(id: &str, text: &str) -> Value {
 }
 
 fn create(env: &Env, document_id: &str) {
-    run(crate::mcp_workspace_crdt_service::mcp_local_create_document(
-        env.app.clone(),
-        &json!({"graphId": GRAPH, "documentId": document_id, "title": document_id}),
-    ))
+    run(
+        crate::mcp_workspace_crdt_service::mcp_local_create_document(
+            env.app.clone(),
+            &json!({"graphId": GRAPH, "documentId": document_id, "title": document_id}),
+        ),
+    )
     .unwrap();
 }
 
@@ -188,7 +193,9 @@ fn texts(list: &[&str]) -> Vec<String> {
 
 fn apply(doc: &Doc, update: &[u8]) {
     let update = Update::decode_v1(update).expect("decode update");
-    doc.transact_mut().apply_update(update).expect("apply update");
+    doc.transact_mut()
+        .apply_update(update)
+        .expect("apply update");
 }
 
 /// A browser: a second Y.Doc holding what the room holds now.
@@ -220,7 +227,9 @@ fn browser_types(browser: &Doc, block: u32, text: &str) -> Vec<u8> {
 }
 
 fn browser_texts(browser: &Doc) -> Vec<String> {
-    block_texts(&crate::crdt_engine::projection::ydoc_to_tiptap_json(browser))
+    block_texts(&crate::crdt_engine::projection::ydoc_to_tiptap_json(
+        browser,
+    ))
 }
 
 /// The update bytes of every frame broadcast since the last drain (awareness frames are not updates).
@@ -249,8 +258,10 @@ fn disk_record(env: &Env, document_id: &str) -> Value {
     let path = crate::paths::documents_dir(&env.graph_dir())
         .join(document_id)
         .join("document.json");
-    serde_json::from_slice(&std::fs::read(&path).unwrap_or_else(|error| panic!("read {path:?}: {error}")))
-        .unwrap()
+    serde_json::from_slice(
+        &std::fs::read(&path).unwrap_or_else(|error| panic!("read {path:?}: {error}")),
+    )
+    .unwrap()
 }
 
 fn record_revision(env: &Env, document_id: &str) -> u64 {
@@ -278,7 +289,8 @@ fn in_tree(env: &Env, document_id: &str) -> bool {
 // ---------------------------------------------------------------------------
 
 fn restore_point(env: &Env, label: &str) -> String {
-    env.call("create_restore_point", json!({"label": label})).unwrap()["restorePointId"]
+    env.call("create_restore_point", json!({"label": label}))
+        .unwrap()["restorePointId"]
         .as_str()
         .expect("restore point id")
         .to_string()
@@ -299,7 +311,10 @@ fn restore_via_service(env: &Env, restore_point_id: &str) -> Value {
     let deadline = Instant::now() + Duration::from_secs(120);
     loop {
         let status = env
-            .call("get_restore_operation", json!({"operationId": operation_id}))
+            .call(
+                "get_restore_operation",
+                json!({"operationId": operation_id}),
+            )
             .expect("restore status");
         match status["state"].as_str().unwrap_or_default() {
             "succeeded" | "failed" | "rolled_back" => return status,
@@ -314,7 +329,10 @@ fn restore_via_service(env: &Env, restore_point_id: &str) -> Value {
 }
 
 fn assert_succeeded(operation: &Value) {
-    assert_eq!(operation["state"], "succeeded", "restore failed: {operation}");
+    assert_eq!(
+        operation["state"], "succeeded",
+        "restore failed: {operation}"
+    );
 }
 
 /// The engine itself, under the graph lease the service would hold, so the report is observable.
@@ -392,7 +410,10 @@ fn restore_with_a_live_room_converges_the_room() {
 
         // The room that was live is still the room, and its Doc is the snapshot's.
         let still = live_room(env, "live").expect("a live room stays cached");
-        assert!(Arc::ptr_eq(&still, &room), "the restore replaced the live room");
+        assert!(
+            Arc::ptr_eq(&still, &room),
+            "the restore replaced the live room"
+        );
         let restored = texts(&["Captured alpha", "Captured beta"]);
         assert_eq!(
             block_texts(&room_json(&room)),
@@ -402,8 +423,14 @@ fn restore_with_a_live_room_converges_the_room() {
 
         // The disk agrees with the room, and the saved record is the restored one.
         assert_eq!(block_texts(&sidecar_json(env, "live")), restored);
-        let body = disk_record(env, "live")["body"].as_str().unwrap_or("").to_string();
-        assert!(body.contains("Captured alpha") && !body.contains("AFTER"), "{body}");
+        let body = disk_record(env, "live")["body"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+        assert!(
+            body.contains("Captured alpha") && !body.contains("AFTER"),
+            "{body}"
+        );
         let markdown = read_markdown(env, "live");
         assert!(
             markdown.contains("Captured beta") && !markdown.contains("AGENT-AFTER-CAPTURE"),
@@ -412,11 +439,18 @@ fn restore_with_a_live_room_converges_the_room() {
 
         // The open browser converges from what the room broadcast, without a reload.
         let updates = drain_update_bytes(&mut rx);
-        assert!(!updates.is_empty(), "the restore broadcast nothing to the open browser");
+        assert!(
+            !updates.is_empty(),
+            "the restore broadcast nothing to the open browser"
+        );
         for update in &updates {
             apply(&browser, update);
         }
-        assert_eq!(browser_texts(&browser), restored, "the open browser did not converge");
+        assert_eq!(
+            browser_texts(&browser),
+            restored,
+            "the open browser did not converge"
+        );
 
         // Its next sync frame changes nothing on the server.
         let server = room_state_vector(&room);
@@ -448,7 +482,11 @@ fn reconnecting_client_after_restore_brings_nothing_back() {
 
         insert_block(env, "reconnect", "AFTER-CAPTURE-BLOCK", 2);
         let browser = browser_synced(&room);
-        assert_eq!(browser_texts(&browser).len(), 3, "the browser holds the newer state");
+        assert_eq!(
+            browser_texts(&browser).len(),
+            3,
+            "the browser holds the newer state"
+        );
 
         // The browser goes away while the restore runs; it never sees the broadcast.
         assert_succeeded(&restore_via_service(env, &captured));
@@ -472,7 +510,8 @@ fn reconnecting_client_after_restore_brings_nothing_back() {
 
         // ...and receives what it lacks.
         let browser_sv = browser.transact().state_vector();
-        let pull = run(room.with_doc(move |doc| doc.transact().encode_state_as_update_v1(&browser_sv)));
+        let pull =
+            run(room.with_doc(move |doc| doc.transact().encode_state_as_update_v1(&browser_sv)));
         apply(&browser, &pull);
         assert_eq!(
             browser_texts(&browser),
@@ -504,23 +543,35 @@ fn cold_byte_restore_is_undone_by_a_reconnecting_client() {
 
         // The old restore: the snapshot's bytes over the sidecar, no room involved. A separate registry
         // opens the restored file the way a fresh gardend would.
-        let bytes = crate::time_travel_store::read_document_bytes(&env.graph_dir(), &captured, "cold")
-            .expect("restore point bytes");
-        assert!(!bytes.is_empty(), "the restore point holds the document's bytes");
-        let dir = std::env::temp_dir().join(format!("garden-cold-restore-{}", uuid::Uuid::new_v4()));
+        let bytes =
+            crate::time_travel_store::read_document_bytes(&env.graph_dir(), &captured, "cold")
+                .expect("restore point bytes");
+        assert!(
+            !bytes.is_empty(),
+            "the restore point holds the document's bytes"
+        );
+        let dir =
+            std::env::temp_dir().join(format!("garden-cold-restore-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("update-v1.bin");
         std::fs::write(&path, &bytes).unwrap();
         let registry = RoomRegistry::default();
         let cold = run(registry.get_or_create("doc:cold-characterization:cold", path)).unwrap();
         let restored = texts(&["Captured alpha", "Captured beta"]);
-        assert_eq!(block_texts(&room_json(&cold)), restored, "the byte swap restored the file");
+        assert_eq!(
+            block_texts(&room_json(&cold)),
+            restored,
+            "the byte swap restored the file"
+        );
 
         // The browser that kept the newer state reconnects.
         let server = room_state_vector(&cold);
         let step2 = browser.transact().encode_state_as_update_v1(&server);
         let changed = run(cold.apply_client_update(&step2)).unwrap();
-        assert!(changed, "the reconnecting client had nothing the byte-restored server lacked");
+        assert!(
+            changed,
+            "the reconnecting client had nothing the byte-restored server lacked"
+        );
         assert!(
             block_texts(&room_json(&cold))
                 .iter()
@@ -540,13 +591,19 @@ fn restore_without_rooms_rewrites_disk_and_rdf() {
         write_tiptap(
             env,
             "bare",
-            vec![paragraph("a", "RestoreSentinelOne is the captured content.")],
+            vec![paragraph(
+                "a",
+                "RestoreSentinelOne is the captured content.",
+            )],
         );
         let captured = restore_point(env, "bare");
         write_tiptap(
             env,
             "bare",
-            vec![paragraph("a", "RestoreSentinelTwo is the post-capture content.")],
+            vec![paragraph(
+                "a",
+                "RestoreSentinelTwo is the post-capture content.",
+            )],
         );
 
         // No room for the document.
@@ -563,12 +620,21 @@ fn restore_without_rooms_rewrites_disk_and_rdf() {
             texts(&["RestoreSentinelOne is the captured content."]),
             "the sidecar was not restored"
         );
-        let body = disk_record(env, "bare")["body"].as_str().unwrap_or("").to_string();
-        assert!(body.contains("RestoreSentinelOne") && !body.contains("RestoreSentinelTwo"), "{body}");
+        let body = disk_record(env, "bare")["body"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+        assert!(
+            body.contains("RestoreSentinelOne") && !body.contains("RestoreSentinelTwo"),
+            "{body}"
+        );
         let markdown = read_markdown(env, "bare");
-        assert!(markdown.contains("RestoreSentinelOne") && !markdown.contains("RestoreSentinelTwo"));
+        assert!(
+            markdown.contains("RestoreSentinelOne") && !markdown.contains("RestoreSentinelTwo")
+        );
 
-        let store = crate::rdf_store_service::open_graph_store(&env.graph_dir()).expect("open store");
+        let store =
+            crate::rdf_store_service::open_graph_store(&env.graph_dir()).expect("open store");
         let projection = crate::rdf_authority::document_projection_graph_iri(GRAPH, "bare");
         let ask = |needle: &str| {
             crate::rdf_query_service::execute_sparql_query(
@@ -580,8 +646,16 @@ fn restore_without_rooms_rewrites_disk_and_rdf() {
             .expect("sparql ask")
             .boolean
         };
-        assert_eq!(ask("RestoreSentinelTwo"), Some(false), "the post-capture text is still in the RDF");
-        assert_eq!(ask("RestoreSentinelOne"), Some(true), "the captured text is not in the RDF");
+        assert_eq!(
+            ask("RestoreSentinelTwo"),
+            Some(false),
+            "the post-capture text is still in the RDF"
+        );
+        assert_eq!(
+            ask("RestoreSentinelOne"),
+            Some(true),
+            "the captured text is not in the RDF"
+        );
 
         assert!(
             live_room(env, "bare").is_none(),
@@ -597,7 +671,11 @@ fn unchanged_documents_get_no_revision() {
     with_env(|env| {
         create(env, "keep");
         create(env, "change");
-        write_tiptap(env, "keep", vec![paragraph("k", "Untouched since the capture")]);
+        write_tiptap(
+            env,
+            "keep",
+            vec![paragraph("k", "Untouched since the capture")],
+        );
         write_tiptap(env, "change", vec![paragraph("c", "Captured text")]);
         let captured = restore_point(env, "unchanged");
 
@@ -620,15 +698,21 @@ fn unchanged_documents_get_no_revision() {
             report.documents_changed.contains(&"change".to_string()),
             "{report:?}"
         );
-        assert!(!report.documents_changed.contains(&"keep".to_string()), "{report:?}");
+        assert!(
+            !report.documents_changed.contains(&"keep".to_string()),
+            "{report:?}"
+        );
         assert_eq!(
             record_revision(env, "keep"),
             keep_revision,
             "an unchanged document got a new revision"
         );
         assert_eq!(
-            std::fs::read(crate::ydoc_paths::document_ydoc_state_path(&env.graph_dir(), "keep"))
-                .unwrap(),
+            std::fs::read(crate::ydoc_paths::document_ydoc_state_path(
+                &env.graph_dir(),
+                "keep"
+            ))
+            .unwrap(),
             keep_bytes,
             "an unchanged document's sidecar was rewritten"
         );
@@ -649,25 +733,34 @@ fn deleted_after_capture_is_skipped_and_reported() {
     with_env(|env| {
         create(env, "gone");
         create(env, "stay");
-        write_tiptap(env, "gone", vec![paragraph("g", "Written before the capture")]);
+        write_tiptap(
+            env,
+            "gone",
+            vec![paragraph("g", "Written before the capture")],
+        );
         write_tiptap(env, "stay", vec![paragraph("s", "Captured text")]);
         let captured = restore_point(env, "deleted");
 
-        env.call("delete_document", json!({"documentId": "gone"})).unwrap();
+        env.call("delete_document", json!({"documentId": "gone"}))
+            .unwrap();
         write_tiptap(env, "stay", vec![paragraph("s", "Post-capture text")]);
         assert!(
-            crate::document_tombstone_store::document_is_tombstoned(&env.graph_dir(), "gone").unwrap(),
+            crate::document_tombstone_store::document_is_tombstoned(&env.graph_dir(), "gone")
+                .unwrap(),
             "the delete must tombstone the document"
         );
 
         let report = restore_engine(env, &captured);
 
         assert!(
-            report.documents_skipped_deleted.contains(&"gone".to_string()),
+            report
+                .documents_skipped_deleted
+                .contains(&"gone".to_string()),
             "the skipped document is not reported: {report:?}"
         );
         assert!(
-            crate::document_tombstone_store::document_is_tombstoned(&env.graph_dir(), "gone").unwrap(),
+            crate::document_tombstone_store::document_is_tombstoned(&env.graph_dir(), "gone")
+                .unwrap(),
             "the restore brought a deleted document back"
         );
         assert!(
@@ -696,19 +789,32 @@ fn post_capture_document_leaves_the_tree_files_stay() {
         let captured = restore_point(env, "post-capture-doc");
 
         create(env, "late");
-        write_tiptap(env, "late", vec![paragraph("l", "Written after the capture")]);
+        write_tiptap(
+            env,
+            "late",
+            vec![paragraph("l", "Written after the capture")],
+        );
         assert!(in_tree(env, "late"));
 
         assert_succeeded(&restore_via_service(env, &captured));
 
         assert!(in_tree(env, "old"), "a captured document left the tree");
-        assert!(!in_tree(env, "late"), "a post-capture document stayed in the tree");
+        assert!(
+            !in_tree(env, "late"),
+            "a post-capture document stayed in the tree"
+        );
         let late_sidecar = crate::ydoc_paths::document_ydoc_state_path(&env.graph_dir(), "late");
         let late_record = crate::paths::documents_dir(&env.graph_dir())
             .join("late")
             .join("document.json");
-        assert!(late_sidecar.is_file(), "the post-capture document's Y.Doc was deleted");
-        assert!(late_record.is_file(), "the post-capture document's record was deleted");
+        assert!(
+            late_sidecar.is_file(),
+            "the post-capture document's Y.Doc was deleted"
+        );
+        assert!(
+            late_record.is_file(),
+            "the post-capture document's record was deleted"
+        );
 
         // The automatic backup taken at the start of the restore has it.
         let listed = env.call("list_restore_points", json!({})).unwrap();
@@ -726,7 +832,10 @@ fn post_capture_document_leaves_the_tree_files_stay() {
             .unwrap()
             .to_string();
         assert_succeeded(&restore_via_service(env, &backup));
-        assert!(in_tree(env, "late"), "restoring the backup did not bring the document back");
+        assert!(
+            in_tree(env, "late"),
+            "restoring the backup did not bring the document back"
+        );
         assert_eq!(
             block_texts(&sidecar_json(env, "late")),
             texts(&["Written after the capture"])
@@ -781,7 +890,10 @@ fn rollback_is_a_forward_restore_to_the_backup() {
             "the failed document changed"
         );
         let room_r2 = room_of(env, "r2");
-        assert_eq!(block_texts(&room_json(&room_r2)), texts(&["R2 post-capture"]));
+        assert_eq!(
+            block_texts(&room_json(&room_r2)),
+            texts(&["R2 post-capture"])
+        );
 
         // Forward only: nothing the first document's room knew was forgotten.
         let after = room_state_vector(&room_r1);
@@ -887,7 +999,10 @@ fn flow_board_restore_end_to_end() {
         )
         .unwrap();
         let replaced = export(env);
-        assert!(!replaced.contains("task-2"), "the replace did not drop task-2");
+        assert!(
+            !replaced.contains("task-2"),
+            "the replace did not drop task-2"
+        );
         let room = room_of(env, &board);
         let state_before = run(room.encode_state_for_test());
 
@@ -945,7 +1060,10 @@ fn whiteboard_restore_end_to_end() {
                 .unwrap_or(Value::Null)
         };
         let captured_element = element(env, &keep);
-        assert!(captured_element.is_object(), "the element exists at capture");
+        assert!(
+            captured_element.is_object(),
+            "the element exists at capture"
+        );
         let captured = restore_point(env, "whiteboard");
 
         // After the capture: move the element (its version rises) and add another.
@@ -974,8 +1092,14 @@ fn whiteboard_restore_end_to_end() {
 
         let restored_element = element(env, &keep);
         assert_eq!(
-            (restored_element["x"].as_f64(), restored_element["y"].as_f64()),
-            (captured_element["x"].as_f64(), captured_element["y"].as_f64()),
+            (
+                restored_element["x"].as_f64(),
+                restored_element["y"].as_f64()
+            ),
+            (
+                captured_element["x"].as_f64(),
+                captured_element["y"].as_f64()
+            ),
             "the moved element did not return to its captured place"
         );
         assert!(
@@ -992,10 +1116,14 @@ fn whiteboard_restore_end_to_end() {
             .unwrap();
         let markdown = outline["markdown"].as_str().unwrap_or_default();
         assert!(
-            markdown.contains("before the restore point") && !markdown.contains("after the restore point"),
+            markdown.contains("before the restore point")
+                && !markdown.contains("after the restore point"),
             "{markdown}"
         );
-        let body = disk_record(env, &board)["body"].as_str().unwrap_or("").to_string();
+        let body = disk_record(env, &board)["body"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
         assert!(
             body.contains("before the restore point") && !body.contains("after the restore point"),
             "{body}"
