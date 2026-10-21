@@ -91,11 +91,14 @@ sync_from() {
   rsync -a --checksum --from0 --files-from="$list" "$from/" "$SRC/"
   # files we copied last time that this tree no longer has
   if [[ -f $manifest ]]; then
-    tr '\0' '\n' <"$list" | sort >"$manifest.new"
-    comm -23 "$manifest" "$manifest.new" | while IFS= read -r gone; do rm -f "$SRC/$gone"; done
+    # One collation for both lists, whoever runs this (the launchd warmer runs in C, a shell often in UTF-8): comm on
+    # lists sorted two ways reports files both lists have as gone, and this would delete the tree it just copied.
+    LC_ALL=C sort -o "$manifest" "$manifest"
+    tr '\0' '\n' <"$list" | LC_ALL=C sort >"$manifest.new"
+    LC_ALL=C comm -23 "$manifest" "$manifest.new" | while IFS= read -r gone; do rm -f "$SRC/$gone"; done
     mv "$manifest.new" "$manifest"
   else
-    tr '\0' '\n' <"$list" | sort >"$manifest"
+    tr '\0' '\n' <"$list" | LC_ALL=C sort >"$manifest"
   fi
 }
 
@@ -134,7 +137,7 @@ cmd_build() {
   local profile=debug extra=()
   [[ ${1:-} == --release ]] && profile=release extra=(--release)
   local t0=$SECONDS
-  logged build "$CARGO" build --locked --manifest-path "$MANIFEST" "${FEATURES[@]}" --example gardend ${extra[@]+"${extra[@]}"}
+  logged build "$CARGO" build --locked --manifest-path "$MANIFEST" "${FEATURES[@]}" --example gardend ${extra[@]+"${extra[@]}"} || return
   say "build ok in $((SECONDS - t0))s"
   echo "$TARGET/$profile/examples/gardend"
 }
