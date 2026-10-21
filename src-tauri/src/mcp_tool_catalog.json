@@ -279,12 +279,10 @@
     },
     {
       "name": "propose_domain_ontology",
-      "description": "CHAMBER (EA-3 \u00a74): an agent proposes a runtime domain ontology \u2014 its provisional, defeasible testimony about how to model this benchmark's domain. Emporium validates it (parse -> derive SHACL -> compile-check; loud-reject on failure), then stores it as a born-RDF chm:DomainOntology in the chamber graph. Thereafter the agent's instances of that ontology are SHACL-validated against ITS OWN proposed shapes. A new version supersedes the prior (the old stays queryable). The frozen core meta-ontology is never touched. Returns {status, ontologySubject, ontologyName, ontologyVersion, validation}.",
+      "description": "Define this graph's own types: a domain ontology of classes (e.g. \"Dream report\": who, procedure, dream, quote) that the graph's workflows, objects and faces share. Emporium parses the definition, derives its SHACL shapes and compile-checks them, refuses what it cannot derive honestly (a nested class that is not in the vocabulary, a cycle of nested classes, nesting deeper than 3 levels, two fields with one key, a presentation that names a field the class lacks), and stores it as an immutable version (a chm:DomainOntology in the graph's chamber); a new version supersedes the prior, which stays readable. TWO FORMS. Compact (recommended): {vocab? (default \"workspace\", one vocabulary per graph), classes:[{name, label, plural?, description?, fields:[{key, label?, datatype, required?, multi?, description?, class?}], presentation?}], removeClasses?, title?, description?, rationale}; Emporium fills in the namespace urn:sophia:type:<graphId>:<vocab>#, the prefix t-<graph>, write_target projection:types, each class's subject rule and signature, and the next version (1, 2, ...). The active version's other classes are kept, a class given here replaces its namesake wholesale, and defining exactly what is already active is not a new version. Full: contract (or contractJson), a VocabularyContract {name, version, title, description, namespaces, primary_prefix, write_target \"projection:<x>\", classes{Name:{rdf_types, subject_rule, source_kind, identity_kind, store_mode, store_target, enforcement, reconciliation_strategy, dispatch_mode, label?, plural?, description?, presentation?, predicates{\"<prefix>:<key>\":{datatype, required, multi, label?, description?, class?}}}}}; use the namespace urn:sophia:type:<graphId>:<vocab># unless there is a reason not to. DATATYPES: string, uri (an absolute IRI), integer, long, float, double, boolean, dateTime (ISO 8601), object (a nested value of another class of this vocabulary, named by class; multi makes a list). PRESENTATION (how people see an instance, all field keys): {title, subtitle, fieldOrder (keys in order; unlisted ones follow), kinds {key: identity|state|metric|prose|reference|testimony|affordance}, units {key: unit}, roles {quote, note, document, block} (text fields workflow_plan_publish reads)}. A built-in vocabulary's name and the reserved prefixes (mem, wf, ux, doc, mnemo, nfo, profile, chm) are refused. Returns {status, ontologySubject, ontologyName, ontologyVersion, namespace, validation, classCatalog:[{iri, name, vocab, version, label, plural, description, fields:[{key, iri, label, description, datatype, required, multi, class?}], presentation, jsonSchema}], warnings?}; a class's jsonSchema is what a workflow step with that itemClass asks its agents to hand back (warnings names a class whose schema is too long for that). Read types back with emporium_vocab {graphId}.",
       "inputSchema": {
         "type": "object",
-        "required": [
-          "contract"
-        ],
+        "required": [],
         "properties": {
           "graph_id": {
             "type": "string"
@@ -292,9 +290,111 @@
           "graphId": {
             "type": "string"
           },
+          "vocab": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,62}$",
+            "description": "Compact form: the vocabulary the classes go in (default \"workspace\")."
+          },
+          "classes": {
+            "type": "array",
+            "minItems": 1,
+            "description": "Compact form: the classes to define, each {name, label, plural?, description?, fields:[{key, label?, datatype, required?, multi?, description?, class?}], presentation?}.",
+            "items": {
+              "type": "object",
+              "required": [
+                "name",
+                "fields"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "The class name, e.g. \"DreamReport\" (a letter, then letters, digits or _)."
+                },
+                "label": {
+                  "type": "string",
+                  "description": "How people name one, e.g. \"Dream report\"."
+                },
+                "plural": {
+                  "type": "string",
+                  "description": "How people name several, e.g. \"Dream reports\"."
+                },
+                "description": {
+                  "type": "string",
+                  "description": "One line about what an instance is."
+                },
+                "fields": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "key",
+                      "datatype"
+                    ],
+                    "properties": {
+                      "key": {
+                        "type": "string",
+                        "description": "The field key: the JSON key an agent hands back and the predicate local name."
+                      },
+                      "label": {
+                        "type": "string"
+                      },
+                      "datatype": {
+                        "type": "string",
+                        "enum": [
+                          "string",
+                          "uri",
+                          "integer",
+                          "long",
+                          "float",
+                          "double",
+                          "boolean",
+                          "dateTime",
+                          "object"
+                        ]
+                      },
+                      "required": {
+                        "type": "boolean"
+                      },
+                      "multi": {
+                        "type": "boolean",
+                        "description": "A list of values."
+                      },
+                      "description": {
+                        "type": "string"
+                      },
+                      "class": {
+                        "type": "string",
+                        "description": "For datatype \"object\": the name of the nested class (another class of this vocabulary)."
+                      }
+                    }
+                  }
+                },
+                "presentation": {
+                  "type": "object",
+                  "description": "{title, subtitle, fieldOrder, kinds, units, roles{quote, note, document, block}}, all naming field keys."
+                }
+              }
+            }
+          },
+          "removeClasses": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Compact form: class names to drop from the new version."
+          },
+          "title": {
+            "type": "string",
+            "description": "Compact form: the vocabulary's title."
+          },
+          "description": {
+            "type": "string",
+            "description": "Compact form: the vocabulary's description."
+          },
           "contract": {
             "type": "object",
-            "description": "The proposed VocabularyContract (name, version, namespaces, primary_prefix, write_target=projection:*, classes{...}). Its derived SHACL shapes must compile."
+            "description": "Full form: the VocabularyContract (name, version, namespaces, primary_prefix, write_target=projection:*, classes{...}). Its derived SHACL shapes must compile."
           },
           "contractJson": {
             "type": "string",
@@ -302,7 +402,7 @@
           },
           "version": {
             "type": "string",
-            "description": "Override the stored version (default = the contract's own version)."
+            "description": "Override the stored version (default: the contract's own version; in the compact form, the next whole version)."
           },
           "rationale": {
             "type": "string",
@@ -398,7 +498,7 @@
     },
     {
       "name": "emporium_vocab",
-      "description": "Read the Emporium vocabulary registry: a registered VocabularyContract (sha-pinned, cacheable). With no 'name' returns the full catalog — every registered vocab's {name, version, namespace, sha, title, publicJurisdiction, canonicalOntology, canonicalPack, registryStatus, slugAliases, compatibilityAliases} — so an agent learns what resolves to what before addressing a class. With 'name' (+ optional 'version', default 'latest') returns that contract's metadata plus its parsed canonical JSON body under 'contract'.",
+      "description": "Read the Emporium vocabulary registry and, with graphId, this graph's own types. With no 'name' returns the catalog: every built-in vocab's {name, version, namespace, sha, title, publicJurisdiction, canonicalOntology, canonicalPack, registryStatus, slugAliases, compatibilityAliases, source:\"builtin\"} and, with graphId, each version of the graph's domain ontologies (defined with propose_domain_ontology) as {name, version, namespace, sha, title, source:\"domain\", status (active or superseded), ontologySubject, classes, classCatalog}, plus a top-level classCatalog of every class of the graph's active domain ontologies - so an agent learns what resolves to what before addressing a class. With 'name' (+ optional 'version', default 'latest') returns that vocabulary: a built-in first (built-ins win), else the graph's domain ontology of that name ('latest' is its active version; an older version stays readable by its version): its metadata, its parsed contract under 'contract', and classCatalog, one entry per class {iri, name, vocab, version, label (else the class name), plural, description, fields:[{key, iri, label, description, datatype, required, multi, class? (a nested class's IRI)}], presentation ({} for a built-in), jsonSchema (the JSON Schema of one instance)}. Read-only.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -417,6 +517,36 @@
           "version": {
             "type": "string",
             "description": "Default 'latest'."
+          },
+          "graphId": {
+            "type": "string",
+            "description": "This graph: its own domain ontologies are listed and readable too. Omit for the built-ins alone."
+          },
+          "graph_id": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "emporium_describe",
+      "description": "Describe one typed resource by its IRI, to read it rather than parse triples: a workflow run's item, a published object, a being. Reads the subject's types and triples in every named graph of this graph, finds its class among this graph's types (a built-in, else a domain ontology, at the version the item was typed with), and returns {iri, known, class:{iri, name, label, plural, vocab, version, source}, title, subtitle, fields:[{key, label, datatype, value}] (in the class's field order; a list for a multi field; a nested object {iri, class, title, fields} for an object field), testimony:{by:{agentIri, label}, sitting, run:{iri, id, graph, workflow}, at} (who made it, the sitting that handed it back, the run, when), stance}. stance is \"read\", \"unfit\" (a run item that did not fit its class: violations says why, its fields come from its JSON and extra holds keys the class lacks) or \"retracted\". types and graphs say where it was found. An IRI with no known class is not an error: known is false and triples lists what the graph holds about it. Read-only.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graphId",
+          "iri"
+        ],
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "graph_id": {
+            "type": "string"
+          },
+          "iri": {
+            "type": "string",
+            "description": "The absolute IRI of the resource, e.g. urn:sophia:wf:<documentId>:run:<runId>#item-7."
           }
         }
       }

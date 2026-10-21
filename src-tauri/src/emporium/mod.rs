@@ -22,6 +22,7 @@ pub(crate) mod chamber_ontology;
 pub(crate) mod class_dispatch;
 pub(crate) mod content;
 pub(crate) mod contract;
+pub(crate) mod describe;
 #[cfg(test)]
 #[path = "../datasheet_identity_tests.rs"]
 mod datasheet_identity_tests;

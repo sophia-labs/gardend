@@ -444,6 +444,10 @@
     "workflow_run_record": {
       "required": ["documentId", "graphId", "runId", "turtle"],
       "properties": ["documentId", "graphId", "graph_id", "runId", "turtle"]
+    },
+    "emporium_describe": {
+      "required": ["graphId", "iri"],
+      "properties": ["graphId", "graph_id", "iri"]
     }
   }
 }

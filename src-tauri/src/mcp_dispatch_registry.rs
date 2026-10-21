@@ -35,6 +35,7 @@ use crate::{
     document_mutation_service::mcp_local_write_document,
     emporium::{
         chamber::propose_domain_ontology,
+        describe::mcp_local_emporium_describe,
         mcp::{mcp_local_emporium_violations, mcp_local_emporium_vocab},
     },
     emporium_mcp_surface::{
@@ -237,8 +238,14 @@ fn tramp_care<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a>
     )
 }
 
-fn tramp_emporium_vocab<'a>(_ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
-    Box::pin(async move { mcp_local_emporium_vocab(args) })
+fn tramp_emporium_vocab<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
+    let app = ctx.app.clone();
+    Box::pin(async move { mcp_local_emporium_vocab(&app, args) })
+}
+
+fn tramp_emporium_describe<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
+    let app = ctx.app.clone();
+    Box::pin(async move { mcp_local_emporium_describe(app, args) })
 }
 
 fn tramp_emporium_list<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
@@ -1071,6 +1078,10 @@ const REGISTRY: &[McpToolEntry] = &[
     McpToolEntry {
         name: "emporium_vocab",
         handler: tramp_emporium_vocab,
+    },
+    McpToolEntry {
+        name: "emporium_describe",
+        handler: tramp_emporium_describe,
     },
     McpToolEntry {
         name: "emporium_list",

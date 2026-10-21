@@ -56,6 +56,8 @@ const RESERVED_PRIMARY_PREFIXES: &[&str] =
 ///   - the proposed name collides with a built-in (embedded) vocab name — embedded
 ///     always wins, a chamber proposal can never shadow it;
 ///   - the primary prefix is a reserved system prefix (the CORE meta-ontology);
+///   - a nested class, a field key or the presentation cannot be derived
+///     ([`crate::emporium::type_catalog::validate_type_contract`]);
 ///   - the derived SHACL shapes do not compile (a structurally-broken contract).
 pub(crate) fn validate_proposed_contract(contract: &VocabularyContract) -> Result<String, String> {
     // (1) name guard — a chamber proposal cannot reuse a built-in vocab name
@@ -75,20 +77,40 @@ pub(crate) fn validate_proposed_contract(contract: &VocabularyContract) -> Resul
             contract.primary_prefix
         ));
     }
-    // (3) SHACL compile-check — the proposal's shapes must derive + load.
+    // (3) the typed-object faces (D2): nesting, keys and presentation must be
+    // derivable honestly (a nested class of this vocabulary, no cycle, depth
+    // at most three; presentation names real fields).
+    crate::emporium::type_catalog::validate_type_contract(contract)?;
+    // (4) SHACL compile-check — the proposal's shapes must derive + load.
     compile_check_contract(contract)
 }
 
-/// The verdict shape returned to the agent (structured, agent-actionable).
-fn ok_result(resolved_subject: &str, name: &str, version: &str, shapes_ttl: &str) -> Value {
-    json!({
+/// The verdict shape returned to the agent (structured, agent-actionable):
+/// today's fields, plus the type catalogue of what was defined
+/// (`classCatalog`, one entry per class with its derived `jsonSchema`) and,
+/// when a class's schema is too long to be a workflow step's item schema, a
+/// `warnings` list.
+fn ok_result(
+    resolved_subject: &str,
+    contract: &VocabularyContract,
+    version: &str,
+    shapes_ttl: &str,
+) -> Value {
+    let mut result = json!({
         "status": "ok",
         "ontologySubject": resolved_subject,
-        "ontologyName": name,
+        "ontologyName": contract.name,
         "ontologyVersion": version,
         "validation": { "passed": true, "violations": [] },
         "shaclShapesLen": shapes_ttl.len(),
-    })
+        "namespace": contract.primary_namespace(),
+        "classCatalog": crate::emporium::type_catalog::class_catalog(contract, version),
+    });
+    let warnings = crate::emporium::type_catalog::schema_size_warnings(contract);
+    if !warnings.is_empty() {
+        result["warnings"] = json!(warnings);
+    }
+    result
 }
 
 /// `propose_domain_ontology` — the chamber MCP handler.
@@ -113,7 +135,16 @@ pub(crate) async fn propose_domain_ontology(
     let graph_id = str_arg(arguments, &["graphId", "graph_id"])
         .ok_or_else(|| AppError::validation("propose_domain_ontology: missing 'graphId'"))?;
 
-    // ── parse the proposed contract (object or JSON string) ──
+    // Per-graph write gate from HERE: the prior-record resolve below (and, for
+    // the compact form, the prior classes and next version) is the survey half
+    // of this read-modify-write — two concurrent proposes that both resolve the
+    // same prior would otherwise both demote it (or race the class reconcile).
+    // Held through apply_and_assert.
+    let _write_gate = crate::emporium::write_gate::acquire_write_gate(&graph_id).await;
+    let store = open_memory_store(app, &graph_id)
+        .map_err(|e| AppError::internal(format!("propose_domain_ontology: open store: {e}")))?;
+
+    // ── parse the proposed contract (object, JSON string, or compact classes) ──
     let contract_value: Value = if let Some(obj) =
         arguments.get("contract").filter(|v| v.is_object())
     {
@@ -124,9 +155,12 @@ pub(crate) async fn propose_domain_ontology(
                 "propose_domain_ontology: contractJson is not valid JSON: {e}"
             ))
         })?
+    } else if let Some(classes) = arguments.get("classes").and_then(Value::as_array) {
+        compact_contract_value(&store, &graph_id, arguments, classes)?
     } else {
         return Err(AppError::validation(
-            "propose_domain_ontology: provide the proposed ontology as 'contract' (object) or 'contractJson' (string)",
+            "propose_domain_ontology: provide the proposed ontology as 'contract' (object), \
+             'contractJson' (string), or the compact form 'classes' (a list, with an optional 'vocab')",
         ));
     };
 
@@ -162,13 +196,6 @@ pub(crate) async fn propose_domain_ontology(
         .unwrap_or_else(|| contract.name.clone());
 
     // ── find a prior ACTIVE ontology of this name to demote (supersession) ──
-    // Per-graph write gate from HERE: the prior-record resolve below is the
-    // survey half of this read-modify-write — two concurrent proposes that both
-    // resolve the same prior would otherwise both demote it (or race the class
-    // reconcile). Held through apply_and_assert.
-    let _write_gate = crate::emporium::write_gate::acquire_write_gate(&graph_id).await;
-    let store = open_memory_store(app, &graph_id)
-        .map_err(|e| AppError::internal(format!("propose_domain_ontology: open store: {e}")))?;
     let prior = resolve_chamber_ontology(&store, &graph_id, &supersedes_name).map_err(|e| {
         AppError::validation(format!(
             "propose_domain_ontology: resolve prior ontology: {e}"
@@ -263,12 +290,78 @@ pub(crate) async fn propose_domain_ontology(
         )));
     }
 
-    Ok(ok_result(
-        &new_subject,
-        &contract.name,
-        &version,
-        &shapes_ttl,
-    ))
+    Ok(ok_result(&new_subject, &contract, &version, &shapes_ttl))
+}
+
+/// The compact definition form (D3): `{vocab?, version?, title?,
+/// description?, classes:[{name, label?, plural?, description?, fields:[{key,
+/// label?, datatype, required?, multi?, description?, class?}],
+/// presentation?}], removeClasses?}` → the full contract JSON
+/// ([`crate::emporium::type_catalog::compact_types_contract`]): namespace
+/// `urn:sophia:type:<graphId>:<vocab>#`, prefix `t-<graph-slug>`,
+/// `write_target` `projection:types`, the next whole version of `vocab`
+/// (default `workspace`), the prior active version's classes kept unless
+/// replaced or removed.
+fn compact_contract_value(
+    store: &oxigraph::store::Store,
+    graph_id: &str,
+    arguments: &Value,
+    classes: &[Value],
+) -> AppResult<Value> {
+    use crate::emporium::type_catalog::{
+        compact_types_contract, next_types_version, DEFAULT_TYPES_VOCAB,
+    };
+    let reject = |reason: String| {
+        AppError::validation(format!("propose_domain_ontology rejected: {reason}"))
+    };
+    let vocab = str_arg(arguments, &["vocab", "vocabulary"])
+        .unwrap_or_else(|| DEFAULT_TYPES_VOCAB.to_string());
+    let prior = resolve_chamber_ontology(store, graph_id, &vocab).map_err(|e| {
+        AppError::validation(format!(
+            "propose_domain_ontology: resolve prior ontology: {e}"
+        ))
+    })?;
+    let prior_value: Option<Value> = prior
+        .as_ref()
+        .map(|p| serde_json::from_str(&p.contract_json))
+        .transpose()
+        .map_err(|e| AppError::internal(format!("propose_domain_ontology: prior contract: {e}")))?;
+    let version = match str_arg(arguments, &["version"]) {
+        Some(version) => version,
+        None => next_types_version(store, graph_id, &vocab).map_err(AppError::internal)?,
+    };
+    let remove: Vec<String> = arguments
+        .get("removeClasses")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_string)
+        .collect();
+    let build = |version: &str| {
+        compact_types_contract(
+            graph_id,
+            &vocab,
+            version,
+            str_arg(arguments, &["title"]).as_deref(),
+            str_arg(arguments, &["description"]).as_deref(),
+            classes,
+            &remove,
+            prior_value.as_ref(),
+        )
+        .map_err(reject)
+    };
+    // Defining what is already active is not a new version: it re-proposes
+    // the active one, which converges to zero ops.
+    if let (Some(prior), Some(prior_value), None) =
+        (&prior, &prior_value, str_arg(arguments, &["version"]))
+    {
+        let same = build(&prior.version)?;
+        if &same == prior_value {
+            return Ok(same);
+        }
+    }
+    build(&version)
 }
 
 /// Build the new ACTIVE `chm:DomainOntology` generic record.

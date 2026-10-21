@@ -600,6 +600,7 @@
     "delete_restore_point": "implemented",
     "diff_restore_points": "implemented",
     "edit_artifact_image": "implemented",
+    "emporium_describe": "implemented",
     "emporium_heads": "implemented",
     "emporium_list": "implemented",
     "emporium_query": "implemented",

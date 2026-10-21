@@ -5,6 +5,10 @@
 //! - `GET /emporium/vocabs`               — list of `{name,version,namespace,sha,title}`
 //! - `GET /emporium/vocab/{name}/latest`  — the contract (latest version)
 //! - `GET /emporium/vocab/{name}/{version}` — the contract (exact version)
+//! - `GET /emporium/vocabs/{graph_id}` and
+//!   `GET /emporium/vocabs/{graph_id}/{name}/{latest|version}` — the same
+//!   with the graph's own domain ontologies too, and `classCatalog` (graph-
+//!   bound, `rdf.query`; the global faces above stay byte-verbatim)
 //!
 //! Caching/identity semantics match the platform exactly: `ETag = "{sha}"`,
 //! `Cache-Control: public, max-age=300`, `304` when `If-None-Match` matches the
@@ -59,6 +63,14 @@ pub(crate) fn loopback_emporium_router() -> Router<Arc<LoopbackState>> {
                 .delete(objects_delete_handler),
         )
         .route("/emporium/vocabs", get(list_vocabs))
+        // A graph's own types beside the built-ins (typed objects D3): the
+        // catalog and one vocabulary, with `classCatalog`. Graph-bound (the
+        // domain ontologies live in the graph), so `rdf.query`.
+        .route("/emporium/vocabs/{graph_id}", get(list_graph_vocabs))
+        .route(
+            "/emporium/vocabs/{graph_id}/{name}/{version}",
+            get(get_graph_vocab),
+        )
         .route("/emporium/vocab/{name}/latest", get(get_vocab_latest))
         .route("/emporium/vocab/{name}/{version}", get(get_vocab_version))
         // T2 item 11 (the query face): the emitted named-query CATALOG for one
@@ -772,6 +784,102 @@ async fn list_vocabs() -> Json<serde_json::Value> {
         })
         .collect();
     Json(serde_json::json!({ "vocabularies": vocabularies }))
+}
+
+/// `GET /emporium/vocabs/{graph_id}` — `emporium_vocab {graphId}`: the
+/// built-in catalog rows, then the graph's domain ontology versions.
+async fn list_graph_vocabs(
+    Path(graph_id): Path<String>,
+    headers: HeaderMap,
+    State(state): State<Arc<LoopbackState>>,
+) -> Response {
+    if let Err(response) = require_loopback_scope(&headers, &state, "rdf.query") {
+        return response;
+    }
+    let store = match crate::emporium::memory_applier::open_memory_store(&state.app, &graph_id) {
+        Ok(store) => store,
+        Err(error) => {
+            return loopback_error(
+                StatusCode::NOT_FOUND,
+                &format!("graph '{graph_id}': {error}"),
+            )
+        }
+    };
+    match crate::emporium::mcp::catalog_payload(Some((&store, &graph_id))) {
+        Ok(body) => (StatusCode::OK, Json(body)).into_response(),
+        Err(error) => crate::loopback_http::loopback_app_error(error),
+    }
+}
+
+/// `GET /emporium/vocabs/{graph_id}/{name}/{latest|version}` — `emporium_vocab
+/// {graphId, name, version}`: a built-in (embedded wins) or the graph's domain
+/// ontology, as JSON with `contract` and `classCatalog` (ETag = the body's sha), or
+/// `?format=turtle` for its derived SHACL shapes.
+async fn get_graph_vocab(
+    Path((graph_id, name, version)): Path<(String, String, String)>,
+    Query(query): Query<FormatQuery>,
+    headers: HeaderMap,
+    State(state): State<Arc<LoopbackState>>,
+) -> Response {
+    if let Err(response) = require_loopback_scope(&headers, &state, "rdf.query") {
+        return response;
+    }
+    let store = match crate::emporium::memory_applier::open_memory_store(&state.app, &graph_id) {
+        Ok(store) => store,
+        Err(error) => {
+            return loopback_error(
+                StatusCode::NOT_FOUND,
+                &format!("graph '{graph_id}': {error}"),
+            )
+        }
+    };
+    let payload = match crate::emporium::mcp::emporium_vocab_payload(
+        &serde_json::json!({ "name": name, "version": version }),
+        Some((&store, &graph_id)),
+    ) {
+        Ok(payload) => payload,
+        Err(error) => return crate::loopback_http::loopback_app_error(error),
+    };
+    let (body, media) = match resolve_format(&headers, query.format.as_deref()) {
+        VocabFormat::Turtle => {
+            let parsed: Option<VocabularyContract> =
+                serde_json::from_value(payload["contract"].clone()).ok();
+            match parsed {
+                Some(contract) => (vocab_to_shacl(&contract), "text/turtle"),
+                None => {
+                    return loopback_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "the vocabulary's contract does not parse",
+                    )
+                }
+            }
+        }
+        _ => (payload.to_string(), "application/json"),
+    };
+    // CONTENT-derived ETag: a domain version's lifecycle (active → superseded)
+    // changes the body while its contract sha stays.
+    let sha = crate::emporium::terms::sha256_text(&body);
+    let etag_value = format!("\"{sha}\"");
+    if etag_matches(&headers, &sha) {
+        return (
+            StatusCode::NOT_MODIFIED,
+            [
+                (header::ETAG, etag_value),
+                (header::CACHE_CONTROL, CACHE_CONTROL.to_string()),
+            ],
+        )
+            .into_response();
+    }
+    (
+        StatusCode::OK,
+        [
+            (header::CONTENT_TYPE, media.to_string()),
+            (header::ETAG, etag_value),
+            (header::CACHE_CONTROL, CACHE_CONTROL.to_string()),
+        ],
+        body,
+    )
+        .into_response()
 }
 
 async fn get_vocab_latest(

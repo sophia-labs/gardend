@@ -576,6 +576,9 @@ const specialHandlerScopes = new Map([
   ['get_vocab_latest', []],
   ['get_vocab_version', []],
   ['get_vocab_class_query', []],
+  // The graph-bound twins serve the graph's own domain ontologies too.
+  ['list_graph_vocabs', ['rdf.query']],
+  ['get_graph_vocab', ['rdf.query']],
   ['ingest_handler', ['rdf.query', 'rdf.update']],
   ['sweep_handler', ['rdf.update']],
   ['heads_handler', ['rdf.query']],

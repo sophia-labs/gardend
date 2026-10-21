@@ -12823,6 +12823,146 @@
         ]
       }
     },
+    "/emporium/vocabs/{graph_id}": {
+      "get": {
+        "operationId": "getEmporiumVocabsGraphId",
+        "tags": [
+          "emporium"
+        ],
+        "summary": "GET /emporium/vocabs/{graph_id}",
+        "description": "Local native loopback route. Surface status: implemented-local-emporium. Scope mode: all.",
+        "x-sophia-status": "implemented-local-emporium",
+        "x-sophia-required-scopes": [
+          "rdf.query"
+        ],
+        "x-sophia-scope-mode": "all",
+        "parameters": [
+          {
+            "name": "graph_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonObject"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Rejected request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Missing, invalid, or forbidden local loopback bearer token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/emporium/vocabs/{graph_id}/{name}/{version}": {
+      "get": {
+        "operationId": "getEmporiumVocabsGraphIdNameVersion",
+        "tags": [
+          "emporium"
+        ],
+        "summary": "GET /emporium/vocabs/{graph_id}/{name}/{version}",
+        "description": "Local native loopback route. Surface status: implemented-local-emporium. Scope mode: all.",
+        "x-sophia-status": "implemented-local-emporium",
+        "x-sophia-required-scopes": [
+          "rdf.query"
+        ],
+        "x-sophia-scope-mode": "all",
+        "parameters": [
+          {
+            "name": "graph_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonObject"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Rejected request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Missing, invalid, or forbidden local loopback bearer token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
     "/emporium/objects/{graph_id}/{vocab}": {
       "post": {
         "operationId": "postEmporiumObjectsGraphIdVocab",
