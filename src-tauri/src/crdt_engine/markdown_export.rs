@@ -25,6 +25,8 @@
 //! `objectEmbed` (a typed object embedded by IRI) renders as one quoted line,
 //! `> ⧉ Class — Title <iri>`, so an agent always sees what is embedded and
 //! where it lives (it imports back as a quote holding a link, not an embed).
+//! A `dataTable` (Hoja's tabular atom) reads as its caption and `(table)`: its
+//! rows are not carried.
 //!
 //! JSON authored as text is the one exception to escaping: a document whose
 //! whole content is unmarked text that parses as one JSON object or array
@@ -248,6 +250,19 @@ fn render_block(node: &Value, footnotes: &mut Vec<(String, String)>) -> Option<S
             format!("{fence}json\n{original}\n{fence}")
         }
         "objectEmbed" => format!("> {}", object_embed_line(node)),
+        // Hoja's tabular atom: its rows live in a side store (`ref`) or in
+        // `data`, which this face does not carry; one line keeps the block
+        // from vanishing.
+        "dataTable" => {
+            let caption = attr_str(node, "caption")
+                .map(|caption| caption.split_whitespace().collect::<Vec<_>>().join(" "))
+                .unwrap_or_default();
+            if caption.is_empty() {
+                "(table)".to_string()
+            } else {
+                escape_line_starts(&format!("{} (table)", escape_text(&caption, false)))
+            }
+        }
         "hardBreak" => return None,
         "doc" => render_blocks(children(node), footnotes),
         // Stray inline content at block level, or a block type Markdown has no

@@ -1,6 +1,6 @@
 {
   "contractVersion": 2,
-  "derivedFrom": "Shrubbery packages/editor-kernel (sophia-labs/shrubbery, derived at pre-publication commit 9eece44) kernelExtensions({collaborative:true}) document profile, plus opaqueBlock and objectEmbed",
+  "derivedFrom": "Shrubbery packages/editor-kernel (sophia-labs/shrubbery) kernelExtensions({collaborative:true}) document profile: editor-kernel.schema.json at 319e0253 (first derived at pre-publication commit 9eece44, plus opaqueBlock)",
   "losslessMeans": "markdown -> store -> markdown keeps the node, its text and its semantic attributes (level, listType, indent, checked, language, src, alt, title, href). Block ids, source/PDF provenance, tags, outline state and presentation attributes (textAlign, size, colwidth, font) are never carried by Markdown.",
   "marks": [
     {
@@ -499,6 +499,25 @@
     {
       "atom": true,
       "attrs": [
+        "caption",
+        "data",
+        "ref"
+      ],
+      "blockId": "none",
+      "content": null,
+      "group": "block",
+      "inline": false,
+      "markdown": {
+        "form": "caption (table) (the rows are not exported)",
+        "lossless": false
+      },
+      "marks": null,
+      "name": "dataTable",
+      "state": "authorable"
+    },
+    {
+      "atom": true,
+      "attrs": [
         "allDay",
         "annotation",
         "externalEventId",
@@ -733,6 +752,6 @@
     "rdfType": "http://mnemosyne.dev/doc#OpaqueBlock"
   },
   "schema": "sophia.block-contract.v1",
-  "sha256": "f5ff84a250b55a286a5d8ff1bd828c4a6e68d317c461617458b63d25e8a9663c",
+  "sha256": "bb606f417e10be194f86a7a3c5a59fe90acfaf2d0374eaa852562a197fd3c829",
   "unknownMarks": "preserved verbatim, never wrapped"
 }

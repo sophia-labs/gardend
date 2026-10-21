@@ -6,8 +6,10 @@ use super::block_contract::{self, AWAITING_EDITOR, CONTRACT_VERSION, MARKS, NODE
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
+/// Shrubbery's `packages/editor-kernel/schema/editor-kernel.schema.json` at
+/// 319e0253 (feat/typed-faces-20261020), byte for byte.
 const EDITOR_SCHEMA: &str =
-    include_str!("../../tests/fixtures/block_contract/editor-kernel-9eece44.schema.json");
+    include_str!("../../tests/fixtures/block_contract/editor-kernel-319e0253.schema.json");
 const BATTERY: &str = include_str!("../../tests/fixtures/block_contract/list-loss-battery.json");
 const CONTRACT_FILE: &str = include_str!("block-contract.v1.json");
 
@@ -785,7 +787,7 @@ fn embed_with(attrs: Value) -> Value {
 }
 
 #[test]
-fn object_embed_is_a_minted_render_only_block_atom_awaiting_the_editor() {
+fn object_embed_is_a_minted_render_only_block_atom_the_editor_carries() {
     let spec = block_contract::node_spec("objectEmbed").expect("objectEmbed is in the contract");
     assert_eq!(spec.group, Some("block"));
     assert_eq!(spec.content, None);
@@ -803,7 +805,11 @@ fn object_embed_is_a_minted_render_only_block_atom_awaiting_the_editor() {
         ]
     );
     assert!(block_contract::is_block_id_minted("objectEmbed"));
-    assert!(AWAITING_EDITOR.contains(&"objectEmbed"));
+    // The 319e0253 editor schema ships it (and opaqueBlock): nothing waits.
+    assert!(
+        AWAITING_EDITOR.is_empty(),
+        "{AWAITING_EDITOR:?} still awaiting the editor"
+    );
     assert_eq!(CONTRACT_VERSION, 2, "contract 2 learned objectEmbed");
     // The emitted contract says what the node means beyond its attr names.
     let contract: Value = serde_json::from_str(CONTRACT_FILE).unwrap();
@@ -1094,4 +1100,84 @@ fn the_xml_content_parser_mints_an_object_embed_block_id() {
     assert_eq!(embed["attrs"]["label"], "Meier");
     let id = embed["attrs"]["data-block-id"].as_str().unwrap();
     assert!(id.starts_with("block-"), "{id}");
+}
+
+/// The editor's attr defaults (Shrubbery 319e0253) read the way gardend reads
+/// an embed: `slot` "card" is the reader's default, `graphId` null is "this
+/// graph", empty labels are absent, and the default `iri` "" is no IRI at all,
+/// so an embed inserted without one never becomes a canonical embed through a
+/// JSON write.
+#[test]
+fn the_editor_object_embed_defaults_read_as_the_contract_reads_them() {
+    let editor: Value = serde_json::from_str(EDITOR_SCHEMA).unwrap();
+    let node = |name: &str| {
+        editor["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|n| n["name"] == name)
+            .unwrap_or_else(|| panic!("{name} not in the editor schema"))
+            .clone()
+    };
+    let embed = node("objectEmbed");
+    let defaults: serde_json::Map<String, Value> = embed["attrs"]
+        .as_object()
+        .unwrap()
+        .iter()
+        .map(|(key, attr)| (key.clone(), attr["default"].clone()))
+        .collect();
+    assert_eq!(
+        Value::Object(defaults.clone()),
+        json!({"classLabel": "", "data-block-id": null, "graphId": null, "iri": "", "label": "", "slot": "card"})
+    );
+    assert!(block_contract::OBJECT_EMBED_SLOTS.contains(&"card"));
+
+    // All defaults, as the editor would serialize a bare insert: not an embed.
+    let bare = json!({"type": "objectEmbed", "attrs": defaults});
+    let (out, receipts) = block_contract::normalise_doc_content(&[bare], "defaults");
+    assert_eq!(out[0]["type"], "opaqueBlock");
+    assert!(receipts[0].contains("objectEmbed has an iri that is not absolute (\"\")"));
+
+    // Defaults plus an IRI: canonical, and the face reads only the IRI.
+    let mut attrs = defaults.clone();
+    attrs.insert("iri".into(), json!(DREAM_IRI));
+    attrs.insert("data-block-id".into(), json!("emb"));
+    let with_iri = json!({"type": "objectEmbed", "attrs": attrs});
+    let (out, receipts) = block_contract::normalise_doc_content(&[with_iri.clone()], "iri");
+    assert!(receipts.is_empty(), "{receipts:?}");
+    assert_eq!(out, vec![with_iri.clone()]);
+    assert_eq!(
+        super::markdown_export::tiptap_json_to_markdown(
+            &json!({"type": "doc", "content": [with_iri]})
+        ),
+        format!("> ⧉ <{DREAM_IRI}>")
+    );
+}
+
+/// `dataTable` (Hoja's tabular atom) mirrors the editor: canonical through a
+/// JSON write (contract 1 wrapped it as opaque), and the markdown face keeps a
+/// line for it instead of dropping it.
+#[test]
+fn data_table_is_canonical_and_never_dropped_from_markdown() {
+    let spec = block_contract::node_spec("dataTable").expect("dataTable is in the contract");
+    assert_eq!(spec.group, Some("block"));
+    assert!(spec.atom && spec.content.is_none());
+    assert_eq!(spec.attr_names(), ["caption", "data", "ref"]);
+    assert!(!block_contract::is_block_id_minted("dataTable"));
+    let tables = vec![
+        json!({"type": "dataTable", "attrs": {"caption": "Sales by month", "ref": "data-table-1-x", "data": null}}),
+        json!({"type": "dataTable", "attrs": {"caption": null, "data": {"sheets": [{"name": "S", "columns": ["a"], "rows": [["1"]]}]}}}),
+        json!({"type": "dataTable"}),
+    ];
+    let (out, receipts) = block_contract::normalise_doc_content(&tables, "tables");
+    assert!(receipts.is_empty(), "{receipts:?}");
+    assert_eq!(out, tables);
+    let md = super::markdown_export::tiptap_json_to_markdown(&json!({"type": "doc", "content": [
+        {"type": "paragraph", "content": [{"type": "text", "text": "Before."}]},
+        tables[0], tables[1],
+        {"type": "dataTable", "attrs": {"caption": "# not *a* heading"}}]}));
+    assert_eq!(
+        md,
+        "Before.\n\nSales by month (table)\n\n(table)\n\n\\# not \\*a\\* heading (table)"
+    );
 }

@@ -1,5 +1,5 @@
 {
-  "source": "Shrubbery packages/editor-kernel (sophia-labs/shrubbery, derived at pre-publication commit 9eece44) kernelExtensions({collaborative:true})",
+  "source": "Shrubbery packages/editor-kernel (sophia-labs/shrubbery) kernelExtensions({collaborative:true})",
   "topNode": "doc",
   "nodes": [
     {
@@ -710,6 +710,28 @@
       }
     },
     {
+      "name": "dataTable",
+      "group": "block",
+      "content": null,
+      "marks": null,
+      "inline": false,
+      "atom": true,
+      "attrs": {
+        "caption": {
+          "default": null,
+          "required": false
+        },
+        "data": {
+          "default": null,
+          "required": false
+        },
+        "ref": {
+          "default": null,
+          "required": false
+        }
+      }
+    },
+    {
       "name": "calendarEvent",
       "group": "block",
       "content": null,
@@ -793,6 +815,40 @@
         },
         "visualization": {
           "default": "table",
+          "required": false
+        }
+      }
+    },
+    {
+      "name": "objectEmbed",
+      "group": "block",
+      "content": null,
+      "marks": null,
+      "inline": false,
+      "atom": true,
+      "attrs": {
+        "classLabel": {
+          "default": "",
+          "required": false
+        },
+        "data-block-id": {
+          "default": null,
+          "required": false
+        },
+        "graphId": {
+          "default": null,
+          "required": false
+        },
+        "iri": {
+          "default": "",
+          "required": false
+        },
+        "label": {
+          "default": "",
+          "required": false
+        },
+        "slot": {
+          "default": "card",
           "required": false
         }
       }
@@ -964,6 +1020,36 @@
           "required": false
         }
       }
+    },
+    {
+      "name": "opaqueBlock",
+      "group": "block",
+      "content": null,
+      "marks": null,
+      "inline": false,
+      "atom": true,
+      "attrs": {
+        "contractVersion": {
+          "default": null,
+          "required": false
+        },
+        "data-block-id": {
+          "default": null,
+          "required": false
+        },
+        "originalJson": {
+          "default": "",
+          "required": false
+        },
+        "originalType": {
+          "default": "",
+          "required": false
+        },
+        "text": {
+          "default": "",
+          "required": false
+        }
+      }
     }
   ],
   "marks": [
@@ -997,7 +1083,7 @@
     {
       "name": "textStyle",
       "excludes": null,
-      "inclusive": null,
+      "inclusive": true,
       "attrs": {
         "fontFamily": {
           "default": null,
@@ -1012,37 +1098,37 @@
     {
       "name": "bold",
       "excludes": null,
-      "inclusive": null,
+      "inclusive": true,
       "attrs": {}
     },
     {
       "name": "code",
       "excludes": "_",
-      "inclusive": null,
+      "inclusive": true,
       "attrs": {}
     },
     {
       "name": "italic",
       "excludes": null,
-      "inclusive": null,
+      "inclusive": true,
       "attrs": {}
     },
     {
       "name": "strike",
       "excludes": null,
-      "inclusive": null,
+      "inclusive": true,
       "attrs": {}
     },
     {
       "name": "underline",
       "excludes": null,
-      "inclusive": null,
+      "inclusive": true,
       "attrs": {}
     },
     {
       "name": "highlight",
       "excludes": null,
-      "inclusive": null,
+      "inclusive": true,
       "attrs": {}
     },
     {

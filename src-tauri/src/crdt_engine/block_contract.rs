@@ -2,16 +2,18 @@
 //! one normaliser on every JSON write path (document primitives §2, first
 //! slice step 4; plans/2026-09-25-document-primitives.md in the hub).
 //!
-//! **Vocabulary.** `NODES` and `MARKS` are v1 of the contract, derived from
-//! what the web editor accepts today: the document profile's ProseMirror
-//! schema, `kernelExtensions({collaborative:true})` in Shrubbery's
-//! `packages/editor-kernel` (derived at pre-publication commit 9eece44), including the `unsupportedBlock` /
-//! `unsupportedMark` placeholders of 272912a. The dump is committed at
-//! `tests/fixtures/block_contract/editor-kernel-9eece44.schema.json` and a
-//! parity test asserts the node set, content expressions, attrs and marks
-//! match it exactly — except the nodes gardend adds that the editor fixture
-//! does not have yet (`AWAITING_EDITOR`: `opaqueBlock`, and since contract 2
-//! `objectEmbed`; each is `render-only` until the frontend ships its node).
+//! **Vocabulary.** `NODES` and `MARKS` are the contract, derived from what the
+//! web editor accepts: the document profile's ProseMirror schema,
+//! `kernelExtensions({collaborative:true})` in Shrubbery's
+//! `packages/editor-kernel` (first at pre-publication commit 9eece44, now at
+//! 319e0253, the typed-faces branch that ships `objectEmbed`), including the
+//! `unsupportedBlock` / `unsupportedMark` placeholders of 272912a. The dump
+//! (`packages/editor-kernel/schema/editor-kernel.schema.json` there) is
+//! committed at `tests/fixtures/block_contract/editor-kernel-319e0253.schema.json`
+//! and a parity test asserts the node set, content expressions, attrs and
+//! marks match it exactly — except the nodes in `AWAITING_EDITOR`, which
+//! gardend has added and the editor has not shipped yet (none since 319e0253:
+//! the editor carries `opaqueBlock` and `objectEmbed`).
 //! The contract is emitted content-addressed as `block-contract.v1.json`
 //! (canonical key order at every depth, 2-space indent, trailing newline;
 //! `sha256` over the compact canonical JSON of everything else — the shape of
@@ -88,7 +90,9 @@ use sha2::{Digest, Sha256};
 /// the contract of a version that did".
 ///
 /// - 1: the editor-kernel document schema (9eece44) plus `opaqueBlock`.
-/// - 2: `objectEmbed`.
+/// - 2: `objectEmbed` (the typed-object embed), and `dataTable` (Hoja's
+///   tabular atom, which the editor already had and contract 1 wrapped as
+///   opaque on a JSON write); the editor schema at 319e0253.
 ///
 /// `CONTRACT_SCHEMA` names the shape of the emitted document (and the file,
 /// `block-contract.v1.json`), not the vocabulary: like K1's
@@ -103,9 +107,11 @@ pub(crate) const OBJECT_EMBED: &str = "objectEmbed";
 /// value as `card`.
 pub(crate) const OBJECT_EMBED_SLOTS: &[&str] = &["inline", "card", "pane"];
 /// Nodes gardend adds to the contract that the web editor schema does not
-/// have yet. The parity test allows exactly these; the frontend clears the
-/// list by shipping the node (and gardend by refreshing the editor fixture).
-pub(crate) const AWAITING_EDITOR: &[&str] = &[OPAQUE_BLOCK, OBJECT_EMBED];
+/// have yet. The parity test allows exactly these, and they must be
+/// `render-only`; the frontend clears the list by shipping the node, and
+/// gardend by refreshing the editor fixture. Empty since the 319e0253 fixture,
+/// which carries `opaqueBlock` and `objectEmbed`.
+pub(crate) const AWAITING_EDITOR: &[&str] = &[];
 
 /// Node types whose `data-block-id` gardend mints when it writes them (the
 /// former `content_parse::BLOCK_ID_TYPES`, plus `opaqueBlock` and
@@ -366,6 +372,20 @@ pub(crate) const NODES: &[NodeSpec] = &[
         attrs: &[&["alt", "size", "src", "title"], ID, SOURCE, TAGS],
         markdown: "![alt](src \"title\")",
         lossless: true,
+        state: State::Authorable,
+    },
+    // Hoja's tabular node: a reference into a side store (`ref`) or a few
+    // inline rows (`data`), drawn as a virtualized grid. Mirrors the editor.
+    NodeSpec {
+        name: "dataTable",
+        group: Some("block"),
+        content: None,
+        marks: None,
+        inline: false,
+        atom: true,
+        attrs: &[&["caption", "data", "ref"]],
+        markdown: "caption (table) (the rows are not exported)",
+        lossless: false,
         state: State::Authorable,
     },
     NodeSpec {
@@ -775,7 +795,7 @@ fn contract_content() -> Value {
     json!({
         "schema": CONTRACT_SCHEMA,
         "contractVersion": CONTRACT_VERSION,
-        "derivedFrom": "Shrubbery packages/editor-kernel (sophia-labs/shrubbery, derived at pre-publication commit 9eece44) kernelExtensions({collaborative:true}) document profile, plus opaqueBlock and objectEmbed",
+        "derivedFrom": "Shrubbery packages/editor-kernel (sophia-labs/shrubbery) kernelExtensions({collaborative:true}) document profile: editor-kernel.schema.json at 319e0253 (first derived at pre-publication commit 9eece44, plus opaqueBlock)",
         "losslessMeans": LOSSLESS_MEANS,
         "unknownMarks": "preserved verbatim, never wrapped",
         "opaqueBlock": {

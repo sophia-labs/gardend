@@ -1115,3 +1115,98 @@ fn object_embed_round_trips_through_the_stored_tiptap_xml() {
         });
     });
 }
+
+/// The browser's path: a Y-sync update writes the Y.Doc directly and never
+/// reaches the normaliser (Shrubbery's live check on 2026-10-20 found a
+/// browser-written embed projected with literal attrs and no edge). Here the
+/// embed goes into the room the way an editor's update lands, with the
+/// editor's attr defaults, and the room is persisted the way its projection
+/// flush persists it: the projection alone gives it the `mdoc:embeds` edge.
+#[test]
+fn a_browser_written_object_embed_gets_its_edge_from_the_projection() {
+    with_graph(|app| {
+        crate::app_runtime::async_runtime::block_on(async {
+            let document_id = "doc-embed-browser";
+            create(&app, document_id).await;
+            let graph_dir = crate::graph_paths::existing_graph_dir(&app, GRAPH).unwrap();
+            let room = app
+                .state::<crate::crdt_engine::rooms::RoomRegistry>()
+                .get_or_create(
+                    &format!("doc:{GRAPH}:{document_id}"),
+                    crate::ydoc_paths::document_ydoc_state_path(&graph_dir, document_id),
+                )
+                .await
+                .unwrap();
+            // What y-prosemirror writes for the 319e0253 editor node: every
+            // attr with a non-null value (the defaults included).
+            let nodes = vec![
+                json!({"type": "paragraph", "attrs": {"data-block-id": "lead"}, "content": [text("Typed in the browser.")]}),
+                json!({"type": "objectEmbed", "attrs": {"data-block-id": "web-emb", "iri": DREAM,
+                       "slot": "card", "label": "Meier: straw between the toes", "classLabel": "Dream report"}}),
+                // A bare insert: the editor's defaults, no IRI yet.
+                json!({"type": "objectEmbed", "attrs": {"data-block-id": "web-bare", "iri": "",
+                       "slot": "card", "label": "", "classLabel": ""}}),
+            ];
+            room.update_doc(move |_doc, txn| {
+                use yrs::{WriteTxn, XmlFragment};
+                let fragment = txn.get_or_insert_xml_fragment("content");
+                let len = fragment.len(txn);
+                if len > 0 {
+                    fragment.remove_range(txn, 0, len);
+                }
+                crate::crdt_engine::builder::append_nodes(txn, &fragment, &nodes);
+                Ok(())
+            })
+            .await
+            .unwrap();
+            crate::crdt_engine::document_ops::persist_room_document(
+                &app,
+                GRAPH,
+                document_id,
+                document_id,
+                &room,
+                "browser-flush",
+            )
+            .await
+            .unwrap();
+
+            // Stored as the browser wrote it: no normaliser on this path.
+            let top = stored(&app, document_id)["content"]
+                .as_array()
+                .unwrap()
+                .clone();
+            assert_eq!(top[1]["type"], "objectEmbed");
+            assert_eq!(
+                top[2]["type"], "objectEmbed",
+                "never wrapped on the Y-sync path"
+            );
+            assert_embed_reads(
+                &app,
+                document_id,
+                "web-emb",
+                DREAM,
+                "Meier: straw between the toes",
+            )
+            .await;
+            // The bare one projects as an ObjectEmbed with no edge, and reads
+            // as an embed with no IRI rather than vanishing.
+            let typed = select(
+                &app,
+                "SELECT ?b WHERE { GRAPH ?g { ?b a mdoc:ObjectEmbed } }",
+            )
+            .await;
+            assert_eq!(typed.len(), 2, "{typed:?}");
+            let edges = select(
+                &app,
+                "SELECT ?b ?o WHERE { GRAPH ?g { ?b mdoc:embeds ?o } }",
+            )
+            .await;
+            assert_eq!(
+                edges.len(),
+                1,
+                "only the embed with an IRI has an edge: {edges:?}"
+            );
+            assert!(markdown(&app, document_id).contains("> ⧉ (no iri)"));
+        });
+    });
+}
