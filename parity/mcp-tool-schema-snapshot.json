@@ -448,6 +448,18 @@
     "emporium_describe": {
       "required": ["graphId", "iri"],
       "properties": ["graphId", "graph_id", "iri"]
+    },
+    "whiteboard_create": {
+      "required": ["graphId"],
+      "properties": ["graphId", "graph_id", "parentId", "title"]
+    },
+    "whiteboard_read": {
+      "required": ["documentId", "graphId"],
+      "properties": ["documentId", "format", "graphId", "graph_id"]
+    },
+    "whiteboard_apply": {
+      "required": ["documentId", "graphId", "moves"],
+      "properties": ["documentId", "graphId", "graph_id", "moves", "rationale"]
     }
   }
 }

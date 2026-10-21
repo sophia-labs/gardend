@@ -45,6 +45,9 @@ use crate::{
     },
     entity_find::mcp_local_find,
     flow_board_mcp::{mcp_local_flow_export_board, mcp_local_flow_seed_board},
+    whiteboard::mcp::{
+        mcp_local_whiteboard_apply, mcp_local_whiteboard_create, mcp_local_whiteboard_read,
+    },
     geist_memory_backfill::mcp_local_backfill_memory_projection,
     geist_memory_recall_service::mcp_local_recall_memories,
     geist_memory_service::{
@@ -969,6 +972,33 @@ fn tramp_create_restore_point<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> M
     Box::pin(async move { mcp_local_create_restore_point(app, args) })
 }
 
+fn tramp_whiteboard_create<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
+    let app = ctx.app.clone();
+    Box::pin(async move {
+        mcp_local_whiteboard_create(app, args)
+            .await
+            .map_err(AppError::validation)
+    })
+}
+
+fn tramp_whiteboard_read<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
+    let app = ctx.app.clone();
+    Box::pin(async move {
+        mcp_local_whiteboard_read(app, args)
+            .await
+            .map_err(AppError::validation)
+    })
+}
+
+fn tramp_whiteboard_apply<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
+    let app = ctx.app.clone();
+    Box::pin(async move {
+        mcp_local_whiteboard_apply(app, args)
+            .await
+            .map_err(AppError::validation)
+    })
+}
+
 fn tramp_flow_seed_board<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
     let app = ctx.app.clone();
     Box::pin(async move {
@@ -1490,6 +1520,18 @@ const REGISTRY: &[McpToolEntry] = &[
     McpToolEntry {
         name: "create_restore_point",
         handler: tramp_create_restore_point,
+    },
+    McpToolEntry {
+        name: "whiteboard_create",
+        handler: tramp_whiteboard_create,
+    },
+    McpToolEntry {
+        name: "whiteboard_read",
+        handler: tramp_whiteboard_read,
+    },
+    McpToolEntry {
+        name: "whiteboard_apply",
+        handler: tramp_whiteboard_apply,
     },
     McpToolEntry {
         name: "flow_seed_board",

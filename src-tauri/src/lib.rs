@@ -425,6 +425,7 @@ mod wire_traversal_payloads;
 mod wire_traversal_service;
 mod workflow_authoring_mcp;
 mod workflow_book_mcp;
+mod whiteboard;
 mod workflow_plan_mcp;
 mod workflow_run_mcp;
 mod workspace_document_projection;

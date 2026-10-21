@@ -1363,11 +1363,21 @@ pub(super) async fn materialize_room_document(
     expected_revision: Option<&Value>,
     document_kind: Option<&str>,
 ) -> Result<MaterializedRoomDocument, String> {
-    if document_kind == Some(crate::flow_board::FLOW_BOARD_KIND) {
-        let (projection_epoch, ydoc_state) = room
+    if crate::whiteboard::is_scene_kind(document_kind) {
+        let is_whiteboard = crate::whiteboard::is_whiteboard(document_kind);
+        let (projection_epoch, (ydoc_state, body)) = room
             .with_doc_version(|doc| {
+                // A whiteboard's saved `body` is its outline markdown, so search,
+                // `read_document` and the semantic index see the board's words;
+                // a flow board's content fields stay empty.
+                let body = if is_whiteboard {
+                    let scene = crate::whiteboard::ops::scene_of_doc(doc);
+                    crate::whiteboard::outline::outline_markdown(title, &scene)
+                } else {
+                    String::new()
+                };
                 let txn = doc.transact();
-                txn.encode_state_as_update_v1(&yrs::StateVector::default())
+                (txn.encode_state_as_update_v1(&yrs::StateVector::default()), body)
             })
             .await;
         let ydoc_b64 = base64::engine::general_purpose::STANDARD.encode(ydoc_state);
@@ -1375,13 +1385,13 @@ pub(super) async fn materialize_room_document(
             "graphId": graph_id,
             "documentId": document_id,
             "title": title,
-            "body": "",
+            "body": body,
             "tiptapXml": "",
             "tiptapJson": Value::Null,
             "ydocUpdateBase64": ydoc_b64,
             "tree": Value::Null,
             "blocks": [],
-            "documentKind": crate::flow_board::FLOW_BOARD_KIND,
+            "documentKind": document_kind,
             "traceOperationId": operation_id,
             "expectedRevision": expected_revision.cloned(),
         });
@@ -1501,6 +1511,22 @@ fn projection_semantics_match(record: &Value, candidate: &Value) -> Result<bool,
     let record_kind = record.get("documentKind").and_then(Value::as_str);
     if record_kind == Some(crate::flow_board::FLOW_BOARD_KIND) {
         if canonical_board_projection(record)? != canonical_board_projection(candidate)? {
+            return Ok(false);
+        }
+    }
+    // A whiteboard's outline (its `body`, compared above) leaves out colours,
+    // sizes and positions below the reading order, so compare the elements too:
+    // a recolour must not read as "unchanged".
+    if crate::whiteboard::is_whiteboard(record_kind) {
+        let canonical = |value: &Value| -> Result<String, String> {
+            let encoded = value
+                .get("ydocUpdateBase64")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            let scene = crate::whiteboard::ops::scene_from_update_base64(encoded)?;
+            serde_json::to_string(&scene.elements).map_err(|error| error.to_string())
+        };
+        if canonical(record)? != canonical(candidate)? {
             return Ok(false);
         }
     }

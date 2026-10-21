@@ -279,8 +279,9 @@ mod tests {
         // workflow plan tools (workflow_plan_create/read/compose) = 119,
         // + workflow_plan_publish = 120, + the scan reader's two
         // (read_scan_text, scan_text_layer) = 122, + workflow_run_record = 123,
-        // + emporium_describe (typed objects) = 124.
-        assert_eq!(tools.len(), 124);
+        // + emporium_describe (typed objects) = 124, + the three whiteboard
+        // tools (whiteboard_create/read/apply) = 127.
+        assert_eq!(tools.len(), 127);
 
         let known_scopes = loopback_scope_keys()
             .into_iter()
@@ -399,7 +400,7 @@ mod tests {
         let tools = result["tools"].as_array().expect("tools");
 
         // 124 registered tools minus the two explicitly optional CSS schemas.
-        assert_eq!(tools.len(), 122);
+        assert_eq!(tools.len(), 125);
         assert!(tools.iter().any(|tool| tool["name"] == "read_document"));
         assert!(tools.iter().any(|tool| tool["name"] == "write_document"));
         assert!(tools
@@ -437,8 +438,8 @@ mod tests {
         // + read_scan_text and scan_text_layer (graph-scoped) = 110,
         // + workflow_run_record (graph-scoped) = 111, + emporium_describe
         // (graph-scoped; emporium_vocab moved from global to graph-scoped and
-        // stays visible) = 112.
-        assert_eq!(names.len(), 112);
+        // stays visible) = 112, + the three whiteboard tools (graph-scoped) = 115.
+        assert_eq!(names.len(), 115);
         for added in ["custom_css", "agent_status", "agent_self_image", "status"] {
             assert!(names.contains(added), "missing default tool {added}");
         }
@@ -660,7 +661,7 @@ mod tests {
             tools.len()
         }
 
-        assert_eq!(audit("catalog", &mcp_tools_list_result()), 124);
+        assert_eq!(audit("catalog", &mcp_tools_list_result()), 127);
         let desktop = crate::cell_graph_boundary::CellGraphBoundary::for_test(None);
         let cell = crate::cell_graph_boundary::CellGraphBoundary::for_test(Some("graph-a"));
         for role in [

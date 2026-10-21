@@ -2401,6 +2401,27 @@
       "scopes": [
         "documents.read"
       ]
+    },
+    {
+      "name": "whiteboard_create",
+      "status": "implemented",
+      "scopes": [
+        "documents.write.crdt"
+      ]
+    },
+    {
+      "name": "whiteboard_read",
+      "status": "implemented",
+      "scopes": [
+        "documents.read"
+      ]
+    },
+    {
+      "name": "whiteboard_apply",
+      "status": "implemented",
+      "scopes": [
+        "documents.write.crdt"
+      ]
     }
   ]
 }

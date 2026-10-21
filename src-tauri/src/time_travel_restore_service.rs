@@ -468,6 +468,19 @@ fn apply_restore(graph_dir: &Path, manifest: &RestorePointManifest) -> AppResult
         let target = document_ydoc_state_path(graph_dir, &doc_ref.document_id);
         write_bytes(&target, &bytes).map_err(AppError::storage)?;
 
+        // Whiteboard: the saved `body` is the outline of the board, so a restore
+        // re-derives it from the bytes just swapped in (the Y.Doc is the content;
+        // the kind flag on the record was kept by `restore_document_metadata`).
+        if crate::whiteboard::is_whiteboard(restored_document_kind.as_deref()) {
+            if let Err(error) = refresh_whiteboard_body(graph_dir, &doc_ref.document_id, &bytes) {
+                log::error!(
+                    "whiteboard body restore for document {} FAILED: {error}",
+                    doc_ref.document_id,
+                );
+                failures.push(format!("{}: {error}", doc_ref.document_id));
+            }
+        }
+
         // Flow board (unit G3): the `:projection:flow` lane derives from the
         // Y.Doc, so reconcile it from the restored bytes just swapped in —
         // restore's self-reconcile invariant applied to the board's lane
@@ -506,6 +519,26 @@ fn apply_restore(graph_dir: &Path, manifest: &RestorePointManifest) -> AppResult
         write_json(&workspace_snapshot_path(graph_dir), &workspace_snapshot)
             .map_err(AppError::storage)?;
     }
+    Ok(())
+}
+
+/// Rewrite a restored whiteboard record's `body` from its restored Y.Doc bytes
+/// and re-materialize its RDF, so search finds the restored board's words.
+fn refresh_whiteboard_body(graph_dir: &Path, document_id: &str, bytes: &[u8]) -> AppResult<()> {
+    let document_dir = existing_document_dir(graph_dir, document_id).map_err(AppError::storage)?;
+    let manifest_path = document_dir.join("document.json");
+    if !manifest_path.is_file() {
+        return Ok(());
+    }
+    let mut record: DocumentRecord =
+        read_document_record_cold(graph_dir, &manifest_path).map_err(AppError::storage)?;
+    let scene =
+        crate::whiteboard::ops::scene_from_update_bytes(bytes).map_err(AppError::internal)?;
+    record.body = crate::whiteboard::outline::outline_markdown(&record.title, &scene);
+    record.ydoc_update_base64 = String::new();
+    write_json(&manifest_path, &record).map_err(AppError::storage)?;
+    let store = open_graph_store(graph_dir).map_err(AppError::rdf)?;
+    materialize_document_record(&store, &record).map_err(AppError::rdf)?;
     Ok(())
 }
 

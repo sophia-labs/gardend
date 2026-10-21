@@ -60,6 +60,17 @@ pub(super) fn mcp_local_search_documents(
                 }
             }
         }
+        // A whiteboard has no blocks to search; its words live in `body` (the
+        // outline), so a title miss still finds the board by what is drawn on it.
+        if best.is_none() && crate::whiteboard::is_whiteboard(document.document_kind.as_deref()) {
+            let body = document.body.to_lowercase();
+            if let Some(query) = queries
+                .iter()
+                .find(|query| !query.trim().is_empty() && body.contains(&query.to_lowercase()))
+            {
+                best = Some((0.5, query));
+            }
+        }
         if let Some((score, query)) = best {
             scored.push((score, query.clone(), document));
         }
