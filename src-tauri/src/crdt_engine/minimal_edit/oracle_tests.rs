@@ -272,6 +272,9 @@ struct Applied {
     /// A second plan from the same inputs (T4).
     replan: FragmentPlan,
     stats: EmitStats,
+    /// Branch ids of the top-level children, captured while the transaction was open (handles of removed
+    /// children dangle once the commit garbage-collects them).
+    child_ids: Vec<BranchID>,
     /// The transaction's encoded update.
     update: Vec<u8>,
 }
@@ -286,6 +289,14 @@ fn apply_once(
     let current = read_fragment(&txn, fragment, policy);
     let plan = plan_fragment(&current, desired, policy);
     let replan = plan_fragment(&current, desired, policy);
+    let child_ids: Vec<BranchID> = current
+        .children
+        .iter()
+        .map(|child| match child {
+            CurrentChild::Element(node) => branch_id_of(&node.handle),
+            CurrentChild::Text(text) => branch_id_of(&text.handle),
+        })
+        .collect();
     let stats = emit_fragment(&mut txn, fragment, &current, &plan)?;
     let update = txn.encode_update_v1();
     Ok(Applied {
@@ -293,6 +304,7 @@ fn apply_once(
         plan,
         replan,
         stats,
+        child_ids,
         update,
     })
 }
@@ -412,17 +424,13 @@ fn check_composition(
 fn check_identity_kept(
     doc: &Doc,
     fragment: &XmlFragmentRef,
-    current: &CurrentFragment,
+    child_ids: &[BranchID],
     plan: &FragmentPlan,
 ) -> Vec<String> {
     let mut problems = Vec::new();
     let after = top_level_branch_ids(doc, fragment);
-    let child_id = |index: usize| -> Option<BranchID> {
-        current.children.get(index).map(|child| match child {
-            CurrentChild::Element(node) => branch_id_of(&node.handle),
-            CurrentChild::Text(text) => branch_id_of(&text.handle),
-        })
-    };
+    let child_id = |index: usize| -> Option<BranchID> { child_ids.get(index).cloned() };
+
     let mut cursor = 0usize;
     for step in &plan.steps {
         match step {
@@ -710,7 +718,7 @@ fn run_scenario(sc: &Value) -> ScenarioRun {
     for problem in check_composition(&applied.current, &desired, &applied.plan, &policy) {
         note(problem);
     }
-    for problem in check_identity_kept(&doc, &fragment, &applied.current, &applied.plan) {
+    for problem in check_identity_kept(&doc, &fragment, &applied.child_ids, &applied.plan) {
         note(problem);
     }
 
