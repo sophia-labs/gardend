@@ -1446,7 +1446,10 @@ fn make_room_for_label(
     const STEP: f64 = 24.0;
     let mut moved = false;
     for _ in 0..80 {
-        let (a, m) = (scene.elements[anchor].clone(), scene.elements[mover].clone());
+        let (a, m) = (
+            scene.elements[anchor].clone(),
+            scene.elements[mover].clone(),
+        );
         let (ca, cm) = (center_of(&a), center_of(&m));
         let (s, e) = (outline_point(&a, cm), outline_point(&m, ca));
         let mid = ((s.0 + e.0) / 2.0, (s.1 + e.1) / 2.0);

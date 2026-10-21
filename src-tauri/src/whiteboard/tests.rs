@@ -821,7 +821,10 @@ fn agent_drawn_elements_carry_the_sophia_look_and_a_label_gets_room() {
             assert_eq!(el["strokeWidth"], 1, "thin: {el}");
         }
         assert_eq!(a["strokeColor"], "#326f4c", "green is the Sophia accent");
-        assert_eq!(b["backgroundColor"], "#fef3c7", "a yellow note is Sophia amber");
+        assert_eq!(
+            b["backgroundColor"], "#fef3c7",
+            "a yellow note is Sophia amber"
+        );
         assert_eq!(a["roundness"], json!({"type": 3}));
         assert_eq!(e["roundness"], Value::Null, "crisp arrows");
         assert_eq!(e["elbowed"], false);
@@ -833,13 +836,26 @@ fn agent_drawn_elements_carry_the_sophia_look_and_a_label_gets_room() {
             .expect("the arrow's label");
         assert_eq!(label["fontFamily"], 6);
         // The label clears both shapes: the second shape was pushed out to make room.
-        let (lx, lw) = (label["x"].as_f64().unwrap(), label["width"].as_f64().unwrap());
+        let (lx, lw) = (
+            label["x"].as_f64().unwrap(),
+            label["width"].as_f64().unwrap(),
+        );
         let a_right = a["x"].as_f64().unwrap() + a["width"].as_f64().unwrap();
         let b_left = b["x"].as_f64().unwrap();
-        assert!(lx > a_right + 8.0, "label starts clear of the first shape: {lx} vs {a_right}");
-        assert!(lx + lw < b_left - 8.0, "label ends clear of the second shape: {} vs {b_left}", lx + lw);
+        assert!(
+            lx > a_right + 8.0,
+            "label starts clear of the first shape: {lx} vs {a_right}"
+        );
+        assert!(
+            lx + lw < b_left - 8.0,
+            "label ends clear of the second shape: {} vs {b_left}",
+            lx + lw
+        );
         // Names read back, old boards and new.
         let read = h.read(&doc);
-        assert_eq!(shape_by_text(&read, "Freud: the dream-work")["color"], "green");
+        assert_eq!(
+            shape_by_text(&read, "Freud: the dream-work")["color"],
+            "green"
+        );
     });
 }
