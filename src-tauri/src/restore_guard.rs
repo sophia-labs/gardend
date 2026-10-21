@@ -93,6 +93,13 @@ pub(crate) fn require_no_active_restore(app: &AppHandle, _graph_id: &str) -> Res
     if !state.is_active() {
         return Ok(());
     }
+    // The restore's own task: its saves are the restore, not a mutation racing it. Only the operation
+    // that holds the guard is admitted, and a task it spawns does not inherit the scope.
+    if let (Some(owner), Some(detail)) = (current_restore_owner(), state.current_detail()) {
+        if owner == detail.operation_id {
+            return Ok(());
+        }
+    }
     let suffix = state
         .current_detail()
         .map(|detail| {
@@ -111,6 +118,11 @@ tokio::task_local! {
     /// The operation id of the restore this task is running, if any (the visitor fence's pattern,
     /// visitor_fence.rs:941-944).
     static RESTORE_OWNER: String;
+}
+
+/// The operation id of the restore the current task is the owner of, if any.
+fn current_restore_owner() -> Option<String> {
+    RESTORE_OWNER.try_with(Clone::clone).ok()
 }
 
 /// Run `future` as the owner of the active restore `operation_id`: inside it, `require_no_active_restore`
@@ -175,5 +187,101 @@ mod tests {
         release_tx.send(()).expect("release worker");
         worker.join().expect("worker exits");
         assert!(!state.is_active());
+    }
+
+    /// A mock app in a throwaway profile, with the restore guard engaged by `operation_id` when given.
+    fn with_guard_app(operation_id: Option<&str>, test: impl FnOnce(&AppHandle)) {
+        let _serial = crate::tauri_runtime::profile_env_serial()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let previous = std::env::var_os("GARDEN_PROFILE_DIR");
+        let profile =
+            std::env::temp_dir().join(format!("garden-restore-guard-{}", uuid::Uuid::new_v4()));
+        std::env::set_var("GARDEN_PROFILE_DIR", &profile);
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let app = crate::tauri_runtime::build_mock_app_for_tests(true);
+            let state = app.state::<Arc<RestoreGuardState>>();
+            let _lease = operation_id.map(|operation_id| {
+                state
+                    .inner()
+                    .try_engage(RestoreGuardDetail {
+                        graph_id: "g1".to_string(),
+                        operation_id: operation_id.to_string(),
+                        restore_point_id: "rp-1".to_string(),
+                    })
+                    .expect("engage the guard")
+            });
+            test(&app);
+        }));
+        match previous {
+            Some(value) => std::env::set_var("GARDEN_PROFILE_DIR", value),
+            None => std::env::remove_var("GARDEN_PROFILE_DIR"),
+        }
+        let _ = std::fs::remove_dir_all(&profile);
+        if let Err(panic) = outcome {
+            std::panic::resume_unwind(panic);
+        }
+    }
+
+    #[test]
+    fn owner_scope_admits_its_own_restore_only() {
+        with_guard_app(Some("op-1"), |app| {
+            let inside = crate::app_runtime::async_runtime::block_on(as_restore_owner(
+                "op-1".to_string(),
+                async { require_no_active_restore(app, "g1") },
+            ));
+            assert!(inside.is_ok(), "the restore's own task is admitted: {inside:?}");
+
+            // The scope ends with the future: the next caller is refused again.
+            assert!(require_no_active_restore(app, "g1").is_err());
+
+            // A task spawned from inside the scope is not the restore: task-locals do not propagate.
+            let spawned = crate::app_runtime::async_runtime::block_on(as_restore_owner(
+                "op-1".to_string(),
+                async {
+                    let app = app.clone();
+                    crate::app_runtime::async_runtime::spawn(async move {
+                        require_no_active_restore(&app, "g1")
+                    })
+                    .await
+                    .expect("join the spawned task")
+                },
+            ));
+            assert!(
+                spawned.is_err(),
+                "a spawned task does not inherit the owner scope"
+            );
+        });
+    }
+
+    #[test]
+    fn outside_the_scope_is_refused() {
+        with_guard_app(Some("op-1"), |app| {
+            let error = require_no_active_restore(app, "g1")
+                .expect_err("an unscoped caller is refused while a restore runs");
+            assert!(error.contains("workspace mutation blocked"), "{error}");
+            assert!(error.contains("operation op-1"), "{error}");
+        });
+    }
+
+    #[test]
+    fn no_active_restore_refuses_nobody() {
+        with_guard_app(None, |app| {
+            assert!(require_no_active_restore(app, "g1").is_ok());
+        });
+    }
+
+    #[test]
+    fn another_operation_id_is_refused() {
+        with_guard_app(Some("op-1"), |app| {
+            let other = crate::app_runtime::async_runtime::block_on(as_restore_owner(
+                "op-2".to_string(),
+                async { require_no_active_restore(app, "g1") },
+            ));
+            assert!(
+                other.is_err(),
+                "the owner of a different operation is not the owner of this restore"
+            );
+        });
     }
 }

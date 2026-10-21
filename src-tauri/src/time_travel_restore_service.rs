@@ -2,6 +2,9 @@ use crate::app_runtime::AppHandle;
 use crate::{
     app_error::{AppError, AppResult},
     clock,
+    crdt_engine::forward_restore::{
+        forward_restore_manifest, verify_forward_restore, ForwardRestoreReport, RestoreContext,
+    },
     document_history_file_store::read_document_snapshot_payload,
     document_record_store::read_document_record_cold,
     document_types::DocumentRecord,
@@ -11,7 +14,7 @@ use crate::{
     paths::existing_document_dir,
     rdf_seed_service::ensure_graph_store_seeded,
     rdf_service::{materialize_document_record, open_graph_store},
-    restore_guard::{RestoreGuardDetail, RestoreGuardState},
+    restore_guard::{as_restore_owner, RestoreGuardDetail, RestoreGuardState},
     storage::{read_json, write_json},
     storage_file_ops::write_bytes,
     time_travel_service::{capture_restore_point, capture_restore_point_with_lease},
@@ -334,21 +337,27 @@ fn run_phases(
         );
         error
     })?;
-    if let Err(apply_error) = apply_restore(&graph_dir, &manifest) {
-        if let Err(rollback_error) = rollback_to_backup(&graph_dir, &backup_pointer_id) {
-            log::error!(
-                "restore operation {operation_id} ROLLBACK failed after apply error: {message}",
-                message = rollback_error.message_ref()
+    let ctx = RestoreContext {
+        restore_point_id: restore_point_id.to_string(),
+        operation_id: operation_id.to_string(),
+        now_ms: clock::epoch_millis() as f64,
+    };
+    // A forward restore: the difference between the live state and the restore point is applied through
+    // the rooms as ordinary edits, so open editors, reconnecting sockets and browser caches converge on
+    // the restored content instead of merging the newer state back.
+    let report = match forward_restore(app, graph_id, &manifest, &ctx) {
+        Ok(report) => report,
+        Err(apply_error) => {
+            rollback_after_failure(app, graph_id, &graph_dir, &backup_pointer_id, operation_id);
+            finish_rolled_back(
+                jobs,
+                operation_id,
+                apply_error.message_ref(),
+                &backup_pointer_id,
             );
+            return Err(apply_error);
         }
-        finish_rolled_back(
-            jobs,
-            operation_id,
-            apply_error.message_ref(),
-            &backup_pointer_id,
-        );
-        return Err(apply_error);
-    }
+    };
     if check_cancelled(jobs, operation_id, &graph_dir, &backup_pointer_id)? {
         let error = "restore cancelled after apply".to_string();
         finish_rolled_back(jobs, operation_id, &error, &backup_pointer_id);
@@ -364,12 +373,7 @@ fn run_phases(
         75,
     )?;
     if let Err(error) = rebuild_projections(&graph_dir) {
-        if let Err(rollback_error) = rollback_to_backup(&graph_dir, &backup_pointer_id) {
-            log::error!(
-                "restore operation {operation_id} ROLLBACK failed after rebuild error: {message}",
-                message = rollback_error.message_ref()
-            );
-        }
+        rollback_after_failure(app, graph_id, &graph_dir, &backup_pointer_id, operation_id);
         finish_rolled_back(jobs, operation_id, error.message_ref(), &backup_pointer_id);
         return Err(error);
     }
@@ -382,13 +386,8 @@ fn run_phases(
         "Verifying restored state",
         90,
     )?;
-    if let Err(error) = verify_restored(&graph_dir, &manifest) {
-        if let Err(rollback_error) = rollback_to_backup(&graph_dir, &backup_pointer_id) {
-            log::error!(
-                "restore operation {operation_id} ROLLBACK failed after verify error: {message}",
-                message = rollback_error.message_ref()
-            );
-        }
+    if let Err(error) = verify_forward(app, graph_id, &graph_dir, &manifest, &report) {
+        rollback_after_failure(app, graph_id, &graph_dir, &backup_pointer_id, operation_id);
         finish_rolled_back(jobs, operation_id, error.message_ref(), &backup_pointer_id);
         return Err(error);
     }
@@ -402,7 +401,7 @@ fn run_phases(
         100,
     )?;
 
-    Ok(json!({
+    let mut result = json!({
         "operationId": operation_id,
         "graphId": graph_id,
         "restorePointId": restore_point_id,
@@ -410,7 +409,14 @@ fn run_phases(
         "documentsRestored": manifest.documents.len(),
         "completedAt": clock::timestamp(),
         "state": PHASE_SUCCEEDED,
-    }))
+    });
+    // What the forward restore did: workspaceOps, documentsChanged/Unchanged/SkippedDeleted/ColdRestored, ops.
+    if let (Value::Object(fields), Ok(Value::Object(extra))) =
+        (&mut result, serde_json::to_value(&report))
+    {
+        fields.extend(extra);
+    }
+    Ok(result)
 }
 
 /// Outcome of restoring a single document's metadata. The two `SkippedNoMetadata`
@@ -787,6 +793,137 @@ fn job_status_phase(status: &crate::local_jobs::LocalJobStatus, phase: &str) -> 
     }
 }
 
+// ---------------------------------------------------------------------------
+// Forward restore wiring (DESIGN §2.12). `apply_restore`, `restore_document_metadata` and
+// `refresh_whiteboard_body` above are the byte path and stay as they are: the rollback's last resort,
+// and the one-document cold fallback below.
+// ---------------------------------------------------------------------------
+
+/// Run the forward restore engine as the owner of `ctx.operation_id`, so the restore's own saves pass the
+/// restore guard it is holding. Called on the blocking restore worker, as the executor calls its handlers.
+/// The caller holds the guard and the graph hot-write lease; the engine acquires neither.
+fn forward_restore(
+    app: &AppHandle,
+    graph_id: &str,
+    manifest: &RestorePointManifest,
+    ctx: &RestoreContext,
+) -> AppResult<ForwardRestoreReport> {
+    crate::app_runtime::async_runtime::block_on(as_restore_owner(
+        ctx.operation_id.clone(),
+        forward_restore_manifest(app, graph_id, manifest, ctx),
+    ))
+    .map_err(AppError::internal)
+}
+
+/// Verify a forward restore: the sidecars the byte path would have written exist for every document the
+/// restore touched, and every restored document equals its snapshot under the oracle normal form.
+fn verify_forward(
+    app: &AppHandle,
+    graph_id: &str,
+    graph_dir: &Path,
+    manifest: &RestorePointManifest,
+    report: &ForwardRestoreReport,
+) -> AppResult<()> {
+    let mut touched = manifest.clone();
+    touched.documents.retain(|doc_ref| {
+        report.documents_changed.contains(&doc_ref.document_id)
+            || report.documents_cold_restored.contains(&doc_ref.document_id)
+    });
+    verify_restored(graph_dir, &touched)?;
+    crate::app_runtime::async_runtime::block_on(verify_forward_restore(
+        app, graph_id, manifest, report,
+    ))
+    .map_err(AppError::storage)
+}
+
+/// Undo a failed restore: a forward restore to the automatic backup, through the same engine, then the
+/// projection rebuild. If the engine itself fails, the byte rewind is the last resort.
+fn rollback_forward(
+    app: &AppHandle,
+    graph_id: &str,
+    graph_dir: &Path,
+    backup_pointer_id: &str,
+    operation_id: &str,
+) -> AppResult<()> {
+    let backup_manifest = read_manifest(graph_dir, backup_pointer_id)?;
+    let ctx = RestoreContext {
+        restore_point_id: backup_pointer_id.to_string(),
+        operation_id: operation_id.to_string(),
+        now_ms: clock::epoch_millis() as f64,
+    };
+    match forward_restore(app, graph_id, &backup_manifest, &ctx) {
+        Ok(_) => rebuild_projections(graph_dir),
+        Err(forward_error) => {
+            log::error!(
+                "restore operation {operation_id} forward rollback failed ({message}); falling back to the byte rewind",
+                message = forward_error.message_ref()
+            );
+            rollback_to_backup(graph_dir, backup_pointer_id)
+        }
+    }
+}
+
+/// `rollback_forward`, logging instead of failing: the caller reports the original error.
+fn rollback_after_failure(
+    app: &AppHandle,
+    graph_id: &str,
+    graph_dir: &Path,
+    backup_pointer_id: &str,
+    operation_id: &str,
+) {
+    if let Err(rollback_error) =
+        rollback_forward(app, graph_id, graph_dir, backup_pointer_id, operation_id)
+    {
+        log::error!(
+            "restore operation {operation_id} ROLLBACK failed: {message}",
+            message = rollback_error.message_ref()
+        );
+    }
+}
+
+/// The byte path for ONE document, for the forward engine's cold fallback: the document's current Y.Doc
+/// cannot be opened (a corrupt sidecar) and no room is live, so nothing newer can exist in memory. Does
+/// exactly what `apply_restore` does per document: metadata and RDF, the bytes, and the board or
+/// whiteboard follow-ups.
+pub(crate) fn cold_restore_one_document(
+    graph_dir: &Path,
+    manifest: &RestorePointManifest,
+    doc_ref: &DocumentSnapshotRef,
+) -> AppResult<()> {
+    let mut restored_document_kind: Option<String> = None;
+    if let DocumentMetadataOutcome::Restored { document_kind } =
+        restore_document_metadata(graph_dir, doc_ref)?
+    {
+        restored_document_kind = document_kind;
+    }
+
+    let bytes = read_document_bytes(graph_dir, &manifest.restore_point_id, &doc_ref.document_id)?;
+    let target = document_ydoc_state_path(graph_dir, &doc_ref.document_id);
+    write_bytes(&target, &bytes).map_err(AppError::storage)?;
+
+    if crate::whiteboard::is_whiteboard(restored_document_kind.as_deref()) {
+        refresh_whiteboard_body(graph_dir, &doc_ref.document_id, &bytes)?;
+    }
+    if restored_document_kind.as_deref() == Some(crate::flow_board::FLOW_BOARD_KIND) {
+        crate::flow_board::board_doc_from_update_bytes(&bytes)
+            .and_then(|doc| {
+                let store = open_graph_store(graph_dir)?;
+                crate::flow_board_reconcile::reconcile_flow_board_doc(
+                    &store,
+                    &manifest.graph_id,
+                    &doc,
+                )
+            })
+            .map_err(|error| {
+                AppError::internal(format!(
+                    "flow lane restore reconcile for document {} FAILED: {error}",
+                    doc_ref.document_id
+                ))
+            })?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1051,5 +1188,227 @@ mod tests {
         if let Err(payload) = result {
             std::panic::resume_unwind(payload);
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Forward restore through the real store (DESIGN §2.12): real graph, real rooms, real capture.
+    // -----------------------------------------------------------------------
+
+    /// A throwaway profile, a mock app and one graph; the body gets the app and the graph directory.
+    fn with_restore_graph(graph_id: &str, test: impl FnOnce(&AppHandle, &Path)) {
+        let _serial = crate::tauri_runtime::profile_env_serial()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let previous = std::env::var_os("GARDEN_PROFILE_DIR");
+        let profile =
+            std::env::temp_dir().join(format!("garden-restore-forward-{}", uuid::Uuid::new_v4()));
+        std::env::set_var("GARDEN_PROFILE_DIR", &profile);
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let app = crate::tauri_runtime::build_mock_app_for_tests(true);
+            create_graph_service(
+                &app,
+                CreateGraphInput {
+                    title: "Forward Restore".to_string(),
+                    graph_id: Some(graph_id.to_string()),
+                    description: None,
+                    operation_id: None,
+                },
+            )
+            .expect("create graph");
+            let graph_dir = existing_graph_dir(&app, graph_id).expect("graph dir");
+            test(&app, &graph_dir);
+        }));
+        match previous {
+            Some(value) => std::env::set_var("GARDEN_PROFILE_DIR", value),
+            None => std::env::remove_var("GARDEN_PROFILE_DIR"),
+        }
+        let _ = std::fs::remove_dir_all(&profile);
+        if let Err(panic) = outcome {
+            std::panic::resume_unwind(panic);
+        }
+    }
+
+    /// A markdown `document.write` through the real engine: the document's room stays live afterwards.
+    fn write_markdown(app: &AppHandle, graph_id: &str, doc_id: &str, content: &str) {
+        crate::app_runtime::async_runtime::block_on(enqueue_crdt_operation(
+            app.clone(),
+            EnqueueCrdtOperationInput {
+                kind: "document.write".to_string(),
+                graph_id: graph_id.to_string(),
+                document_id: Some(doc_id.to_string()),
+                payload: json!({
+                    "documentId": doc_id,
+                    "content": content,
+                    "format": "markdown",
+                    "title": "Restore Doc",
+                }),
+            },
+        ))
+        .expect("document.write drains through the real engine");
+    }
+
+    /// The live room's content as TipTap JSON text, or `None` when no room is hosted.
+    fn room_text(app: &AppHandle, graph_id: &str, doc_id: &str) -> Option<String> {
+        let registry = app.state::<crate::crdt_engine::rooms::RoomRegistry>();
+        let room = crate::app_runtime::async_runtime::block_on(
+            registry.peek(&format!("doc:{graph_id}:{doc_id}")),
+        )?;
+        Some(crate::app_runtime::async_runtime::block_on(room.with_doc(
+            |doc| crate::crdt_engine::projection::tiptap_json_in(&yrs::Transact::transact(doc)).to_string(),
+        )))
+    }
+
+    /// The durable sidecar's content as TipTap JSON text.
+    fn disk_text(graph_dir: &Path, doc_id: &str) -> String {
+        let bytes = std::fs::read(document_ydoc_state_path(graph_dir, doc_id)).expect("sidecar");
+        let doc =
+            crate::crdt_engine::forward_restore::doc_from_update_bytes(&bytes).expect("decode");
+        crate::crdt_engine::projection::tiptap_json_in(&yrs::Transact::transact(&doc)).to_string()
+    }
+
+    fn ask(graph_dir: &Path, graph_id: &str, doc_id: &str, needle: &str) -> bool {
+        let store = crate::rdf_store_service::open_graph_store(graph_dir).expect("open store");
+        let projection_graph = crate::rdf_authority::document_projection_graph_iri(graph_id, doc_id);
+        crate::rdf_query_service::execute_sparql_query(
+            &store,
+            &format!(
+                r#"ASK {{ GRAPH <{projection_graph}> {{ ?s ?p ?o . FILTER(CONTAINS(STR(?o), "{needle}")) }} }}"#
+            ),
+        )
+        .expect("ask")
+        .boolean
+        .expect("boolean answer")
+    }
+
+    /// Restore through the real `start_restore` and wait for the job to settle.
+    fn run_restore_to_the_end(
+        app: &AppHandle,
+        graph_id: &str,
+        restore_point_id: &str,
+    ) -> serde_json::Value {
+        let jobs_dir = std::path::PathBuf::from(
+            std::env::var_os("GARDEN_PROFILE_DIR").expect("profile dir is set by the test"),
+        )
+        .join("restore-test-jobs");
+        let jobs = Arc::new(LocalJobRegistry::new(jobs_dir).expect("job registry"));
+        let started = start_restore(app, jobs.clone(), graph_id, restore_point_id, false)
+            .expect("start restore");
+        let operation_id = started["operationId"].as_str().expect("operation id").to_string();
+        for _ in 0..600 {
+            let state = get_restore_operation(&jobs, &operation_id).expect("operation");
+            if matches!(
+                state["state"].as_str(),
+                Some(PHASE_SUCCEEDED) | Some(PHASE_FAILED) | Some(PHASE_ROLLED_BACK)
+            ) {
+                return state;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        panic!("restore operation {operation_id} did not settle in 60 s");
+    }
+
+    /// The post-capture sentinel is gone from the live room, from the durable sidecar and from RDF, and the
+    /// captured sentinel is there. The room being live is the point: the old byte path swapped the sidecar
+    /// under it, and the room's next persist wrote the newer state back.
+    #[test]
+    fn run_restore_uses_the_forward_path() {
+        let graph_id = "restore-forward";
+        let doc_id = "restore-doc";
+        with_restore_graph(graph_id, |app, graph_dir| {
+            write_markdown(app, graph_id, doc_id, "RestoreSentinelOne is the captured content.");
+            let summary = capture_restore_point(app, graph_id, RestorePointTrigger::Manual, None)
+                .expect("capture restore point");
+            let restore_point_id = summary["restorePointId"].as_str().expect("id").to_string();
+            write_markdown(
+                app,
+                graph_id,
+                doc_id,
+                "RestoreSentinelTwo is the post-capture content.",
+            );
+            let before = room_text(app, graph_id, doc_id).expect("the write left its room live");
+            assert!(before.contains("RestoreSentinelTwo"));
+
+            let state = run_restore_to_the_end(app, graph_id, &restore_point_id);
+            assert_eq!(state["state"], PHASE_SUCCEEDED, "restore settled as {state}");
+
+            let room = room_text(app, graph_id, doc_id).expect("a live room stays live");
+            assert!(room.contains("RestoreSentinelOne"), "room: {room}");
+            assert!(!room.contains("RestoreSentinelTwo"), "room: {room}");
+            let disk = disk_text(graph_dir, doc_id);
+            assert!(disk.contains("RestoreSentinelOne"), "disk: {disk}");
+            assert!(!disk.contains("RestoreSentinelTwo"), "disk: {disk}");
+            assert!(ask(graph_dir, graph_id, doc_id, "RestoreSentinelOne"));
+            assert!(
+                !ask(graph_dir, graph_id, doc_id, "RestoreSentinelTwo"),
+                "the post-capture text is gone from RDF too"
+            );
+        });
+    }
+
+    /// An unopenable current Y.Doc is swapped for the restore point's bytes only when no room is live.
+    /// With a live room the room is the authority and restores forward whatever the sidecar looks like.
+    #[test]
+    fn cold_fallback_only_without_a_live_room() {
+        let graph_id = "restore-cold";
+        let doc_id = "restore-doc";
+        with_restore_graph(graph_id, |app, graph_dir| {
+            write_markdown(app, graph_id, doc_id, "RestoreSentinelOne is the captured content.");
+            let summary = capture_restore_point(app, graph_id, RestorePointTrigger::Manual, None)
+                .expect("capture restore point");
+            let restore_point_id = summary["restorePointId"].as_str().expect("id").to_string();
+            let manifest = read_manifest(graph_dir, &restore_point_id).expect("manifest");
+            write_markdown(
+                app,
+                graph_id,
+                doc_id,
+                "RestoreSentinelTwo is the post-capture content.",
+            );
+            let sidecar = document_ydoc_state_path(graph_dir, doc_id);
+            let ctx = RestoreContext {
+                restore_point_id: restore_point_id.clone(),
+                operation_id: "op-cold-test".to_string(),
+                now_ms: clock::epoch_millis() as f64,
+            };
+            let run = || {
+                crate::app_runtime::async_runtime::block_on(as_restore_owner(
+                    ctx.operation_id.clone(),
+                    forward_restore_manifest(app, graph_id, &manifest, &ctx),
+                ))
+                .expect("forward restore")
+            };
+
+            // A live room and a corrupt sidecar: the room restores forward, and its persist repairs the file.
+            write_bytes(&sidecar, &[0xff; 16]).expect("corrupt the sidecar");
+            let report = run();
+            assert!(report.documents_cold_restored.is_empty(), "{report:?}");
+            assert!(report.documents_changed.contains(&doc_id.to_string()), "{report:?}");
+            let room = room_text(app, graph_id, doc_id).expect("room");
+            assert!(room.contains("RestoreSentinelOne") && !room.contains("RestoreSentinelTwo"));
+            assert!(disk_text(graph_dir, doc_id).contains("RestoreSentinelOne"));
+
+            // No room and a corrupt sidecar: nothing newer can live in memory, so the bytes are swapped.
+            write_markdown(
+                app,
+                graph_id,
+                doc_id,
+                "RestoreSentinelTwo is the post-capture content.",
+            );
+            let registry = app.state::<crate::crdt_engine::rooms::RoomRegistry>();
+            assert!(registry.evict_room(&format!("doc:{graph_id}:{doc_id}")));
+            write_bytes(&sidecar, &[0xff; 16]).expect("corrupt the sidecar");
+            let report = run();
+            assert_eq!(
+                report.documents_cold_restored,
+                vec![doc_id.to_string()],
+                "{report:?}"
+            );
+            assert!(!report.documents_changed.contains(&doc_id.to_string()), "{report:?}");
+            assert!(
+                room_text(app, graph_id, doc_id).is_none(),
+                "the cold path opens no room"
+            );
+            let disk = disk_text(graph_dir, doc_id);
+            assert!(disk.contains("RestoreSentinelOne") && !disk.contains("RestoreSentinelTwo"));
+        });
     }
 }
