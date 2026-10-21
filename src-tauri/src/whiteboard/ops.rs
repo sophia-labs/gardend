@@ -5,7 +5,9 @@ use super::scene::{Element, Scene};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
-use yrs::{Any, Doc, Map as YMap, MapRef, Out, ReadTxn, StateVector, Transact, TransactionMut, WriteTxn};
+use yrs::{
+    Any, Doc, Map as YMap, MapRef, Out, ReadTxn, StateVector, Transact, TransactionMut, WriteTxn,
+};
 
 pub(crate) const SCHEMA: &str = "sophia.whiteboard/1";
 

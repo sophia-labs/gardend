@@ -60,7 +60,8 @@ async fn workspace_title(app: &AppHandle, graph_id: &str, document_id: &str) -> 
 
 /// The board's room, after checking the document is a whiteboard.
 async fn open_board(app: &AppHandle, graph_id: &str, document_id: &str) -> Result<Board, String> {
-    let kind = crate::crdt_engine::document_ops::resolve_document_kind(app, graph_id, document_id).await?;
+    let kind =
+        crate::crdt_engine::document_ops::resolve_document_kind(app, graph_id, document_id).await?;
     if kind.as_deref() != Some(WHITEBOARD_KIND) {
         return Err(format!(
             "document '{document_id}' is not a whiteboard (documentKind: {kind:?}); \
@@ -98,7 +99,8 @@ pub(crate) async fn mcp_local_whiteboard_create(
     if let Some(parent) = mcp_arg_string(arguments, &["parentId", "parent_id"]) {
         create["parentId"] = json!(parent);
     }
-    let created = crate::mcp_workspace_crdt_service::mcp_local_create_document(app.clone(), &create).await?;
+    let created =
+        crate::mcp_workspace_crdt_service::mcp_local_create_document(app.clone(), &create).await?;
     let document_id = created
         .get("documentId")
         .and_then(Value::as_str)
@@ -139,7 +141,14 @@ pub(crate) async fn mcp_local_whiteboard_read(
         .room
         .with_doc(|doc| (ops::scene_of_doc(doc), revision_token(doc)))
         .await;
-    Ok(read_result(&graph_id, &document_id, &board.title, &scene, &revision, &format))
+    Ok(read_result(
+        &graph_id,
+        &document_id,
+        &board.title,
+        &scene,
+        &revision,
+        &format,
+    ))
 }
 
 fn read_result(
@@ -161,10 +170,12 @@ fn read_result(
     }
     let shapes = outline::shapes(scene);
     let arrows = outline::arrows(scene);
-    let bounds = bounds(scene).map(|b| json!({
-        "x": b.x.round() as i64, "y": b.y.round() as i64,
-        "w": b.w.round() as i64, "h": b.h.round() as i64,
-    }));
+    let bounds = bounds(scene).map(|b| {
+        json!({
+            "x": b.x.round() as i64, "y": b.y.round() as i64,
+            "w": b.w.round() as i64, "h": b.h.round() as i64,
+        })
+    });
     json!({
         "graphId": graph_id, "documentId": document_id, "title": title,
         "shapes": shapes.iter().map(outline::shape_json).collect::<Vec<_>>(),
@@ -222,23 +233,39 @@ pub(crate) async fn mcp_local_whiteboard_apply(
             apply_moves(&mut scene, moves, &mut ctx).map(|created| (scene, created))
         })
         .await?;
-    let (scene, created) = computed;
+    let (mut scene, mut created) = computed;
     if !scene.dirty.is_empty() {
         crate::restore_guard::require_no_active_restore(&app, &graph_id)?;
         let lease = match app
-            .try_state::<crate::crdt_engine::persistence_coordinator::GraphPersistenceCoordinator>()
-        {
+            .try_state::<crate::crdt_engine::persistence_coordinator::GraphPersistenceCoordinator>(
+        ) {
             Some(coordinator) => Some(coordinator.acquire_hot_write(&graph_id).await?),
             None => None,
         };
-        board
+        // The pass above only validated. A person may have drawn since, so the
+        // moves run again on the state inside the write transaction (same seed,
+        // same ids) and only that result is written; otherwise the board would
+        // overwrite their edit with the baseline's copy of the element. A refusal
+        // here is returned as a value: an Err from the closure evicts the room.
+        let fresh = board
             .room
             .update_doc(|_doc, txn| {
-                ops::write_dirty(txn, &scene);
-                Ok(())
+                let mut live = ops::read_scene(&*txn);
+                let mut ctx = Ctx {
+                    actor: &actor,
+                    now,
+                    rng: Rng(seed),
+                    graph_id: &graph_id,
+                    titles: &titles,
+                };
+                Ok(apply_moves(&mut live, moves, &mut ctx).map(|made| {
+                    ops::write_dirty(txn, &live);
+                    (live, made)
+                }))
             })
             .await?;
         drop(lease);
+        (scene, created) = fresh?;
         crate::crdt_engine::document_ops::persist_room_document(
             &app,
             &graph_id,
@@ -253,7 +280,14 @@ pub(crate) async fn mcp_local_whiteboard_apply(
         .room
         .with_doc(|doc| (ops::scene_of_doc(doc), revision_token(doc)))
         .await;
-    let mut result = read_result(&graph_id, &document_id, &board.title, &after, &revision, "outline");
+    let mut result = read_result(
+        &graph_id,
+        &document_id,
+        &board.title,
+        &after,
+        &revision,
+        "outline",
+    );
     result["created"] = Value::Object(
         created
             .into_iter()

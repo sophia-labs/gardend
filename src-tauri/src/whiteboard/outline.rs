@@ -48,7 +48,11 @@ fn flat(text: &str) -> String {
 /// What a person typed: `originalText`, which Excalidraw keeps unwrapped; `text`
 /// is that text broken at the container's width.
 fn typed_text(el: &Element) -> String {
-    flat(s(el, "originalText").or_else(|| s(el, "text")).unwrap_or(""))
+    flat(
+        s(el, "originalText")
+            .or_else(|| s(el, "text"))
+            .unwrap_or(""),
+    )
 }
 
 fn by_of(el: &Element) -> Option<String> {
@@ -78,9 +82,7 @@ pub(crate) fn shapes(scene: &Scene) -> Vec<Shape> {
             } else if kind == "frame" {
                 s(el, "name").unwrap_or("").to_string()
             } else {
-                bound_text(scene, el)
-                    .map(typed_text)
-                    .unwrap_or_default()
+                bound_text(scene, el).map(typed_text).unwrap_or_default()
             };
             let r = rect_of(el);
             Shape {
@@ -140,7 +142,10 @@ pub(crate) fn arrows(scene: &Scene) -> Vec<ArrowRead> {
             };
             let points = el.get("points").and_then(Value::as_array);
             let point = |i: usize| {
-                let p = points.and_then(|p| p.get(i)).cloned().unwrap_or(json!([0, 0]));
+                let p = points
+                    .and_then(|p| p.get(i))
+                    .cloned()
+                    .unwrap_or(json!([0, 0]));
                 (
                     n(el, "x") + p.get(0).and_then(Value::as_f64).unwrap_or(0.0),
                     n(el, "y") + p.get(1).and_then(Value::as_f64).unwrap_or(0.0),
@@ -162,8 +167,16 @@ pub(crate) fn arrows(scene: &Scene) -> Vec<ArrowRead> {
         })
         .collect();
     out.sort_by(|a, b| {
-        (a.from_point.1.round() as i64, a.from_point.0.round() as i64, &a.id)
-            .cmp(&(b.from_point.1.round() as i64, b.from_point.0.round() as i64, &b.id))
+        (
+            a.from_point.1.round() as i64,
+            a.from_point.0.round() as i64,
+            &a.id,
+        )
+            .cmp(&(
+                b.from_point.1.round() as i64,
+                b.from_point.0.round() as i64,
+                &b.id,
+            ))
     });
     out
 }
@@ -205,10 +218,16 @@ pub(crate) fn arrow_json(arrow: &ArrowRead) -> Value {
     });
     let obj = v.as_object_mut().expect("object");
     if arrow.from.is_none() {
-        obj.insert("fromPoint".into(), json!({ "x": num(arrow.from_point.0), "y": num(arrow.from_point.1) }));
+        obj.insert(
+            "fromPoint".into(),
+            json!({ "x": num(arrow.from_point.0), "y": num(arrow.from_point.1) }),
+        );
     }
     if arrow.to.is_none() {
-        obj.insert("toPoint".into(), json!({ "x": num(arrow.to_point.0), "y": num(arrow.to_point.1) }));
+        obj.insert(
+            "toPoint".into(),
+            json!({ "x": num(arrow.to_point.0), "y": num(arrow.to_point.1) }),
+        );
     }
     if let Some(l) = &arrow.label {
         obj.insert("label".into(), json!(l));
@@ -317,7 +336,11 @@ pub(crate) fn outline_markdown(title: &str, scene: &Scene) -> String {
             Some(id) => name_of(id),
             None => format!("({}, {})", a.to_point.0.round(), a.to_point.1.round()),
         };
-        let label = a.label.as_ref().map(|l| format!(" (via \"{l}\")")).unwrap_or_default();
+        let label = a
+            .label
+            .as_ref()
+            .map(|l| format!(" (via \"{l}\")"))
+            .unwrap_or_default();
         out.push_str(&format!(
             "- arrow from ({}, {}) → {target}{label}\n",
             a.from_point.0.round(),

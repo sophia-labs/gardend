@@ -66,7 +66,9 @@ pub(crate) fn n(el: &Element, key: &str) -> f64 {
 }
 
 pub(crate) fn is_deleted(el: &Element) -> bool {
-    el.get("isDeleted").and_then(Value::as_bool).unwrap_or(false)
+    el.get("isDeleted")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
 }
 
 pub(crate) fn el_type(el: &Element) -> &str {
@@ -384,7 +386,15 @@ impl Ctx<'_> {
     }
 }
 
-fn base_element(ctx: &mut Ctx, scene: &Scene, kind: &str, x: f64, y: f64, w: f64, h: f64) -> Element {
+fn base_element(
+    ctx: &mut Ctx,
+    scene: &Scene,
+    kind: &str,
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+) -> Element {
     let max_index = scene
         .elements
         .values()
@@ -471,16 +481,30 @@ fn text_element(
     t.insert("originalText".into(), json!(text));
     t.insert("fontSize".into(), json!(FONT_SIZE));
     t.insert("fontFamily".into(), json!(FONT_FAMILY));
-    t.insert("textAlign".into(), json!(if container.is_some() { "center" } else { "left" }));
-    t.insert("verticalAlign".into(), json!(if container.is_some() { "middle" } else { "top" }));
-    t.insert("containerId".into(), container.map_or(Value::Null, |c| json!(c)));
+    t.insert(
+        "textAlign".into(),
+        json!(if container.is_some() {
+            "center"
+        } else {
+            "left"
+        }),
+    );
+    t.insert(
+        "verticalAlign".into(),
+        json!(if container.is_some() { "middle" } else { "top" }),
+    );
+    t.insert(
+        "containerId".into(),
+        container.map_or(Value::Null, |c| json!(c)),
+    );
     t.insert("autoResize".into(), json!(true));
     t.insert("lineHeight".into(), json!(LINE_HEIGHT));
     t
 }
 
 fn apply_color(el: &mut Element, name: &str) {
-    let filled = is_filled(el) || el_type(el) == "rectangle" && s(el, "backgroundColor") != Some("transparent");
+    let filled = is_filled(el)
+        || el_type(el) == "rectangle" && s(el, "backgroundColor") != Some("transparent");
     let (stroke, fill) = match name {
         "black" => (INK.to_string(), None),
         n if palette_pair(n).is_some() => {
@@ -510,8 +534,16 @@ fn exit_point(kind: &str, r: &Rect, toward: (f64, f64)) -> (f64, f64) {
         "ellipse" => 1.0 / ((dx / hw).powi(2) + (dy / hh).powi(2)).sqrt(),
         "diamond" => 1.0 / (dx.abs() / hw + dy.abs() / hh),
         _ => {
-            let tx = if dx == 0.0 { f64::INFINITY } else { hw / dx.abs() };
-            let ty = if dy == 0.0 { f64::INFINITY } else { hh / dy.abs() };
+            let tx = if dx == 0.0 {
+                f64::INFINITY
+            } else {
+                hw / dx.abs()
+            };
+            let ty = if dy == 0.0 {
+                f64::INFINITY
+            } else {
+                hh / dy.abs()
+            };
             tx.min(ty)
         }
     };
@@ -747,8 +779,8 @@ pub(crate) fn apply_moves(
 ) -> Result<Vec<(String, String)>, String> {
     let mut parsed = Vec::new();
     for (i, raw) in moves.iter().enumerate() {
-        let mv: Move = serde_json::from_value(raw.clone())
-            .map_err(|e| format!("move {}: {e}", i + 1))?;
+        let mv: Move =
+            serde_json::from_value(raw.clone()).map_err(|e| format!("move {}: {e}", i + 1))?;
         parsed.push(mv);
     }
     let mut refs = Refs(BTreeMap::new());
@@ -788,7 +820,17 @@ fn run_move(
                     return Err(format!("ref '{name}' is used twice"));
                 }
             }
-            let id = add_shape(scene, ctx, refs, &shape, text.as_deref(), at, near, size, color.as_deref())?;
+            let id = add_shape(
+                scene,
+                ctx,
+                refs,
+                &shape,
+                text.as_deref(),
+                at,
+                near,
+                size,
+                color.as_deref(),
+            )?;
             let name = r#ref.unwrap_or_else(|| id.clone());
             refs.0.insert(name.clone(), id.clone());
             created.push((name, id));
@@ -827,7 +869,15 @@ fn run_move(
                     return Err(format!("ref '{name}' is used twice"));
                 }
             }
-            let id = connect(scene, ctx, &from, &to, label.as_deref(), style.as_deref(), head.as_deref());
+            let id = connect(
+                scene,
+                ctx,
+                &from,
+                &to,
+                label.as_deref(),
+                style.as_deref(),
+                head.as_deref(),
+            );
             let name = r#ref.unwrap_or_else(|| id.clone());
             refs.0.insert(name.clone(), id.clone());
             created.push((name, id));
@@ -849,7 +899,13 @@ fn run_move(
                 touch(ctx, scene, &id, |el| apply_color(el, &color));
             }
             if let Some(link) = link {
-                set_link(scene, ctx, &id, if link.is_empty() { None } else { Some(link) }, None);
+                set_link(
+                    scene,
+                    ctx,
+                    &id,
+                    if link.is_empty() { None } else { Some(link) },
+                    None,
+                );
             }
             if let Some(text) = text {
                 set_text(scene, ctx, &id, &text)?;
@@ -857,7 +913,12 @@ fn run_move(
         }
         Move::Move { id, at, near, by } => {
             let id = refs.resolve(scene, &id)?;
-            if [at.is_some(), near.is_some(), by.is_some()].iter().filter(|b| **b).count() != 1 {
+            if [at.is_some(), near.is_some(), by.is_some()]
+                .iter()
+                .filter(|b| **b)
+                .count()
+                != 1
+            {
                 return Err("move needs exactly one of at, near, by".into());
             }
             let el = scene.elements[&id].clone();
@@ -920,15 +981,18 @@ fn run_move(
             match (document_id, iri, url) {
                 (Some(doc), None, None) => {
                     let title = ctx.titles.get(&doc).cloned();
-                    let title = title.ok_or_else(|| format!("document '{doc}' is not in this graph"))?;
-                    let link = format!(
-                        "mnemosyne://document/{}/{}",
-                        pct(ctx.graph_id),
-                        pct(&doc)
+                    let title =
+                        title.ok_or_else(|| format!("document '{doc}' is not in this graph"))?;
+                    let link = format!("mnemosyne://document/{}/{}", pct(ctx.graph_id), pct(&doc));
+                    set_link(
+                        scene,
+                        ctx,
+                        &id,
+                        Some(link),
+                        Some(json!({
+                            "kind": "document", "graphId": ctx.graph_id, "id": doc, "title": title
+                        })),
                     );
-                    set_link(scene, ctx, &id, Some(link), Some(json!({
-                        "kind": "document", "graphId": ctx.graph_id, "id": doc, "title": title
-                    })));
                 }
                 (None, Some(iri), None) => set_link(scene, ctx, &id, Some(iri), None),
                 (None, None, Some(url)) => {
@@ -987,7 +1051,13 @@ fn pct(value: &str) -> String {
     out
 }
 
-fn set_link(scene: &mut Scene, ctx: &mut Ctx, id: &str, link: Option<String>, record: Option<Value>) {
+fn set_link(
+    scene: &mut Scene,
+    ctx: &mut Ctx,
+    id: &str,
+    link: Option<String>,
+    record: Option<Value>,
+) {
     touch(ctx, scene, id, |el| {
         el.insert("link".into(), link.map_or(Value::Null, Value::String));
         let mut custom = el
@@ -1052,7 +1122,15 @@ fn set_text(scene: &mut Scene, ctx: &mut Ctx, id: &str, text: &str) -> Result<()
                 None if text.is_empty() => {}
                 None => {
                     let r = rect_of(&el);
-                    let t = text_element(ctx, scene, text, &lines, r.cx() - tw / 2.0, r.cy() - th / 2.0, Some(id));
+                    let t = text_element(
+                        ctx,
+                        scene,
+                        text,
+                        &lines,
+                        r.cx() - tw / 2.0,
+                        r.cy() - th / 2.0,
+                        Some(id),
+                    );
                     let tid = insert_element(scene, t);
                     touch(ctx, scene, id, |c| add_bound(c, "text", &tid));
                     if !is_arrow {
@@ -1177,7 +1255,10 @@ fn add_shape(
     color: Option<&str>,
 ) -> Result<String, String> {
     let text = text.unwrap_or("");
-    if !matches!(shape, "box" | "note" | "ellipse" | "diamond" | "text" | "frame") {
+    if !matches!(
+        shape,
+        "box" | "note" | "ellipse" | "diamond" | "text" | "frame"
+    ) {
         return Err(format!(
             "shape '{shape}' is not one of box, note, ellipse, diamond, text, frame"
         ));
@@ -1226,7 +1307,14 @@ fn add_shape(
         el.insert("roundness".into(), json!({ "type": 3 }));
     }
     if shape == "frame" {
-        el.insert("name".into(), json!(if text.is_empty() { Value::Null } else { json!(text) }));
+        el.insert(
+            "name".into(),
+            json!(if text.is_empty() {
+                Value::Null
+            } else {
+                json!(text)
+            }),
+        );
     }
     match shape {
         "note" => {
@@ -1246,14 +1334,28 @@ fn add_shape(
     let id = insert_element(scene, el);
     if shape != "frame" && !text.is_empty() {
         let (tw, th) = measure(&lines);
-        let t = text_element(ctx, scene, text, &lines, x + w / 2.0 - tw / 2.0, y + h / 2.0 - th / 2.0, Some(&id));
+        let t = text_element(
+            ctx,
+            scene,
+            text,
+            &lines,
+            x + w / 2.0 - tw / 2.0,
+            y + h / 2.0 - th / 2.0,
+            Some(&id),
+        );
         let tid = insert_element(scene, t);
         touch(ctx, scene, &id, |c| add_bound(c, "text", &tid));
     }
     Ok(id)
 }
 
-fn place_near(scene: &Scene, refs: &Refs, near: &Near, w: f64, h: f64) -> Result<(f64, f64), String> {
+fn place_near(
+    scene: &Scene,
+    refs: &Refs,
+    near: &Near,
+    w: f64,
+    h: f64,
+) -> Result<(f64, f64), String> {
     let anchor_name = near
         .id
         .as_ref()
@@ -1324,7 +1426,11 @@ fn connect(
     arrow.insert("startArrowhead".into(), Value::Null);
     arrow.insert(
         "endArrowhead".into(),
-        if head == Some("none") { Value::Null } else { json!("arrow") },
+        if head == Some("none") {
+            Value::Null
+        } else {
+            json!("arrow")
+        },
     );
     arrow.insert("elbowed".into(), json!(false));
     if style == Some("dashed") {
@@ -1338,7 +1444,15 @@ fn connect(
         let lines = wrap(label, 30);
         let (tw, th) = measure(&lines);
         let mid = ((start.0 + end.0) / 2.0, (start.1 + end.1) / 2.0);
-        let t = text_element(ctx, scene, label, &lines, mid.0 - tw / 2.0, mid.1 - th / 2.0, Some(&arrow_id));
+        let t = text_element(
+            ctx,
+            scene,
+            label,
+            &lines,
+            mid.0 - tw / 2.0,
+            mid.1 - th / 2.0,
+            Some(&arrow_id),
+        );
         let tid = insert_element(scene, t);
         touch(ctx, scene, &arrow_id, |a| add_bound(a, "text", &tid));
     }
@@ -1368,7 +1482,15 @@ fn make_frame(
     }
     let (x0, y0, x1, y1) = acc.expect("members is non-empty");
     let pad = 32.0;
-    let mut frame = base_element(ctx, scene, "frame", x0 - pad, y0 - pad - 8.0, x1 - x0 + 2.0 * pad, y1 - y0 + 2.0 * pad + 8.0);
+    let mut frame = base_element(
+        ctx,
+        scene,
+        "frame",
+        x0 - pad,
+        y0 - pad - 8.0,
+        x1 - x0 + 2.0 * pad,
+        y1 - y0 + 2.0 * pad + 8.0,
+    );
     frame.insert("name".into(), json!(title));
     let frame_id = insert_element(scene, frame);
     for id in all {
