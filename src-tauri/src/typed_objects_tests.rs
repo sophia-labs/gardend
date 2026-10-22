@@ -103,7 +103,7 @@ fn defining_a_dream_report_reads_back_and_a_second_definition_is_version_two() {
         // The catalogue lists it beside the built-ins.
         let listed = ok(ctx, "emporium_vocab", json!({}));
         let rows = listed["vocabularies"].as_array().unwrap();
-        assert_eq!(rows.iter().filter(|r| r["source"] == "builtin").count(), 23);
+        assert_eq!(rows.iter().filter(|r| r["source"] == "builtin").count(), 24);
         let domain: Vec<&Value> = rows.iter().filter(|r| r["source"] == "domain").collect();
         assert_eq!(domain.len(), 1, "{listed}");
         assert_eq!(domain[0]["name"], "workspace");
