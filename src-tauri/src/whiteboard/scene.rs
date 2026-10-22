@@ -1357,6 +1357,15 @@ fn promote_arrow(
     if predicate.is_empty() {
         return Err("wire needs a predicate".into());
     }
+    // The cell turns the predicate into an IRI; a name that cannot be one (a label with spaces, say) is refused here,
+    // before the arrow is marked, so a refused move writes nothing.
+    if oxigraph::model::NamedNode::new(crate::rdf_workspace_terms::wire_predicate_uri(predicate))
+        .is_err()
+    {
+        return Err(format!(
+            "wire predicate '{predicate}' is not a valid name or IRI: use one word such as supports or condensesInto, or an absolute IRI"
+        ));
+    }
     if wire_mark(&el).is_some() {
         return Err(format!(
             "arrow '{arrow_id}' is already a wire: unwire it first"

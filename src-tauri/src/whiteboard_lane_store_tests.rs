@@ -400,7 +400,7 @@ fn a_user_write_into_the_lane_graph_is_refused_and_changes_nothing() {
             "INSERT DATA {{ GRAPH <{lane_iri}> {{ <urn:mnemosyne:local:document:{doc}#block-{BOX}> \
              <http://www.w3.org/2000/01/rdf-schema#label> \"forged\" }} }}"
         );
-        let refused = env.call("sparql_update", json!({"query": update}));
+        let refused = env.call("sparql_update", json!({"update": update}));
         assert!(refused.is_err(), "the authority gate refuses: {refused:?}");
         assert_eq!(lane_of(env, &doc), before, "the lane is untouched");
     });

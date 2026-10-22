@@ -48,7 +48,10 @@ pub(super) fn ranked_semantic_hits(
 pub(super) fn semantic_block_sources(documents: &[DocumentRecord]) -> Vec<SemanticBlockSource> {
     let mut sources = Vec::new();
     for document in documents {
-        if document.blocks.is_empty() {
+        // A board also keeps its body passage beside its shape blocks: its indexable shapes are only those of three
+        // words or more, so a board of short notes, its arrow labels and its title would otherwise leave the index.
+        let is_board = crate::whiteboard::is_whiteboard(document.document_kind.as_deref());
+        if document.blocks.is_empty() || is_board {
             let content = normalize_semantic_text(&document.body);
             if semantic_text_is_indexable(&content) {
                 let iri = if document.rdf_subject.trim().is_empty() {
@@ -69,7 +72,9 @@ pub(super) fn semantic_block_sources(documents: &[DocumentRecord]) -> Vec<Semant
                     order: 0.0,
                 });
             }
-            continue;
+            if document.blocks.is_empty() {
+                continue;
+            }
         }
 
         for block in &document.blocks {

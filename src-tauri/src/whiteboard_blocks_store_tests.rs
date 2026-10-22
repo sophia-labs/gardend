@@ -179,8 +179,12 @@ fn semantic_sources_are_per_shape() {
         let record = env.record(&doc);
         let sources = crate::semantic_search_projection::semantic_block_sources(&[record.clone()]);
         assert!(
-            sources.iter().all(|s| s.block_id != "body" && s.kind == "block"),
-            "a board with shapes is indexed shape by shape, never as one body passage"
+            sources.iter().filter(|s| s.block_id == "body").count() == 1,
+            "a board keeps one body passage, so short notes, arrow labels and the title stay searchable"
+        );
+        assert!(
+            sources.iter().filter(|s| s.block_id != "body").all(|s| s.kind == "block"),
+            "and its indexable shapes are passages of their own"
         );
         // The index keeps passages of three words or more: the box, the card and the linked box. The note
         // ("condensation") and the frame ("Dream-work") are blocks but too short to index.
@@ -189,12 +193,13 @@ fn semantic_sources_are_per_shape() {
         assert_eq!(
             ids,
             vec![
+                "body",
                 "box0000000000000000001",
                 "crd0000000000000000001",
                 "lnk0000000000000000001"
             ]
         );
-        for source in &sources {
+        for source in sources.iter().filter(|s| s.block_id != "body") {
             assert_eq!(
                 source.iri,
                 format!("{}#block-{}", record.rdf_subject, source.block_id),
