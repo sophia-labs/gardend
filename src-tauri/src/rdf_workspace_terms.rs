@@ -63,6 +63,20 @@ pub(super) fn mark_ref_uri(document_id: &str, block_id: &str, mark_id: &str) -> 
     }
 }
 
+/// True for an absolute IRI an N-Triples store can hold: a scheme, and none of the characters an IRI refuses.
+/// The caller checks this before a wire is written; [`resource_ref_uri`] does not.
+pub(crate) fn is_absolute_resource_iri(iri: &str) -> bool {
+    oxigraph::model::NamedNode::new(iri).is_ok()
+}
+
+/// The node of a wire end that is an object, not a document (`wire:sourceResource` / `wire:targetResource`).
+/// An absolute IRI passes through verbatim: it is never wrapped as a document (`document_ref_uri` would turn a
+/// bare id into `urn:mnemosyne:local:document:…`, which is exactly what an object must not become). Anything that
+/// is not absolute is refused by the caller ([`is_absolute_resource_iri`]) before this point.
+pub(crate) fn resource_ref_uri(iri: &str) -> String {
+    iri.to_string()
+}
+
 pub(super) fn wire_predicate_uri(predicate: &str) -> String {
     if predicate.starts_with("http://")
         || predicate.starts_with("https://")
@@ -124,6 +138,26 @@ mod tests {
             block_ref_uri("doc-a", "urn:mnemosyne:document:doc-a#block-existing"),
             "urn:mnemosyne:document:doc-a#block-existing"
         );
+    }
+
+    #[test]
+    fn resource_ref_uri_passes_an_object_iri_through_and_never_wraps_it_as_a_document() {
+        let iri = "urn:mnemosyne:local:graph:wb-graph:dream:wolf-man";
+        assert_eq!(resource_ref_uri(iri), iri);
+        // `document_ref_uri` keeps a urn:mnemosyne: value too, but wraps every other absolute IRI.
+        assert_eq!(
+            resource_ref_uri("https://example.org/o/1"),
+            "https://example.org/o/1"
+        );
+        assert_ne!(
+            document_ref_uri("https://example.org/o/1"),
+            "https://example.org/o/1"
+        );
+        assert!(is_absolute_resource_iri(iri));
+        assert!(is_absolute_resource_iri("https://example.org/o/1"));
+        assert!(!is_absolute_resource_iri("doc-a"));
+        assert!(!is_absolute_resource_iri("urn:has space"));
+        assert!(!is_absolute_resource_iri(""));
     }
 
     #[test]

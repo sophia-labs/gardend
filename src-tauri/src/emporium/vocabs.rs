@@ -90,7 +90,7 @@ pub(crate) const SEMANTIC_GOLDEN_SHA: &str =
 pub(crate) const WIRES_GOLDEN_JSON: &str = include_str!("vocabs/emporium-wires.golden.json");
 /// Pinned sha256 — recompute with `shasum -a 256 src/emporium/vocabs/emporium-wires.golden.json`.
 pub(crate) const WIRES_GOLDEN_SHA: &str =
-    "bdebca3cd0def257b5a3e99aa13c033c031442165aa3d93262731fcd015042ad";
+    "309ac34605e34b11754605472294f27bb1329689eb0e637d0e32327ff2b16fa0";
 
 /// The `emporium-song` retrofit contract (MULTI-CLASS union Song/SongVerse/SongCoda,
 /// flat per-class shapes DERIVED; the cross-class invariant verseIndex==position is

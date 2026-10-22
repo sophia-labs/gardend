@@ -1,7 +1,7 @@
 {
     "classes": {
         "Wire": {
-            "comment": "Reified cross-document Wire Meaningful Object. ONE wire:Wire subject per wire in the :projection:workspace named graph, minted as workspace_entity_subject(graph_id, \"wire\", id). Code-defined span (rdf_wire_materializer::wire_subject_triples = the rdf:type head + push_wire_triples body) — this contract is the AUTHORED mirror of that span, used to DERIVE the SHACL conformance shapes. SINGLE CLASS, flat (~24 predicates), fully DERIVED. DANGLING ENDPOINTS ARE ALLOWED BY DESIGN: sourceDocument/targetDocument/sourceBlock/targetBlock/sourceContext/targetContext are sh:nodeKind sh:IRI (they ARE IRIs) but the shapes DELIBERATELY do NOT enforce referential integrity (sh:class) — a wire may reference a document/block that does not exist (proven by oracle_dangling_endpoint_still_emitted_w1). Endpoint-consistency would be a hand-authored complement, NOT part of these shapes. Only rdf:type + wire:targetGraph are always-emitted; every other predicate is required:false (construction-driven, present only when the source field is present).",
+            "comment": "Reified cross-document Wire Meaningful Object. ONE wire:Wire subject per wire in the :projection:workspace named graph, minted as workspace_entity_subject(graph_id, \"wire\", id). Code-defined span (rdf_wire_materializer::wire_subject_triples = the rdf:type head + push_wire_triples body) — this contract is the AUTHORED mirror of that span, used to DERIVE the SHACL conformance shapes. SINGLE CLASS, flat (~27 predicates), fully DERIVED. DANGLING ENDPOINTS ARE ALLOWED BY DESIGN: sourceDocument/targetDocument/sourceBlock/targetBlock/sourceContext/targetContext are sh:nodeKind sh:IRI (they ARE IRIs) but the shapes DELIBERATELY do NOT enforce referential integrity (sh:class) — a wire may reference a document/block that does not exist (proven by oracle_dangling_endpoint_still_emitted_w1). Endpoint-consistency would be a hand-authored complement, NOT part of these shapes. Only rdf:type + wire:targetGraph are always-emitted; every other predicate is required:false (construction-driven, present only when the source field is present).",
             "predicates": {
                 "wire:sourceDocument": {
                     "datatype": "uri",
@@ -26,6 +26,18 @@
                     "multi": false,
                     "required": false,
                     "comment": "endpoint IRI — may dangle"
+                },
+                "wire:sourceResource": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "comment": "the source end is an OBJECT (a typed object on a board as a card), not a document: an absolute object IRI, never wrapped as a document. An end has wire:sourceDocument OR wire:sourceResource, never both. Referential integrity NOT enforced."
+                },
+                "wire:targetResource": {
+                    "datatype": "uri",
+                    "multi": false,
+                    "required": false,
+                    "comment": "the target end is an OBJECT, not a document: an absolute object IRI, never wrapped as a document. An end has wire:targetDocument OR wire:targetResource, never both. Referential integrity NOT enforced."
                 },
                 "wire:sourceContext": {
                     "datatype": "uri",
@@ -83,6 +95,12 @@
                     "multi": false,
                     "required": false
                 },
+                "wire:sceneDocumentId": {
+                    "datatype": "string",
+                    "multi": false,
+                    "required": false,
+                    "comment": "the board (a whiteboard document) the arrow was drawn on; sceneArtifactId stays for artifact scenes"
+                },
                 "wire:sceneArtifactId": {
                     "datatype": "string",
                     "multi": false,
@@ -132,7 +150,7 @@
         }
     },
     "comment": "EA-2b+ SHACL retrofit contract for the WIRE Meaningful Object (structural fork: the no-referential-integrity note). NOT a served emporium pack — an AUTHORED mirror of the code-defined wire_subject_triples span, whose sole consumer is vocab_to_shacl. wire: is the runtime WIRE_NS (http://mnemosyne.ai/vocab#) — the namespace the materializer mints rdf:type mnemo:Wire AND the wire:* predicates under (the gardend MNEMO vocab prefix). primary_prefix=wire so wire:Wire is the shape target. mdoc: is MDOC_NS (the single createdAt exception). The flat closed shape is COMPLETE and CORRECT for wires; the only structural subtlety is what it must NOT do — enforce endpoint existence.",
-    "description": "A reified cross-document wire: rdf:type wire:Wire plus endpoint IRIs (source/target document/block/context — referential integrity unenforced), the predicate, optional bidirectional/inverseOf, the always-on targetGraph, and scene/temporal scalar metadata.",
+    "description": "A reified cross-document wire: rdf:type wire:Wire plus endpoint IRIs (source/target document/block/context, or an object resource in place of a document — referential integrity unenforced), the predicate, optional bidirectional/inverseOf, the always-on targetGraph, and scene/temporal scalar metadata.",
     "name": "emporium-wires",
     "namespaces": {
         "mdoc": "http://mnemosyne.dev/doc#",
