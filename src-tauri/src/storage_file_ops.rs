@@ -125,15 +125,44 @@ pub fn append_secret_line(path: &Path, line: &str) -> AppResult<()> {
     Ok(())
 }
 
+/// Persist newly created directory entries, including missing ancestors.
+/// Graph lookups call this to heal their layout on reads; an existing directory
+/// changes nothing and must not force a full-drive flush on macOS.
 pub fn create_dir_all(path: &Path) -> AppResult<()> {
-    fs::create_dir_all(path)
-        .map_err(|error| AppError::storage(format!("create {}: {error}", display_path(path))))?;
-    if let Some(parent) = path.parent() {
-        if !parent.as_os_str().is_empty() {
-            sync_parent_dir(parent).map_err(AppError::storage)?;
-        }
+    if path.as_os_str().is_empty() {
+        return Ok(());
     }
-    Ok(())
+    let result = match fs::create_dir(path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            if let Some(parent) = path.parent() {
+                create_dir_all(parent)?;
+            }
+            fs::create_dir(path)
+        }
+        result => result,
+    };
+    match result {
+        Ok(()) => {
+            if let Some(parent) = path.parent() {
+                // A single-component relative path has an empty parent: its
+                // new entry belongs to the current directory.
+                let parent = if parent.as_os_str().is_empty() {
+                    Path::new(".")
+                } else {
+                    parent
+                };
+                sync_parent_dir(parent).map_err(AppError::storage)?;
+            }
+            Ok(())
+        }
+        // Also accepts a directory made by a concurrent creator, which owns
+        // the sync of its new entry, just as we own the successful mkdir above.
+        Err(_) if path.is_dir() => Ok(()),
+        Err(error) => Err(AppError::storage(format!(
+            "create {}: {error}",
+            display_path(path)
+        ))),
+    }
 }
 
 #[cfg(test)]
@@ -176,6 +205,18 @@ mod tests {
         assert!(path.is_dir());
         create_dir_all(&path).expect("create existing directory");
         assert!(path.is_dir());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn create_dir_all_refuses_file_at_target_or_ancestor() {
+        let root = temp_test_path("mkdir-file").with_extension("");
+        let path = root.join("file");
+        write_bytes(&path, b"keep").expect("write blocking file");
+
+        assert!(create_dir_all(&path).is_err());
+        assert!(create_dir_all(&path.join("child")).is_err());
+        assert_eq!(read_bytes(&path).expect("read blocking file"), b"keep");
         let _ = fs::remove_dir_all(root);
     }
 

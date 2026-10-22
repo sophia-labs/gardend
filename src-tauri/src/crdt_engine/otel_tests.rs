@@ -84,6 +84,195 @@ fn attribute<'a>(span: &'a SpanData, key: &str) -> Option<&'a opentelemetry::Val
         .map(|kv| &kv.value)
 }
 
+fn fsync_kinds(span: &SpanData) -> Vec<String> {
+    span.events
+        .events
+        .iter()
+        .filter(|event| event.name == "fsync")
+        .map(|event| {
+            event
+                .attributes
+                .iter()
+                .find(|kv| kv.key.as_str() == "sophia.fsync.what")
+                .map(|kv| kv.value.to_string())
+                .unwrap_or_default()
+        })
+        .collect()
+}
+
+#[test]
+fn existing_document_reads_queries_and_room_opens_do_not_fsync() {
+    let profile = Profile::new();
+    let app = profile.app();
+    let (provider, exporter, dispatch) = test_support::capture(true);
+    tracing::dispatcher::with_default(&dispatch, || {
+        runtime().block_on(async {
+            crate::crdt_queue::enqueue_crdt_operation(
+                app.clone(),
+                EnqueueCrdtOperationInput {
+                    kind: "document.write".to_string(),
+                    graph_id: GRAPH.to_string(),
+                    document_id: Some("read-doc".to_string()),
+                    payload: json!({"title": "Read test", "content": MARKER, "format": "markdown"}),
+                },
+            )
+            .instrument(tracing::info_span!(target: "gardend_otel", "test.document.write"))
+            .await
+            .expect("persist through the real queue");
+            let graph_dir = crate::graph_paths::existing_graph_dir(&app, GRAPH).unwrap();
+            let incarnation = crate::document_incarnation_store::ensure_document_incarnation_id(
+                &graph_dir, "read-doc",
+            )
+            .unwrap();
+            crate::rdf_seed_service::ensure_graph_store_seeded(&graph_dir).unwrap();
+            crate::rdf_store_service::evict_graph_store(&graph_dir).unwrap();
+            // A fresh registry and evicted store exercise disk hydration on
+            // the first pass, then the same reads exercise cached authorities.
+            let registry = RoomRegistry::default();
+            for _ in 0..2 {
+                tracing::info_span!(target: "gardend_otel", "test.read_document").in_scope(|| {
+                    let record = crate::document_service::read_document(
+                        app.clone(),
+                        GRAPH.to_string(),
+                        "read-doc".to_string(),
+                    )
+                    .unwrap();
+                    assert!(record.body.contains(MARKER));
+                });
+                tracing::info_span!(target: "gardend_otel", "test.list_documents").in_scope(|| {
+                    let documents =
+                        crate::document_service::list_documents(app.clone(), GRAPH.to_string())
+                            .unwrap();
+                    assert!(documents
+                        .iter()
+                        .any(|record| record.document_id == "read-doc"));
+                });
+                tracing::info_span!(target: "gardend_otel", "test.sparql_query").in_scope(|| {
+                    let result = crate::rdf_service::run_sparql_query_service(
+                        app.clone(),
+                        crate::rdf_service::SparqlInput {
+                            graph_id: GRAPH.to_string(),
+                            query: "ASK { ?s ?p ?o }".to_string(),
+                        },
+                    )
+                    .unwrap();
+                    assert_eq!(result.boolean, Some(true));
+                });
+                async {
+                    // The existing-graph branch of doc_room, through its
+                    // existence/identity checks, hydration and initial sync;
+                    // no socket listener is needed to exercise these paths.
+                    let coordinator = app.state::<GraphPersistenceCoordinator>();
+                    let _lease = coordinator.acquire_lifecycle_shared(GRAPH).await.unwrap();
+                    let graph_dir =
+                        crate::graph_paths::existing_graph_dir_no_heal(&app, GRAPH).unwrap();
+                    assert!(
+                        crate::loopback_hocuspocus_routes::document_exists_for_room_connection(
+                            &registry, GRAPH, &graph_dir, "read-doc",
+                        )
+                        .await
+                        .unwrap()
+                    );
+                    assert_eq!(
+                        crate::document_incarnation_store::ensure_document_incarnation_id(
+                            &graph_dir, "read-doc",
+                        )
+                        .unwrap(),
+                        incarnation
+                    );
+                    let room = registry
+                        .get_or_create(
+                            "doc:otel-graph:read-doc",
+                            crate::ydoc_paths::document_ydoc_state_path(&graph_dir, "read-doc"),
+                        )
+                        .await
+                        .unwrap();
+                    room.configure_projection_flush(
+                        GRAPH.to_string(),
+                        Some("read-doc".to_string()),
+                    )
+                    .unwrap();
+                    super::rooms::initial_sync_delivery(&app, GRAPH, &room, async {
+                        assert!(!room.encode_state_for_test().await.is_empty());
+                        Ok(())
+                    })
+                    .await
+                    .unwrap();
+                }
+                .instrument(tracing::info_span!(target: "gardend_otel", "test.room_open"))
+                .await;
+            }
+        })
+    });
+    provider.force_flush().unwrap();
+    let spans = exporter.get_finished_spans().unwrap();
+    for name in [
+        "test.read_document",
+        "test.list_documents",
+        "test.sparql_query",
+        "test.room_open",
+    ] {
+        let reads: Vec<_> = spans.iter().filter(|span| span.name == name).collect();
+        assert_eq!(reads.len(), 2, "cold and cached {name}");
+        for read in reads {
+            // Count descendants too: moving a sync into a child span must
+            // not make a read appear to have stopped flushing.
+            let syncs: Vec<_> = spans
+                .iter()
+                .filter(|span| span.span_context.trace_id() == read.span_context.trace_id())
+                .flat_map(fsync_kinds)
+                .collect();
+            assert!(syncs.is_empty(), "{name} forced flushes: {syncs:?}");
+        }
+    }
+    let write = spans
+        .iter()
+        .find(|span| span.name == "test.document.write")
+        .unwrap();
+    let syncs: Vec<_> = spans
+        .iter()
+        .filter(|span| span.span_context.trace_id() == write.span_context.trace_id())
+        .flat_map(fsync_kinds)
+        .collect();
+    assert!(syncs.iter().any(|what| what == "atomic.file"));
+    assert!(syncs.iter().any(|what| what == "dir"));
+}
+
+#[test]
+fn missing_directories_are_synced_once_and_graph_layout_still_heals() {
+    let profile = Profile::new();
+    let app = profile.app();
+    let graph_dir = crate::graph_paths::existing_graph_dir(&app, GRAPH).unwrap();
+    let artifacts = crate::graph_paths::artifacts_dir(&graph_dir);
+    std::fs::remove_dir(&artifacts).unwrap();
+    let nested = profile.path.join("new-parent/nested/leaf");
+    let (provider, exporter, dispatch) = test_support::capture(true);
+    tracing::dispatcher::with_default(&dispatch, || {
+        tracing::info_span!(target: "gardend_otel", "test.mkdir").in_scope(|| {
+            crate::storage::create_dir_all(&nested).unwrap();
+        });
+        tracing::info_span!(target: "gardend_otel", "test.heal").in_scope(|| {
+            crate::graph_paths::existing_graph_dir(&app, GRAPH).unwrap();
+        });
+        tracing::info_span!(target: "gardend_otel", "test.existing_dirs").in_scope(|| {
+            crate::storage::create_dir_all(&nested).unwrap();
+            crate::graph_paths::existing_graph_dir(&app, GRAPH).unwrap();
+        });
+    });
+    assert!(nested.is_dir());
+    assert!(artifacts.is_dir());
+    provider.force_flush().unwrap();
+    let spans = exporter.get_finished_spans().unwrap();
+    for (name, expected) in [
+        ("test.mkdir", 3),
+        ("test.heal", 1),
+        ("test.existing_dirs", 0),
+    ] {
+        let span = spans.iter().find(|span| span.name == name).unwrap();
+        assert_eq!(fsync_kinds(span), vec!["dir"; expected], "{name}");
+    }
+}
+
 #[test]
 fn room_updates_debounce_into_a_linked_flush_without_content() {
     let profile = Profile::new();
@@ -479,22 +668,8 @@ fn an_atomic_write_counts_its_fsyncs_on_the_open_span() {
     provider.force_flush().unwrap();
     let spans = exporter.get_finished_spans().unwrap();
     let write = spans.iter().find(|span| span.name == "test.write").unwrap();
-    let what: Vec<String> = write
-        .events
-        .events
-        .iter()
-        .filter(|event| event.name == "fsync")
-        .map(|event| {
-            event
-                .attributes
-                .iter()
-                .find(|kv| kv.key.as_str() == "sophia.fsync.what")
-                .map(|kv| kv.value.to_string())
-                .unwrap_or_default()
-        })
-        .collect();
     // The file, then its directory: two full-drive flushes for one small record on macOS.
-    assert_eq!(what, ["atomic.file", "dir"]);
+    assert_eq!(fsync_kinds(write), ["atomic.file", "dir"]);
     assert!(!test_support::json(&spans).contains(MARKER));
     let _ = std::fs::remove_dir_all(&dir);
 }
