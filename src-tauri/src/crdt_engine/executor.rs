@@ -9,6 +9,7 @@
 //! Unported kinds fail fast with a clear error instead of letting callers
 //! hang into the 600s queue timeout.
 
+use super::persistence_coordinator::HotWriteLease;
 use crate::app_runtime::AppHandle;
 use crate::crdt_operation_journal::record_crdt_operation_completion;
 use crate::crdt_operation_queue::RetrySchedule;
@@ -327,10 +328,10 @@ pub(super) async fn apply_operation_classified(
     if let Some(coordinator) =
         app.try_state::<super::persistence_coordinator::GraphPersistenceCoordinator>()
     {
-        let graph_guard = coordinator.acquire_hot_write(&operation.graph_id).await?;
+        let mut graph_guard = coordinator.acquire_hot_write(&operation.graph_id).await?;
         graph_guard.set_crdt_kind(&operation.kind);
         require_current_graph_incarnation(app, operation)?;
-        return apply_operation_inner(app, operation).await;
+        return apply_operation_inner(app, operation, Some(&mut graph_guard)).await;
     }
     // Standalone harnesses compile handlers without the production managed
     // state. They remain useful pure-operation tests, while setup_core always
@@ -343,7 +344,7 @@ pub(super) async fn apply_operation_classified(
             "expected-incarnation execution requires a managed graph lifecycle coordinator",
         ));
     }
-    apply_operation_inner(app, operation).await
+    apply_operation_inner(app, operation, None).await
 }
 
 fn require_current_graph_incarnation(
@@ -400,6 +401,7 @@ fn require_current_graph_incarnation(
 async fn apply_operation_inner(
     app: &AppHandle,
     operation: &CrdtOperation,
+    lease: Option<&mut HotWriteLease>,
 ) -> ApplyOperationResult<Value> {
     // W6: an operation admitted under a visitor's fence is checked again here,
     // against the workspace it meets (and on recovery), before it runs; its
@@ -424,7 +426,7 @@ async fn apply_operation_inner(
             let policy = crate::visitor_fence::RoomPolicy { fence, document_id };
             return match crate::visitor_fence::under_room_policy(
                 policy,
-                apply_operation_dispatch(app, operation),
+                apply_operation_dispatch(app, operation, lease),
             )
             .await
             {
@@ -442,12 +444,13 @@ async fn apply_operation_inner(
         }
         Err(error) => return Err(ApplyOperationError::terminal(error)),
     }
-    apply_operation_dispatch(app, operation).await
+    apply_operation_dispatch(app, operation, lease).await
 }
 
 async fn apply_operation_dispatch(
     app: &AppHandle,
     operation: &CrdtOperation,
+    lease: Option<&mut HotWriteLease>,
 ) -> ApplyOperationResult<Value> {
     let kind = operation.kind.as_str();
     if let Some(ids) = operation
@@ -488,9 +491,11 @@ async fn apply_operation_dispatch(
             .map_err(ApplyOperationError::from),
         "document.createOnce" => super::create_once::apply(app, operation).await,
         "artifact.mutateText" => crate::artifact_text_service::apply(app, operation).await,
-        "document.editComment" => super::document_ops::edit_comment_classified(app, operation)
-            .await
-            .map_err(ApplyOperationError::from),
+        "document.editComment" => {
+            super::document_ops::edit_comment_with_lease(app, operation, lease)
+                .await
+                .map_err(ApplyOperationError::from)
+        }
         "document.editComments" => super::document_ops::edit_comments_classified(app, operation)
             .await
             .map_err(ApplyOperationError::from),
@@ -527,7 +532,7 @@ async fn apply_operation_dispatch(
             .await
             .map_err(ApplyOperationError::from),
         "block.insert" | "block.update" | "block.editText" | "block.delete" => {
-            super::block_ops::apply_classified(app, operation)
+            super::block_ops::apply_with_lease(app, operation, lease)
                 .await
                 .map_err(ApplyOperationError::from)
         }

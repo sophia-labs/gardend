@@ -9,7 +9,10 @@ use crate::{
     },
     document_history_store::{LocalDocumentTailCommit, DOCUMENT_TAIL_COMMIT_SCHEMA_VERSION},
     document_meaningful_object::reconcile_document_record,
-    document_record_store::{read_workspace_record, write_document_record, write_ydoc_update},
+    document_record_store::{
+        read_workspace_record, write_document_projection_record, write_document_record,
+        write_ydoc_update,
+    },
     document_service::{
         DocumentRecord, SaveDocumentInput, SaveDocumentYDocStateInput, SaveWorkspaceYDocStateInput,
     },
@@ -372,7 +375,17 @@ pub(crate) fn save_document_with_lease(
     app: AppHandle,
     input: SaveDocumentInput,
 ) -> Result<DocumentRecord, String> {
-    save_document_with_tombstone_fence(app, input, None)
+    save_document_with_tombstone_fence(app, input, None, true)
+}
+
+/// The room committed its Y.Doc before entering the ordered projection gate.
+/// This save may run with only a lifecycle-shared lease: it must not overwrite
+/// a newer client update in the authority sidecar with its captured snapshot.
+pub(crate) fn save_room_document_projection(
+    app: AppHandle,
+    input: SaveDocumentInput,
+) -> Result<DocumentRecord, String> {
+    save_document_with_tombstone_fence(app, input, None, false)
 }
 
 /// Persist a fresh same-ID authority while retaining its public deletion
@@ -383,7 +396,7 @@ pub(crate) fn save_document_for_recreation(
     input: SaveDocumentInput,
     expected_deletion_id: &str,
 ) -> Result<DocumentRecord, String> {
-    save_document_with_tombstone_fence(app, input, Some(expected_deletion_id))
+    save_document_with_tombstone_fence(app, input, Some(expected_deletion_id), true)
 }
 
 #[tracing::instrument(target = "gardend_otel", name = "document.save", skip_all,
@@ -392,6 +405,7 @@ fn save_document_with_tombstone_fence(
     app: AppHandle,
     input: SaveDocumentInput,
     expected_deletion_id: Option<&str>,
+    write_authority: bool,
 ) -> Result<DocumentRecord, String> {
     let _flush_guard = crate::cell_durability::write_guard();
     require_no_active_restore(&app, &input.graph_id)?;
@@ -445,7 +459,11 @@ fn save_document_with_tombstone_fence(
     document.updated_at = timestamp();
 
     let write_started = Instant::now();
-    write_document_record(&graph_dir, &document)?;
+    if write_authority {
+        write_document_record(&graph_dir, &document)?;
+    } else {
+        write_document_projection_record(&graph_dir, &document)?;
+    }
     record_crdt_phase(
         &app,
         trace_operation_id.as_deref(),

@@ -1,7 +1,9 @@
 pub(super) use crate::document_sidecar_store::write_ydoc_update;
 pub(super) use crate::workspace_record_store::read_workspace_record;
 use crate::{
-    document_sidecar_store::{read_ydoc_update_base64, write_document_state_files},
+    document_sidecar_store::{
+        read_ydoc_update_base64, write_document_projection_files, write_document_state_files,
+    },
     document_types::DocumentRecord,
     ids::validate_local_id,
     paths::{document_ydoc_state_path, documents_dir, ensure_document_dirs},
@@ -248,19 +250,39 @@ fn visit_graph_documents_cold(
     Ok(())
 }
 
+pub(super) fn write_document_record(
+    graph_dir: &Path,
+    document: &DocumentRecord,
+) -> Result<(), String> {
+    write_document_record_inner(graph_dir, document, true)
+}
+
+/// Write the room's disposable faces without rewriting its newer authority.
+pub(super) fn write_document_projection_record(
+    graph_dir: &Path,
+    document: &DocumentRecord,
+) -> Result<(), String> {
+    write_document_record_inner(graph_dir, document, false)
+}
+
 #[tracing::instrument(target = "gardend_otel", name = "document.record.write", skip_all,
     fields(sophia.graph.id = %document.graph_id, sophia.document.id = %document.document_id,
         sophia.document.body_bytes = document.body.len() as u64,
         sophia.document.blocks = document.blocks.len() as u64,
         sophia.document.revision = document.revision))]
-pub(super) fn write_document_record(
+fn write_document_record_inner(
     graph_dir: &Path,
     document: &DocumentRecord,
+    write_authority: bool,
 ) -> Result<(), String> {
     crate::document_body_availability::require_available(graph_dir, &document.document_id)?;
     let _durability_guard = crate::cell_durability::write_guard();
     let (document_dir, _) = ensure_document_dirs(graph_dir, &document.document_id)?;
-    write_document_state_files(graph_dir, document)?;
+    if write_authority {
+        write_document_state_files(graph_dir, document)?;
+    } else {
+        write_document_projection_files(graph_dir, document)?;
+    }
     write_json(&document_dir.join("document.json"), document).map_err(Into::into)
 }
 
