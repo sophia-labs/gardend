@@ -438,8 +438,9 @@ mod tests {
         // + read_scan_text and scan_text_layer (graph-scoped) = 110,
         // + workflow_run_record (graph-scoped) = 111, + emporium_describe
         // (graph-scoped; emporium_vocab moved from global to graph-scoped and
-        // stays visible) = 112, + the three whiteboard tools (graph-scoped) = 115.
-        assert_eq!(names.len(), 115);
+        // stays visible) = 112, + the three whiteboard tools (graph-scoped) = 115,
+        // + get_backlinks (graph-scoped) = 116.
+        assert_eq!(names.len(), 116);
         for added in ["custom_css", "agent_status", "agent_self_image", "status"] {
             assert!(names.contains(added), "missing default tool {added}");
         }

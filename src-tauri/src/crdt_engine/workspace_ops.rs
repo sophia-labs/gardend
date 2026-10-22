@@ -4061,8 +4061,10 @@ mod tests {
         assert_eq!(wire["sceneTargetElementId"], "crd0000000000000000001");
         assert_eq!(wire["sceneStableKey"], "wb:wb-board:arw0000000000000000002");
         assert!(wire.get("sourceIri").is_none());
+        // `extra` carries the wire's own snapshotAt; the new fields must not have landed in it.
+        let extra = wire["extra"].as_object().cloned().unwrap_or_default();
         assert!(
-            wire.get("extra").is_none(),
+            extra.keys().all(|key| key == "snapshotAt"),
             "the new fields are known fields, not extras: {wire}"
         );
 
