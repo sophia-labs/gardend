@@ -241,7 +241,7 @@
       "properties": ["graphId"]
     },
     "get_backlinks": {
-      "required": ["graphId"],
+      "required": [],
       "properties": ["blockId", "documentId", "graphId", "iri"]
     },
     "get_wires": {

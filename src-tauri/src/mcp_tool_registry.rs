@@ -280,8 +280,8 @@ mod tests {
         // + workflow_plan_publish = 120, + the scan reader's two
         // (read_scan_text, scan_text_layer) = 122, + workflow_run_record = 123,
         // + emporium_describe (typed objects) = 124, + the three whiteboard
-        // tools (whiteboard_create/read/apply) = 127.
-        assert_eq!(tools.len(), 127);
+        // tools (whiteboard_create/read/apply) = 127, + get_backlinks = 128.
+        assert_eq!(tools.len(), 128);
 
         let known_scopes = loopback_scope_keys()
             .into_iter()
@@ -399,8 +399,8 @@ mod tests {
         .expect("desktop tools list serializes");
         let tools = result["tools"].as_array().expect("tools");
 
-        // 124 registered tools minus the two explicitly optional CSS schemas.
-        assert_eq!(tools.len(), 125);
+        // 128 registered tools minus the two explicitly optional CSS schemas.
+        assert_eq!(tools.len(), 126);
         assert!(tools.iter().any(|tool| tool["name"] == "read_document"));
         assert!(tools.iter().any(|tool| tool["name"] == "write_document"));
         assert!(tools
@@ -661,7 +661,7 @@ mod tests {
             tools.len()
         }
 
-        assert_eq!(audit("catalog", &mcp_tools_list_result()), 127);
+        assert_eq!(audit("catalog", &mcp_tools_list_result()), 128);
         let desktop = crate::cell_graph_boundary::CellGraphBoundary::for_test(None);
         let cell = crate::cell_graph_boundary::CellGraphBoundary::for_test(Some("graph-a"));
         for role in [
