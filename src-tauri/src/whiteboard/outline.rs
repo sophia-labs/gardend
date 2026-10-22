@@ -3,8 +3,10 @@
 //! the saved record's `body` (so search, `read_document` and the semantic index
 //! see the words). The same board always gives the same bytes.
 
+use super::links::LinkTarget;
 use super::scene::{
-    bound_text, color_name_of, is_bound_text, is_deleted, n, rect_of, s, shape_kind, Element, Scene,
+    bound_text, card_target, color_name_of, is_bound_text, is_deleted, n, rect_of, s, shape_kind,
+    wire_mark, Element, Scene,
 };
 use serde_json::{json, Value};
 
@@ -95,13 +97,51 @@ fn link_title_of(el: &Element) -> Option<String> {
         .map(str::to_string)
 }
 
+/// What a card says about its target: the snapshot in `customData.mnemosyne`, else the link's own ids.
+fn card_read(el: &Element) -> Option<CardRead> {
+    let target = card_target(el)?;
+    let snapshot = |key: &str| {
+        el.get("customData")
+            .and_then(|c| c.get("mnemosyne"))
+            .and_then(|c| c.get(key))
+            .and_then(Value::as_str)
+            .filter(|v| !v.trim().is_empty())
+            .map(str::to_string)
+    };
+    Some(match target {
+        LinkTarget::Object { iri, .. } => {
+            let iri = snapshot("iri").unwrap_or(iri);
+            CardRead {
+                label: flat(&snapshot("label").unwrap_or_else(|| iri.clone())),
+                class_label: flat(&snapshot("classLabel").unwrap_or_default()),
+                iri: Some(iri),
+                document_id: None,
+            }
+        }
+        LinkTarget::Document { document_id, .. } => {
+            let document_id = snapshot("id").unwrap_or(document_id);
+            CardRead {
+                label: flat(&snapshot("title").unwrap_or_else(|| document_id.clone())),
+                class_label: String::new(),
+                iri: None,
+                document_id: Some(document_id),
+            }
+        }
+        LinkTarget::Artifact { .. } => return None,
+    })
+}
+
 pub(crate) fn shapes(scene: &Scene) -> Vec<Shape> {
     let mut out: Vec<Shape> = scene
         .live()
         .filter(|(_, el)| !is_bound_text(el) && s(el, "type") != Some("arrow"))
         .map(|(id, el)| {
             let kind = shape_kind(el);
-            let text = if kind == "text" {
+            // A card is not a text container: its words are the label its snapshot keeps.
+            let card = if kind == "card" { card_read(el) } else { None };
+            let text = if let Some(card) = &card {
+                card.label.clone()
+            } else if kind == "text" {
                 typed_text(el)
             } else if kind == "frame" {
                 s(el, "name").unwrap_or("").to_string()
@@ -128,7 +168,7 @@ pub(crate) fn shapes(scene: &Scene) -> Vec<Shape> {
                 link: s(el, "link").map(str::to_string),
                 link_title: link_title_of(el),
                 by: by_of(el),
-                card: None,
+                card,
             }
         })
         .collect();
@@ -145,6 +185,20 @@ fn order_key(shape: &Shape) -> (i64, i64, i64, String) {
         shape.y.round() as i64,
         shape.id.clone(),
     )
+}
+
+fn wire_read(el: &Element) -> Option<WireRead> {
+    let mark = wire_mark(el)?;
+    let text = |key: &str| {
+        mark.get(key)
+            .and_then(Value::as_str)
+            .filter(|v| !v.is_empty())
+            .map(str::to_string)
+    };
+    Some(WireRead {
+        wire_id: text("wireId")?,
+        predicate: text("predicate")?,
+    })
 }
 
 pub(crate) fn arrows(scene: &Scene) -> Vec<ArrowRead> {
@@ -188,7 +242,7 @@ pub(crate) fn arrows(scene: &Scene) -> Vec<ArrowRead> {
                     .filter(|l| !l.is_empty()),
                 style: s(el, "strokeStyle").unwrap_or("solid").to_string(),
                 head: !el.get("endArrowhead").map(Value::is_null).unwrap_or(true),
-                wire: None,
+                wire: wire_read(el),
             }
         })
         .collect();
@@ -233,6 +287,18 @@ pub(crate) fn shape_json(shape: &Shape) -> Value {
     if let Some(b) = &shape.by {
         obj.insert("by".into(), json!(b));
     }
+    if let Some(card) = &shape.card {
+        let mut c = serde_json::Map::new();
+        if let Some(iri) = &card.iri {
+            c.insert("iri".into(), json!(iri));
+        }
+        if let Some(id) = &card.document_id {
+            c.insert("documentId".into(), json!(id));
+        }
+        c.insert("label".into(), json!(card.label));
+        c.insert("classLabel".into(), json!(card.class_label));
+        obj.insert("card".into(), Value::Object(c));
+    }
     v
 }
 
@@ -261,19 +327,35 @@ pub(crate) fn arrow_json(arrow: &ArrowRead) -> Value {
     if !arrow.head {
         obj.insert("head".into(), json!("none"));
     }
+    if let Some(wire) = &arrow.wire {
+        obj.insert(
+            "wire".into(),
+            json!({ "wireId": wire.wire_id, "predicate": wire.predicate }),
+        );
+    }
     v
 }
 
 fn label_of(shape: &Shape) -> String {
-    let base = if shape.text.is_empty() {
+    if let Some(card) = &shape.card {
+        return if card.class_label.is_empty() {
+            format!("[card: {}]", card.label)
+        } else {
+            format!("[card: {} \u{2014} {}]", card.class_label, card.label)
+        };
+    }
+    if shape.text.is_empty() {
         format!("untitled {}", shape.kind)
     } else {
         shape.text.clone()
-    };
-    base
+    }
 }
 
 fn line_of(shape: &Shape) -> String {
+    // A card's label already says what it is and what it points at.
+    if shape.card.is_some() {
+        return format!("- {}", label_of(shape));
+    }
     let mut line = format!("- {} ({})", label_of(shape), shape.kind);
     if let Some(title) = &shape.link_title {
         line.push_str(&format!(" [link: {title}]"));
@@ -309,9 +391,14 @@ pub(crate) fn outline_markdown(title: &str, scene: &Scene) -> String {
                     Some(id) => name_of(id),
                     None => format!("({}, {})", a.to_point.0.round(), a.to_point.1.round()),
                 };
-                match &a.label {
-                    Some(label) => format!("  - → {target} (via \"{label}\")"),
-                    None => format!("  - → {target}"),
+                match (&a.wire, &a.label) {
+                    // A promoted arrow reads as the wire it is: `—supports (wire)→ target`.
+                    (Some(wire), label) => format!(
+                        "  - \u{2014}{} (wire)\u{2192} {target}",
+                        label.as_deref().unwrap_or(&wire.predicate)
+                    ),
+                    (None, Some(label)) => format!("  - → {target} (via \"{label}\")"),
+                    (None, None) => format!("  - → {target}"),
                 }
             })
             .collect()
