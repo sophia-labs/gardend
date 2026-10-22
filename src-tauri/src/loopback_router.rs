@@ -5,6 +5,7 @@ use crate::{
     emporium::loopback_emporium_router,
     loopback_ai_routes::loopback_ai_router,
     loopback_artifact_routes::loopback_artifact_router,
+    loopback_backlinks_routes::loopback_backlinks_router,
     loopback_core_routes::loopback_core_router,
     loopback_crdt_routes::loopback_crdt_router,
     loopback_document_routes::loopback_document_router,
@@ -105,6 +106,7 @@ pub(super) fn loopback_router(state: Arc<LoopbackState>) -> Router {
         .merge(loopback_files_router())
         .merge(loopback_ai_router())
         .merge(loopback_wire_router())
+        .merge(loopback_backlinks_router())
         .merge(loopback_rdf_router())
         .merge(loopback_crdt_router())
         .merge(loopback_hocuspocus_router())

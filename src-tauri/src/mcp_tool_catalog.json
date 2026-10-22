@@ -2067,12 +2067,11 @@
     },
     {
       "name": "get_wires",
-      "description": "Return active local workspace wires connected to a document.",
+      "description": "Return active local workspace wires connected to a document, or to a typed object. Give exactly one of documentId and iri. A wire may end at an object (a typed object drawn on a whiteboard as a card): such a wire reports sourceIri or targetIri in place of the document id. A wire drawn on a whiteboard reports sceneDocumentId (the board) and sceneElementId (the arrow); asking for a board with direction both also lists the wires drawn on it.",
       "inputSchema": {
         "type": "object",
         "required": [
-          "graphId",
-          "documentId"
+          "graphId"
         ],
         "properties": {
           "graphId": {
@@ -2080,6 +2079,10 @@
           },
           "documentId": {
             "type": "string"
+          },
+          "iri": {
+            "type": "string",
+            "description": "The absolute IRI of a typed object, instead of documentId."
           },
           "direction": {
             "type": "string",
@@ -2097,7 +2100,7 @@
     },
     {
       "name": "create_wires",
-      "description": "Create one or more local semantic wires through the workspace CRDT surface.",
+      "description": "Create one or more local semantic wires through the workspace CRDT surface. An end is a document (sourceDocumentId, targetDocumentId, optionally with a block) or a typed object (sourceIri, targetIri), never both. The scene* fields record the whiteboard arrow a wire was drawn from.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2187,10 +2190,28 @@
           "wireId": {
             "type": "string"
           },
+          "sourceIri": { "type": "string", "description": "The wire starts at this object (an absolute IRI) instead of a document. Needs sceneDocumentId: the board the wire is drawn on." },
+          "targetIri": { "type": "string", "description": "The wire ends at this object (an absolute IRI) instead of a document; no target document id then." },
+          "sceneGraphId": { "type": "string", "description": "Scene provenance: the graph of the board the wire was drawn on." },
+          "sceneDocumentId": { "type": "string", "description": "Scene provenance: the board (whiteboard document) the wire was drawn on." },
+          "sceneElementId": { "type": "string", "description": "Scene provenance: the arrow's element id on the board." },
+          "sceneSourceElementId": { "type": "string", "description": "Scene provenance: the shape the arrow leaves." },
+          "sceneTargetElementId": { "type": "string", "description": "Scene provenance: the shape the arrow reaches." },
+          "sceneStableKey": { "type": "string", "description": "Scene provenance: a stable key for the arrow, wb:{boardId}:{elementId}." },
           "wires": {
             "type": "array",
             "items": {
-              "type": "object"
+              "type": "object",
+              "properties": {
+                "sourceIri": { "type": "string" },
+                "targetIri": { "type": "string" },
+                "sceneGraphId": { "type": "string" },
+                "sceneDocumentId": { "type": "string" },
+                "sceneElementId": { "type": "string" },
+                "sceneSourceElementId": { "type": "string" },
+                "sceneTargetElementId": { "type": "string" },
+                "sceneStableKey": { "type": "string" }
+              }
             }
           }
         }
@@ -2198,12 +2219,10 @@
     },
     {
       "name": "traverse_wires",
-      "description": "Traverse the local workspace wire graph from a document using bounded BFS.",
+      "description": "Traverse the local workspace wire graph from a document, or from a typed object (give exactly one of document_id and iri), using bounded BFS. The walk crosses objects: a wire to an object and a wire from it continue the walk. Objects are reported with an iri and a null documentId.",
       "inputSchema": {
         "type": "object",
-        "required": [
-          "document_id"
-        ],
+        "required": [],
         "properties": {
           "graph_id": {
             "type": "string"
@@ -2216,6 +2235,10 @@
           },
           "documentId": {
             "type": "string"
+          },
+          "iri": {
+            "type": "string",
+            "description": "The absolute IRI of a typed object to start from, instead of a document."
           },
           "max_depth": {
             "type": "integer",
@@ -2240,6 +2263,33 @@
               "string",
               "null"
             ]
+          }
+        }
+      }
+    },
+    {
+      "name": "get_backlinks",
+      "description": "Who points at a document, a block or a typed object. Give exactly one of documentId and iri (a whiteboard is a document: ask for it by its documentId). Returns {graphId, target, backlinks, count}; each backlink is {kind, sourceDocumentId, sourceBlockId?, sourceTitle?, sourceKind?, predicate?, wireId?, viaConnection?}, sorted and without duplicates. kind is: wire (an incoming wire; predicate and wireId say which), embed (a document block embeds the object), wikilink (a [[wikilink]] in a document names the document), link (a mnemosyne:// link in a document names it), board-link (a whiteboard shape refers to it; sourceBlockId is the shape's element id), board-card (a whiteboard card shows it), board-connection (a whiteboard arrow ends at a shape that refers to it; viaConnection is the arrow). sourceKind \"whiteboard\" means the source opens as a board. blockId (with documentId) narrows to wires that end at that block. A document does not back-link to itself. An unknown graph or target answers an empty list. Read-only.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "graphId"
+        ],
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "documentId": {
+            "type": "string",
+            "description": "The document (or whiteboard) to find the pointers to."
+          },
+          "iri": {
+            "type": "string",
+            "description": "The absolute IRI of a typed object to find the pointers to, instead of documentId."
+          },
+          "blockId": {
+            "type": "string",
+            "description": "With documentId: only wires that end at this block."
           }
         }
       }

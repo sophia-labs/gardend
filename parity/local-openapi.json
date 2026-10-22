@@ -9970,6 +9970,92 @@
         }
       }
     },
+    "/backlinks/{graph_id}": {
+      "get": {
+        "operationId": "getBacklinksGraphId",
+        "tags": [
+          "wires"
+        ],
+        "summary": "GET /backlinks/{graph_id}",
+        "description": "Local native loopback route. Surface status: implemented-workspace-snapshot. Scope mode: all.",
+        "x-sophia-status": "implemented-workspace-snapshot",
+        "x-sophia-required-scopes": [
+          "wires.read"
+        ],
+        "x-sophia-scope-mode": "all",
+        "parameters": [
+          {
+            "name": "graph_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "documentId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "iri",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "blockId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonObject"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Rejected request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Missing, invalid, or forbidden local loopback bearer token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
     "/wires/{graph_id}/predicates": {
       "get": {
         "operationId": "getWiresGraphIdPredicates",
