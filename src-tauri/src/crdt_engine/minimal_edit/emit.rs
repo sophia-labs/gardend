@@ -307,7 +307,33 @@ fn emit_text_ops(
     if delta.is_empty() {
         return;
     }
-    text.handle.apply_delta(txn, delta);
+    text.handle.apply_delta(txn, inserts_before_deletes(delta));
+}
+
+/// A replacement inserts first, then deletes. Text inserted after a deleted run is placed after its
+/// tombstones, where it ties with whatever a person concurrently typed just after the old text and can land
+/// on the wrong side of it. Inserted first, its left origin is the text before the old run, so it takes the
+/// old text's place. The document reached is the same; only the concurrent merge differs (I3).
+fn inserts_before_deletes(delta: Vec<Delta<In>>) -> Vec<Delta<In>> {
+    let mut out = Vec::with_capacity(delta.len());
+    let mut deleted = 0u32;
+    for op in delta {
+        match op {
+            Delta::Deleted(n) => deleted += n,
+            Delta::Inserted(..) => out.push(op),
+            other => {
+                if deleted > 0 {
+                    out.push(Delta::Deleted(deleted));
+                    deleted = 0;
+                }
+                out.push(other);
+            }
+        }
+    }
+    if deleted > 0 {
+        out.push(Delta::Deleted(deleted));
+    }
+    out
 }
 
 /// An insert that carries exactly `marks`: `apply_delta` unsets every attribute not given

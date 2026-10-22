@@ -23,15 +23,20 @@ fn node_type(node: &Value) -> &str {
 
 /// One hash for a list of desired children: element hashes and inline-run hashes, in order.
 fn combined_hash(children: &[DesiredChild], policy: &WritePolicy) -> u64 {
-    let mut hasher = Fnv64::new();
-    for (index, child) in children.iter().enumerate() {
-        match child {
-            DesiredChild::Element(node) => hasher.write_u64(node.hash),
-            DesiredChild::Text(_) => {
-                let units = units_des(children, index..index + 1, policy);
-                hasher.write_u64(inline_hash(&units, policy));
-            }
+    let child_hash = |index: usize| match &children[index] {
+        DesiredChild::Element(node) => node.hash,
+        DesiredChild::Text(_) => {
+            inline_hash(&units_des(children, index..index + 1, policy), policy)
         }
+    };
+    // The pinned definition (plan.rs, image_hash_matches): one node's image hash is its own hash;
+    // several are folded with FNV in order.
+    if children.len() == 1 {
+        return child_hash(0);
+    }
+    let mut hasher = Fnv64::new();
+    for index in 0..children.len() {
+        hasher.write_u64(child_hash(index));
     }
     hasher.finish()
 }
