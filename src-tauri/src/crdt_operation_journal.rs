@@ -276,7 +276,7 @@ fn prune_journal_at_path(path: &Path, retention_days: u64) -> Result<usize, Stri
                 removed += 1;
             }
         }
-        file.sync_all()
+        crate::storage_atomic::traced_sync(&file, "journal")
             .map_err(|e| format!("sync temp {}: {e}", display_path(&temp_path)))?;
     }
 

@@ -8,6 +8,19 @@ use std::{
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
 
+/// `File::sync_all`, which on macOS is `F_FULLFSYNC`: it flushes the whole drive's cache, not just this file, so its
+/// count and cost per action are the durability budget the traces need (DESIGN.md, the durability cost model). Each
+/// call is a timed `fsync` event on the span that is open, labelled by what it made durable; nothing about the path.
+pub(crate) fn traced_sync(file: &fs::File, what: &'static str) -> std::io::Result<()> {
+    let start = crate::telemetry::timer();
+    let result = file.sync_all();
+    if start.is_some() {
+        let ms = crate::telemetry::elapsed_ms(start);
+        tracing::info!(target: "gardend_otel", { sophia.fsync.what = what, sophia.fsync.ms = ms }, "fsync");
+    }
+    result
+}
+
 pub(crate) fn copy_file_atomic_inner(
     source: &Path,
     target: &Path,
@@ -23,7 +36,7 @@ pub(crate) fn copy_file_atomic_inner(
     fs::OpenOptions::new()
         .read(true)
         .open(temp_path)
-        .and_then(|file| file.sync_all())
+        .and_then(|file| traced_sync(&file, "atomic.copy"))
         .map_err(|error| format!("sync {}: {error}", display_path(temp_path)))?;
     rename_atomic(temp_path, target)?;
     if let Some(parent) = target.parent() {
@@ -52,7 +65,7 @@ pub(crate) fn write_bytes_atomic(
         .map_err(|error| format!("write {}: {error}", display_path(temp_path)))?;
     file.write_all(bytes)
         .map_err(|error| format!("write {}: {error}", display_path(temp_path)))?;
-    file.sync_all()
+    traced_sync(&file, "atomic.file")
         .map_err(|error| format!("sync {}: {error}", display_path(temp_path)))?;
     drop(file);
 
@@ -67,7 +80,7 @@ pub(crate) fn sync_parent_dir(parent: &Path) -> Result<(), String> {
     fs::OpenOptions::new()
         .read(true)
         .open(parent)
-        .and_then(|directory| directory.sync_all())
+        .and_then(|directory| traced_sync(&directory, "dir"))
         .map_err(|error| format!("sync parent {}: {error}", display_path(parent)))
 }
 

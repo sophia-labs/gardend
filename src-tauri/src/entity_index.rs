@@ -505,7 +505,7 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
             .map_err(|error| format!("write {}: {error}", tmp.display()))?;
         file.write_all(bytes)
             .map_err(|error| format!("write {}: {error}", tmp.display()))?;
-        file.sync_all()
+        crate::storage_atomic::traced_sync(&file, "entity_index")
             .map_err(|error| format!("sync {}: {error}", tmp.display()))?;
     }
     std::fs::rename(&tmp, path).map_err(|error| format!("rename {}: {error}", path.display()))

@@ -254,7 +254,7 @@ fn prune_completion_ledger_at_path(path: &Path, retention_days: u64) -> Result<u
             writeln!(file, "{line}")
                 .map_err(|e| format!("write temp {}: {e}", display_path(&temp_path)))?;
         }
-        file.sync_all()
+        crate::storage_atomic::traced_sync(&file, "ledger")
             .map_err(|e| format!("sync temp {}: {e}", display_path(&temp_path)))?;
     }
     fs::rename(&temp_path, path).map_err(|e| {

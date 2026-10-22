@@ -458,3 +458,43 @@ fn initial_sync_classifies_delivery_and_lease_timeouts_without_error_text() {
         .all(|span| attribute(span, "sophia.lease.wait_ms").is_some()));
     assert!(!test_support::json(&spans).contains(MARKER));
 }
+
+#[test]
+fn an_atomic_write_counts_its_fsyncs_on_the_open_span() {
+    let (provider, exporter, dispatch) = test_support::capture(true);
+    let dir = std::env::temp_dir().join(format!("otel-fsync-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let target = dir.join("record.json");
+    tracing::dispatcher::with_default(&dispatch, || {
+        tracing::info_span!(target: "gardend_otel", "test.write").in_scope(|| {
+            crate::storage_atomic::write_bytes_atomic(
+                &target,
+                &crate::storage_atomic::atomic_temp_path(&target),
+                MARKER.as_bytes(),
+                None,
+            )
+            .unwrap();
+        });
+    });
+    provider.force_flush().unwrap();
+    let spans = exporter.get_finished_spans().unwrap();
+    let write = spans.iter().find(|span| span.name == "test.write").unwrap();
+    let what: Vec<String> = write
+        .events
+        .events
+        .iter()
+        .filter(|event| event.name == "fsync")
+        .map(|event| {
+            event
+                .attributes
+                .iter()
+                .find(|kv| kv.key.as_str() == "sophia.fsync.what")
+                .map(|kv| kv.value.to_string())
+                .unwrap_or_default()
+        })
+        .collect();
+    // The file, then its directory: two full-drive flushes for one small record on macOS.
+    assert_eq!(what, ["atomic.file", "dir"]);
+    assert!(!test_support::json(&spans).contains(MARKER));
+    let _ = std::fs::remove_dir_all(&dir);
+}
