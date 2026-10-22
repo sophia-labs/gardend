@@ -290,6 +290,11 @@ mod tests {
             ("sophia-memory-core", "MemoryRecord", "memory"),
             ("sophia-memory-core", "Policy", "memory"),
             ("sophia-memory-core", "SourceReference", "memory"),
+            ("sophia-whiteboard", "Board", "simple-projection"),
+            ("sophia-whiteboard", "Card", "simple-projection"),
+            ("sophia-whiteboard", "Cluster", "simple-projection"),
+            ("sophia-whiteboard", "Connection", "simple-projection"),
+            ("sophia-whiteboard", "Shape", "simple-projection"),
             ("wf-agent-binding", "AgentRunBinding", "workflow-campaign"),
             ("wf-agent-binding", "RunBinding", "workflow-campaign"),
             (
@@ -537,7 +542,7 @@ mod tests {
             .map(|(pack, _json, _sha)| get_vocabulary(pack).unwrap().classes.len())
             .sum();
         assert_eq!(
-            total, 160,
+            total, 165,
             "VOCAB_REGISTRY class count drifted from the snapshot above"
         );
     }

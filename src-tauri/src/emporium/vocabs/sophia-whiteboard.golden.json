@@ -1,0 +1,251 @@
+{
+  "name": "sophia-whiteboard",
+  "version": "1.0.0",
+  "title": "Sophia whiteboard lane",
+  "description": "Read-only, board-owned shapes, cards, connections and clusters derived from a whiteboard's Y.Doc into the graph's :projection:whiteboard lane. The board's Y.Doc is the only authority; use emporium_query or named queries. emporium_write/CRUD are not supported. Subjects are document-rooted (urn:mnemosyne:local:document:{doc}#block-{id}), not minted under the lane graph, and every subject carries wb:documentId, the key of its board's owned span.",
+  "namespaces": {
+    "wb": "http://mnemosyne.dev/whiteboard#",
+    "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+    "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
+    "prov": "http://www.w3.org/ns/prov#",
+    "xsd": "http://www.w3.org/2001/XMLSchema#"
+  },
+  "primary_prefix": "wb",
+  "classes": {
+    "Board": {
+      "comment": "The board document itself, projected from its record and title. Regenerable from the Y.Doc; never independently authored.",
+      "rdf_types": [
+        "wb:Board"
+      ],
+      "subject_rule": "{document_subject} - document-rooted, code-minted: the board document's own subject",
+      "source_kind": "derived",
+      "identity_kind": "logical-id",
+      "store_mode": "materialize",
+      "store_target": "projection:whiteboard",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "derived-materialize",
+      "predicates": {
+        "wb:documentId": {
+          "datatype": "string",
+          "required": true,
+          "multi": false
+        },
+        "rdfs:label": {
+          "datatype": "string",
+          "required": false,
+          "multi": false
+        }
+      }
+    },
+    "Shape": {
+      "comment": "A live drawn shape (box, note, ellipse, diamond, text, image, freedraw, line). Disjoint from Card.",
+      "rdf_types": [
+        "wb:Shape"
+      ],
+      "subject_rule": "{document_subject}#block-{elementId} - document-rooted, code-minted from the board's Y.Doc element id",
+      "source_kind": "derived",
+      "identity_kind": "logical-id",
+      "store_mode": "materialize",
+      "store_target": "projection:whiteboard",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "derived-materialize",
+      "predicates": {
+        "wb:documentId": {
+          "datatype": "string",
+          "required": true,
+          "multi": false
+        },
+        "wb:onBoard": {
+          "datatype": "uri",
+          "required": true,
+          "multi": false
+        },
+        "wb:shapeKind": {
+          "datatype": "string",
+          "required": true,
+          "multi": false
+        },
+        "rdfs:label": {
+          "datatype": "string",
+          "required": false,
+          "multi": false
+        },
+        "wb:refersTo": {
+          "datatype": "uri",
+          "required": false,
+          "multi": false
+        },
+        "wb:inCluster": {
+          "datatype": "uri",
+          "required": false,
+          "multi": false
+        },
+        "prov:wasAttributedTo": {
+          "datatype": "uri",
+          "required": false,
+          "multi": false
+        },
+        "prov:generatedAtTime": {
+          "datatype": "dateTime",
+          "required": false,
+          "multi": false
+        }
+      }
+    },
+    "Card": {
+      "comment": "A live embeddable whose link is a document or object link: the typed-object card. Disjoint from Shape.",
+      "rdf_types": [
+        "wb:Card"
+      ],
+      "subject_rule": "{document_subject}#block-{elementId} - document-rooted, code-minted from the board's Y.Doc element id",
+      "source_kind": "derived",
+      "identity_kind": "logical-id",
+      "store_mode": "materialize",
+      "store_target": "projection:whiteboard",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "derived-materialize",
+      "predicates": {
+        "wb:documentId": {
+          "datatype": "string",
+          "required": true,
+          "multi": false
+        },
+        "wb:onBoard": {
+          "datatype": "uri",
+          "required": true,
+          "multi": false
+        },
+        "wb:shapeKind": {
+          "datatype": "string",
+          "required": true,
+          "multi": false
+        },
+        "rdfs:label": {
+          "datatype": "string",
+          "required": false,
+          "multi": false
+        },
+        "wb:refersTo": {
+          "datatype": "uri",
+          "required": false,
+          "multi": false
+        },
+        "wb:inCluster": {
+          "datatype": "uri",
+          "required": false,
+          "multi": false
+        },
+        "prov:wasAttributedTo": {
+          "datatype": "uri",
+          "required": false,
+          "multi": false
+        },
+        "prov:generatedAtTime": {
+          "datatype": "dateTime",
+          "required": false,
+          "multi": false
+        }
+      }
+    },
+    "Connection": {
+      "comment": "A live arrow whose start and end are both bound to live shapes, cards or clusters.",
+      "rdf_types": [
+        "wb:Connection"
+      ],
+      "subject_rule": "{document_subject}#arrow-{arrowId} - document-rooted, code-minted from the board's Y.Doc arrow id",
+      "source_kind": "derived",
+      "identity_kind": "logical-id",
+      "store_mode": "materialize",
+      "store_target": "projection:whiteboard",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "derived-materialize",
+      "predicates": {
+        "wb:documentId": {
+          "datatype": "string",
+          "required": true,
+          "multi": false
+        },
+        "wb:onBoard": {
+          "datatype": "uri",
+          "required": true,
+          "multi": false
+        },
+        "wb:from": {
+          "datatype": "uri",
+          "required": true,
+          "multi": false
+        },
+        "wb:to": {
+          "datatype": "uri",
+          "required": true,
+          "multi": false
+        },
+        "rdfs:label": {
+          "datatype": "string",
+          "required": false,
+          "multi": false
+        },
+        "wb:promotedTo": {
+          "datatype": "uri",
+          "required": false,
+          "multi": false
+        },
+        "prov:wasAttributedTo": {
+          "datatype": "uri",
+          "required": false,
+          "multi": false
+        },
+        "prov:generatedAtTime": {
+          "datatype": "dateTime",
+          "required": false,
+          "multi": false
+        }
+      }
+    },
+    "Cluster": {
+      "comment": "A live frame that groups shapes and cards.",
+      "rdf_types": [
+        "wb:Cluster"
+      ],
+      "subject_rule": "{document_subject}#block-{elementId} - document-rooted, code-minted from the board's Y.Doc element id",
+      "source_kind": "derived",
+      "identity_kind": "logical-id",
+      "store_mode": "materialize",
+      "store_target": "projection:whiteboard",
+      "enforcement": "halt",
+      "reconciliation_strategy": "codeBacked",
+      "dispatch_mode": "derived-materialize",
+      "predicates": {
+        "wb:documentId": {
+          "datatype": "string",
+          "required": true,
+          "multi": false
+        },
+        "wb:onBoard": {
+          "datatype": "uri",
+          "required": true,
+          "multi": false
+        },
+        "rdfs:label": {
+          "datatype": "string",
+          "required": false,
+          "multi": false
+        },
+        "prov:wasAttributedTo": {
+          "datatype": "uri",
+          "required": false,
+          "multi": false
+        },
+        "prov:generatedAtTime": {
+          "datatype": "dateTime",
+          "required": false,
+          "multi": false
+        }
+      }
+    }
+  }
+}
