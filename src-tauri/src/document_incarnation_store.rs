@@ -135,7 +135,7 @@ pub(crate) fn ensure_document_incarnation_id_with_requested(
                         path.display()
                     ))
                 })?;
-                file.sync_all().map_err(|error| {
+                crate::storage_atomic::traced_sync(&file, "incarnation").map_err(|error| {
                     DocumentIncarnationFault::Fault(format!(
                         "sync document incarnation {}: {error}",
                         path.display()

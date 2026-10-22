@@ -101,7 +101,7 @@ impl PendingUploadFileWriter {
     }
 
     pub(crate) fn finish(mut self) -> Result<(PathBuf, usize), String> {
-        self.file.sync_all().map_err(|error| {
+        crate::storage_atomic::traced_sync(&self.file, "upload").map_err(|error| {
             format!(
                 "sync pending upload file {}: {error}",
                 display_path(&self.path)

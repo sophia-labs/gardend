@@ -2715,7 +2715,7 @@ fn publish_current(durable_dir: &Path, snap_name: &str) -> Result<(), String> {
             .open(&tmp)
             .map_err(|error| format!("open {}: {error}", display(&tmp)))?;
         file.write_all(snap_name.as_bytes())
-            .and_then(|_| file.sync_all())
+            .and_then(|_| crate::storage_atomic::traced_sync(&file, "durable_copy"))
             .map_err(|error| format!("write {}: {error}", display(&tmp)))?;
     }
     fs::rename(&tmp, &current)

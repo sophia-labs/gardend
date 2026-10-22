@@ -3809,7 +3809,7 @@ fn write_new(root: &Path, relative: &str, bytes: &[u8]) -> Result<(), String> {
         )
     })?;
     file.write_all(bytes)
-        .and_then(|_| file.sync_all())
+        .and_then(|_| crate::storage_atomic::traced_sync(&file, "preservation"))
         .map_err(|e| e.to_string())?;
     crate::storage_atomic::sync_parent_dir(&parent)
 }

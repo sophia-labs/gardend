@@ -13,12 +13,39 @@ use std::os::unix::fs::OpenOptionsExt;
 /// call is a timed `fsync` event on the span that is open, labelled by what it made durable; nothing about the path.
 pub(crate) fn traced_sync(file: &fs::File, what: &'static str) -> std::io::Result<()> {
     let start = crate::telemetry::timer();
-    let result = file.sync_all();
+    let result = force(file);
     if start.is_some() {
         let ms = crate::telemetry::elapsed_ms(start);
         tracing::info!(target: "gardend_otel", { sophia.fsync.what = what, sophia.fsync.ms = ms }, "fsync");
     }
     result
+}
+
+/// The flush itself. Lib tests issue a plain `fsync(2)`: it keeps the syscall and its ordering but not the drive drain,
+/// which a test cannot observe. Every persist the battery runs used to pay 20 ms of F_FULLFSYNC at about 5% CPU, so the
+/// gate took an hour. Production keeps `sync_all` exactly.
+#[cfg(not(test))]
+fn force(file: &fs::File) -> std::io::Result<()> {
+    file.sync_all()
+}
+
+#[cfg(all(test, unix))]
+fn force(file: &fs::File) -> std::io::Result<()> {
+    use std::os::unix::io::AsRawFd;
+    extern "C" {
+        fn fsync(fd: std::os::raw::c_int) -> std::os::raw::c_int;
+    }
+    // SAFETY: the descriptor belongs to `file`, which outlives the call.
+    if unsafe { fsync(file.as_raw_fd()) } == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(all(test, not(unix)))]
+fn force(file: &fs::File) -> std::io::Result<()> {
+    file.sync_all()
 }
 
 pub(crate) fn copy_file_atomic_inner(

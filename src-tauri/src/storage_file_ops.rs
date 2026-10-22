@@ -120,7 +120,7 @@ pub fn append_secret_line(path: &Path, line: &str) -> AppResult<()> {
     record.extend_from_slice(line.as_bytes());
     record.push(b'\n');
     file.write_all(&record)
-        .and_then(|_| file.sync_all())
+        .and_then(|_| crate::storage_atomic::traced_sync(&file, "file"))
         .map_err(|error| AppError::storage(format!("append {}: {error}", display_path(path))))?;
     Ok(())
 }

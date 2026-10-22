@@ -401,7 +401,7 @@ fn retain_admission(
     }))
     .map_err(|e| e.to_string())?;
     file.write_all(&bytes)
-        .and_then(|_| file.sync_all())
+        .and_then(|_| crate::storage_atomic::traced_sync(&file, "create_once"))
         .map_err(|e| format!("persist admission: {e}"))?;
     crate::storage_atomic::sync_parent_dir(parent)?;
     Ok(())

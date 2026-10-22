@@ -2523,7 +2523,7 @@ fn create_or_read_restore_marker(
     })?;
     if let Err(error) = temporary
         .write_all(&bytes)
-        .and_then(|_| temporary.sync_all())
+        .and_then(|_| crate::storage_atomic::traced_sync(&temporary, "import"))
     {
         drop(temporary);
         let _ = fs::remove_file(&temporary_path);
