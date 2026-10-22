@@ -117,6 +117,7 @@ mod tests {
                 "blocks": ["one", "two"],
             }),
             enqueue_timestamp: "0".to_string(),
+            trace_context: Default::default(),
         };
 
         let event = crdt_operation_audit_event(&operation, "succeeded", None, None);
@@ -147,6 +148,7 @@ mod tests {
             document_id: Some("doc-1".to_string()),
             payload: serde_json::json!(["block-1", "block-2"]),
             enqueue_timestamp: "0".to_string(),
+            trace_context: Default::default(),
         };
 
         let event = crdt_operation_audit_event(

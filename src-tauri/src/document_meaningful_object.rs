@@ -692,6 +692,11 @@ pub(crate) fn graph_wrap_document(update: &str, doc_graph: &str) -> Result<Strin
 /// all remove, and the projection-meta face emits `rdfTripleCount = 0`; the
 /// storage-metadata + content faces still emit their bare triples (a record always
 /// carries them; an empty body is `""`).
+#[tracing::instrument(target = "gardend_otel", name = "document.rdf.reconcile", skip_all,
+    fields(sophia.graph.id = %document.graph_id, sophia.document.id = %document.document_id,
+        db.system.name = "oxigraph", db.operation.name = "reconcile",
+        sophia.rdf.triples = tracing::field::Empty, sophia.rdf.adds = tracing::field::Empty,
+        sophia.rdf.removes = tracing::field::Empty))]
 pub(crate) fn reconcile_document_record(
     store: &Store,
     document: &DocumentRecord,
@@ -716,6 +721,9 @@ pub(crate) fn reconcile_document_record(
     }
 
     let diff = diff_triples(&current, &desired);
+    tracing::Span::current().record("sophia.rdf.triples", desired.len() as u64);
+    tracing::Span::current().record("sophia.rdf.adds", diff.adds.len() as u64);
+    tracing::Span::current().record("sophia.rdf.removes", diff.removes.len() as u64);
 
     // DELETE first, then INSERT (the materializer's order; graph-agnostic bodies).
     for body in render_updates("DELETE DATA", &diff.removes, 60) {

@@ -477,6 +477,7 @@ mod tests {
                 document_id: Some("doc-1".to_string()),
                 payload: serde_json::json!({}),
                 enqueue_timestamp: "0".to_string(),
+                trace_context: Default::default(),
             };
             let _ = queue.enqueue(operation).expect("enqueue operation");
         }
@@ -500,6 +501,7 @@ mod tests {
             document_id: Some("doc-1".to_string()),
             payload: serde_json::json!({}),
             enqueue_timestamp: "0".to_string(),
+            trace_context: Default::default(),
         };
         let _ = queue.enqueue(operation).expect("enqueue operation");
 
@@ -521,6 +523,7 @@ mod tests {
                 document_id: Some("doc-1".to_string()),
                 payload: serde_json::json!({}),
                 enqueue_timestamp: "0".to_string(),
+                trace_context: Default::default(),
             })
             .expect("enqueue recovered operation");
 
@@ -542,6 +545,7 @@ mod tests {
             document_id: Some("artifact-a".to_string()),
             payload: serde_json::json!({ "artifactId": "artifact-a" }),
             enqueue_timestamp: "0".to_string(),
+            trace_context: Default::default(),
         }
     }
 
@@ -979,6 +983,7 @@ mod tests {
                 document_id: None,
                 payload: serde_json::json!({}),
                 enqueue_timestamp: "0".to_string(),
+                trace_context: Default::default(),
             };
             queue
                 .enqueue_detached(operation("op-1"))

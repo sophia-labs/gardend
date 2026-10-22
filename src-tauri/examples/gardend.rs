@@ -219,6 +219,13 @@ fn serve(selfhost: Option<garden_lib::selfhost::ServePlan>) {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .target(env_logger::Target::Stderr)
         .init();
+    let telemetry = match garden_lib::headless::init_telemetry() {
+        Ok(guard) => Some(guard),
+        Err(error) => {
+            log::warn!("tracing is unavailable: {error}");
+            None
+        }
+    };
 
     // Bare-binary installs learn about new releases from one log line, at
     // most once a day, off the boot path. Off in platform cells (they update
@@ -1168,6 +1175,7 @@ fn serve(selfhost: Option<garden_lib::selfhost::ServePlan>) {
         log::warn!("CaptureEvent stdout remained stalled past the 250ms shutdown budget");
     }
 
+    drop(telemetry);
     if let Err(error) = shutdown_result {
         log::error!("gardend shutdown failed: {error}");
         std::process::exit(4);

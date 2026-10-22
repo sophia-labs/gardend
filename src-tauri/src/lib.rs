@@ -71,6 +71,7 @@ pub mod self_update;
 #[cfg(not(feature = "desktop"))]
 pub mod selfhost;
 pub mod storage_format;
+mod telemetry;
 // ADDITIVE Meaningful-Object projection path — a parallel, tested alternative to
 // the production materializer. `save_document` does NOT call it (it is exercised
 // by the parity tests + is the drop-in a future switch would use), so its public
@@ -514,6 +515,7 @@ pub fn run() {
 #[cfg(not(feature = "desktop"))]
 pub mod headless {
     pub use crate::hosted_mode::RuntimeMode;
+    pub use crate::telemetry::init as init_telemetry;
 
     /// Construct the native headless application shell. It owns the managed
     /// state registry shared by all cloned handles and has no GUI lifecycle.

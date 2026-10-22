@@ -83,6 +83,13 @@ ort = { version = "=2.0.0-rc.12", default-features = false, features = ["ndarray
 tokenizers = { version = "0.22", default-features = false }
 fs4 = { version = "0.13", features = ["sync"] }
 log = "0.4"
+# Keep the log/env_logger pipeline separate; no tracing-log bridge in P0.
+tracing = { version = "0.1.44", default-features = false, features = ["std", "attributes"] }
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["registry", "std"] }
+tracing-opentelemetry = { version = "0.32", default-features = false }
+opentelemetry = { version = "0.31", default-features = false, features = ["trace"] }
+opentelemetry_sdk = { version = "0.31", default-features = false, features = ["trace"] }
+opentelemetry-otlp = { version = "0.31", default-features = false, features = ["trace", "http-proto", "reqwest-blocking-client"] }
 oxigraph = { version = "0.5.9", features = ["rdf-12"] }
 # rudof SHACL toolkit — the EA-1 validation face. shacl_validation 0.2.12 (native
 # engine, NO "sparql" feature → no SPARQL-endpoint tree) compiles vocab-derived
@@ -143,6 +150,7 @@ scraper = "0.27.0"
 url = "2.5.8"
 
 [dev-dependencies]
+opentelemetry_sdk = { version = "0.31", default-features = false, features = ["trace", "testing"] }
 # Deterministic current-thread retry scheduler tests use Tokio's paused clock.
 tokio = { version = "1", features = ["test-util", "rt-multi-thread", "macros"] }
 rusqlite = { version = "0.37", features = ["bundled"] }

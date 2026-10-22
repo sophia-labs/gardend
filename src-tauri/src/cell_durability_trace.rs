@@ -117,7 +117,7 @@ impl DirtyOrigin {
         self as usize
     }
 
-    fn label(self) -> &'static str {
+    pub(crate) fn label(self) -> &'static str {
         match self {
             Self::CrdtEnqueue => "crdt_enqueue",
             Self::CrdtApply => "crdt_apply",
@@ -261,7 +261,7 @@ impl KnownCrdtKind {
         self as usize
     }
 
-    fn label(self) -> &'static str {
+    pub(crate) fn label(self) -> &'static str {
         match self {
             Self::CrdtFlush => "crdt.flush",
             Self::DocumentWrite => "document.write",

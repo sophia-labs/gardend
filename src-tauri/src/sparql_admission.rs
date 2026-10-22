@@ -195,7 +195,7 @@ pub(crate) async fn run_external_sparql_query(
     let worker_cancellation = cancellation.clone();
     let worker_app = app.clone();
 
-    let mut worker = tokio::task::spawn_blocking(move || {
+    let mut worker = tokio::task::spawn_blocking(crate::telemetry::blocking(move || {
         let _permit = permit;
         let result = run_sparql_query_service_controlled(
             worker_app,
@@ -212,7 +212,7 @@ pub(crate) async fn run_external_sparql_query(
         }
         let _graph_lease = graph_lease;
         result
-    });
+    }));
 
     match tokio::time::timeout_at(deadline, &mut worker).await {
         Ok(joined) => {
@@ -295,11 +295,11 @@ async fn run_external_sparql_update_unrecorded(
     crate::restore_guard::require_no_active_restore(&app, &input.graph_id)
         .map_err(AppError::conflict)?;
     let worker_app = app.clone();
-    tokio::task::spawn_blocking(move || {
+    tokio::task::spawn_blocking(crate::telemetry::blocking(move || {
         let _permit = permit;
         let _graph_lease = graph_lease;
         run_sparql_update_service(worker_app, input)
-    })
+    }))
     .await
     .map_err(join_error)?
 }

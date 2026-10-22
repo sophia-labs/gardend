@@ -10,6 +10,11 @@ pub(crate) struct CrdtOperation {
     #[serde(default)]
     pub(crate) payload: serde_json::Value,
     pub(crate) enqueue_timestamp: String,
+    #[serde(
+        default,
+        skip_serializing_if = "crate::telemetry::TraceContext::is_empty"
+    )]
+    pub(crate) trace_context: crate::telemetry::TraceContext,
 }
 
 #[derive(Debug, Deserialize)]

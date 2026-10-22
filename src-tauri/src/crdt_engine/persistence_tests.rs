@@ -278,6 +278,7 @@ fn fresh_registry_hydration_does_not_create_a_document_revision() {
                             }
                         }),
                         enqueue_timestamp: "1".to_string(),
+                        trace_context: Default::default(),
                     },
                 )
                 .await
@@ -648,6 +649,7 @@ fn document_tail_failure_is_retryable_after_hot_commit_and_replays_same_revision
                     }
                 }),
                 enqueue_timestamp: "1".to_string(),
+                trace_context: Default::default(),
             };
 
             let error = document_write_classified(&app, &operation)
@@ -725,6 +727,7 @@ fn comments_only_edits_advance_manifest_revision_and_history() {
                         }
                     }),
                     enqueue_timestamp: "1".to_string(),
+                    trace_context: Default::default(),
                 },
             )
             .await
@@ -751,6 +754,7 @@ fn comments_only_edits_advance_manifest_revision_and_history() {
                         "updatedAt": 2,
                     }),
                     enqueue_timestamp: "2".to_string(),
+                    trace_context: Default::default(),
                 },
             )
             .await
@@ -776,6 +780,7 @@ fn comments_only_edits_advance_manifest_revision_and_history() {
                         "updatedAt": 3,
                     }),
                     enqueue_timestamp: "3".to_string(),
+                    trace_context: Default::default(),
                 },
             )
             .await
@@ -1081,6 +1086,7 @@ fn recovered_graph_flush_hydrates_empty_registry_sidecars() {
                     "graphIncarnation": graph.incarnation_id.expect("graph incarnation"),
                 }),
                 enqueue_timestamp: "1".to_string(),
+                trace_context: Default::default(),
             };
             crate::crdt_operation_journal::record_crdt_operation_queued(&app, &recovered_flush)
                 .expect("journal recovered flush");
@@ -1208,6 +1214,7 @@ fn recovered_automatic_workspace_flush_does_not_hydrate_unrelated_documents() {
                     "graphIncarnation": graph.incarnation_id.expect("graph incarnation"),
                 }),
                 enqueue_timestamp: "1".to_string(),
+                trace_context: Default::default(),
             };
             crate::crdt_operation_journal::record_crdt_operation_queued(&app, &recovered_flush)
                 .expect("journal recovered workspace flush");
@@ -1283,6 +1290,7 @@ fn ordinary_graph_flush_does_not_scan_persisted_sidecars() {
                     document_id: None,
                     payload: json!({ "includeMaterialization": true }),
                     enqueue_timestamp: "1".to_string(),
+                    trace_context: Default::default(),
                 },
             )
             .await
@@ -1342,6 +1350,7 @@ fn expected_revision_mismatch_changes_neither_hot_nor_cold_state() {
                         }
                     }),
                     enqueue_timestamp: "1".to_string(),
+                    trace_context: Default::default(),
                 };
             document_write(
                 &app,
@@ -1494,6 +1503,7 @@ fn corrupt_existing_manifest_fails_expected_revision_before_hot_mutation() {
                         }
                     }),
                     enqueue_timestamp: "1".to_string(),
+                    trace_context: Default::default(),
                 },
             )
             .await
@@ -1558,6 +1568,7 @@ fn recovered_block_ledger_hit_repairs_unfinished_cold_projection_tail() {
                     }
                 }),
                 enqueue_timestamp: crate::clock::timestamp(),
+                trace_context: Default::default(),
             };
 
             crate::crdt_operation_journal::record_crdt_operation_queued(&app, &operation)
@@ -1677,6 +1688,7 @@ fn invalid_document_ids_cannot_create_room_sidecars_outside_document_root() {
                         }
                     }),
                     enqueue_timestamp: "1".to_string(),
+                    trace_context: Default::default(),
                 };
                 let error = super::block_ops::apply(&app, &operation)
                     .await
@@ -2029,6 +2041,7 @@ fn artifact_post_hot_tail_failure_retries_original_journaled_operation_after_res
                         "updatedAt": 1,
                     }),
                     enqueue_timestamp: "1".to_string(),
+                    trace_context: Default::default(),
                 },
             )
             .await
@@ -2048,6 +2061,7 @@ fn artifact_post_hot_tail_failure_retries_original_journaled_operation_after_res
                     "graphIncarnation": current_graph_incarnation(&app, graph_id),
                 }),
                 enqueue_timestamp: "2".to_string(),
+                trace_context: Default::default(),
             };
             crate::crdt_operation_journal::record_crdt_operation_queued(&app, &operation)
                 .expect("journal artifact delete");
@@ -2119,6 +2133,7 @@ fn recovered_artifact_delete_finishes_workspace_snapshot_and_rdf_tail() {
                         "updatedAt": 1,
                     }),
                     enqueue_timestamp: "1".to_string(),
+                    trace_context: Default::default(),
                 },
             )
             .await
@@ -2152,6 +2167,7 @@ fn recovered_artifact_delete_finishes_workspace_snapshot_and_rdf_tail() {
                     "graphIncarnation": current_graph_incarnation(&app, graph_id),
                 }),
                 enqueue_timestamp: "2".to_string(),
+                trace_context: Default::default(),
             };
             assert!(registry.evict_room(&workspace_key));
             let recovered = journal_and_recover_one(&app, &pending);
@@ -2192,6 +2208,7 @@ fn recovered_artifact_delete_finishes_workspace_snapshot_and_rdf_tail() {
                     document_id: Some(artifact_id.to_string()),
                     payload: json!({ "artifactId": artifact_id }),
                     enqueue_timestamp: "3".to_string(),
+                    trace_context: Default::default(),
                 },
             )
             .await
@@ -2232,6 +2249,7 @@ fn wire_post_hot_tail_failure_retries_original_journaled_operation_after_restart
                         "updatedAt": 1,
                     }),
                     enqueue_timestamp: "1".to_string(),
+                    trace_context: Default::default(),
                 },
             )
             .await
@@ -2251,6 +2269,7 @@ fn wire_post_hot_tail_failure_retries_original_journaled_operation_after_restart
                         "updatedAt": 2,
                     }),
                     enqueue_timestamp: "2".to_string(),
+                    trace_context: Default::default(),
                 },
             )
             .await
@@ -2270,6 +2289,7 @@ fn wire_post_hot_tail_failure_retries_original_journaled_operation_after_restart
                     "graphIncarnation": current_graph_incarnation(&app, graph_id),
                 }),
                 enqueue_timestamp: "3".to_string(),
+                trace_context: Default::default(),
             };
             crate::crdt_operation_journal::record_crdt_operation_queued(&app, &operation)
                 .expect("journal wire delete");
@@ -2339,6 +2359,7 @@ fn recovered_wire_delete_finishes_workspace_snapshot_and_rdf_tail() {
                         "updatedAt": 1,
                     }),
                     enqueue_timestamp: "1".to_string(),
+                    trace_context: Default::default(),
                 },
             )
             .await
@@ -2358,6 +2379,7 @@ fn recovered_wire_delete_finishes_workspace_snapshot_and_rdf_tail() {
                         "updatedAt": 2,
                     }),
                     enqueue_timestamp: "2".to_string(),
+                    trace_context: Default::default(),
                 },
             )
             .await
@@ -2391,6 +2413,7 @@ fn recovered_wire_delete_finishes_workspace_snapshot_and_rdf_tail() {
                     "graphIncarnation": current_graph_incarnation(&app, graph_id),
                 }),
                 enqueue_timestamp: "3".to_string(),
+                trace_context: Default::default(),
             };
             assert!(registry.evict_room(&workspace_key));
             let recovered = journal_and_recover_one(&app, &pending);
@@ -2428,6 +2451,7 @@ fn recovered_wire_delete_finishes_workspace_snapshot_and_rdf_tail() {
                     document_id: None,
                     payload: json!({ "wireId": wire_id }),
                     enqueue_timestamp: "4".to_string(),
+                    trace_context: Default::default(),
                 },
             )
             .await
@@ -2513,6 +2537,7 @@ fn recovered_folder_cascade_rederives_and_finishes_hard_delete_tail() {
                             "updatedAt": order,
                         }),
                         enqueue_timestamp: order.to_string(),
+                        trace_context: Default::default(),
                     },
                 )
                 .await
@@ -2543,6 +2568,7 @@ fn recovered_folder_cascade_rederives_and_finishes_hard_delete_tail() {
                             }
                         }),
                         enqueue_timestamp: order.to_string(),
+                        trace_context: Default::default(),
                     },
                 )
                 .await
@@ -2565,6 +2591,7 @@ fn recovered_folder_cascade_rederives_and_finishes_hard_delete_tail() {
                         "updatedAt": 5,
                     }),
                     enqueue_timestamp: "5".to_string(),
+                    trace_context: Default::default(),
                 },
             )
             .await
@@ -2609,6 +2636,7 @@ fn recovered_folder_cascade_rederives_and_finishes_hard_delete_tail() {
                     "graphIncarnation": current_graph_incarnation(&app, graph_id),
                 }),
                 enqueue_timestamp: "6".to_string(),
+                trace_context: Default::default(),
             };
             crate::crdt_operation_journal::record_crdt_operation_queued(&app, &pending)
                 .expect("journal folder cascade before apply");
@@ -2727,6 +2755,7 @@ fn recovered_folder_cascade_rederives_and_finishes_hard_delete_tail() {
                         "__gardenRecoveredOperation": true,
                     }),
                     enqueue_timestamp: "7".to_string(),
+                    trace_context: Default::default(),
                 },
             )
             .await
@@ -2782,6 +2811,7 @@ fn unrelated_workspace_cycle_rejects_valid_subtree_delete_before_hot_commit() {
                             "updatedAt": index + 1,
                         }),
                         enqueue_timestamp: (index + 1).to_string(),
+                        trace_context: Default::default(),
                     },
                 )
                 .await
@@ -2828,6 +2858,7 @@ fn unrelated_workspace_cycle_rejects_valid_subtree_delete_before_hot_commit() {
                         "hard": false,
                     }),
                     enqueue_timestamp: "10".to_string(),
+                    trace_context: Default::default(),
                 },
             )
             .await
@@ -2909,6 +2940,7 @@ fn cyclic_workspace_delete_is_terminal_fresh_and_recovered_without_partial_state
                             "updatedAt": order,
                         }),
                         enqueue_timestamp: order.to_string(),
+                        trace_context: Default::default(),
                     },
                 )
                 .await
@@ -2950,6 +2982,7 @@ fn cyclic_workspace_delete_is_terminal_fresh_and_recovered_without_partial_state
                     "graphIncarnation": current_graph_incarnation(&app, graph_id),
                 }),
                 enqueue_timestamp: "3".to_string(),
+                trace_context: Default::default(),
             };
 
             // Fresh production dispatch: validation/materialization fails
@@ -3046,6 +3079,7 @@ fn recovered_folder_cascade_refreshes_plan_before_its_first_dispatch() {
                         "updatedAt": 1,
                     }),
                     enqueue_timestamp: "1".to_string(),
+                    trace_context: Default::default(),
                 },
             )
             .await
@@ -3071,6 +3105,7 @@ fn recovered_folder_cascade_refreshes_plan_before_its_first_dispatch() {
                         }
                     }),
                     enqueue_timestamp: "2".to_string(),
+                    trace_context: Default::default(),
                 },
             )
             .await
@@ -3132,6 +3167,7 @@ fn recovered_folder_cascade_refreshes_plan_before_its_first_dispatch() {
                     "graphIncarnation": current_graph_incarnation(&seed_app, graph_id),
                 }),
                 enqueue_timestamp: "3".to_string(),
+                trace_context: Default::default(),
             };
             crate::crdt_operation_journal::record_crdt_operation_queued(&seed_app, &pending)
                 .expect("journal before any dispatch");
@@ -3248,6 +3284,7 @@ fn queued_document_delete_evicts_live_room_and_cancels_zombie_flush() {
                         }
                     }),
                     enqueue_timestamp: "1".to_string(),
+                    trace_context: Default::default(),
                 },
             )
             .await
@@ -3365,6 +3402,7 @@ fn failed_delete_cannot_resurrect_and_same_id_recreation_clears_only_after_works
                         }
                     }),
                     enqueue_timestamp: "1".to_string(),
+                    trace_context: Default::default(),
                 },
             )
             .await
@@ -3391,6 +3429,7 @@ fn failed_delete_cannot_resurrect_and_same_id_recreation_clears_only_after_works
                     document_id: Some(document_id.to_string()),
                     payload: json!({ "documentId": document_id }),
                     enqueue_timestamp: "2".to_string(),
+                    trace_context: Default::default(),
                 },
             )
             .await
@@ -3454,6 +3493,7 @@ fn failed_delete_cannot_resurrect_and_same_id_recreation_clears_only_after_works
                     }
                 }),
                 enqueue_timestamp: "3".to_string(),
+                trace_context: Default::default(),
             };
             super::document_ops::fail_next_document_recreation_before_workspace_for_test(
                 &recreation.operation_id,
@@ -3817,6 +3857,7 @@ fn stacked_marks_write(
         document_id: Some(document_id.to_string()),
         payload,
         enqueue_timestamp: "1".to_string(),
+        trace_context: Default::default(),
     }
 }
 

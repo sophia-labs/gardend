@@ -881,6 +881,7 @@ mod tests {
                         document_id: None,
                         payload: json!({ "includeMaterialization": true }),
                         enqueue_timestamp: "1".to_string(),
+                        trace_context: Default::default(),
                     },
                 )
                 .await
@@ -955,6 +956,7 @@ mod tests {
                         document_id: None,
                         payload: json!({}),
                         enqueue_timestamp: "2".to_string(),
+                        trace_context: Default::default(),
                     },
                 )
                 .await
@@ -1004,6 +1006,7 @@ mod tests {
                         document_id: Some("scoped-document".to_string()),
                         payload: json!({}),
                         enqueue_timestamp: "3".to_string(),
+                        trace_context: Default::default(),
                     },
                 )
                 .await
@@ -1031,6 +1034,7 @@ mod tests {
                         document_id: None,
                         payload: json!({}),
                         enqueue_timestamp: "4".to_string(),
+                        trace_context: Default::default(),
                     },
                 )
                 .await
@@ -1466,6 +1470,7 @@ mod tests {
                             "graphGeneration": old_generation,
                         }),
                         enqueue_timestamp: "1".to_string(),
+                        trace_context: Default::default(),
                     },
                 )
                 .await
@@ -1591,6 +1596,7 @@ mod tests {
                         document_id: None,
                         payload: json!({ "includeMaterialization": true }),
                         enqueue_timestamp: "1".to_string(),
+                        trace_context: Default::default(),
                     },
                 )
                 .await
@@ -1680,6 +1686,7 @@ mod tests {
                         document_id: None,
                         payload: json!({ "includeMaterialization": true }),
                         enqueue_timestamp: "2".to_string(),
+                        trace_context: Default::default(),
                     },
                 )
                 .await
@@ -1793,6 +1800,7 @@ mod tests {
                         document_id: Some(lazy_id.clone()),
                         payload: json!({ "includeMaterialization": true }),
                         enqueue_timestamp: "3".to_string(),
+                        trace_context: Default::default(),
                     },
                 )
                 .await
@@ -1924,6 +1932,7 @@ mod tests {
                         document_id: None,
                         payload: json!({ "includeMaterialization": true }),
                         enqueue_timestamp: "1".to_string(),
+                        trace_context: Default::default(),
                     },
                 )
                 .await
@@ -1984,6 +1993,7 @@ mod tests {
                             (crate::crdt_queue::RECOVERED_OPERATION_PAYLOAD_KEY): true,
                         }),
                         enqueue_timestamp: "2".to_string(),
+                        trace_context: Default::default(),
                     },
                 )
                 .await
@@ -2060,6 +2070,7 @@ mod tests {
                             (crate::crdt_queue::RECOVERED_OPERATION_PAYLOAD_KEY): true,
                         }),
                         enqueue_timestamp: "3".to_string(),
+                        trace_context: Default::default(),
                     },
                 )
                 .await

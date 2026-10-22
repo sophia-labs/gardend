@@ -386,6 +386,8 @@ pub(crate) fn save_document_for_recreation(
     save_document_with_tombstone_fence(app, input, Some(expected_deletion_id))
 }
 
+#[tracing::instrument(target = "gardend_otel", name = "document.save", skip_all,
+    fields(sophia.graph.id = %input.graph_id, sophia.document.id = %input.document_id))]
 fn save_document_with_tombstone_fence(
     app: AppHandle,
     input: SaveDocumentInput,

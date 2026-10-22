@@ -175,6 +175,7 @@ pub(super) fn loopback_router(state: Arc<LoopbackState>) -> Router {
             activity_state,
             cell_activity_middleware,
         ))
+        .layer(middleware::from_fn(crate::telemetry::http_server))
         .layer(cors)
         .with_state(state)
 }

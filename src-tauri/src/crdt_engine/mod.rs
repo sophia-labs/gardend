@@ -52,3 +52,11 @@ mod flow_board_flush_tests;
 mod persistence_tests;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 pub(crate) mod workspace_ops_poison_tests;
+
+#[cfg(all(
+    test,
+    feature = "headless",
+    not(feature = "desktop"),
+    not(feature = "frontend-crdt")
+))]
+mod otel_tests;

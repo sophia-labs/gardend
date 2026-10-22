@@ -1040,6 +1040,7 @@ fn the_executor_checks_the_fence_and_strips_a_forged_one() {
                     .unwrap()
                     .as_millis()
                     .to_string(),
+                trace_context: Default::default(),
             };
             let refused =
                 crate::crdt_engine::executor::apply_operation(&f.state.app, &operation).await;

@@ -7,6 +7,7 @@ use crate::{
         mcp_error, mcp_error_with_data, mcp_scope_error, mcp_success, McpRpcResponse,
     },
 };
+use tracing::Instrument;
 
 pub(crate) async fn handle_mcp_tool_call(
     state: &LoopbackState,
@@ -74,7 +75,16 @@ pub(crate) async fn handle_mcp_tool_call(
     // verbatim (doctrine: errors surface verbatim) and the taxonomy code
     // (`app_error_codes`), when the error was classified, rides in `data`.
     // The JSON-RPC code stays -32000 so no client's envelope handling changes.
-    let result = (entry.handler)(&ctx, &arguments).await;
+    let span = tracing::info_span!(target: "gardend_otel", "tools/call",
+        otel.name = %format!("tools/call {}", entry.name), otel.kind = "server",
+        rpc.system = "mcp", rpc.method = "tools/call", rpc.service = entry.name,
+        otel.status_code = tracing::field::Empty);
+    let result = (entry.handler)(&ctx, &arguments)
+        .instrument(span.clone())
+        .await;
+    if result.is_err() {
+        span.record("otel.status_code", "ERROR");
+    }
 
     match result {
         Ok(value) => mcp_success(

@@ -506,6 +506,7 @@ fn tiptap_document_in_same_graph_still_projects_as_before() {
                         }
                     }),
                     enqueue_timestamp: "1".to_string(),
+                    trace_context: Default::default(),
                 },
             )
             .await

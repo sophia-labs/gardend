@@ -39,6 +39,7 @@ use std::collections::BTreeMap;
 use std::{path::Path as FsPath, sync::Arc};
 #[cfg(feature = "desktop")]
 use tauri::Manager;
+use tracing::{instrument::WithSubscriber, Instrument};
 
 pub(super) fn loopback_hocuspocus_router() -> Router<Arc<LoopbackState>> {
     Router::new()
@@ -453,9 +454,15 @@ async fn doc_room(
         }
     };
     let app = state.app.clone();
-    ws.on_upgrade(move |socket| async move {
-        let _socket_lease = socket_lease;
-        serve_room_with(socket, room, app, graph_id, access).await;
+    let parent = tracing::Span::current();
+    let dispatch = tracing::dispatcher::get_default(Clone::clone);
+    ws.on_upgrade(move |socket| {
+        async move {
+            let _socket_lease = socket_lease;
+            serve_room_with(socket, room, app, graph_id, access).await;
+        }
+        .instrument(parent)
+        .with_subscriber(dispatch)
     })
 }
 
@@ -525,8 +532,14 @@ async fn workspace_room(
         }
     };
     let app = state.app.clone();
-    ws.on_upgrade(move |socket| async move {
-        let _socket_lease = socket_lease;
-        serve_room_with(socket, room, app, graph_id, access).await;
+    let parent = tracing::Span::current();
+    let dispatch = tracing::dispatcher::get_default(Clone::clone);
+    ws.on_upgrade(move |socket| {
+        async move {
+            let _socket_lease = socket_lease;
+            serve_room_with(socket, room, app, graph_id, access).await;
+        }
+        .instrument(parent)
+        .with_subscriber(dispatch)
     })
 }

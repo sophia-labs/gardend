@@ -14,9 +14,11 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
+use std::time::{Duration, Instant};
 #[cfg(feature = "desktop")]
 use tauri::Manager;
 use tokio::sync::Notify;
+use tracing::Instrument;
 
 use crate::app_runtime::AppHandle;
 use crate::cell_durability_trace::{
@@ -41,10 +43,13 @@ struct GraphGate {
     hot_write_blocking_wait: Mutex<()>,
     hot_write_blocking_notify: Condvar,
     generation: std::sync::atomic::AtomicU64,
+    hot_holder: Mutex<Option<LeaseHolder>>,
+    lifecycle_holder: Mutex<Option<LeaseHolder>>,
 }
 
 pub(crate) struct SharedLease {
     gate: Arc<GraphGate>,
+    _trace: LeaseTrace,
 }
 
 struct DirtyLeaseState {
@@ -58,11 +63,149 @@ pub(crate) struct HotWriteLease {
     gate: Arc<GraphGate>,
     dirty: DirtyLeaseState,
     _shared: SharedLease,
+    _trace: LeaseTrace,
 }
 
 pub(crate) struct ExclusiveLease {
     gate: Arc<GraphGate>,
+    _trace: LeaseTrace,
     dirty: DirtyLeaseState,
+}
+
+struct LeaseHolder {
+    kind: &'static str,
+    since: Instant,
+}
+
+// The span owns no entered guard: a lease may cross await/thread boundaries.
+// Its lifetime includes both acquisition and the complete critical section.
+struct LeaseTrace {
+    span: tracing::Span,
+    waiting: Option<Instant>,
+    acquired: Option<Instant>,
+}
+
+impl LeaseTrace {
+    fn new(graph_id: &str, kind: &'static str, mode: &'static str) -> Self {
+        let span = match mode {
+            "hot_write" => tracing::info_span!(target: "gardend_otel", "graph.lease.hot_write",
+                sophia.graph.id = graph_id, sophia.lease.holder.kind = kind, sophia.lease.origin = kind,
+                sophia.lease.wait_ms = tracing::field::Empty, sophia.lease.held_ms = tracing::field::Empty,
+                sophia.lease.blocker.kind = tracing::field::Empty, sophia.lease.blocker.held_ms = tracing::field::Empty,
+                sophia.lease.outcome = tracing::field::Empty),
+            "exclusive" => {
+                tracing::info_span!(target: "gardend_otel", "graph.lease.lifecycle_exclusive",
+                sophia.graph.id = graph_id, sophia.lease.holder.kind = kind, sophia.lease.origin = kind,
+                sophia.lease.wait_ms = tracing::field::Empty, sophia.lease.held_ms = tracing::field::Empty,
+                sophia.lease.blocker.kind = tracing::field::Empty, sophia.lease.blocker.held_ms = tracing::field::Empty,
+                sophia.lease.outcome = tracing::field::Empty)
+            }
+            _ => tracing::info_span!(target: "gardend_otel", "graph.lease.lifecycle_shared",
+                sophia.graph.id = graph_id, sophia.lease.holder.kind = kind, sophia.lease.origin = kind,
+                sophia.lease.wait_ms = tracing::field::Empty, sophia.lease.held_ms = tracing::field::Empty,
+                sophia.lease.blocker.kind = tracing::field::Empty, sophia.lease.blocker.held_ms = tracing::field::Empty,
+                sophia.lease.outcome = tracing::field::Empty),
+        };
+        let waiting = (!span.is_disabled()).then(Instant::now);
+        Self {
+            span,
+            waiting,
+            acquired: None,
+        }
+    }
+
+    fn acquired(&mut self) {
+        if self.waiting.is_some() {
+            self.span.record(
+                "sophia.lease.wait_ms",
+                crate::telemetry::elapsed_ms(self.waiting),
+            );
+            self.span.record("sophia.lease.outcome", "acquired");
+            self.acquired = Some(Instant::now());
+        }
+    }
+
+    fn blocker(&self, gate: &GraphGate, lifecycle: bool) {
+        if self.span.is_disabled() {
+            return;
+        }
+        let holder = if lifecycle {
+            &gate.lifecycle_holder
+        } else {
+            &gate.hot_holder
+        };
+        if let Ok(holder) = holder.lock() {
+            if let Some(holder) = holder.as_ref() {
+                self.span.record("sophia.lease.blocker.kind", holder.kind);
+                self.span.record(
+                    "sophia.lease.blocker.held_ms",
+                    holder.since.elapsed().as_secs_f64() * 1000.0,
+                );
+            }
+        }
+    }
+
+    async fn observe<F: std::future::Future>(
+        &self,
+        gate: &GraphGate,
+        lifecycle: bool,
+        future: F,
+    ) -> F::Output {
+        if self.span.is_disabled() {
+            return future.await;
+        }
+        tokio::pin!(future);
+        tokio::select! {
+            output = &mut future => output,
+            _ = tokio::time::sleep(Duration::from_secs(1).saturating_sub(
+                self.waiting.map_or(Duration::ZERO, |start| start.elapsed()),
+            )) => {
+                self.blocker(gate, lifecycle);
+                future.await
+            }
+        }
+    }
+}
+
+impl Drop for LeaseTrace {
+    fn drop(&mut self) {
+        if self.span.is_disabled() {
+            return;
+        }
+        if let Some(acquired) = self.acquired {
+            self.span.record(
+                "sophia.lease.held_ms",
+                acquired.elapsed().as_secs_f64() * 1000.0,
+            );
+        } else {
+            self.span.record(
+                "sophia.lease.wait_ms",
+                crate::telemetry::elapsed_ms(self.waiting),
+            );
+            self.span.record("sophia.lease.outcome", "cancelled");
+        }
+    }
+}
+
+/// Remembered only while this acquisition is traced: its own span says so, which (unlike a callsite's cached
+/// interest) is exact for the dispatcher the lease was taken under.
+fn set_holder(slot: &Mutex<Option<LeaseHolder>>, kind: &'static str, trace: &LeaseTrace) {
+    if !trace.span.is_disabled() {
+        if let Ok(mut holder) = slot.lock() {
+            *holder = Some(LeaseHolder {
+                kind,
+                since: Instant::now(),
+            });
+        }
+    }
+}
+
+fn clear_holder(slot: &Mutex<Option<LeaseHolder>>) {
+    if crate::telemetry::enabled() {
+        if let Ok(mut holder) = slot.lock() {
+            *holder = None;
+        }
+    }
 }
 
 struct LifecycleWriterIntent {
@@ -166,6 +309,15 @@ macro_rules! impl_writing_lease {
                 if tracing_enabled() {
                     self.dirty.crdt_kind.set(known_crdt_kind(kind));
                 }
+                if !self._trace.span.is_disabled() {
+                    let kind = crate::telemetry::safe_crdt_kind(kind);
+                    self._trace.span.record("sophia.lease.holder.kind", kind);
+                    if let Ok(mut holder) = self.gate.hot_holder.lock() {
+                        if let Some(holder) = holder.as_mut() {
+                            holder.kind = kind;
+                        }
+                    }
+                }
             }
         }
     };
@@ -194,6 +346,8 @@ impl GraphPersistenceCoordinator {
             hot_write_blocking_wait: Mutex::new(()),
             hot_write_blocking_notify: Condvar::new(),
             generation: std::sync::atomic::AtomicU64::new(0),
+            hot_holder: Mutex::new(None),
+            lifecycle_holder: Mutex::new(None),
         });
         gates.insert(graph_id.to_string(), gate.clone());
         Ok(gate)
@@ -204,25 +358,43 @@ impl GraphPersistenceCoordinator {
         graph_id: &str,
     ) -> Result<SharedLease, String> {
         let gate = self.gate(graph_id)?;
-        loop {
-            // Register before checking the atomics to avoid a release between
-            // the check and awaiting the notification.
-            let notified = gate.lifecycle_async_notify.notified();
-            if !gate.lifecycle_writer.load(Ordering::SeqCst) {
-                gate.lifecycle_readers.fetch_add(1, Ordering::SeqCst);
-                if !gate.lifecycle_writer.load(Ordering::SeqCst) {
-                    // The registration borrows `gate`; we hold the read now
-                    // and will never await it, so release it before moving
-                    // the Arc into the lease.
-                    drop(notified);
-                    return Ok(SharedLease { gate });
+        self.acquire_lifecycle_shared_gate(graph_id, gate).await
+    }
+
+    async fn acquire_lifecycle_shared_gate(
+        &self,
+        graph_id: &str,
+        gate: Arc<GraphGate>,
+    ) -> Result<SharedLease, String> {
+        let mut trace = LeaseTrace::new(graph_id, "shared", "shared");
+        trace
+            .observe(&gate, true, async {
+                loop {
+                    // Register before checking the atomics to avoid a release between
+                    // the check and awaiting the notification.
+                    let notified = gate.lifecycle_async_notify.notified();
+                    if !gate.lifecycle_writer.load(Ordering::SeqCst) {
+                        gate.lifecycle_readers.fetch_add(1, Ordering::SeqCst);
+                        if !gate.lifecycle_writer.load(Ordering::SeqCst) {
+                            // The registration borrows `gate`; we hold the read now
+                            // and will never await it, so release it before moving
+                            // the Arc into the lease.
+                            drop(notified);
+                            return Ok::<(), String>(());
+                        }
+                        if gate.lifecycle_readers.fetch_sub(1, Ordering::SeqCst) == 1 {
+                            notify_lifecycle_waiters(&gate);
+                        }
+                    }
+                    notified.await;
                 }
-                if gate.lifecycle_readers.fetch_sub(1, Ordering::SeqCst) == 1 {
-                    notify_lifecycle_waiters(&gate);
-                }
-            }
-            notified.await;
-        }
+            })
+            .await?;
+        trace.acquired();
+        Ok(SharedLease {
+            gate,
+            _trace: trace,
+        })
     }
 
     #[track_caller]
@@ -230,7 +402,7 @@ impl GraphPersistenceCoordinator {
         &'a self,
         graph_id: &'a str,
     ) -> impl std::future::Future<Output = Result<HotWriteLease, String>> + 'a {
-        let origin = if tracing_enabled() {
+        let origin = if tracing_enabled() || crate::telemetry::enabled() {
             origin_from_location(std::panic::Location::caller())
         } else {
             DirtyOrigin::Other
@@ -243,13 +415,26 @@ impl GraphPersistenceCoordinator {
         graph_id: &str,
         origin: DirtyOrigin,
     ) -> Result<HotWriteLease, String> {
-        let shared = self.acquire_lifecycle_shared(graph_id).await?;
-        let gate = shared.gate.clone();
-        acquire_hot_write_gate(&gate).await;
+        let mut trace = LeaseTrace::new(graph_id, origin.label(), "hot_write");
+        let gate = self.gate(graph_id)?;
+        let shared = trace
+            .observe(
+                &gate,
+                true,
+                self.acquire_lifecycle_shared_gate(graph_id, gate.clone())
+                    .instrument(trace.span.clone()),
+            )
+            .await?;
+        trace
+            .observe(&gate, false, acquire_hot_write_gate(&gate))
+            .await;
+        trace.acquired();
+        set_holder(&gate.hot_holder, origin.label(), &trace);
         Ok(HotWriteLease {
             gate,
             dirty: DirtyLeaseState::new(graph_id, origin),
             _shared: shared,
+            _trace: trace,
         })
     }
 
@@ -258,7 +443,7 @@ impl GraphPersistenceCoordinator {
         &'a self,
         graph_id: &'a str,
     ) -> impl std::future::Future<Output = Result<ExclusiveLease, String>> + 'a {
-        let origin = if tracing_enabled() {
+        let origin = if tracing_enabled() || crate::telemetry::enabled() {
             origin_from_location(std::panic::Location::caller())
         } else {
             DirtyOrigin::Other
@@ -272,38 +457,51 @@ impl GraphPersistenceCoordinator {
         origin: DirtyOrigin,
     ) -> Result<ExclusiveLease, String> {
         let gate = self.gate(graph_id)?;
-        loop {
-            // Register before checking the atomic to avoid a release between
-            // the failed CAS and awaiting the notification.
-            let notified = gate.lifecycle_async_notify.notified();
-            if gate
-                .lifecycle_writer
-                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-                .is_ok()
-            {
-                break;
-            }
-            notified.await;
-        }
+        let mut trace = LeaseTrace::new(graph_id, origin.label(), "exclusive");
+        trace
+            .observe(&gate, true, async {
+                loop {
+                    // Register before checking the atomic to avoid a release between
+                    // the failed CAS and awaiting the notification.
+                    let notified = gate.lifecycle_async_notify.notified();
+                    if gate
+                        .lifecycle_writer
+                        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                        .is_ok()
+                    {
+                        break;
+                    }
+                    notified.await;
+                }
+            })
+            .await;
         let mut writer_intent = LifecycleWriterIntent {
             gate: gate.clone(),
             armed: true,
         };
-        loop {
-            let notified = gate.lifecycle_async_notify.notified();
-            if gate.lifecycle_readers.load(Ordering::SeqCst) == 0 {
-                break;
-            }
-            notified.await;
-        }
+        set_holder(&gate.lifecycle_holder, origin.label(), &trace);
+        trace
+            .observe(&gate, false, async {
+                loop {
+                    let notified = gate.lifecycle_async_notify.notified();
+                    if gate.lifecycle_readers.load(Ordering::SeqCst) == 0 {
+                        break;
+                    }
+                    notified.await;
+                }
+            })
+            .await;
         // Lifecycle writer intent prevents new shared/hot-write entrants, and
         // draining readers proves every earlier hot-write holder has released.
         gate.hot_write_held
             .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
             .map_err(|_| "graph hot-write gate remained held after reader drain".to_string())?;
+        trace.acquired();
+        set_holder(&gate.hot_holder, origin.label(), &trace);
         let lease = ExclusiveLease {
             gate,
             dirty: DirtyLeaseState::new(graph_id, origin),
+            _trace: trace,
         };
         writer_intent.disarm();
         Ok(lease)
@@ -322,6 +520,7 @@ impl GraphPersistenceCoordinator {
         graph_id: &str,
     ) -> Result<SharedLease, String> {
         let gate = self.gate(graph_id)?;
+        let mut trace = LeaseTrace::new(graph_id, "shared", "shared");
         let mut wait = gate
             .lifecycle_blocking_wait
             .lock()
@@ -331,17 +530,18 @@ impl GraphPersistenceCoordinator {
                 gate.lifecycle_readers.fetch_add(1, Ordering::SeqCst);
                 if !gate.lifecycle_writer.load(Ordering::SeqCst) {
                     drop(wait);
-                    return Ok(SharedLease { gate });
+                    trace.acquired();
+                    return Ok(SharedLease {
+                        gate,
+                        _trace: trace,
+                    });
                 }
                 if gate.lifecycle_readers.fetch_sub(1, Ordering::SeqCst) == 1 {
                     gate.lifecycle_blocking_notify.notify_all();
                     notify_async_lifecycle_waiters(&gate);
                 }
             }
-            wait = gate
-                .lifecycle_blocking_notify
-                .wait(wait)
-                .map_err(|_| "graph lifecycle blocking wait poisoned".to_string())?;
+            wait = wait_lifecycle_gate(&gate, &trace, wait, true)?;
         }
     }
 
@@ -351,7 +551,7 @@ impl GraphPersistenceCoordinator {
         &self,
         graph_id: &str,
     ) -> Result<HotWriteLease, String> {
-        let origin = if tracing_enabled() {
+        let origin = if tracing_enabled() || crate::telemetry::enabled() {
             origin_from_location(std::panic::Location::caller())
         } else {
             DirtyOrigin::Other
@@ -364,13 +564,19 @@ impl GraphPersistenceCoordinator {
         graph_id: &str,
         origin: DirtyOrigin,
     ) -> Result<HotWriteLease, String> {
-        let shared = self.acquire_lifecycle_shared_blocking(graph_id)?;
+        let mut trace = LeaseTrace::new(graph_id, origin.label(), "hot_write");
+        let shared = trace
+            .span
+            .in_scope(|| self.acquire_lifecycle_shared_blocking(graph_id))?;
         let gate = shared.gate.clone();
-        acquire_hot_write_gate_blocking(&gate)?;
+        acquire_hot_write_gate_blocking(&gate, &trace)?;
+        trace.acquired();
+        set_holder(&gate.hot_holder, origin.label(), &trace);
         Ok(HotWriteLease {
             gate,
             dirty: DirtyLeaseState::new(graph_id, origin),
             _shared: shared,
+            _trace: trace,
         })
     }
 
@@ -380,7 +586,7 @@ impl GraphPersistenceCoordinator {
         &self,
         graph_id: &str,
     ) -> Result<ExclusiveLease, String> {
-        let origin = if tracing_enabled() {
+        let origin = if tracing_enabled() || crate::telemetry::enabled() {
             origin_from_location(std::panic::Location::caller())
         } else {
             DirtyOrigin::Other
@@ -394,6 +600,7 @@ impl GraphPersistenceCoordinator {
         origin: DirtyOrigin,
     ) -> Result<ExclusiveLease, String> {
         let gate = self.gate(graph_id)?;
+        let mut trace = LeaseTrace::new(graph_id, origin.label(), "exclusive");
         let mut wait = gate
             .lifecycle_blocking_wait
             .lock()
@@ -406,17 +613,15 @@ impl GraphPersistenceCoordinator {
             {
                 break;
             }
-            wait = gate
-                .lifecycle_blocking_notify
-                .wait(wait)
-                .map_err(|_| "graph lifecycle blocking wait poisoned".to_string())?;
+            wait = wait_lifecycle_gate(&gate, &trace, wait, true)?;
         }
         let mut writer_intent = LifecycleWriterIntent {
             gate: gate.clone(),
             armed: true,
         };
+        set_holder(&gate.lifecycle_holder, origin.label(), &trace);
         while gate.lifecycle_readers.load(Ordering::SeqCst) != 0 {
-            wait = match gate.lifecycle_blocking_notify.wait(wait) {
+            wait = match wait_lifecycle_gate(&gate, &trace, wait, false) {
                 Ok(wait) => wait,
                 Err(_) => {
                     drop(writer_intent);
@@ -425,13 +630,16 @@ impl GraphPersistenceCoordinator {
             };
         }
         drop(wait);
-        if let Err(error) = acquire_hot_write_gate_blocking(&gate) {
+        if let Err(error) = acquire_hot_write_gate_blocking(&gate, &trace) {
             drop(writer_intent);
             return Err(error);
         }
+        trace.acquired();
+        set_holder(&gate.hot_holder, origin.label(), &trace);
         let lease = ExclusiveLease {
             gate,
             dirty: DirtyLeaseState::new(graph_id, origin),
+            _trace: trace,
         };
         writer_intent.disarm();
         Ok(lease)
@@ -483,7 +691,7 @@ async fn acquire_hot_write_gate(gate: &GraphGate) {
     }
 }
 
-fn acquire_hot_write_gate_blocking(gate: &GraphGate) -> Result<(), String> {
+fn acquire_hot_write_gate_blocking(gate: &GraphGate, trace: &LeaseTrace) -> Result<(), String> {
     let mut wait = gate
         .hot_write_blocking_wait
         .lock()
@@ -496,11 +704,49 @@ fn acquire_hot_write_gate_blocking(gate: &GraphGate) -> Result<(), String> {
         {
             return Ok(());
         }
-        wait = gate
-            .hot_write_blocking_notify
-            .wait(wait)
-            .map_err(|_| "graph hot-write blocking wait poisoned".to_string())?;
+        wait = if trace.span.is_disabled() {
+            gate.hot_write_blocking_notify
+                .wait(wait)
+                .map_err(|_| "graph hot-write blocking wait poisoned".to_string())?
+        } else {
+            gate.hot_write_blocking_notify
+                .wait_timeout(wait, Duration::from_secs(1))
+                .map_err(|_| "graph hot-write blocking wait poisoned".to_string())?
+                .0
+        };
+        if trace
+            .waiting
+            .is_some_and(|start| start.elapsed() >= Duration::from_secs(1))
+        {
+            trace.blocker(gate, false);
+        }
     }
+}
+
+fn wait_lifecycle_gate<'a>(
+    gate: &'a GraphGate,
+    trace: &LeaseTrace,
+    wait: std::sync::MutexGuard<'a, ()>,
+    lifecycle: bool,
+) -> Result<std::sync::MutexGuard<'a, ()>, String> {
+    if trace.span.is_disabled() {
+        return gate
+            .lifecycle_blocking_notify
+            .wait(wait)
+            .map_err(|_| "graph lifecycle blocking wait poisoned".to_string());
+    }
+    let wait = gate
+        .lifecycle_blocking_notify
+        .wait_timeout(wait, Duration::from_secs(1))
+        .map_err(|_| "graph lifecycle blocking wait poisoned".to_string())?
+        .0;
+    if trace
+        .waiting
+        .is_some_and(|start| start.elapsed() >= Duration::from_secs(1))
+    {
+        trace.blocker(gate, lifecycle);
+    }
+    Ok(wait)
 }
 
 fn notify_async_lifecycle_waiters(gate: &GraphGate) {
@@ -519,6 +765,7 @@ fn notify_lifecycle_waiters(gate: &GraphGate) {
 }
 
 fn release_hot_write(gate: &GraphGate) {
+    clear_holder(&gate.hot_holder);
     let _wait = gate.hot_write_blocking_wait.lock().ok();
     gate.hot_write_held.store(false, Ordering::SeqCst);
     gate.hot_write_blocking_notify.notify_one();
@@ -528,6 +775,7 @@ fn release_hot_write(gate: &GraphGate) {
 }
 
 fn release_lifecycle_writer(gate: &GraphGate) {
+    clear_holder(&gate.lifecycle_holder);
     let _wait = gate.lifecycle_blocking_wait.lock().ok();
     gate.lifecycle_writer.store(false, Ordering::SeqCst);
     gate.lifecycle_blocking_notify.notify_all();
@@ -554,7 +802,7 @@ pub(crate) fn acquire_hot_write_blocking_if_managed(
     app: &AppHandle,
     graph_id: &str,
 ) -> Result<Option<HotWriteLease>, String> {
-    let origin = if tracing_enabled() {
+    let origin = if tracing_enabled() || crate::telemetry::enabled() {
         origin_from_location(std::panic::Location::caller())
     } else {
         DirtyOrigin::Other
@@ -570,7 +818,7 @@ pub(crate) fn acquire_lifecycle_exclusive_blocking_if_managed(
     app: &AppHandle,
     graph_id: &str,
 ) -> Result<Option<ExclusiveLease>, String> {
-    let origin = if tracing_enabled() {
+    let origin = if tracing_enabled() || crate::telemetry::enabled() {
         origin_from_location(std::panic::Location::caller())
     } else {
         DirtyOrigin::Other

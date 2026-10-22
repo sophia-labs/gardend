@@ -317,6 +317,7 @@ mod tests {
             document_id: Some("doc-1".to_string()),
             payload: serde_json::json!({ "content": "hello" }),
             enqueue_timestamp: "0".to_string(),
+            trace_context: Default::default(),
         }
     }
 

@@ -578,6 +578,7 @@ pub(crate) async fn apply_classified(
             "readOnly": false,
         }),
         enqueue_timestamp: operation.enqueue_timestamp.clone(),
+        trace_context: operation.trace_context.clone(),
     };
     super::document_ops::document_write_classified(app, &write_operation).await?;
     import_result.documents_created = 1;

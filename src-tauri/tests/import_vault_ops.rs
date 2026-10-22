@@ -30,6 +30,7 @@ mod crdt_queue {
         pub(crate) document_id: Option<String>,
         pub(crate) payload: serde_json::Value,
         pub(crate) enqueue_timestamp: String,
+        pub(crate) trace_context: (),
     }
 }
 

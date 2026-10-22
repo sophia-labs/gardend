@@ -14,6 +14,7 @@ use std::{
 };
 #[cfg(feature = "desktop")]
 use tauri::Manager;
+use tracing::instrument::WithSubscriber;
 
 /// Header callers send to opt back into the legacy synchronous flush path
 /// (read-after-write fidelity at the cost of latency).
@@ -183,21 +184,24 @@ pub(crate) fn spawn_deferred_document_projection_flush(
     document_id: String,
     route: &'static str,
 ) {
-    tokio::spawn(async move {
-        if let Err(error) = flush_projection_with_phase(
-            app.clone(),
-            &graph_id,
-            Some(&document_id),
-            None,
-            None,
-            None,
-            None,
-        )
-        .await
-        {
-            log_deferred_flush_failure(&app, route, &graph_id, Some(&document_id), &error);
+    tokio::spawn(
+        async move {
+            if let Err(error) = flush_projection_with_phase(
+                app.clone(),
+                &graph_id,
+                Some(&document_id),
+                None,
+                None,
+                None,
+                None,
+            )
+            .await
+            {
+                log_deferred_flush_failure(&app, route, &graph_id, Some(&document_id), &error);
+            }
         }
-    });
+        .with_current_subscriber(),
+    );
 }
 
 fn log_deferred_flush_failure(

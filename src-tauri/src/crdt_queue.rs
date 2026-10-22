@@ -18,6 +18,7 @@ use std::{
 };
 #[cfg(feature = "desktop")]
 use tauri::{Emitter, Manager};
+use tracing::instrument::WithSubscriber;
 use uuid::Uuid;
 
 pub(crate) use crate::crdt_operation_queue::CrdtOperationQueue;
@@ -128,6 +129,7 @@ pub(crate) fn recover_crdt_operations(app: AppHandle) -> Result<usize, String> {
     }
     let queue = app.state::<CrdtOperationQueue>();
     for mut operation in operations {
+        operation.trace_context.recovered = true;
         #[cfg(not(feature = "frontend-crdt"))]
         {
             if operation_kind_uses_recovery_provenance(&operation.kind) {
@@ -602,6 +604,7 @@ async fn enqueue_crdt_operation_outcome_inner(
         document_id: input.document_id,
         payload: input.payload,
         enqueue_timestamp,
+        trace_context: crate::telemetry::TraceContext::capture(),
     };
 
     record_crdt_operation_queued(&app, &operation)?;
@@ -646,9 +649,12 @@ async fn enqueue_crdt_operation_outcome_inner(
     #[cfg(not(feature = "frontend-crdt"))]
     {
         let executor_app = app.clone();
-        crate::app_runtime::async_runtime::spawn(async move {
-            crate::crdt_engine::executor::drain_queue(executor_app).await;
-        });
+        crate::app_runtime::async_runtime::spawn(
+            async move {
+                crate::crdt_engine::executor::drain_queue(executor_app).await;
+            }
+            .with_current_subscriber(),
+        );
     }
 
     let outcome = match tokio::time::timeout(

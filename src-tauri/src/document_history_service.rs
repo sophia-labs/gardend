@@ -382,6 +382,9 @@ pub(super) fn ensure_document_snapshot_for_revision(
 /// Internal recreation path: normal history writes reject every tombstoned
 /// identity, while a fresh same-ID document may persist only against the exact
 /// deletion UUID it prepared. A newer delete invalidates this capability.
+#[tracing::instrument(target = "gardend_otel", name = "document.history.snapshot", skip_all,
+    fields(sophia.graph.id = %document.graph_id, sophia.document.id = %document.document_id,
+        sophia.document.revision = document.revision))]
 pub(super) fn ensure_document_snapshot_for_revision_with_tombstone_fence(
     graph_dir: &Path,
     document: &DocumentRecord,

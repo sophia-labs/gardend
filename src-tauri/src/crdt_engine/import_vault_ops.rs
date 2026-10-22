@@ -2320,6 +2320,7 @@ pub(crate) async fn apply_classified(
                 "order": folder.order,
             }),
             enqueue_timestamp: enqueue_timestamp.clone(),
+            trace_context: operation.trace_context.clone(),
         };
         match super::workspace_ops::apply_classified(app, &folder_operation).await {
             Ok(_) => durable_started = true,
@@ -2352,6 +2353,7 @@ pub(crate) async fn apply_classified(
                 "readOnly": false,
             }),
             enqueue_timestamp: enqueue_timestamp.clone(),
+            trace_context: operation.trace_context.clone(),
         };
         match super::document_ops::document_write_classified(app, &write_operation).await {
             Ok(_) => {
@@ -2395,6 +2397,7 @@ pub(crate) async fn apply_classified(
                 "updatedAt": enqueue_ms,
             }),
             enqueue_timestamp: enqueue_timestamp.clone(),
+            trace_context: operation.trace_context.clone(),
         };
         match super::workspace_ops::apply_classified(app, &wire_operation).await {
             Ok(_) => {

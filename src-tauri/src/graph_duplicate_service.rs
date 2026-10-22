@@ -376,6 +376,7 @@ async fn flush_source_projection_under_lease(
             "hydratePersistedSidecars": true,
         }),
         enqueue_timestamp: now,
+        trace_context: crate::telemetry::TraceContext::capture(),
     };
     crate::crdt_engine::flush_ops::apply(app, &operation)
         .await

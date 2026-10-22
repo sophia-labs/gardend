@@ -942,9 +942,11 @@ fn tramp_find<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a>
     // the query embedding is CPU work: off the async workers
     Box::pin(async move {
         let args = args.clone();
-        tokio::task::spawn_blocking(move || mcp_local_find(app, &args))
-            .await
-            .map_err(|error| AppError::internal(format!("find worker: {error}")))?
+        tokio::task::spawn_blocking(crate::telemetry::blocking(move || {
+            mcp_local_find(app, &args)
+        }))
+        .await
+        .map_err(|error| AppError::internal(format!("find worker: {error}")))?
     })
 }
 

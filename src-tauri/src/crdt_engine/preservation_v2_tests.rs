@@ -687,6 +687,7 @@ fn operation(bytes: &[u8]) -> CrdtOperation {
         graph_id: "demi-cross-format-fixture-20260908".into(),
         document_id: None,
         enqueue_timestamp: "2026-09-11T00:00:00Z".into(),
+        trace_context: Default::default(),
         payload: json!({"sourceGraphId":"demi-cross-format-fixture-20260908","sourceUserId":"fixture-cloud1-owner-20260908",
             "archiveSha256":archive_sha256(bytes),"planDigest":"a".repeat(64),"formatVersion":2,
             "targetGeneration":1,"expectedDocumentCount":2,"expectedRdfTripleCount":11}),
@@ -702,6 +703,7 @@ fn manifest_operation(bytes: &[u8]) -> CrdtOperation {
         graph_id: graph.into(),
         document_id: None,
         enqueue_timestamp: "2026-09-11T00:00:00Z".into(),
+        trace_context: Default::default(),
         payload: json!({
             "sourceGraphId":graph,
             "sourceUserId":manifest["source"]["userId"],

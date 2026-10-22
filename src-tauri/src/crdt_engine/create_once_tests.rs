@@ -62,6 +62,7 @@ fn operation(app: &AppHandle, id: &str) -> CrdtOperation {
         document_id: Some(DOCUMENT.into()),
         payload,
         enqueue_timestamp: crate::clock::timestamp(),
+        trace_context: Default::default(),
     }
 }
 

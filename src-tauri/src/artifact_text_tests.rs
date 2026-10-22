@@ -430,6 +430,7 @@ fn artifact_text_real_journal_restart_completes_only_the_retained_tail() {
                 document_id: Some("restart-artifact".into()),
                 payload: serde_json::to_value(&input).unwrap(),
                 enqueue_timestamp: crate::clock::timestamp(),
+                trace_context: Default::default(),
             };
             crate::crdt_operation_journal::record_crdt_operation_queued(&app, &operation).unwrap();
             *FAIL_TAIL.lock().unwrap() = Some("restart-edit".into());

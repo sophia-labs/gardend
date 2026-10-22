@@ -495,6 +495,7 @@ async fn apply_steps_classified(
         document_id: Some(document_id),
         payload: ingest_payload,
         enqueue_timestamp: operation.enqueue_timestamp.clone(),
+        trace_context: operation.trace_context.clone(),
     };
     let mut envelope =
         super::document_ops::ingest_markdown_original_steps_classified(app, &ingest_operation)

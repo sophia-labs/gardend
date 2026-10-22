@@ -16,6 +16,7 @@ use crate::crdt_queue::{CompleteCrdtOperationInput, CrdtOperation, CrdtOperation
 use serde_json::Value;
 #[cfg(feature = "desktop")]
 use tauri::Manager;
+use tracing::{instrument::WithSubscriber, Instrument};
 
 /// Structured operation failure contract used by the production drainer.
 ///
@@ -146,26 +147,37 @@ pub(crate) async fn drain_queue(app: AppHandle) {
             return;
         }
         for operation in batch {
-            let outcome = if is_heavy_kind(operation.kind.as_str()) {
-                // Move the long synchronous body off the async worker pool.
-                let app = app.clone();
-                let op = operation.clone();
-                match crate::app_runtime::async_runtime::spawn_blocking(move || {
-                    crate::app_runtime::async_runtime::block_on(apply_operation_classified(
-                        &app, &op,
-                    ))
-                })
-                .await
-                {
-                    Ok(result) => result,
-                    Err(join_error) => Err(ApplyOperationError::terminal(format!(
-                        "heavy operation '{}' task failed: {join_error}",
-                        operation.kind
-                    ))),
+            let span = crate::telemetry::operation_span(&operation);
+            let outcome = async {
+                if is_heavy_kind(operation.kind.as_str()) {
+                    // Move the long synchronous body off the async worker pool.
+                    let app = app.clone();
+                    let op = operation.clone();
+                    match crate::app_runtime::async_runtime::spawn_blocking(
+                        crate::telemetry::blocking(move || {
+                            crate::app_runtime::async_runtime::block_on(apply_operation_classified(
+                                &app, &op,
+                            ))
+                        }),
+                    )
+                    .await
+                    {
+                        Ok(result) => result,
+                        Err(join_error) => Err(ApplyOperationError::terminal(format!(
+                            "heavy operation '{}' task failed: {join_error}",
+                            operation.kind
+                        ))),
+                    }
+                } else {
+                    apply_operation_classified(&app, &operation).await
                 }
-            } else {
-                apply_operation_classified(&app, &operation).await
-            };
+            }
+            .instrument(span.clone())
+            .await;
+            if outcome.is_err() {
+                span.record("otel.status_code", "ERROR");
+            }
+            drop(span);
             match outcome {
                 Ok(value) => complete_terminal(&app, &operation, Ok(value)),
                 Err(ApplyOperationError::Terminal(error)) => {
@@ -236,26 +248,32 @@ pub(crate) async fn drain_queue(app: AppHandle) {
 }
 
 fn spawn_ready_queue_continuation(app: AppHandle) -> tokio::task::JoinHandle<()> {
-    tokio::spawn(async move {
-        drain_queue(app).await;
-    })
+    tokio::spawn(
+        async move {
+            drain_queue(app).await;
+        }
+        .with_current_subscriber(),
+    )
 }
 
 fn spawn_scheduled_retry(app: AppHandle, schedule: RetrySchedule) -> tokio::task::JoinHandle<()> {
     // `drain_queue` always runs inside Garden's Tokio runtime. Using the
     // current runtime keeps the timer bound to the cell lifecycle and lets the
     // paused-clock current-thread harness exercise the production task.
-    tokio::spawn(async move {
-        let should_drain = {
-            let queue = app.state::<CrdtOperationQueue>();
-            queue.wait_and_activate_scheduled_retry(schedule).await
-        };
-        match should_drain {
-            Ok(true) => drain_queue(app).await,
-            Ok(false) => {}
-            Err(error) => log::error!("executor retry timer activation failed: {error}"),
+    tokio::spawn(
+        async move {
+            let should_drain = {
+                let queue = app.state::<CrdtOperationQueue>();
+                queue.wait_and_activate_scheduled_retry(schedule).await
+            };
+            match should_drain {
+                Ok(true) => drain_queue(app).await,
+                Ok(false) => {}
+                Err(error) => log::error!("executor retry timer activation failed: {error}"),
+            }
         }
-    })
+        .with_current_subscriber(),
+    )
 }
 
 fn complete_terminal(app: &AppHandle, operation: &CrdtOperation, outcome: Result<Value, String>) {
@@ -589,6 +607,7 @@ mod incarnation_recovery_tests {
                         "graphIncarnation": graph.incarnation_id.expect("graph incarnation"),
                     }),
                     enqueue_timestamp: "1".to_string(),
+                    trace_context: Default::default(),
                 };
                 crate::crdt_operation_journal::record_crdt_operation_queued(&app, &operation)
                     .expect("journal detached operation");
@@ -670,6 +689,7 @@ mod incarnation_recovery_tests {
                         "graphIncarnation": original_incarnation.clone(),
                     }),
                     enqueue_timestamp: "1".to_string(),
+                    trace_context: Default::default(),
                 };
                 crate::crdt_operation_journal::record_crdt_operation_queued(&app, &pending)
                     .expect("journal old operation");
@@ -751,6 +771,7 @@ mod incarnation_recovery_tests {
                         "title": "Must Not Land",
                     }),
                     enqueue_timestamp: "1".to_string(),
+                    trace_context: Default::default(),
                 };
 
                 let missing = apply_operation(&app, &legacy)
@@ -874,6 +895,7 @@ mod post_hot_recovery_tests {
             document_id: document_id.map(str::to_string),
             payload,
             enqueue_timestamp: "1720000000000".to_string(),
+            trace_context: Default::default(),
         }
     }
 
@@ -1158,6 +1180,7 @@ mod post_hot_recovery_tests {
                             "pendingArchivePath": archive_pending.to_string_lossy()
                         }),
                         enqueue_timestamp: "1720000000000".to_string(),
+                        trace_context: Default::default(),
                     };
                     crate::operation_completion_ledger::fail_next_completion_append_for_test(
                         ARCHIVE_OPERATION,
@@ -1522,6 +1545,7 @@ mod post_hot_recovery_tests {
                         "pendingArchivePath": archive_pending.to_string_lossy()
                     }),
                     enqueue_timestamp: "1720000000000".to_string(),
+                    trace_context: Default::default(),
                 };
                 crate::crdt_engine::import_archive_ops::fail_next_archive_step_for_test(
                     &archive.operation_id,
@@ -1700,6 +1724,7 @@ mod post_hot_recovery_tests {
                 "updatedAt": 1,
             }),
             enqueue_timestamp: "1".to_string(),
+            trace_context: Default::default(),
         };
         let profile = temp_profile();
         let _serial = crate::tauri_runtime::profile_env_serial()

@@ -1457,6 +1457,11 @@ pub(crate) async fn resolve_document_kind(
 /// history snapshots, restore) can take the same branch. The graph's
 /// `:projection:flow` lane is reconciled from those bytes downstream, in the
 /// shared persistence tail (`flow_board_reconcile::reconcile_flow_board_record`).
+#[tracing::instrument(target = "gardend_otel", name = "document.materialize", skip_all,
+    fields(sophia.graph.id = graph_id, sophia.document.id = document_id,
+        sophia.document.blocks = tracing::field::Empty,
+        sophia.document.body_bytes = tracing::field::Empty,
+        sophia.ydoc.state_bytes = tracing::field::Empty))]
 pub(super) async fn materialize_room_document(
     graph_id: &str,
     document_id: &str,
@@ -1492,6 +1497,9 @@ pub(super) async fn materialize_room_document(
                 )
             })
             .await;
+        tracing::Span::current().record("sophia.document.blocks", blocks.len() as u64);
+        tracing::Span::current().record("sophia.document.body_bytes", body.len() as u64);
+        tracing::Span::current().record("sophia.ydoc.state_bytes", ydoc_state.len() as u64);
         let blocks_json = serde_json::to_value(&blocks)
             .map_err(|error| format!("serialize whiteboard blocks: {error}"))?;
         let ydoc_b64 = base64::engine::general_purpose::STANDARD.encode(ydoc_state);
@@ -1527,6 +1535,12 @@ pub(super) async fn materialize_room_document(
             (snapshot, tiptap_xml, ydoc_state)
         })
         .await;
+    tracing::Span::current().record(
+        "sophia.document.blocks",
+        snapshot.blocks_json.as_array().map_or(0, Vec::len) as u64,
+    );
+    tracing::Span::current().record("sophia.document.body_bytes", snapshot.body.len() as u64);
+    tracing::Span::current().record("sophia.ydoc.state_bytes", ydoc_state.len() as u64);
     let ydoc_b64 = base64::engine::general_purpose::STANDARD.encode(ydoc_state);
     let candidate = json!({
         "graphId": graph_id,

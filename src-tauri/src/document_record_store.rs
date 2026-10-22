@@ -248,6 +248,11 @@ fn visit_graph_documents_cold(
     Ok(())
 }
 
+#[tracing::instrument(target = "gardend_otel", name = "document.record.write", skip_all,
+    fields(sophia.graph.id = %document.graph_id, sophia.document.id = %document.document_id,
+        sophia.document.body_bytes = document.body.len() as u64,
+        sophia.document.blocks = document.blocks.len() as u64,
+        sophia.document.revision = document.revision))]
 pub(super) fn write_document_record(
     graph_dir: &Path,
     document: &DocumentRecord,

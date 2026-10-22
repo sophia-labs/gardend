@@ -27,6 +27,7 @@ use std::time::Duration;
 #[cfg(feature = "desktop")]
 use tauri::Manager;
 use tokio::sync::{broadcast, Mutex, Notify};
+use tracing::{instrument::WithSubscriber, Instrument};
 use yrs::block::ClientID;
 use yrs::sync::awareness::AwarenessUpdateEntry;
 use yrs::sync::{AwarenessUpdate, Message, SyncMessage};
@@ -140,6 +141,30 @@ struct ProjectionFlushTarget {
     document_id: Option<String>,
     debounce: Duration,
     generation: AtomicU64,
+    contexts: StdMutex<FlushContexts>,
+}
+
+#[cfg(not(feature = "frontend-crdt"))]
+#[derive(Default)]
+struct FlushContexts {
+    updates: Vec<crate::telemetry::TraceContext>,
+    dropped: u64,
+}
+
+#[cfg(not(feature = "frontend-crdt"))]
+impl FlushContexts {
+    fn push(&mut self, context: crate::telemetry::TraceContext) {
+        if context.span_context().is_none() {
+            return;
+        }
+        // Match the SDK's link limit; a stalled debounce cannot grow without
+        // bound. The span reports overflow explicitly.
+        if self.updates.len() < 128 {
+            self.updates.push(context);
+        } else {
+            self.dropped += 1;
+        }
+    }
 }
 
 #[cfg(not(feature = "frontend-crdt"))]
@@ -705,6 +730,7 @@ impl Room {
                 document_id,
                 debounce,
                 generation: AtomicU64::new(0),
+                contexts: StdMutex::new(FlushContexts::default()),
             });
             if let Err(rejected) = self.projection_flush.set(target) {
                 let existing = self
@@ -1168,12 +1194,55 @@ impl Room {
 
     /// Apply a sync-client update through the same path used by the websocket
     /// host. Returns false for a valid update that did not change room state.
+    #[tracing::instrument(target = "gardend_otel", name = "ydoc.update.apply", skip_all,
+        fields(sophia.ydoc.update_bytes = update.len() as u64,
+            sophia.ydoc.mutex_wait_ms = tracing::field::Empty,
+            sophia.ydoc.changed = tracing::field::Empty,
+            otel.status_code = tracing::field::Empty))]
     pub(crate) async fn apply_client_update(&self, update: &[u8]) -> Result<bool, String> {
+        let result = self.apply_client_update_inner(update).await;
+        if result.is_err() {
+            tracing::Span::current().record("otel.status_code", "ERROR");
+        }
+        result
+    }
+
+    /// Keep the update current through scheduling so a coalesced flush links
+    /// to the update it absorbed, even after this connection closes.
+    #[tracing::instrument(target = "gardend_otel", name = "ydoc.update.apply", skip_all,
+        fields(sophia.ydoc.update_bytes = update.len() as u64,
+            sophia.ydoc.mutex_wait_ms = tracing::field::Empty,
+            sophia.ydoc.changed = tracing::field::Empty,
+            otel.status_code = tracing::field::Empty))]
+    pub(crate) async fn apply_client_update_and_schedule(
+        self: &Arc<Self>,
+        update: &[u8],
+        app: AppHandle,
+    ) -> Result<bool, String> {
+        let changed = match self.apply_client_update_inner(update).await {
+            Ok(changed) => changed,
+            Err(error) => {
+                tracing::Span::current().record("otel.status_code", "ERROR");
+                return Err(error);
+            }
+        };
+        if changed {
+            self.schedule_projection_flush(app);
+        }
+        Ok(changed)
+    }
+
+    async fn apply_client_update_inner(&self, update: &[u8]) -> Result<bool, String> {
         if self.is_evicted() {
             return Err("room was evicted".to_string());
         }
         let applied = {
+            let waiting = crate::telemetry::timer();
             let doc = self.doc.lock().await;
+            tracing::Span::current().record(
+                "sophia.ydoc.mutex_wait_ms",
+                crate::telemetry::elapsed_ms(waiting),
+            );
             // `yrs::Update` is not Send, so decode only after the async lock
             // acquisition. Decode still precedes TransactionMut construction:
             // a malformed wire frame cannot dirty or evict a valid room.
@@ -1202,6 +1271,7 @@ impl Room {
                 return Err(error);
             }
         };
+        tracing::Span::current().record("sophia.ydoc.changed", changed);
         if changed {
             self.persist().await?;
             let rebroadcast = Message::Sync(SyncMessage::Update(update.to_vec())).encode_v1();
@@ -1251,12 +1321,16 @@ impl Room {
 
     /// Persist the full authoritative state. Called after applied updates;
     /// cheap for M1-scale docs (full-state write, atomic rename).
+    #[tracing::instrument(target = "gardend_otel", name = "ydoc.state.persist", skip_all,
+        fields(sophia.ydoc.state_bytes = tracing::field::Empty))]
     async fn persist(&self) -> Result<(), String> {
-        let bytes = {
+        let bytes = async {
             let doc = self.doc.lock().await;
             let txn = doc.transact();
             txn.encode_state_as_update_v1(&yrs::StateVector::default())
-        };
+        }
+        .instrument(tracing::info_span!(target: "gardend_otel", "ydoc.state.encode"))
+        .await;
         // The commit section runs on a blocking thread: `write_guard()` takes
         // a blocking read of the flush gate, and parking a tokio worker on it
         // starves the runtime once a few persists stack up behind a flush —
@@ -1264,9 +1338,10 @@ impl Room {
         // cell. The guard is `!Send` by design: acquired and released entirely
         // inside the closure, only owned data crosses in.
         let state_path = self.state_path.clone();
-        let persisted = crate::app_runtime::async_runtime::spawn_blocking(move || {
-            Room::persist_state_bytes_at(&state_path, &bytes)
-        })
+        tracing::Span::current().record("sophia.ydoc.state_bytes", bytes.len() as u64);
+        let persisted = crate::app_runtime::async_runtime::spawn_blocking(
+            crate::telemetry::blocking(move || Room::persist_state_bytes_at(&state_path, &bytes)),
+        )
         .await
         .map_err(|error| format!("room persist join: {error}"))?;
         if let Err(error) = persisted {
@@ -1276,6 +1351,7 @@ impl Room {
         Ok(())
     }
 
+    #[tracing::instrument(target = "gardend_otel", name = "ydoc.state.write", skip_all, fields(sophia.ydoc.state_bytes = bytes.len() as u64))]
     fn persist_state_bytes_at(state_path: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
         crate::document_body_availability::require_state_path_available(state_path)?;
         // This synchronous hot-authority commit is a durability transaction.
@@ -1315,10 +1391,20 @@ impl Room {
 #[cfg(not(feature = "frontend-crdt"))]
 impl ProjectionFlushTarget {
     fn schedule(self: &Arc<Self>, room: Weak<Room>, app: AppHandle, graph_generation: u64) {
-        let generation = self
-            .generation
-            .fetch_add(1, Ordering::SeqCst)
-            .wrapping_add(1);
+        let generation = if crate::telemetry::enabled() {
+            let mut contexts = self
+                .contexts
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            contexts.push(crate::telemetry::TraceContext::capture());
+            self.generation
+                .fetch_add(1, Ordering::SeqCst)
+                .wrapping_add(1)
+        } else {
+            self.generation
+                .fetch_add(1, Ordering::SeqCst)
+                .wrapping_add(1)
+        };
         let debounce = self.debounce;
         let target = Arc::downgrade(self);
         // A socket update can outlive the socket itself while it waits through
@@ -1329,26 +1415,29 @@ impl ProjectionFlushTarget {
         #[cfg(not(test))]
         let lifecycle_lease = crate::cell_lifecycle::process_lifecycle()
             .and_then(|lifecycle| lifecycle.begin_background("projection-flush").ok());
-        crate::app_runtime::async_runtime::spawn(async move {
-            let _lifecycle_lease = lifecycle_lease;
-            if wait_for_room_delay(&room, debounce).await {
-                return;
+        crate::app_runtime::async_runtime::spawn(
+            async move {
+                let _lifecycle_lease = lifecycle_lease;
+                if wait_for_room_delay(&room, debounce).await {
+                    return;
+                }
+                // This task intentionally retains AppHandle while an older graph
+                // operation owns the persistence lease. It exits once its flush is
+                // queued, superseded, or evicted; runtime shutdown aborts spawned
+                // tasks. A fixed total deadline would lose dirty state behind a
+                // legitimate long-running import.
+                run_projection_flush(
+                    target,
+                    room,
+                    app,
+                    generation,
+                    graph_generation,
+                    PROJECTION_FLUSH_ATTEMPT_TIMEOUT,
+                )
+                .await;
             }
-            // This task intentionally retains AppHandle while an older graph
-            // operation owns the persistence lease. It exits once its flush is
-            // queued, superseded, or evicted; runtime shutdown aborts spawned
-            // tasks. A fixed total deadline would lose dirty state behind a
-            // legitimate long-running import.
-            run_projection_flush(
-                target,
-                room,
-                app,
-                generation,
-                graph_generation,
-                PROJECTION_FLUSH_ATTEMPT_TIMEOUT,
-            )
-            .await;
-        });
+            .with_current_subscriber(),
+        );
     }
 }
 
@@ -1391,6 +1480,51 @@ where
 
 #[cfg(not(feature = "frontend-crdt"))]
 async fn run_projection_flush(
+    target: Weak<ProjectionFlushTarget>,
+    room: Weak<Room>,
+    app: AppHandle,
+    generation: u64,
+    graph_generation: u64,
+    attempt_timeout: Duration,
+) {
+    let Some(target_ref) = target.upgrade() else {
+        return;
+    };
+    let span = if crate::telemetry::enabled() {
+        let mut contexts = target_ref
+            .contexts
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if target_ref.generation.load(Ordering::SeqCst) != generation {
+            return;
+        }
+        let cohort = std::mem::take(&mut *contexts);
+        crate::telemetry::linked_flush_span(
+            &target_ref.graph_id,
+            target_ref.document_id.as_deref(),
+            generation,
+            target_ref.debounce,
+            cohort.updates,
+            cohort.dropped,
+        )
+    } else {
+        tracing::Span::none()
+    };
+    drop(target_ref);
+    run_projection_flush_inner(
+        target,
+        room,
+        app,
+        generation,
+        graph_generation,
+        attempt_timeout,
+    )
+    .instrument(span)
+    .await;
+}
+
+#[cfg(not(feature = "frontend-crdt"))]
+async fn run_projection_flush_inner(
     target: Weak<ProjectionFlushTarget>,
     room: Weak<Room>,
     app: AppHandle,
@@ -1478,6 +1612,7 @@ async fn run_projection_flush(
             }
         };
         attempt += 1;
+        tracing::Span::current().record("sophia.projection.attempts", attempt);
         match outcome {
             Ok(()) => return,
             Err(error) => {
@@ -1550,7 +1685,27 @@ const WS_STATE_SEND_TIMEOUT: Duration = Duration::from_secs(5);
 /// the caller but is first polled here, after the lease and active-graph/room
 /// checks. Timing it out cancels the sink send in place; there is no queued
 /// frame that could leak after deletion advances the graph lifecycle.
+#[tracing::instrument(target = "gardend_otel", name = "ydoc.broadcast.deliver", skip_all,
+    fields(sophia.graph.id = graph_id, sophia.lease.wait_ms = tracing::field::Empty,
+        sophia.delivery.outcome = tracing::field::Empty,
+        otel.status_code = tracing::field::Empty))]
 async fn linearize_state_bearing_delivery<F>(
+    app: &AppHandle,
+    graph_id: &str,
+    room: &Room,
+    delivery: F,
+) -> Result<(), String>
+where
+    F: std::future::Future<Output = Result<(), String>>,
+{
+    let result = linearize_state_bearing_delivery_inner(app, graph_id, room, delivery).await;
+    if result.is_err() {
+        tracing::Span::current().record("otel.status_code", "ERROR");
+    }
+    result
+}
+
+async fn linearize_state_bearing_delivery_inner<F>(
     app: &AppHandle,
     graph_id: &str,
     room: &Room,
@@ -1570,20 +1725,61 @@ where
     // fast here lets the client's own reconnect retry instead of parking
     // the connection un-timed. Nothing has been sent to the socket yet at
     // this point, so a timeout here cannot drop or double-send a frame.
-    let _lease = tokio::time::timeout(
+    let waiting = crate::telemetry::timer();
+    let acquired = tokio::time::timeout(
         WS_STATE_SEND_TIMEOUT,
         coordinator.acquire_lifecycle_shared(graph_id),
     )
-    .await
-    .map_err(|_| "graph persistence lease acquire timed out".to_string())??;
-    crate::graph_record_store::read_graph_record_no_heal(app, graph_id)
-        .map_err(crate::app_error::AppError::message)?;
+    .await;
+    let wait_ms = crate::telemetry::elapsed_ms(waiting);
+    tracing::Span::current().record("sophia.lease.wait_ms", wait_ms);
+    let _lease = match acquired {
+        Ok(Ok(lease)) => lease,
+        Ok(Err(error)) => {
+            tracing::Span::current().record("sophia.delivery.outcome", "lease_error");
+            return Err(error);
+        }
+        Err(_) => {
+            tracing::Span::current().record("sophia.delivery.outcome", "lease_timeout");
+            return Err("graph persistence lease acquire timed out".to_string());
+        }
+    };
+    if let Err(error) = crate::graph_record_store::read_graph_record_no_heal(app, graph_id) {
+        tracing::Span::current().record("sophia.delivery.outcome", "graph_gone");
+        return Err(error.message());
+    }
     if room.is_evicted() {
+        tracing::Span::current().record("sophia.delivery.outcome", "room_evicted");
         return Err("room was evicted".to_string());
     }
-    tokio::time::timeout(WS_STATE_SEND_TIMEOUT, delivery)
-        .await
-        .map_err(|_| "websocket state delivery timed out".to_string())?
+    let result = tokio::time::timeout(WS_STATE_SEND_TIMEOUT, delivery).await;
+    let outcome = match &result {
+        Ok(Ok(())) => "sent",
+        Ok(Err(_)) => "peer_gone",
+        Err(_) => "delivery_timeout",
+    };
+    tracing::Span::current().record("sophia.delivery.outcome", outcome);
+    result.map_err(|_| "websocket state delivery timed out".to_string())?
+}
+
+#[tracing::instrument(target = "gardend_otel", name = "room.initial_sync", skip_all,
+    fields(sophia.graph.id = graph_id, sophia.lease.wait_ms = tracing::field::Empty,
+        sophia.delivery.outcome = tracing::field::Empty,
+        otel.status_code = tracing::field::Empty))]
+pub(super) async fn initial_sync_delivery<F>(
+    app: &AppHandle,
+    graph_id: &str,
+    room: &Room,
+    delivery: F,
+) -> Result<(), String>
+where
+    F: std::future::Future<Output = Result<(), String>>,
+{
+    let result = linearize_state_bearing_delivery_inner(app, graph_id, room, delivery).await;
+    if result.is_err() {
+        tracing::Span::current().record("otel.status_code", "ERROR");
+    }
+    result
 }
 
 /// What the other end of a room connection may send (W6). Every caller the
@@ -1613,6 +1809,8 @@ pub async fn serve_room(socket: WebSocket, room: Arc<Room>, app: AppHandle, grap
 }
 
 /// [`serve_room`] for a connection with the given [`RoomAccess`].
+#[tracing::instrument(target = "gardend_otel", name = "room.connection", skip_all,
+    fields(sophia.graph.id = %graph_id))]
 pub(crate) async fn serve_room_with(
     socket: WebSocket,
     room: Arc<Room>,
@@ -1630,7 +1828,7 @@ pub(crate) async fn serve_room_with(
 
     // Server-initiated SyncStep1 is graph content: deletion must either wait
     // until the socket accepted it or win the lease and evict the room first.
-    if let Err(error) = linearize_state_bearing_delivery(&app, &graph_id, &room, async {
+    if let Err(error) = initial_sync_delivery(&app, &graph_id, &room, async {
         let doc = room.doc.lock().await;
         let sv = doc.transact().state_vector();
         let step1 = Message::Sync(SyncMessage::SyncStep1(sv)).encode_v1();
@@ -1782,9 +1980,8 @@ pub(crate) async fn serve_room_with(
                         } else {
                             None
                         };
-                        match room.apply_client_update(&update).await {
-                            Ok(true) => room.schedule_projection_flush(app.clone()),
-                            Ok(false) => {}
+                        match room.apply_client_update_and_schedule(&update, app.clone()).await {
+                            Ok(_) => {}
                             Err(error) => {
                                 // Deletion marks extant room Arcs evicted before it
                                 // releases the graph lease. Close instead of silently
