@@ -140,6 +140,15 @@ pub(crate) const PDF_SOURCE_GOLDEN_JSON: &str =
 pub(crate) const PDF_SOURCE_GOLDEN_SHA: &str =
     "1c68bf40562e97fa8a944f39e5e3687e5a4e72303d991733b88de01282ec4b9b";
 
+/// The whiteboard lane: a board's shapes, cards, connections and clusters, derived from its Y.Doc into the graph's
+/// `:projection:whiteboard` (G2). Read-only like the PDF pack: `whiteboard::lane` is its only writer, and the served
+/// pack intentionally omits the top-level `write_target`. Subjects are document-rooted, not lane-rooted.
+pub(crate) const WHITEBOARD_GOLDEN_JSON: &str = include_str!("vocabs/sophia-whiteboard.golden.json");
+/// Pinned sha256 of the exact `sophia-whiteboard` golden bytes
+/// (`shasum -a 256 src/emporium/vocabs/sophia-whiteboard.golden.json` after any edit).
+pub(crate) const WHITEBOARD_GOLDEN_SHA: &str =
+    "c98ef01c5b3b425fecff67b6815c540b68bacdf5ebb5be2e653986f8d061e1d6";
+
 /// The `koch-morse` domain pack. Koch is not an application-shaped exception:
 /// its course, lessons, Morse characters, learners, completed sessions, and
 /// receive/send attempts are graph-local Meaningful Objects materialized by the
@@ -491,6 +500,11 @@ pub(crate) const VOCAB_REGISTRY: &[(&str, &str, &str)] = &[
         SHRUBBERY_SITE_GOLDEN_SHA,
     ),
     ("flow", FLOW_GOLDEN_JSON, FLOW_GOLDEN_SHA),
+    (
+        "sophia-whiteboard",
+        WHITEBOARD_GOLDEN_JSON,
+        WHITEBOARD_GOLDEN_SHA,
+    ),
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -757,6 +771,16 @@ pub(crate) const VOCAB_JURISDICTIONS: &[VocabJurisdiction] = &[
         slug_aliases: &[],
         compatibility_aliases: &[],
     },
+    // The whiteboard lane (G2): a read-only derived projection with its own domain, like pdf-source.
+    VocabJurisdiction {
+        name: "sophia-whiteboard",
+        public_jurisdiction: "whiteboard",
+        canonical_ontology: "sophia-whiteboard",
+        canonical_pack: "sophia-whiteboard",
+        status: RegistryStatus::DomainPack,
+        slug_aliases: &[],
+        compatibility_aliases: &[],
+    },
 ];
 
 pub(crate) fn registry_metadata(name: &str) -> Option<VocabJurisdiction> {
@@ -1020,6 +1044,28 @@ mod tests {
         );
     }
 
+    // The drift gate for the whiteboard lane pack (G2): a byte drift in the golden fails CI here.
+    #[test]
+    fn embedded_whiteboard_sha_is_pinned() {
+        assert_eq!(
+            sha256_hex(WHITEBOARD_GOLDEN_JSON.as_bytes()),
+            WHITEBOARD_GOLDEN_SHA,
+            "embedded sophia-whiteboard golden bytes drifted from the pinned sha"
+        );
+        let served =
+            find_contract("sophia-whiteboard", "latest").expect("whiteboard pack is served");
+        assert_eq!(served.sha, WHITEBOARD_GOLDEN_SHA);
+        assert_eq!(served.registry_status, "domain-pack");
+        assert_eq!(served.public_jurisdiction, "whiteboard");
+        let contract = crate::emporium::contract::get_vocabulary("sophia-whiteboard")
+            .expect("sophia-whiteboard resolves");
+        assert_eq!(contract.classes.len(), 5);
+        assert!(
+            contract.write_target.is_none(),
+            "the lane is derived: the pack has no generic write target"
+        );
+    }
+
     #[test]
     fn embedded_workspace_sha_is_pinned() {
         assert_eq!(
@@ -1175,6 +1221,7 @@ mod tests {
             ),
             ("shrubbery-site", "0.2.1", SHRUBBERY_SITE_GOLDEN_SHA),
             ("flow", "0.1.0", FLOW_GOLDEN_SHA),
+            ("sophia-whiteboard", "1.0.0", WHITEBOARD_GOLDEN_SHA),
         ];
 
         // (1) The rail covers EXACTLY the served registry — none missing, none extra.
@@ -1258,6 +1305,7 @@ mod tests {
                         | "koch"
                         | "files"
                         | "pdf-source"
+                        | "whiteboard"
                         | "internal-substrate"
                 ),
                 "{name} has an allowed public jurisdiction"
@@ -1418,7 +1466,8 @@ mod tests {
                 "sophia-domain-verdict",
                 "sophia-domain-dashboard",
                 "shrubbery-site",
-                "flow"
+                "flow",
+                "sophia-whiteboard"
             ]
         );
     }
