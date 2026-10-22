@@ -1456,24 +1456,32 @@ pub(super) async fn materialize_room_document(
 ) -> Result<MaterializedRoomDocument, String> {
     if crate::whiteboard::is_scene_kind(document_kind) {
         let is_whiteboard = crate::whiteboard::is_whiteboard(document_kind);
-        let (projection_epoch, (ydoc_state, body)) = room
+        let (projection_epoch, (ydoc_state, body, blocks)) = room
             .with_doc_version(|doc| {
                 // A whiteboard's saved `body` is its outline markdown, so search,
-                // `read_document` and the semantic index see the board's words;
-                // a flow board's content fields stay empty.
-                let body = if is_whiteboard {
+                // `read_document` and the semantic index see the board's words,
+                // and its `blocks` list one block per live shape (the element
+                // id), read from the same scene in the same closure; a flow
+                // board's content fields stay empty.
+                let (body, blocks) = if is_whiteboard {
                     let scene = crate::whiteboard::ops::scene_of_doc(doc);
-                    crate::whiteboard::outline::outline_markdown(title, &scene)
+                    (
+                        crate::whiteboard::outline::outline_markdown(title, &scene),
+                        crate::whiteboard::blocks::blocks_of(&scene),
+                    )
                 } else {
-                    String::new()
+                    (String::new(), Vec::new())
                 };
                 let txn = doc.transact();
                 (
                     txn.encode_state_as_update_v1(&yrs::StateVector::default()),
                     body,
+                    blocks,
                 )
             })
             .await;
+        let blocks_json = serde_json::to_value(&blocks)
+            .map_err(|error| format!("serialize whiteboard blocks: {error}"))?;
         let ydoc_b64 = base64::engine::general_purpose::STANDARD.encode(ydoc_state);
         let candidate = json!({
             "graphId": graph_id,
@@ -1484,7 +1492,7 @@ pub(super) async fn materialize_room_document(
             "tiptapJson": Value::Null,
             "ydocUpdateBase64": ydoc_b64,
             "tree": Value::Null,
-            "blocks": [],
+            "blocks": blocks_json,
             "documentKind": document_kind,
             "traceOperationId": operation_id,
             "expectedRevision": expected_revision.cloned(),

@@ -12,6 +12,8 @@ pub(super) async fn mcp_local_insert_blocks(
     arguments: &serde_json::Value,
 ) -> Result<serde_json::Value, String> {
     let (graph_id, document_id) = mcp_block_target(arguments)?;
+    crate::whiteboard::blocks::refuse_scene_kind(&app, &graph_id, &document_id, "insert_blocks")
+        .await?;
     let payload = serde_json::to_value(mcp_block_insert_payload(arguments))
         .expect("McpBlockInsertPayload always serializes");
     enqueue_crdt_operation(
@@ -31,6 +33,8 @@ pub(super) async fn mcp_local_update_blocks(
     arguments: &serde_json::Value,
 ) -> Result<serde_json::Value, String> {
     let (graph_id, document_id) = mcp_block_target(arguments)?;
+    crate::whiteboard::blocks::refuse_scene_kind(&app, &graph_id, &document_id, "update_blocks")
+        .await?;
     let payload = serde_json::to_value(mcp_block_update_payload(arguments))
         .expect("McpBlockUpdatePayload always serializes");
     enqueue_crdt_operation(
@@ -50,6 +54,8 @@ pub(super) async fn mcp_local_edit_block_text(
     arguments: &serde_json::Value,
 ) -> Result<serde_json::Value, String> {
     let (graph_id, document_id) = mcp_block_target(arguments)?;
+    crate::whiteboard::blocks::refuse_scene_kind(&app, &graph_id, &document_id, "edit_block_text")
+        .await?;
     let payload = serde_json::to_value(mcp_block_edit_text_payload(arguments))
         .expect("McpBlockEditTextPayload always serializes");
     enqueue_crdt_operation(
@@ -69,6 +75,8 @@ pub(super) async fn mcp_local_delete_blocks(
     arguments: &serde_json::Value,
 ) -> Result<serde_json::Value, String> {
     let (graph_id, document_id) = mcp_block_target(arguments)?;
+    crate::whiteboard::blocks::refuse_scene_kind(&app, &graph_id, &document_id, "delete_blocks")
+        .await?;
     let payload = serde_json::to_value(mcp_block_delete_payload(arguments))
         .expect("McpBlockDeletePayload always serializes");
     enqueue_crdt_operation(

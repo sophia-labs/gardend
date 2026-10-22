@@ -73,10 +73,36 @@ changed by a person in the browser carries `by: "person"`. Only what is known is
 
 `box` = rectangle with a transparent fill; `note` = rectangle with a fill; `ellipse`, `diamond`, `text`
 (unbound text), `arrow`, `line`, `frame`, `image`, `freedraw`. A container's bound text is folded into its
-`text`.
+`text`. `card` = an `embeddable` whose `link` is a `mnemosyne://document|object` link (a typed object or a document
+shown live on the board); its `text` is the label its `customData.mnemosyne` snapshot keeps. An `embeddable` with
+any other link reads as a `box`. A card is not a text container: it has no bound text.
 
 ## The saved record
 
-`body` = the outline markdown (one deterministic function, `outline::outline_markdown`), `blocks` = `[]`,
-`tiptapXml` = `""`, the Y.Doc bytes verbatim. So `search_documents`, `search_blocks`, `read_document`,
-`context_bundle` and the semantic index see the board's words.
+`body` = the outline markdown (one deterministic function, `outline::outline_markdown`), `tiptapXml` = `""`, the
+Y.Doc bytes verbatim. `blocks` = one block per live shape, in the outline's reading order (`blocks::blocks_of`):
+
+| field | value |
+|---|---|
+| `id` | the element id, exactly (the same id the lane's `#block-{id}` subject and a wire's `sourceBlockId` use) |
+| `type` | the shape's kind: `box`, `note`, `ellipse`, `diamond`, `text`, `frame`, `image`, `freedraw`, `card` |
+| `content` | the shape's words; then, after an em dash, its link title when that adds words; a card says `{class label}: {label}` (just the label for a document card) |
+| `parentId` | the id of the frame the shape sits in, when it has one that is live |
+| `order` | 0, 1, 2, ... in reading order |
+| `level`, `checked`, `language`, `marks` | none |
+
+Arrows, bound text and deleted elements are not blocks; frames are. A shape with no words still gets a block (it
+can be a wire end). A board with no live shapes has `blocks: []`, and the semantic index falls back to the body.
+Re-saving an unchanged board gives byte-identical blocks. So `search_documents`, `search_blocks`, `read_blocks`,
+`read_document`, `context_bundle` and the semantic index see the board's words, one passage per shape.
+
+A board is drawn, not written: `insert_blocks`, `update_blocks`, `edit_block_text` and `delete_blocks` refuse a
+whiteboard (`{tool}: a whiteboard is drawn, not written: use whiteboard_apply`). Use `whiteboard_apply`.
+
+## Cards, wires and customData
+
+* A card: `type: "embeddable"`, `link` = the object or document link, no text, `boundElements: []`. Its snapshot is
+  `customData.mnemosyne` = `{kind: "object", graphId, iri, label, classLabel}` or `{kind: "document", graphId, id,
+  title}`.
+* A promoted arrow carries `customData.mnemosyneWire = {wireId, predicate, strokeWas, labelFromPredicate}`; the
+  `wire` move gives it the accent stroke (`#326f4c`) and, when it had no label, the predicate as its label.
