@@ -776,10 +776,12 @@ fn open_editor_trailing_paragraph_survives_markdown_write_back() {
     });
 }
 
-/// The other half of I4's contract, so the semantics are written down: without `expectedRevision` the write
-/// is two-way, "the document becomes what I sent", and the agent's stale copy of the paragraph wins.
+/// Vera 10-21: a person's edit wins over every agent write, not only one that names its revision. The person
+/// typed after the agent's read and before the record was saved; the agent writes without `expectedRevision`.
+/// The saved record stands in for what the agent read, so her edit stays and is reported as kept, and the
+/// agent's change to another paragraph is applied.
 #[test]
-fn two_way_write_without_expected_revision_wins() {
+fn write_without_expected_revision_keeps_an_unsaved_live_edit() {
     with_env(|env| {
         create(env, "two-way");
         write_tiptap(
@@ -807,14 +809,18 @@ fn two_way_write_without_expected_revision_wins() {
         assert_eq!(
             block_texts(&room_json(&room)),
             vec![
-                "First paragraph".to_string(),
+                "First paragraph PERSON".to_string(),
                 "Second paragraph edited".to_string(),
             ],
-            "a two-way write must make the document what the agent sent"
+            "the person's unsaved edit was reverted, or the agent's edit was not applied"
         );
         assert!(
-            live_edits_kept(&outcome).is_empty(),
-            "a two-way write keeps no live edit: {outcome}"
+            live_edits_kept(&outcome).contains(&"p1".to_string()),
+            "liveEdits.kept does not name the block the person edited: {outcome}"
+        );
+        assert!(
+            live_edits_conflicts(&outcome).is_empty(),
+            "nothing conflicted: {outcome}"
         );
     });
 }
