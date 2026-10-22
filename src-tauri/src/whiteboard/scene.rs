@@ -8,7 +8,8 @@
 //! `chars x fontSize x 0.6`, and the browser re-measures (`restoreElements` with
 //! `refreshDimensions`) when it renders.
 
-use crate::scene_wire::{SceneWireDraft, SceneWireEnd};
+use super::links::{self, LinkTarget};
+use crate::scene_wire::{SceneWireDraft, SceneWireEnd, SceneWireProvenance};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -263,8 +264,29 @@ pub(crate) fn shape_kind(el: &Element) -> &'static str {
         "frame" | "magicframe" => "frame",
         "image" => "image",
         "freedraw" => "freedraw",
+        // An `embeddable` that points at a document or an object of the graph is a card; any other (a web address,
+        // an artifact, no link) is drawn as a box.
+        "embeddable" if card_target(el).is_some() => "card",
         _ => "box",
     }
+}
+
+/// What a card points at: the `link` of an `embeddable` that parses as a `mnemosyne://document|object` link.
+pub(crate) fn card_target(el: &Element) -> Option<LinkTarget> {
+    if el_type(el) != "embeddable" {
+        return None;
+    }
+    match links::parse_link(s(el, "link")?)? {
+        target @ (LinkTarget::Document { .. } | LinkTarget::Object { .. }) => Some(target),
+        LinkTarget::Artifact { .. } => None,
+    }
+}
+
+/// The wire mark of a promoted arrow: `customData.mnemosyneWire`.
+pub(crate) fn wire_mark(el: &Element) -> Option<&Map<String, Value>> {
+    el.get("customData")
+        .and_then(|c| c.get("mnemosyneWire"))
+        .and_then(Value::as_object)
 }
 
 // ----------------------------------------------------------------- random
@@ -416,8 +438,100 @@ pub(crate) fn resolve_wire_end(
     ctx: &Ctx,
     element_id: &str,
 ) -> Result<SceneWireEnd, String> {
-    let _ = (scene, ctx, element_id);
-    unimplemented!("G5")
+    let shape_id = wire_shape_id(scene, element_id)?;
+    let el = &scene.elements[&shape_id];
+    let snapshot = |key: &str| {
+        el.get("customData")
+            .and_then(|c| c.get("mnemosyne"))
+            .and_then(|c| c.get(key))
+            .and_then(Value::as_str)
+            .filter(|v| !v.is_empty())
+            .map(str::to_string)
+    };
+    match s(el, "link").and_then(links::parse_link) {
+        Some(LinkTarget::Document {
+            graph_id,
+            document_id,
+        }) if graph_id == ctx.graph_id => Ok(SceneWireEnd {
+            document_id: Some(document_id),
+            block_id: None,
+            iri: None,
+            graph_id: None,
+            label: snapshot("title"),
+        }),
+        Some(LinkTarget::Object { graph_id, iri }) => Ok(SceneWireEnd {
+            document_id: None,
+            block_id: None,
+            iri: Some(iri),
+            graph_id: (graph_id != ctx.graph_id).then_some(graph_id),
+            label: snapshot("label"),
+        }),
+        // No link, a web address, an artifact or another graph's document: the shape itself, a block of the board.
+        _ => Ok(SceneWireEnd {
+            document_id: Some(ctx.document_id.to_string()),
+            block_id: Some(shape_id),
+            iri: None,
+            graph_id: None,
+            label: None,
+        }),
+    }
+}
+
+/// The live non-arrow element an arrow end names; bound text counts as its container.
+fn wire_shape_id(scene: &Scene, element_id: &str) -> Result<String, String> {
+    let mut id = element_id.to_string();
+    // A text bound to a container stands for the container (one hop: a container is never itself bound text).
+    if let Some(container) = scene
+        .elements
+        .get(&id)
+        .filter(|el| is_bound_text(el))
+        .and_then(|el| s(el, "containerId"))
+    {
+        id = container.to_string();
+    }
+    match scene.elements.get(&id) {
+        None => Err(format!("no element '{id}' on this board")),
+        Some(el) if is_deleted(el) => Err(format!("'{id}' was deleted")),
+        Some(el) if el_type(el) == "arrow" => Err(format!("'{id}' is an arrow, not a shape")),
+        Some(_) => Ok(id),
+    }
+}
+
+/// Undo the marks of the `wire` moves on `arrow_ids`: the stroke the arrow had, its label when the wire move gave
+/// it one, and the mark itself. The caller uses it when the wires could not be stored after the scene was written,
+/// so a board never keeps an arrow that looks like a wire without one behind it.
+pub(crate) fn unmark_wires(scene: &mut Scene, ctx: &mut Ctx, arrow_ids: &[String]) {
+    for arrow_id in arrow_ids {
+        let Some(arrow) = scene.elements.get(arrow_id) else {
+            continue;
+        };
+        let Some(mark) = wire_mark(arrow).cloned() else {
+            continue;
+        };
+        let stroke_was = mark
+            .get("strokeWas")
+            .and_then(Value::as_str)
+            .unwrap_or(INK)
+            .to_string();
+        let label_from_predicate = mark
+            .get("labelFromPredicate")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        touch(ctx, scene, arrow_id, |a| {
+            a.insert("strokeColor".into(), json!(stroke_was));
+            let mut custom = a
+                .get("customData")
+                .and_then(Value::as_object)
+                .cloned()
+                .unwrap_or_default();
+            custom.remove("mnemosyneWire");
+            a.insert("customData".into(), Value::Object(custom));
+        });
+        if label_from_predicate {
+            // Removing the label cannot fail for an arrow.
+            let _ = set_text(scene, ctx, arrow_id, "");
+        }
+    }
 }
 
 impl Ctx<'_> {
@@ -1054,18 +1168,28 @@ fn run_move(
                     let title = ctx.titles.get(&doc).cloned();
                     let title =
                         title.ok_or_else(|| format!("document '{doc}' is not in this graph"))?;
-                    let link = format!("mnemosyne://document/{}/{}", pct(ctx.graph_id), pct(&doc));
                     set_link(
                         scene,
                         ctx,
                         &id,
-                        Some(link),
-                        Some(json!({
-                            "kind": "document", "graphId": ctx.graph_id, "id": doc, "title": title
-                        })),
+                        Some(links::document_link(ctx.graph_id, &doc)),
+                        Some(document_record(ctx.graph_id, &doc, &title)),
                     );
                 }
-                (None, Some(iri), None) => set_link(scene, ctx, &id, Some(iri), None),
+                (None, Some(iri), None) => {
+                    let info = ctx
+                        .objects
+                        .get(&iri)
+                        .cloned()
+                        .ok_or_else(|| format!("object '{iri}' is not in this graph"))?;
+                    set_link(
+                        scene,
+                        ctx,
+                        &id,
+                        Some(links::object_link(&info.graph_id, &iri)),
+                        Some(object_record(&iri, &info)),
+                    );
+                }
                 (None, None, Some(url)) => {
                     if !(url.starts_with("http://") || url.starts_with("https://")) {
                         return Err("url must start with http:// or https://".into());
@@ -1106,22 +1230,196 @@ fn run_move(
                 }
             }
         }
-        Move::Card { .. } => unimplemented!("G5"),
-        Move::Wire { .. } => unimplemented!("G5"),
+        Move::Card {
+            r#ref,
+            iri,
+            document_id,
+            at,
+            near,
+            size,
+        } => {
+            if at.is_some() && near.is_some() {
+                return Err("give at or near, not both".into());
+            }
+            if let Some(name) = &r#ref {
+                if refs.0.contains_key(name) {
+                    return Err(format!("ref '{name}' is used twice"));
+                }
+            }
+            let (link, record) = match (document_id, iri) {
+                (Some(doc), None) => {
+                    let title = ctx
+                        .titles
+                        .get(&doc)
+                        .cloned()
+                        .ok_or_else(|| format!("document '{doc}' is not in this graph"))?;
+                    (
+                        links::document_link(ctx.graph_id, &doc),
+                        document_record(ctx.graph_id, &doc, &title),
+                    )
+                }
+                (None, Some(iri)) => {
+                    let info = ctx
+                        .objects
+                        .get(&iri)
+                        .cloned()
+                        .ok_or_else(|| format!("object '{iri}' is not in this graph"))?;
+                    (
+                        links::object_link(&info.graph_id, &iri),
+                        object_record(&iri, &info),
+                    )
+                }
+                _ => return Err("card needs exactly one of iri, documentId".into()),
+            };
+            let id = add_card(scene, ctx, refs, link, record, at, near, size)?;
+            let name = r#ref.unwrap_or_else(|| id.clone());
+            refs.0.insert(name.clone(), id.clone());
+            created.push((name, id));
+        }
+        Move::Wire { arrow, predicate } => promote_arrow(scene, ctx, refs, &arrow, &predicate)?,
     }
     Ok(())
 }
 
-fn pct(value: &str) -> String {
-    let mut out = String::new();
-    for byte in value.bytes() {
-        if byte.is_ascii_alphanumeric() || b"-_.!~*'()".contains(&byte) {
-            out.push(byte as char);
-        } else {
-            out.push_str(&format!("%{byte:02X}"));
+/// `customData.mnemosyne` of a document link or card (the snapshot a board keeps so it can name a gone target).
+fn document_record(graph_id: &str, document_id: &str, title: &str) -> Value {
+    json!({ "kind": "document", "graphId": graph_id, "id": document_id, "title": title })
+}
+
+/// `customData.mnemosyne` of an object link or card.
+fn object_record(iri: &str, info: &ObjectInfo) -> Value {
+    json!({
+        "kind": "object", "graphId": info.graph_id, "iri": iri,
+        "label": info.label, "classLabel": info.class_label,
+    })
+}
+
+const CARD_WIDTH: f64 = 320.0;
+const CARD_HEIGHT: f64 = 180.0;
+
+/// A card: an `embeddable` with the link and its snapshot, no text, placed like `add_shape` places a shape.
+#[allow(clippy::too_many_arguments)]
+fn add_card(
+    scene: &mut Scene,
+    ctx: &mut Ctx,
+    refs: &Refs,
+    link: String,
+    record: Value,
+    at: Option<Pt>,
+    near: Option<Near>,
+    size: Option<Sz>,
+) -> Result<String, String> {
+    let (mut w, mut h) = (CARD_WIDTH, CARD_HEIGHT);
+    if let Some(sz) = size {
+        if !(sz.w > 0.0 && sz.h > 0.0 && sz.w <= 5000.0 && sz.h <= 5000.0) {
+            return Err("size must be positive and at most 5000".into());
         }
+        w = sz.w;
+        h = sz.h;
     }
-    out
+    let (x, y) = if let Some(p) = at {
+        (p.x, p.y)
+    } else if let Some(near) = &near {
+        place_near(scene, refs, near, w, h)?
+    } else {
+        match bounds(scene) {
+            None => (0.0, 0.0),
+            Some(b) => (b.x + b.w + 80.0, b.y),
+        }
+    };
+    let mut el = base_element(ctx, scene, "embeddable", x, y, w, h);
+    el.insert("roundness".into(), json!({ "type": 3 }));
+    el.insert("link".into(), json!(link));
+    let mut custom = el
+        .get("customData")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    custom.insert("mnemosyne".into(), record);
+    el.insert("customData".into(), Value::Object(custom));
+    Ok(insert_element(scene, el))
+}
+
+/// The `wire` move (SPRINT D9): mark the arrow and hand the wire to the caller in `ctx.wires`. Nothing is stored here.
+fn promote_arrow(
+    scene: &mut Scene,
+    ctx: &mut Ctx,
+    refs: &Refs,
+    arrow: &str,
+    predicate: &str,
+) -> Result<(), String> {
+    let arrow_id = refs.resolve(scene, arrow)?;
+    let el = scene.elements[&arrow_id].clone();
+    if el_type(&el) != "arrow" {
+        return Err(format!("'{arrow_id}' is not an arrow"));
+    }
+    let predicate = predicate.trim();
+    if predicate.is_empty() {
+        return Err("wire needs a predicate".into());
+    }
+    if wire_mark(&el).is_some() {
+        return Err(format!(
+            "arrow '{arrow_id}' is already a wire: unwire it first"
+        ));
+    }
+    let dangling =
+        || format!("arrow '{arrow_id}' has a dangling end: bind both ends before making a wire");
+    let mut ends = Vec::new();
+    for key in ["startBinding", "endBinding"] {
+        let target = binding_target(&el, key).ok_or_else(dangling)?;
+        let live = scene
+            .elements
+            .get(&target)
+            .map(|t| !is_deleted(t) && el_type(t) != "arrow")
+            .unwrap_or(false);
+        if !live {
+            return Err(dangling());
+        }
+        ends.push(wire_shape_id(scene, &target)?);
+    }
+    let (source_id, target_id) = (ends[0].clone(), ends[1].clone());
+    let source = resolve_wire_end(scene, ctx, &source_id)?;
+    let target = resolve_wire_end(scene, ctx, &target_id)?;
+    let wire_id = format!("wire-{}", ctx.rng.id());
+    ctx.wires.push(SceneWireDraft {
+        wire_id: wire_id.clone(),
+        predicate: predicate.to_string(),
+        source,
+        target,
+        scene: SceneWireProvenance {
+            graph_id: ctx.graph_id.to_string(),
+            document_id: ctx.document_id.to_string(),
+            element_id: arrow_id.clone(),
+            source_element_id: source_id,
+            target_element_id: target_id,
+            stable_key: format!("wb:{}:{arrow_id}", ctx.document_id),
+        },
+    });
+    let has_label = bound_text(scene, &el)
+        .map(|t| !s(t, "originalText").or_else(|| s(t, "text")).unwrap_or("").is_empty())
+        .unwrap_or(false);
+    let stroke_was = s(&el, "strokeColor").unwrap_or(INK).to_string();
+    let accent = palette_pair("green").map(|(stroke, _)| stroke).unwrap_or(INK);
+    touch(ctx, scene, &arrow_id, |a| {
+        a.insert("strokeColor".into(), json!(accent));
+        let mut custom = a
+            .get("customData")
+            .and_then(Value::as_object)
+            .cloned()
+            .unwrap_or_default();
+        custom.insert(
+            "mnemosyneWire".into(),
+            json!({
+                "wireId": wire_id, "predicate": predicate,
+                "strokeWas": stroke_was, "labelFromPredicate": !has_label,
+            }),
+        );
+        a.insert("customData".into(), Value::Object(custom));
+    });
+    if !has_label {
+        set_text(scene, ctx, &arrow_id, predicate)?;
+    }
+    Ok(())
 }
 
 fn set_link(
@@ -1154,6 +1452,9 @@ fn set_link(
 /// an arrow's label, or a frame's name.
 fn set_text(scene: &mut Scene, ctx: &mut Ctx, id: &str, text: &str) -> Result<(), String> {
     let el = scene.elements[id].clone();
+    if card_target(&el).is_some() {
+        return Err("a card has no text of its own: its words come from what it points at".into());
+    }
     match el_type(&el) {
         "text" => {
             let lines = wrap(text, 60);

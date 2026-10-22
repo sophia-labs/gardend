@@ -12,11 +12,12 @@
 
 use super::ops::{self, revision_token};
 use super::outline;
-use super::scene::{apply_moves, bounds, Ctx, Rng, Scene};
+use super::scene::{apply_moves, bounds, unmark_wires, Ctx, ObjectInfo, Rng, Scene};
 use super::WHITEBOARD_KIND;
 use crate::app_runtime::AppHandle;
 use crate::crdt_engine::rooms::{Room, RoomRegistry};
 use crate::mcp_utils::{mcp_arg_string, mcp_required_document_id, mcp_required_graph_id};
+use crate::scene_wire::{SceneWireDraft, SceneWireEnd};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -56,6 +57,82 @@ async fn workspace_title(app: &AppHandle, graph_id: &str, document_id: &str) -> 
     let id = document_id.to_string();
     ws.with_doc(move |doc| crate::crdt_engine::workspace_ops::document_title_in_workspace(doc, &id))
         .await
+}
+
+/// A typed object as the board snapshots it: its title and class label, read through the same code
+/// `emporium_describe` runs. An IRI the graph knows nothing about is refused (a card of nothing would point nowhere).
+fn describe_object(app: &AppHandle, graph_id: &str, iri: &str) -> Result<ObjectInfo, String> {
+    let missing = || format!("object '{iri}' is not in this graph");
+    let described = crate::emporium::describe::mcp_local_emporium_describe(
+        app.clone(),
+        &json!({ "graphId": graph_id, "iri": iri }),
+    )
+    .map_err(|error| {
+        if error.to_string().contains("is not an IRI") {
+            format!("object '{iri}' is not an absolute IRI")
+        } else {
+            missing()
+        }
+    })?;
+    if described.get("found").and_then(Value::as_bool) != Some(true) {
+        return Err(missing());
+    }
+    let label = described
+        .get("title")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|title| !title.is_empty())
+        .map(str::to_string)
+        // An object with no title says its own name: the last segment of its IRI.
+        .unwrap_or_else(|| {
+            iri.rsplit(['#', '/', ':'])
+                .find(|part| !part.is_empty())
+                .unwrap_or(iri)
+                .to_string()
+        });
+    let class_label = described
+        .get("class")
+        .and_then(|class| class.get("label").or_else(|| class.get("name")))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    Ok(ObjectInfo {
+        label,
+        class_label,
+        graph_id: graph_id.to_string(),
+    })
+}
+
+/// One end of a stored wire as the apply result reports it.
+fn end_json(end: &SceneWireEnd) -> Value {
+    let mut out = serde_json::Map::new();
+    if let Some(id) = &end.document_id {
+        out.insert("documentId".into(), json!(id));
+    }
+    if let Some(id) = &end.block_id {
+        out.insert("blockId".into(), json!(id));
+    }
+    if let Some(iri) = &end.iri {
+        out.insert("iri".into(), json!(iri));
+    }
+    Value::Object(out)
+}
+
+fn wires_json(wires: &[SceneWireDraft]) -> Value {
+    Value::Array(
+        wires
+            .iter()
+            .map(|wire| {
+                json!({
+                    "arrowId": wire.scene.element_id,
+                    "wireId": wire.wire_id,
+                    "predicate": wire.predicate,
+                    "source": end_json(&wire.source),
+                    "target": end_json(&wire.target),
+                })
+            })
+            .collect(),
+    )
 }
 
 /// The board's room, after checking the document is a whiteboard.
@@ -203,20 +280,30 @@ pub(crate) async fn mcp_local_whiteboard_apply(
     let rationale = mcp_arg_string(arguments, &["rationale"]);
     let board = open_board(&app, &graph_id, &document_id).await?;
 
-    // Titles of the documents a link move names.
+    // Titles of the documents a link or card move names, and the typed objects they name by IRI. Both are resolved
+    // before anything is written: a missing target refuses the whole call.
     let mut titles = BTreeMap::new();
-    for mv in moves {
-        if mv.get("op").and_then(Value::as_str) == Some("link") {
-            if let Some(doc) = mv.get("documentId").and_then(Value::as_str) {
-                if let Some(title) = workspace_title(&app, &graph_id, doc).await {
-                    titles.insert(doc.to_string(), title);
-                }
+    let mut objects: BTreeMap<String, ObjectInfo> = BTreeMap::new();
+    for (index, mv) in moves.iter().enumerate() {
+        if !matches!(
+            mv.get("op").and_then(Value::as_str),
+            Some("link") | Some("card")
+        ) {
+            continue;
+        }
+        if let Some(doc) = mv.get("documentId").and_then(Value::as_str) {
+            if let Some(title) = workspace_title(&app, &graph_id, doc).await {
+                titles.insert(doc.to_string(), title);
+            }
+        }
+        if let Some(iri) = mv.get("iri").and_then(Value::as_str) {
+            if !objects.contains_key(iri) {
+                let info = describe_object(&app, &graph_id, iri)
+                    .map_err(|error| format!("move {}: {error}", index + 1))?;
+                objects.insert(iri.to_string(), info);
             }
         }
     }
-
-    // The typed objects a link or card move names (G5 fills this with `emporium_describe`).
-    let objects: BTreeMap<String, super::scene::ObjectInfo> = BTreeMap::new();
 
     let _serial = APPLY_SERIAL.lock().await;
     let actor = actor_name();
@@ -240,6 +327,7 @@ pub(crate) async fn mcp_local_whiteboard_apply(
         })
         .await?;
     let (mut scene, mut created) = computed;
+    let mut wires: Vec<SceneWireDraft> = Vec::new();
     if !scene.dirty.is_empty() {
         crate::restore_guard::require_no_active_restore(&app, &graph_id)?;
         let lease = match app
@@ -267,14 +355,64 @@ pub(crate) async fn mcp_local_whiteboard_apply(
                     objects: &objects,
                     wires: Vec::new(),
                 };
-                Ok(apply_moves(&mut live, moves, &mut ctx).map(|made| {
+                let applied = apply_moves(&mut live, moves, &mut ctx);
+                let drafted = std::mem::take(&mut ctx.wires);
+                Ok(applied.map(|made| {
                     ops::write_dirty(txn, &live);
-                    (live, made)
+                    (live, made, drafted)
                 }))
             })
             .await?;
         drop(lease);
-        (scene, created) = fresh?;
+        (scene, created, wires) = fresh?;
+        // The wires the `wire` moves decided on are stored after the scene is written. When they cannot be, the
+        // arrows must not stay marked as wires that do not exist: unmark them in a second write, persist, and say so.
+        if !wires.is_empty() {
+            if let Err(error) =
+                crate::scene_wire::create_scene_wires(&app, &graph_id, &wires).await
+            {
+                let arrows: Vec<String> = wires
+                    .iter()
+                    .map(|wire| wire.scene.element_id.clone())
+                    .collect();
+                let lease = match app
+                    .try_state::<crate::crdt_engine::persistence_coordinator::GraphPersistenceCoordinator>()
+                {
+                    Some(coordinator) => Some(coordinator.acquire_hot_write(&graph_id).await?),
+                    None => None,
+                };
+                board
+                    .room
+                    .update_doc(|_doc, txn| {
+                        let mut live = ops::read_scene(&*txn);
+                        let mut ctx = Ctx {
+                            actor: &actor,
+                            now,
+                            rng: Rng(seed),
+                            graph_id: &graph_id,
+                            document_id: &document_id,
+                            titles: &titles,
+                            objects: &objects,
+                            wires: Vec::new(),
+                        };
+                        unmark_wires(&mut live, &mut ctx, &arrows);
+                        ops::write_dirty(txn, &live);
+                        Ok(())
+                    })
+                    .await?;
+                drop(lease);
+                crate::crdt_engine::document_ops::persist_room_document(
+                    &app,
+                    &graph_id,
+                    &document_id,
+                    &board.title,
+                    &board.room,
+                    &format!("op-wb-unwire-{}", uuid::Uuid::new_v4().simple()),
+                )
+                .await?;
+                return Err(format!("wire: {error}"));
+            }
+        }
         crate::crdt_engine::document_ops::persist_room_document(
             &app,
             &graph_id,
@@ -304,6 +442,7 @@ pub(crate) async fn mcp_local_whiteboard_apply(
             .collect(),
     );
     result["changed"] = json!(scene.dirty.len());
+    result["wires"] = wires_json(&wires);
     if let Some(rationale) = rationale {
         result["rationale"] = json!(rationale);
     }
