@@ -18,14 +18,31 @@ const FONT_SIZE: f64 = 20.0;
 const LINE_HEIGHT: f64 = 1.25;
 /// Approximate glyph width as a fraction of the font size.
 const CHAR_WIDTH: f64 = 0.6;
-/// Excalidraw's binding gap: BASE_BINDING_GAP (5) + strokeWidth / 2.
-const BIND_GAP: f64 = 6.0;
+/// Excalidraw's binding gap: BASE_BINDING_GAP (5) + strokeWidth / 2 (thin strokes: 5.5).
+const BIND_GAP: f64 = 5.5;
 const DEFAULT_NEAR_GAP: f64 = 60.0;
 const WRAP_CHARS: usize = 22;
-const FONT_FAMILY: i64 = 5;
+/// Nunito, the clean built-in family closest to Sophia's text. Shrubbery's person defaults use the same id.
+const FONT_FAMILY: i64 = 6;
+/// Thin: Excalidraw's strokeWidth 1 (the workflow canvas draws 1.5).
+const STROKE_WIDTH: i64 = 1;
+/// Architect: Excalidraw's roughness 0 (no hand-drawn wobble).
+const ROUGHNESS: i64 = 0;
 
-/// The named palette: (name, stroke, fill). Excalidraw's own open-color picks.
+/// The named palette: (name, stroke, fill), taken from the light Sophia tokens (`reference.css`): amber = ochre-600
+/// on ochre-100, blue = cobalt-500 on cobalt-100, green = the accent (fern-600 on fern-100), red = carmine-700 on
+/// carmine-100, violet = indigo-600 on indigo-100 (Sophia's info hue), grey = parchment-500 on parchment-100.
+/// In dark mode Excalidraw's own canvas filter inverts these.
 const PALETTE: &[(&str, &str, &str)] = &[
+    ("yellow", "#d97706", "#fef3c7"),
+    ("blue", "#1a5fa3", "#dae8f4"),
+    ("green", "#326f4c", "#dbecde"),
+    ("red", "#be123c", "#ffe4e6"),
+    ("violet", "#4f46e5", "#e0e7ff"),
+    ("grey", "#777269", "#eeeae2"),
+];
+/// Boards drawn before the Sophia palette used Excalidraw's open-color picks; they still read back by name.
+const LEGACY_PALETTE: &[(&str, &str, &str)] = &[
     ("yellow", "#f08c00", "#ffec99"),
     ("blue", "#1971c2", "#a5d8ff"),
     ("green", "#2f9e44", "#b2f2bb"),
@@ -33,7 +50,9 @@ const PALETTE: &[(&str, &str, &str)] = &[
     ("violet", "#6741d9", "#d0bfff"),
     ("grey", "#868e96", "#dee2e6"),
 ];
-const INK: &str = "#1e1e1e";
+/// Sophia ink (parchment-900). Boards drawn before it used Excalidraw's `#1e1e1e`, still read as "black".
+const INK: &str = "#1d1c19";
+const LEGACY_INK: &str = "#1e1e1e";
 
 #[derive(Clone, Default)]
 pub(crate) struct Scene {
@@ -183,19 +202,19 @@ pub(crate) fn color_name_of(el: &Element) -> String {
     let bg = s(el, "backgroundColor").unwrap_or("transparent");
     let stroke = s(el, "strokeColor").unwrap_or(INK);
     if is_filled(el) {
-        for (name, _, fill) in PALETTE {
+        for (name, _, fill) in PALETTE.iter().chain(LEGACY_PALETTE) {
             if fill.eq_ignore_ascii_case(bg) {
                 return (*name).to_string();
             }
         }
         return bg.to_string();
     }
-    for (name, st, _) in PALETTE {
+    for (name, st, _) in PALETTE.iter().chain(LEGACY_PALETTE) {
         if st.eq_ignore_ascii_case(stroke) {
             return (*name).to_string();
         }
     }
-    if stroke.eq_ignore_ascii_case(INK) {
+    if stroke.eq_ignore_ascii_case(INK) || stroke.eq_ignore_ascii_case(LEGACY_INK) {
         return "black".to_string();
     }
     stroke.to_string()
@@ -414,9 +433,9 @@ fn base_element(
     el.insert("strokeColor".into(), json!(INK));
     el.insert("backgroundColor".into(), json!("transparent"));
     el.insert("fillStyle".into(), json!("solid"));
-    el.insert("strokeWidth".into(), json!(2));
+    el.insert("strokeWidth".into(), json!(STROKE_WIDTH));
     el.insert("strokeStyle".into(), json!("solid"));
-    el.insert("roughness".into(), json!(1));
+    el.insert("roughness".into(), json!(ROUGHNESS));
     el.insert("opacity".into(), json!(100));
     el.insert("groupIds".into(), json!([]));
     el.insert("frameId".into(), Value::Null);
@@ -627,6 +646,10 @@ fn reroute(ctx: &mut Ctx, scene: &mut Scene, arrow_id: &str) {
         a.insert("points".into(), json!([[0, 0], [dx, dy]]));
         a.insert("width".into(), json!(dx.abs()));
         a.insert("height".into(), json!(dy.abs()));
+        // A tool re-route is a straight segment: a person's elbow arrow becomes one rather than a bent line with
+        // two points.
+        a.insert("elbowed".into(), json!(false));
+        a.insert("roundness".into(), Value::Null);
     });
     if let Some(label_id) = label_id {
         let mid = ((start.0 + end.0) / 2.0, (start.1 + end.1) / 2.0);
@@ -877,6 +900,7 @@ fn run_move(
                 label.as_deref(),
                 style.as_deref(),
                 head.as_deref(),
+                &created.iter().map(|(_, id)| id.clone()).collect(),
             );
             let name = r#ref.unwrap_or_else(|| id.clone());
             refs.0.insert(name.clone(), id.clone());
@@ -1305,6 +1329,8 @@ fn add_shape(
     let mut el = base_element(ctx, scene, kind, x, y, w, h);
     if matches!(shape, "box" | "note") {
         el.insert("roundness".into(), json!({ "type": 3 }));
+    } else if shape == "diamond" {
+        el.insert("roundness".into(), json!({ "type": 2 }));
     }
     if shape == "frame" {
         el.insert(
@@ -1397,6 +1423,73 @@ fn place_near(
     Ok((x, y))
 }
 
+/// An arrow's label sits on the middle of the arrow. When the two shapes are too close for it (the default
+/// `near` gap is 60 px), push apart a shape made in this same call, along the line between their centres, until the
+/// label clears both. Shapes already on the board are never moved: that would rewrite the person's board.
+fn make_room_for_label(
+    scene: &mut Scene,
+    ctx: &mut Ctx,
+    from: &str,
+    to: &str,
+    label: &str,
+    movable: &BTreeSet<String>,
+) {
+    let (mover, anchor) = if movable.contains(to) {
+        (to, from)
+    } else if movable.contains(from) {
+        (from, to)
+    } else {
+        return;
+    };
+    let (lw, lh) = measure(&wrap(label, 30));
+    const PAD: f64 = 16.0;
+    const STEP: f64 = 24.0;
+    let mut moved = false;
+    for _ in 0..80 {
+        let (a, m) = (
+            scene.elements[anchor].clone(),
+            scene.elements[mover].clone(),
+        );
+        let (ca, cm) = (center_of(&a), center_of(&m));
+        let (s, e) = (outline_point(&a, cm), outline_point(&m, ca));
+        let mid = ((s.0 + e.0) / 2.0, (s.1 + e.1) / 2.0);
+        let box_ = Rect {
+            x: mid.0 - lw / 2.0,
+            y: mid.1 - lh / 2.0,
+            w: lw,
+            h: lh,
+        };
+        if !box_.overlaps(&rect_of(&a), PAD) && !box_.overlaps(&rect_of(&m), PAD) {
+            break;
+        }
+        let (mut dx, mut dy) = (cm.0 - ca.0, cm.1 - ca.1);
+        let len = (dx * dx + dy * dy).sqrt();
+        if len == 0.0 {
+            (dx, dy) = (1.0, 0.0);
+        } else {
+            (dx, dy) = (dx / len, dy / len);
+        }
+        let (sx, sy) = (dx * STEP, dy * STEP);
+        let text_id = bound_text(scene, &m).map(id_of);
+        let shift = |el: &mut Element| {
+            let (x, y) = (n(el, "x"), n(el, "y"));
+            el.insert("x".into(), json!(x + sx));
+            el.insert("y".into(), json!(y + sy));
+        };
+        touch(ctx, scene, mover, shift);
+        if let Some(tid) = text_id {
+            touch(ctx, scene, &tid, shift);
+        }
+        moved = true;
+    }
+    if moved {
+        for arrow_id in arrows_bound_to(scene, mover) {
+            reroute(ctx, scene, &arrow_id);
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn connect(
     scene: &mut Scene,
     ctx: &mut Ctx,
@@ -1405,14 +1498,19 @@ fn connect(
     label: Option<&str>,
     style: Option<&str>,
     head: Option<&str>,
+    movable: &BTreeSet<String>,
 ) -> String {
+    if let Some(label) = label.filter(|l| !l.is_empty()) {
+        make_room_for_label(scene, ctx, from, to, label, movable);
+    }
     let from_el = scene.elements[from].clone();
     let to_el = scene.elements[to].clone();
     let start = outline_point(&from_el, center_of(&to_el));
     let end = outline_point(&to_el, center_of(&from_el));
     let (dx, dy) = (end.0 - start.0, end.1 - start.1);
     let mut arrow = base_element(ctx, scene, "arrow", start.0, start.1, dx.abs(), dy.abs());
-    arrow.insert("roundness".into(), json!({ "type": 2 }));
+    // Sharp, straight and thin, like the workflow canvas's crisp connectors.
+    arrow.insert("roundness".into(), Value::Null);
     arrow.insert("points".into(), json!([[0, 0], [dx, dy]]));
     arrow.insert("lastCommittedPoint".into(), Value::Null);
     arrow.insert(

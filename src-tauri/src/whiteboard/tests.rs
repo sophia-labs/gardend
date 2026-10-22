@@ -794,3 +794,68 @@ fn id_and_index_generation_are_deterministic_for_a_seed() {
     assert_eq!(a.id(), b.id(), "the same seed replays to the same ids");
     assert_ne!(a.id(), a.id());
 }
+
+#[test]
+fn agent_drawn_elements_carry_the_sophia_look_and_a_label_gets_room() {
+    with_profile("wb-look", || {
+        let h = Harness::new("wb-look");
+        let doc = h.create("Look");
+        let out = h
+            .apply(
+                &doc,
+                json!([
+                    {"op":"add","ref":"a","shape":"box","text":"Freud: the dream-work","color":"green"},
+                    {"op":"add","ref":"b","shape":"note","text":"condensation","color":"yellow","near":{"ref":"a","side":"right"}},
+                    {"op":"connect","ref":"e","from":"a","to":"b","label":"condenses into a single image"}
+                ]),
+            )
+            .unwrap();
+        let raw = h.elements(&doc);
+        let (a, b, e) = (
+            element(&raw, out["created"]["a"].as_str().unwrap()),
+            element(&raw, out["created"]["b"].as_str().unwrap()),
+            element(&raw, out["created"]["e"].as_str().unwrap()),
+        );
+        for el in [a, b, e] {
+            assert_eq!(el["roughness"], 0, "architect, not hand-drawn: {el}");
+            assert_eq!(el["strokeWidth"], 1, "thin: {el}");
+        }
+        assert_eq!(a["strokeColor"], "#326f4c", "green is the Sophia accent");
+        assert_eq!(
+            b["backgroundColor"], "#fef3c7",
+            "a yellow note is Sophia amber"
+        );
+        assert_eq!(a["roundness"], json!({"type": 3}));
+        assert_eq!(e["roundness"], Value::Null, "crisp arrows");
+        assert_eq!(e["elbowed"], false);
+        let label = raw["elements"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["containerId"] == e["id"])
+            .expect("the arrow's label");
+        assert_eq!(label["fontFamily"], 6);
+        // The label clears both shapes: the second shape was pushed out to make room.
+        let (lx, lw) = (
+            label["x"].as_f64().unwrap(),
+            label["width"].as_f64().unwrap(),
+        );
+        let a_right = a["x"].as_f64().unwrap() + a["width"].as_f64().unwrap();
+        let b_left = b["x"].as_f64().unwrap();
+        assert!(
+            lx > a_right + 8.0,
+            "label starts clear of the first shape: {lx} vs {a_right}"
+        );
+        assert!(
+            lx + lw < b_left - 8.0,
+            "label ends clear of the second shape: {} vs {b_left}",
+            lx + lw
+        );
+        // Names read back, old boards and new.
+        let read = h.read(&doc);
+        assert_eq!(
+            shape_by_text(&read, "Freud: the dream-work")["color"],
+            "green"
+        );
+    });
+}
