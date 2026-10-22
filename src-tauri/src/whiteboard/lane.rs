@@ -55,7 +55,6 @@ pub(crate) const RDFS_LABEL: &str = "http://www.w3.org/2000/01/rdf-schema#label"
 pub(crate) const PROV_WAS_ATTRIBUTED_TO: &str = "http://www.w3.org/ns/prov#wasAttributedTo";
 pub(crate) const PROV_GENERATED_AT_TIME: &str = "http://www.w3.org/ns/prov#generatedAtTime";
 
-const XSD_DATE_TIME: &str = "http://www.w3.org/2001/XMLSchema#dateTime";
 /// The five classes whose spans a board owns, in survey order.
 const CLASSES: [&str; 5] = [BOARD, SHAPE, CARD, CONNECTION, CLUSTER];
 
@@ -112,11 +111,10 @@ impl Emit {
     }
 
     fn time(&mut self, subject: &str, predicate: &str, value: &str) {
-        let datatype = NamedNode::new(XSD_DATE_TIME).expect("xsd:dateTime is an IRI");
         self.out.push((
             subject.to_string(),
             predicate.to_string(),
-            Term::Lit(Literal::new_typed_literal(value, datatype)),
+            Term::Lit(Literal::new_typed_literal(value, oxigraph::model::vocab::xsd::DATE_TIME)),
         ));
     }
 }
