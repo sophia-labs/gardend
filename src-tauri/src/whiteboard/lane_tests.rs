@@ -247,8 +247,10 @@ fn ydoc_bytes(scene: &Scene) -> Vec<u8> {
         let mut txn = doc.transact_mut();
         ops::write_dirty(&mut txn, &writing);
     }
-    doc.transact()
-        .encode_state_as_update_v1(&yrs::StateVector::default())
+    let update = doc
+        .transact()
+        .encode_state_as_update_v1(&yrs::StateVector::default());
+    update
 }
 
 fn record(kind: Option<&str>, inline_base64: &str) -> DocumentRecord {
