@@ -276,6 +276,10 @@
       "classification": "implemented",
       "note": "Hosted reindex alias submits a local fastembed semantic index refresh job when the model is prepared; otherwise it returns a stable setup-required 503 without downloading model data during parity probes."
     },
+    "GET /backlinks/{graph_id}": {
+      "classification": "implemented",
+      "note": "Local loopback lists what points at a document, block or typed object: incoming wires, object embeds, wikilinks, links, and whiteboard shapes, cards and arrows."
+    },
     "GET /wires/{graph_id}/predicates": {
       "classification": "implemented",
       "note": "Local loopback returns hosted-shaped predicate info from built-ins plus workspace snapshot custom predicates."
@@ -551,6 +555,7 @@
     "get_session_state": "local-replacement",
     "get_user_location": "local-replacement",
     "get_values": "implemented",
+    "get_backlinks": "implemented",
     "get_wires": "implemented",
     "get_workspace": "implemented",
     "ingest_artifact": "implemented",

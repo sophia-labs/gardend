@@ -1145,6 +1145,14 @@
     },
     {
       "method": "GET",
+      "path": "/backlinks/{graph_id}",
+      "status": "implemented-workspace-snapshot",
+      "scopes": [
+        "wires.read"
+      ]
+    },
+    {
+      "method": "GET",
       "path": "/wires/{graph_id}/predicates",
       "status": "implemented-workspace-snapshot",
       "scopes": [
@@ -1980,6 +1988,13 @@
       "status": "implemented-crdt-queued",
       "scopes": [
         "wires.write"
+      ]
+    },
+    {
+      "name": "get_backlinks",
+      "status": "implemented-workspace-snapshot",
+      "scopes": [
+        "wires.read"
       ]
     },
     {

@@ -2,11 +2,11 @@ use crate::app_runtime::AppHandle;
 use crate::{
     document_service::read_workspace_record,
     json_utils::{json_bool, json_string},
-    mcp_utils::{mcp_arg_string, mcp_required_document_id, mcp_required_graph_id},
+    mcp_utils::{mcp_arg_string, mcp_required_graph_id},
     paths::existing_graph_dir,
     rdf_service::wire_predicate_uri,
     wire_predicates::{builtin_wire_predicates, predicate_label, predicate_short_name},
-    wire_state::{wire_is_active, wire_matches_document},
+    wire_state::{wire_is_active, wire_matches_document, wire_matches_iri},
     workspace_entity_projection::{workspace_document_title, workspace_documents, workspace_wires},
 };
 use std::collections::BTreeSet;
@@ -45,6 +45,11 @@ fn wire_summary(
         ("inverseOf", "inverseOf"),
         ("sourceSnippet", "sourceSnippet"),
         ("targetSnippet", "targetSnippet"),
+        // An object end, and the board and arrow a scene wire came from: omitted when absent.
+        ("sourceIri", "sourceIri"),
+        ("targetIri", "targetIri"),
+        ("sceneDocumentId", "sceneDocumentId"),
+        ("sceneElementId", "sceneElementId"),
     ] {
         if let Some(field_value) = json_string(wire.get(json_key)) {
             value[output_key] = serde_json::json!(field_value);
@@ -64,7 +69,12 @@ pub(super) fn mcp_local_get_wires(
     arguments: &serde_json::Value,
 ) -> Result<serde_json::Value, String> {
     let graph_id = mcp_required_graph_id(arguments)?;
-    let document_id = mcp_required_document_id(arguments)?;
+    // Exactly one of a document and an object: `get_wires {documentId}` or `get_wires {iri}`.
+    let document_id = mcp_arg_string(arguments, &["documentId", "document_id"]);
+    let iri = mcp_arg_string(arguments, &["iri"]);
+    if document_id.is_some() == iri.is_some() {
+        return Err("get_wires: give exactly one of documentId and iri".to_string());
+    }
     let direction = mcp_arg_string(arguments, &["direction"]).unwrap_or_else(|| "both".to_string());
     if !matches!(direction.as_str(), "outgoing" | "incoming" | "both") {
         return Err("direction must be outgoing, incoming, or both".to_string());
@@ -83,7 +93,12 @@ pub(super) fn mcp_local_get_wires(
         if id.ends_with("-inv") || !wire_is_active(&wire) {
             continue;
         }
-        if !wire_matches_document(&wire, &document_id, &direction) {
+        let matches = match (&document_id, &iri) {
+            (Some(document_id), _) => wire_matches_document(&wire, document_id, &direction),
+            (None, Some(iri)) => wire_matches_iri(&wire, iri, &direction),
+            (None, None) => false,
+        };
+        if !matches {
             continue;
         }
         if let Some(predicate) = &predicate {
@@ -96,13 +111,19 @@ pub(super) fn mcp_local_get_wires(
         results.push(wire_summary(&wire, &graph_id, &documents));
     }
 
-    Ok(serde_json::json!({
+    let mut response = serde_json::json!({
         "graph_id": graph_id,
-        "document_id": document_id,
         "direction": direction,
         "wires": results,
         "count": results.len(),
-    }))
+    });
+    // The key of the thing asked about: `document_id` as it always was, or `iri`.
+    match (document_id, iri) {
+        (Some(document_id), _) => response["document_id"] = serde_json::json!(document_id),
+        (None, Some(iri)) => response["iri"] = serde_json::json!(iri),
+        (None, None) => {}
+    }
+    Ok(response)
 }
 
 pub(super) fn mcp_local_list_wire_predicates(
@@ -177,5 +198,34 @@ mod tests {
         assert_eq!(value["sourceBlockId"], "block-a");
         assert_eq!(value["targetSnippet"], "target text");
         assert_eq!(value["bidirectional"], true);
+        // a document-to-document wire gains none of the new keys
+        for key in ["sourceIri", "targetIri", "sceneDocumentId", "sceneElementId"] {
+            assert!(value.get(key).is_none(), "{key} appears on a plain wire: {value}");
+        }
+    }
+
+    /// G3: a wire to an object says so (`targetIri`), with the board and arrow it came from; the object end has
+    /// no document id and is titled by its stored label.
+    #[test]
+    fn wire_summary_reports_object_ends_and_scene() {
+        let object = "urn:mnemosyne:local:graph:wb-graph:dream:wolf-man";
+        let wire = serde_json::json!({
+            "id": "wire-wb-0001",
+            "sourceDocumentId": "doc-traumdeutung",
+            "targetIri": object,
+            "targetTitle": "The Wolf Man dream",
+            "predicate": "supports",
+            "sceneDocumentId": "wb-board",
+            "sceneElementId": "arw0000000000000000002",
+        });
+        let documents = vec![serde_json::json!({ "documentId": "doc-traumdeutung", "title": "Traumdeutung" })];
+        let value = wire_summary(&wire, "wb-graph", &documents);
+        assert_eq!(value["targetIri"], object);
+        assert!(value["targetDocumentId"].is_null());
+        assert_eq!(value["targetTitle"], "The Wolf Man dream");
+        assert_eq!(value["sourceTitle"], "Traumdeutung");
+        assert_eq!(value["sceneDocumentId"], "wb-board");
+        assert_eq!(value["sceneElementId"], "arw0000000000000000002");
+        assert!(value.get("sourceIri").is_none());
     }
 }

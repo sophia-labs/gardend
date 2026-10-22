@@ -26,6 +26,7 @@ use crate::{
         mcp_local_list_artifact_revisions, mcp_local_read_artifact,
         mcp_local_restore_artifact_revision,
     },
+    backlinks_service::mcp_local_get_backlinks,
     datasheet_facts::mcp_local_datasheet_facts,
     datasheet_import::mcp_local_datasheet_import,
     document_digest_service::mcp_local_document_digest,
@@ -572,6 +573,11 @@ fn tramp_list_wire_predicates<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> M
 fn tramp_get_wires<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
     let app = ctx.app.clone();
     Box::pin(async move { mcp_local_get_wires(app, args).map_err(AppError::internal) })
+}
+
+fn tramp_get_backlinks<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
+    let app = ctx.app.clone();
+    Box::pin(async move { mcp_local_get_backlinks(app, args).map_err(AppError::validation) })
 }
 
 fn tramp_create_wires<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
@@ -1280,6 +1286,10 @@ const REGISTRY: &[McpToolEntry] = &[
     McpToolEntry {
         name: "get_wires",
         handler: tramp_get_wires,
+    },
+    McpToolEntry {
+        name: "get_backlinks",
+        handler: tramp_get_backlinks,
     },
     McpToolEntry {
         name: "create_wires",

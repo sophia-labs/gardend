@@ -7,8 +7,8 @@ use crate::{
     rdf_authority::workspace_projection_graph_iri,
     rdf_record_materializer::projectable_terms,
     rdf_workspace_terms::{
-        block_ref_uri, document_ref_uri, mark_ref_uri, snapshot_array, wire_predicate_uri,
-        wire_ref_uri, workspace_entity_subject,
+        block_ref_uri, document_ref_uri, mark_ref_uri, resource_ref_uri, snapshot_array,
+        wire_predicate_uri, wire_ref_uri, workspace_entity_subject,
     },
     rdf_workspace_values::{extra_value, push_workspace_value_triple},
     runtime_config::{MDOC_NS, RDF_TYPE, WIRE_NS, XSD_NS},
@@ -23,9 +23,30 @@ pub(super) fn push_wire_triples(
 ) {
     let target_graph_id =
         json_string(wire.get("targetGraphId")).unwrap_or_else(|| graph_id.to_string());
-    let source_document_id = json_string(wire.get("sourceDocumentId"));
-    let target_document_id = json_string(wire.get("targetDocumentId"));
+    // An end is a document (with its block and mark) OR an object IRI, never both: an IRI end emits
+    // `wire:sourceResource` / `wire:targetResource` and no document, block or context triple (whiteboard
+    // semantics G3), whatever else the row carries.
+    let source_iri = json_string(wire.get("sourceIri"));
+    let target_iri = json_string(wire.get("targetIri"));
+    let source_document_id = json_string(wire.get("sourceDocumentId")).filter(|_| source_iri.is_none());
+    let target_document_id = json_string(wire.get("targetDocumentId")).filter(|_| target_iri.is_none());
 
+    if let Some(iri) = &source_iri {
+        push_uri_triple(
+            triples,
+            subject,
+            &format!("{WIRE_NS}sourceResource"),
+            &resource_ref_uri(iri),
+        );
+    }
+    if let Some(iri) = &target_iri {
+        push_uri_triple(
+            triples,
+            subject,
+            &format!("{WIRE_NS}targetResource"),
+            &resource_ref_uri(iri),
+        );
+    }
     if let Some(source_document_id) = &source_document_id {
         push_uri_triple(
             triples,
@@ -126,6 +147,7 @@ pub(super) fn push_wire_triples(
         ("sourceTitle", format!("{WIRE_NS}sourceTitle")),
         ("sourceSnippet", format!("{WIRE_NS}sourceSnippet")),
         ("sceneGraphId", format!("{WIRE_NS}sceneGraphId")),
+        ("sceneDocumentId", format!("{WIRE_NS}sceneDocumentId")),
         ("sceneArtifactId", format!("{WIRE_NS}sceneArtifactId")),
         ("sceneElementId", format!("{WIRE_NS}sceneElementId")),
         (
@@ -411,6 +433,91 @@ mod tests {
             real, model,
             "real materializer output must EQUAL the independent model set"
         );
+    }
+
+    /// G3: an IRI end is `wire:sourceResource` / `wire:targetResource` (an IRI node) and NEVER a document, block or
+    /// context triple, even when the row also carries stale document fields; `wire:sceneDocumentId` is a string.
+    /// Written out from the constants, not from the materializer's helpers.
+    #[test]
+    fn iri_ends_emit_resource_triples_and_no_document_triples() {
+        let subject = "urn:mnemosyne:local:graph:wb-graph:wire:wire-wb-0001";
+        let object = "urn:mnemosyne:local:graph:wb-graph:dream:wolf-man";
+        let wire = serde_json::json!({
+            "sourceDocumentId": "doc-traumdeutung",
+            "targetIri": object,
+            // stale document fields on the IRI end must not leak into triples
+            "targetDocumentId": "doc-stale",
+            "targetBlockId": "block-stale",
+            "targetMarkId": "mark-stale",
+            "predicate": "supports",
+            "sceneGraphId": "wb-graph",
+            "sceneDocumentId": "wb-board",
+            "sceneElementId": "arw0000000000000000002",
+        });
+        let real = render_set("wb-graph", subject, &wire);
+        let expected: HashSet<String> = [
+            format!("<{subject}> <{WIRE_NS}sourceDocument> <urn:mnemosyne:local:document:doc-traumdeutung> ."),
+            format!("<{subject}> <{WIRE_NS}targetResource> <{object}> ."),
+            format!("<{subject}> <{WIRE_NS}predicate> <{WIRE_NS}supports> ."),
+            format!("<{subject}> <{WIRE_NS}targetGraph> \"wb-graph\" ."),
+            format!("<{subject}> <{WIRE_NS}sceneGraphId> \"wb-graph\" ."),
+            format!("<{subject}> <{WIRE_NS}sceneDocumentId> \"wb-board\" ."),
+            format!("<{subject}> <{WIRE_NS}sceneElementId> \"arw0000000000000000002\" ."),
+        ]
+        .into_iter()
+        .collect();
+        let mut missing: Vec<_> = expected.difference(&real).cloned().collect();
+        let mut extra: Vec<_> = real.difference(&expected).cloned().collect();
+        missing.sort();
+        extra.sort();
+        assert!(
+            missing.is_empty() && extra.is_empty(),
+            "IRI end triples differ. missing: {missing:?} extra: {extra:?}"
+        );
+        assert!(
+            !real.iter().any(|t| t.contains("targetDocument")
+                || t.contains("targetBlock")
+                || t.contains("targetContext")),
+            "an IRI end never produces a wire:targetDocument/Block/Context triple"
+        );
+
+        // The mirror image: an IRI source.
+        let wire = serde_json::json!({ "sourceIri": object, "targetDocumentId": "doc-b", "predicate": "supports" });
+        let real = render_set("wb-graph", subject, &wire);
+        assert!(real.contains(&format!("<{subject}> <{WIRE_NS}sourceResource> <{object}> .")));
+        assert!(real.contains(&format!(
+            "<{subject}> <{WIRE_NS}targetDocument> <urn:mnemosyne:local:document:doc-b> ."
+        )));
+        assert!(!real.iter().any(|t| t.contains("sourceDocument")));
+    }
+
+    /// G3 regression: a document-to-document wire gains nothing from IRI support (no resource, no scene-document
+    /// triple), so its projection is what it was.
+    #[test]
+    fn document_to_document_wire_projection_is_unchanged() {
+        let subject = "urn:mnemosyne:local:graph:graph-a:wire:wire-1";
+        let wire = serde_json::json!({
+            "sourceDocumentId": "doc-a", "targetDocumentId": "doc-b",
+            "sourceBlockId": "block-a", "predicate": "supports",
+        });
+        let real = render_set("graph-a", subject, &wire);
+        let model = WireModel {
+            subject: subject.to_string(),
+            graph_id: "graph-a".to_string(),
+            src_doc: Some("doc-a".into()),
+            tgt_doc: Some("doc-b".into()),
+            src_block: Some("block-a".into()),
+            tgt_block: None,
+            src_mark: None,
+            tgt_mark: None,
+            predicate: Some("supports".into()),
+            inverse_of: None,
+            bidirectional: None,
+            target_graph_id: None,
+        }
+        .expected();
+        assert_eq!(real, model);
+        assert!(!real.iter().any(|t| t.contains("Resource") || t.contains("sceneDocumentId")));
     }
 
     /// CONTENT ORACLE — the OPEN-predicate case (W2 teeth, content side): an absolute
@@ -1034,5 +1141,65 @@ mod shacl_wire_conformance_oracle {
             "a predicate outside the closed wire contract must be rejected"
         );
         assert!(result.unwrap_err().starts_with("SHACL:"));
+    }
+
+    /// G3 (whiteboard semantics): the closed `emporium-wires` golden ADMITS the three terms an object end and a
+    /// board-drawn arrow add (`wire:sourceResource`, `wire:targetResource`, `wire:sceneDocumentId`): the real
+    /// projection of such wires reconciles through the gated writer and conforms; a rogue predicate on the same
+    /// subject is still refused; a literal where `wire:targetResource` declares an IRI is refused.
+    #[test]
+    fn golden_admits_resource_ends() {
+        let store = Store::new().expect("store");
+        let snap = wires_snapshot(serde_json::json!([
+            { "id": "w1", "sourceDocumentId": "doc-traumdeutung",
+              "targetIri": "urn:mnemosyne:local:graph:wb-graph:dream:wolf-man",
+              "targetTitle": "The Wolf Man dream", "predicate": "supports",
+              "sceneGraphId": "wb-graph", "sceneDocumentId": "wb-board",
+              "sceneElementId": "arw0000000000000000002",
+              "sceneSourceElementId": "lnk0000000000000000001",
+              "sceneTargetElementId": "crd0000000000000000001",
+              "sceneStableKey": "wb:wb-board:arw0000000000000000002" },
+            { "id": "w2", "sourceIri": "urn:mnemosyne:local:graph:wb-graph:dream:wolf-man",
+              "targetDocumentId": "doc-b", "sceneDocumentId": "wb-board" }
+        ]));
+        reconcile_wire_store(&store, GID, &snap)
+            .expect("the gated reconcile admits resource ends and wire:sceneDocumentId");
+
+        let projection = read_back_wire_projection(&store);
+        for term in ["sourceResource", "targetResource", "sceneDocumentId"] {
+            assert!(
+                projection.iter().any(|(_, p, _)| p == &format!("{WIRE_NS}{term}")),
+                "PRECONDITION: wire:{term} is in the projection"
+            );
+        }
+        assert!(
+            !projection.iter().any(|(s, p, _)| s.ends_with(":wire:w1")
+                && (p == &format!("{WIRE_NS}targetDocument") || p == &format!("{WIRE_NS}targetBlock"))),
+            "an IRI target has no wire:targetDocument/Block"
+        );
+        validate_desired(&projection, wires_vocabulary())
+            .expect("the projection of resource ends conforms to the derived shapes");
+
+        // Still closed: a rogue predicate on the same subject is refused.
+        let mut bent = read_back_wire_projection(&store);
+        bent.push((
+            format!("urn:mnemosyne:local:graph:{GID}:wire:w1"),
+            "http://example.org/not-in-the-wire-contract".to_string(),
+            Term::Lit(oxigraph::model::Literal::new_simple_literal("rogue")),
+        ));
+        assert!(validate_desired(&bent, wires_vocabulary())
+            .unwrap_err()
+            .starts_with("SHACL:"));
+
+        // And typed: wire:targetResource is an IRI, so a string there is refused.
+        let mut bent = read_back_wire_projection(&store);
+        bent.push((
+            format!("urn:mnemosyne:local:graph:{GID}:wire:w1"),
+            format!("{WIRE_NS}targetResource"),
+            Term::Lit(oxigraph::model::Literal::new_simple_literal("not an iri")),
+        ));
+        assert!(validate_desired(&bent, wires_vocabulary())
+            .unwrap_err()
+            .starts_with("SHACL:"));
     }
 }

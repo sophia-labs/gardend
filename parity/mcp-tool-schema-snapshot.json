@@ -240,9 +240,13 @@
       "required": ["graphId"],
       "properties": ["graphId"]
     },
+    "get_backlinks": {
+      "required": ["graphId"],
+      "properties": ["blockId", "documentId", "graphId", "iri"]
+    },
     "get_wires": {
-      "required": ["documentId", "graphId"],
-      "properties": ["direction", "documentId", "graphId", "predicate"]
+      "required": ["graphId"],
+      "properties": ["direction", "documentId", "graphId", "iri", "predicate"]
     },
     "create_wires": {
       "required": [],
@@ -251,8 +255,15 @@
         "graphId",
         "graph_id",
         "predicate",
+        "sceneDocumentId",
+        "sceneElementId",
+        "sceneGraphId",
+        "sceneSourceElementId",
+        "sceneStableKey",
+        "sceneTargetElementId",
         "sourceBlockId",
         "sourceDocumentId",
+        "sourceIri",
         "sourceMarkId",
         "source_block_id",
         "source_document_id",
@@ -260,6 +271,7 @@
         "targetBlockId",
         "targetDocumentId",
         "targetGraphId",
+        "targetIri",
         "targetMarkId",
         "target_block_id",
         "target_document_id",
@@ -271,13 +283,14 @@
       ]
     },
     "traverse_wires": {
-      "required": ["document_id"],
+      "required": [],
       "properties": [
         "direction",
         "documentId",
         "document_id",
         "graphId",
         "graph_id",
+        "iri",
         "maxDepth",
         "max_depth",
         "predicate"

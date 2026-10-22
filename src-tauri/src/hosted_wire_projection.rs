@@ -49,16 +49,27 @@ fn hosted_wire_summary_from_local(
     } else {
         json_string(wire.get("sourceDocumentId"))
     };
+    // The other end may be an object, not a document: then it has an IRI and `other_document_id` is empty (it
+    // used to fall back to the local document, which would label a card as the page it sits beside).
+    let other_iri = if outgoing {
+        json_string(wire.get("targetIri"))
+    } else {
+        json_string(wire.get("sourceIri"))
+    };
     let other_graph_id = if outgoing {
         json_string(wire.get("targetGraphId"))
     } else {
         json_string(wire.get("sourceGraphId"))
     };
-    serde_json::json!({
+    let mut summary = serde_json::json!({
         "id": json_string(wire.get("id")).unwrap_or_default(),
         "predicate": json_string(wire.get("predicateUri").or_else(|| wire.get("predicate"))).unwrap_or_else(|| wire_predicate_uri("relatedTo")),
         "predicate_label": json_string(wire.get("predicateLabel")).unwrap_or_else(|| predicate_label("relatedTo")),
-        "other_document_id": other_document_id.unwrap_or_else(|| document_id.to_string()),
+        "other_document_id": if other_iri.is_some() {
+            String::new()
+        } else {
+            other_document_id.unwrap_or_else(|| document_id.to_string())
+        },
         "other_graph_id": other_graph_id.unwrap_or_else(|| json_string(wire.get("targetGraphId")).unwrap_or_default()),
         "other_block_id": if outgoing { json_string(wire.get("targetBlockId")) } else { json_string(wire.get("sourceBlockId")) },
         "other_title": if outgoing { json_string(wire.get("targetTitle")) } else { json_string(wire.get("sourceTitle")) },
@@ -67,7 +78,18 @@ fn hosted_wire_summary_from_local(
         "local_snippet": if outgoing { json_string(wire.get("sourceSnippet")) } else { json_string(wire.get("targetSnippet")) },
         "bidirectional": json_bool(wire.get("bidirectional")).unwrap_or(false),
         "snapshot_at": json_string(wire.get("snapshotAt").or_else(|| wire.get("createdAt"))),
-    })
+    });
+    // Only when there are any, so a document-to-document wire's summary is the summary it always was.
+    if let Some(other_iri) = other_iri {
+        summary["other_iri"] = serde_json::json!(other_iri);
+    }
+    if let Some(board) = json_string(wire.get("sceneDocumentId")) {
+        summary["scene_document_id"] = serde_json::json!(board);
+    }
+    if let Some(arrow) = json_string(wire.get("sceneElementId")) {
+        summary["scene_element_id"] = serde_json::json!(arrow);
+    }
+    summary
 }
 
 pub(super) fn hosted_wires_for_document(
@@ -168,5 +190,38 @@ mod tests {
         assert_eq!(incoming["other_document_id"], "doc-a");
         assert_eq!(incoming["local_block_id"], "block-b");
         assert_eq!(incoming["other_block_id"], "block-a");
+        for key in ["other_iri", "scene_document_id", "scene_element_id"] {
+            assert!(outgoing.get(key).is_none(), "{key} appears on a plain wire");
+        }
+    }
+
+    /// G3: the other end of a wire to an object is the IRI; `other_document_id` is empty, not the local page;
+    /// the board and arrow are reported. Seen from the object's side the other end is the document.
+    #[test]
+    fn hosted_wire_summary_reports_an_object_end_and_the_scene() {
+        let object = "urn:mnemosyne:local:graph:wb-graph:dream:wolf-man";
+        let wire = serde_json::json!({
+            "id": "wire-wb-0001",
+            "sourceDocumentId": "doc-traumdeutung",
+            "targetGraphId": "wb-graph",
+            "targetIri": object,
+            "targetTitle": "The Wolf Man dream",
+            "sceneDocumentId": "wb-board",
+            "sceneElementId": "arw0000000000000000002",
+        });
+        let outgoing = hosted_wire_summary_from_local(&wire, "doc-traumdeutung", "outgoing");
+        assert_eq!(outgoing["other_iri"], object);
+        assert_eq!(outgoing["other_document_id"], "");
+        assert_eq!(outgoing["other_title"], "The Wolf Man dream");
+        assert_eq!(outgoing["scene_document_id"], "wb-board");
+        assert_eq!(outgoing["scene_element_id"], "arw0000000000000000002");
+
+        // an IRI source, seen from the document it points at: the other end is the object
+        let from_object = serde_json::json!({
+            "id": "wire-from", "sourceIri": object, "sourceGraphId": "wb-graph", "targetDocumentId": "doc-b",
+        });
+        let incoming = hosted_wire_summary_from_local(&from_object, "doc-b", "incoming");
+        assert_eq!(incoming["other_iri"], object);
+        assert_eq!(incoming["other_document_id"], "");
     }
 }

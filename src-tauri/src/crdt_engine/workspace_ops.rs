@@ -344,10 +344,19 @@ pub(crate) async fn apply_classified(
         }
         "workspace.createWire" => {
             let value = object_payload(payload);
+            // An end is a document or an object IRI (whiteboard semantics G3). With an IRI source the
+            // queue's document id is the board the arrow was drawn on, and is not stored as the source.
+            let source_iri = string_value(pick(&value, &["sourceIri", "source_iri"]));
+            let target_iri = string_value(pick(&value, &["targetIri", "target_iri"]));
             let source_id = operation
                 .document_id
                 .clone()
                 .or_else(|| string_value(pick(&value, &["sourceDocumentId", "source_document_id"])))
+                .or_else(|| {
+                    source_iri
+                        .as_ref()
+                        .and_then(|_| string_value(pick(&value, &["sceneDocumentId", "scene_document_id"])))
+                })
                 .ok_or_else(|| "create wire operation is missing source documentId".to_string())?;
             refuse_unprojectable(
                 &graph_id,
@@ -355,8 +364,14 @@ pub(crate) async fn apply_classified(
                 "workspace.createWire",
                 json!({
                     "id": string_value(pick(&value, &["wireId", "wire_id", "id"])),
-                    "sourceDocumentId": source_id,
-                    "targetDocumentId": string_value(pick(&value, &["targetDocumentId", "target_document_id"])),
+                    "sourceDocumentId": if source_iri.is_some() { Value::Null } else { json!(source_id) },
+                    "targetDocumentId": if target_iri.is_some() {
+                        Value::Null
+                    } else {
+                        json!(string_value(pick(&value, &["targetDocumentId", "target_document_id"])))
+                    },
+                    "sourceIri": source_iri,
+                    "targetIri": target_iri,
                     "sourceBlockId": string_value(pick(&value, &["sourceBlockId", "source_block_id"])),
                     "targetBlockId": string_value(pick(&value, &["targetBlockId", "target_block_id"])),
                     "sourceMarkId": string_value(pick(&value, &["sourceMarkId", "source_mark_id"])),
@@ -1959,8 +1974,22 @@ fn create_workspace_wire_in_doc(
     source_id: &str,
     value: &JsonMap<String, Value>,
 ) -> Result<Value, String> {
-    let target_document_id = string_value(pick(value, &["targetDocumentId", "target_document_id"]))
-        .ok_or_else(|| "create wire operation is missing target documentId".to_string())?;
+    let source_iri = string_value(pick(value, &["sourceIri", "source_iri"]));
+    let target_iri = string_value(pick(value, &["targetIri", "target_iri"]));
+    let named_source = string_value(pick(value, &["sourceDocumentId", "source_document_id"]));
+    let named_target = string_value(pick(value, &["targetDocumentId", "target_document_id"]));
+    if source_iri.is_some() && named_source.is_some() {
+        return Err("create wire operation: the source is a document or an object IRI, not both".to_string());
+    }
+    if target_iri.is_some() && named_target.is_some() {
+        return Err("create wire operation: the target is a document or an object IRI, not both".to_string());
+    }
+    // `targetDocumentId` is required only when the target is not an IRI.
+    let target_document_id = match (&target_iri, named_target) {
+        (Some(_), _) => None,
+        (None, Some(id)) => Some(id),
+        (None, None) => return Err("create wire operation is missing target documentId".to_string()),
+    };
     let target_graph_id = string_value(pick(value, &["targetGraphId", "target_graph_id"]))
         .unwrap_or_else(|| graph_id.to_string());
     let wire_id = string_value(pick(value, &["wireId", "wire_id", "id"]))
@@ -1970,37 +1999,60 @@ fn create_workspace_wire_in_doc(
             .to_string()
     })?;
     let now = epoch_ms_to_iso(updated_at_ms);
-    let source_block_id = string_value(pick(value, &["sourceBlockId", "source_block_id"]));
-    let target_block_id = string_value(pick(value, &["targetBlockId", "target_block_id"]));
-    let source_title = lookup_document_title(&*txn, graph_dir, source_id);
-    let source_snippet = document_snippet(graph_dir, source_id, source_block_id.as_deref());
-    let (target_title, target_snippet) = if target_graph_id == graph_id {
-        (
-            lookup_document_title(&*txn, graph_dir, &target_document_id),
-            document_snippet(graph_dir, &target_document_id, target_block_id.as_deref()),
-        )
+    // An IRI end carries no block or mark: the stored wire does not carry the carrier.
+    let source_block_id = string_value(pick(value, &["sourceBlockId", "source_block_id"]))
+        .filter(|_| source_iri.is_none());
+    let target_block_id = string_value(pick(value, &["targetBlockId", "target_block_id"]))
+        .filter(|_| target_iri.is_none());
+    // A document end is titled from the workspace; an IRI end holds the draft's label as its title.
+    let (source_title, source_snippet) = if source_iri.is_some() {
+        (string_value(pick(value, &["sourceTitle", "source_title"])), None)
     } else {
-        (None, None)
+        (
+            lookup_document_title(&*txn, graph_dir, source_id),
+            document_snippet(graph_dir, source_id, source_block_id.as_deref()),
+        )
+    };
+    let (target_title, target_snippet) = match &target_document_id {
+        None => (string_value(pick(value, &["targetTitle", "target_title"])), None),
+        Some(target_document_id) if target_graph_id == graph_id => (
+            lookup_document_title(&*txn, graph_dir, target_document_id),
+            document_snippet(graph_dir, target_document_id, target_block_id.as_deref()),
+        ),
+        Some(_) => (None, None),
     };
 
     let mut data = JsonMap::new();
-    data.insert("sourceDocumentId".into(), json!(source_id));
+    data.insert(
+        "sourceDocumentId".into(),
+        if source_iri.is_some() { Value::Null } else { json!(source_id) },
+    );
     data.insert("sourceBlockId".into(), opt_string_json(source_block_id));
     data.insert(
         "sourceMarkId".into(),
-        opt_string_json(string_value(pick(
-            value,
-            &["sourceMarkId", "source_mark_id"],
-        ))),
+        opt_string_json(
+            string_value(pick(value, &["sourceMarkId", "source_mark_id"]))
+                .filter(|_| source_iri.is_none()),
+        ),
     );
     data.insert("targetGraphId".into(), json!(target_graph_id));
-    data.insert("targetDocumentId".into(), json!(target_document_id));
+    data.insert("targetDocumentId".into(), opt_string_json(target_document_id));
     data.insert("targetBlockId".into(), opt_string_json(target_block_id));
     data.insert(
         "targetMarkId".into(),
+        opt_string_json(
+            string_value(pick(value, &["targetMarkId", "target_mark_id"]))
+                .filter(|_| target_iri.is_none()),
+        ),
+    );
+    // New fields, only when present: a document-to-document wire stores exactly what it stored before.
+    data.insert("sourceIri".into(), opt_string_json(source_iri));
+    data.insert("targetIri".into(), opt_string_json(target_iri));
+    data.insert(
+        "sceneDocumentId".into(),
         opt_string_json(string_value(pick(
             value,
-            &["targetMarkId", "target_mark_id"],
+            &["sceneDocumentId", "scene_document_id"],
         ))),
     );
     data.insert(
@@ -2093,15 +2145,13 @@ fn refresh_workspace_wire_in_doc(
     let target_document_id = map_string(&*txn, &wire_map, "targetDocumentId");
     let source_block_id = map_string(&*txn, &wire_map, "sourceBlockId");
     let target_block_id = map_string(&*txn, &wire_map, "targetBlockId");
-    let (source_title, source_snippet) = match source_document_id.as_deref() {
-        Some(source_id) => (
-            lookup_document_title(&*txn, graph_dir, source_id),
-            document_snippet(graph_dir, source_id, source_block_id.as_deref()),
-        ),
-        None => (None, None),
-    };
-    wire_map.insert(txn, "sourceTitle", opt_string_any(source_title));
-    wire_map.insert(txn, "sourceSnippet", opt_string_any(source_snippet));
+    // An IRI end has no document to title it from: its stored label stays as it is.
+    if let Some(source_id) = source_document_id.as_deref() {
+        let source_title = lookup_document_title(&*txn, graph_dir, source_id);
+        let source_snippet = document_snippet(graph_dir, source_id, source_block_id.as_deref());
+        wire_map.insert(txn, "sourceTitle", opt_string_any(source_title));
+        wire_map.insert(txn, "sourceSnippet", opt_string_any(source_snippet));
+    }
     if target_graph_id == graph_id {
         if let Some(target_id) = target_document_id.as_deref() {
             let target_title = lookup_document_title(&*txn, graph_dir, target_id);
@@ -2133,6 +2183,9 @@ fn wire_snapshot_data<T: ReadTxn>(txn: &T, wire_map: &MapRef) -> Value {
         "targetSnippet",
         "snapshotAt",
         "createdAt",
+        "sourceIri",
+        "targetIri",
+        "sceneDocumentId",
     ] {
         data.insert(key.to_string(), map_value(txn, wire_map, key));
     }
@@ -2152,7 +2205,7 @@ fn create_hosted_wire_response(graph_id: &str, wire_id: &str, data: &Value) -> V
             trimmed.to_string()
         }
     };
-    json!({
+    let mut response = json!({
         "id": wire_id,
         "source_graph_id": graph_id,
         "source_document_id": string_value(Some(&get("sourceDocumentId"))).unwrap_or_default(),
@@ -2173,7 +2226,19 @@ fn create_hosted_wire_response(graph_id: &str, wire_id: &str, data: &Value) -> V
             string_value(Some(&get("snapshotAt"))).or_else(|| string_value(Some(&get("createdAt")))),
         ),
         "created_at": opt_string_json(string_value(Some(&get("createdAt")))),
-    })
+    });
+    // An object end and the board the arrow was drawn on, only when there are any (a document-to-document wire
+    // answers exactly what it answered before).
+    for (key, out) in [
+        ("sourceIri", "source_iri"),
+        ("targetIri", "target_iri"),
+        ("sceneDocumentId", "scene_document_id"),
+    ] {
+        if let Some(text) = string_value(Some(&get(key))) {
+            response[out] = json!(text);
+        }
+    }
+    response
 }
 
 /// Port of documentTitle (native-local-runtime.ts:1958): workspace Y.Doc
@@ -2271,6 +2336,9 @@ const WIRE_FIELDS: &[&str] = &[
     "sceneSourceElementId",
     "sceneTargetElementId",
     "sceneStableKey",
+    "sourceIri",
+    "targetIri",
+    "sceneDocumentId",
 ];
 
 /// Port of materializeWorkspaceYDoc (workspace-materialization.ts:120).
@@ -2601,6 +2669,14 @@ fn read_wire_entities<T: ReadTxn>(txn: &T) -> Vec<Value> {
                 key.to_string(),
                 opt_string_json(map_string(txn, &wire_map, key)),
             );
+        }
+        // Object ends and the board of a scene wire (whiteboard semantics G3): present only when stored, so a
+        // document-to-document wire's snapshot row is the row it always was. `map_string`, not
+        // `entity_id_value`: an object IRI is a URN and must not be shortened to its tail.
+        for key in ["sourceIri", "targetIri", "sceneDocumentId"] {
+            if let Some(text) = map_string(txn, &wire_map, key) {
+                wire.insert(key.to_string(), json!(text));
+            }
         }
         insert_extra_fields(txn, &wire_map, &mut wire, WIRE_FIELDS);
         wires.push(Value::Object(wire));
@@ -3905,6 +3981,130 @@ mod tests {
         assert_eq!(snapshot["counts"]["activeWires"], 1);
         assert_eq!(snapshot["wires"][0]["id"], "w-1");
         assert_eq!(snapshot["wires"][0]["predicate"], "supports");
+    }
+
+    /// G3: a wire may end at an object IRI. The stored wire holds the IRI and the label, no document id for that
+    /// end, and the scene it came from; a refresh keeps the label; a wire between two documents stores none of
+    /// the new fields.
+    #[test]
+    fn wire_to_an_object_stores_the_iri_label_and_scene_without_a_document_id() {
+        let doc = Doc::new();
+        let temp_dir = std::env::temp_dir().join(format!("sophia-wire-iri-{}", Uuid::new_v4()));
+        with_doc(&doc, |txn| {
+            write_workspace_document(
+                txn,
+                &json!({ "documentId": "doc-traumdeutung", "title": "The Interpretation of Dreams", "order": 1, "updatedAt": 1 }),
+            )
+        })
+        .expect("source doc");
+        let object = "urn:mnemosyne:local:graph:wb-graph:dream:wolf-man";
+
+        let payload = object_payload(&json!({
+            "wireId": "wire-wb-0001",
+            "targetIri": object,
+            "targetTitle": "The Wolf Man dream",
+            "predicate": "supports",
+            "sceneGraphId": "wb-graph",
+            "sceneDocumentId": "wb-board",
+            "sceneElementId": "arw0000000000000000002",
+            "sceneSourceElementId": "lnk0000000000000000001",
+            "sceneTargetElementId": "crd0000000000000000001",
+            "sceneStableKey": "wb:wb-board:arw0000000000000000002",
+            "updatedAt": 1_700_000_000_000i64,
+        }));
+        let data = with_doc(&doc, |txn| {
+            create_workspace_wire_in_doc(txn, &temp_dir, "wb-graph", "doc-traumdeutung", &payload)
+        })
+        .expect("create wire to an object");
+        let response = create_hosted_wire_response("wb-graph", "wire-wb-0001", &data);
+        assert_eq!(response["source_document_id"], "doc-traumdeutung");
+        assert_eq!(response["target_document_id"], "");
+        assert_eq!(response["target_iri"], object);
+        assert_eq!(response["target_title"], "The Wolf Man dream");
+        assert_eq!(response["scene_document_id"], "wb-board");
+
+        // The IRI is a URN, and must come back whole (entity_id_value would shorten a urn:…:doc: tail).
+        let snapshot = materialize_workspace_snapshot_json("wb-graph", &doc).expect("snapshot");
+        let wire = &snapshot["wires"][0];
+        assert_eq!(wire["sourceDocumentId"], "doc-traumdeutung");
+        assert_eq!(wire["targetIri"], object);
+        assert!(wire["targetDocumentId"].is_null(), "an IRI end has no document id: {wire}");
+        assert!(wire["targetBlockId"].is_null());
+        assert_eq!(wire["targetTitle"], "The Wolf Man dream");
+        assert_eq!(wire["sceneDocumentId"], "wb-board");
+        assert_eq!(wire["sceneElementId"], "arw0000000000000000002");
+        assert_eq!(wire["sceneSourceElementId"], "lnk0000000000000000001");
+        assert_eq!(wire["sceneTargetElementId"], "crd0000000000000000001");
+        assert_eq!(wire["sceneStableKey"], "wb:wb-board:arw0000000000000000002");
+        assert!(wire.get("sourceIri").is_none());
+        assert!(wire.get("extra").is_none(), "the new fields are known fields, not extras: {wire}");
+
+        // A refresh keeps an IRI end's label, and the IRI.
+        let refreshed = with_doc(&doc, |txn| {
+            refresh_workspace_wire_in_doc(txn, &temp_dir, "wb-graph", "wire-wb-0001", 1_700_000_060_000.0)
+        })
+        .expect("refresh");
+        let response = create_hosted_wire_response("wb-graph", "wire-wb-0001", &refreshed);
+        assert_eq!(response["target_iri"], object);
+        assert_eq!(response["target_title"], "The Wolf Man dream");
+
+        // An IRI source: the queue's document id (the board) is carried, never stored as the source.
+        let payload = object_payload(&json!({
+            "wireId": "wire-from-object", "sourceIri": object, "sourceTitle": "The Wolf Man dream",
+            "targetDocumentId": "doc-traumdeutung", "predicate": "supports",
+            "sceneDocumentId": "wb-board", "updatedAt": 1_700_000_000_000i64,
+        }));
+        with_doc(&doc, |txn| {
+            create_workspace_wire_in_doc(txn, &temp_dir, "wb-graph", "wb-board", &payload)
+        })
+        .expect("create wire from an object");
+        let snapshot = materialize_workspace_snapshot_json("wb-graph", &doc).expect("snapshot");
+        let wire = snapshot["wires"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|w| w["id"] == "wire-from-object")
+            .expect("stored");
+        assert_eq!(wire["sourceIri"], object);
+        assert!(wire["sourceDocumentId"].is_null(), "the carrier is not stored: {wire}");
+        assert_eq!(wire["sourceTitle"], "The Wolf Man dream");
+        assert_eq!(wire["targetDocumentId"], "doc-traumdeutung");
+
+        // A document-to-document wire stores none of the new fields.
+        let payload = object_payload(&json!({
+            "wireId": "wire-plain", "targetDocumentId": "doc-traumdeutung", "predicate": "supports",
+            "updatedAt": 1_700_000_000_000i64,
+        }));
+        with_doc(&doc, |txn| {
+            create_workspace_wire_in_doc(txn, &temp_dir, "wb-graph", "doc-traumdeutung", &payload)
+        })
+        .expect("create plain wire");
+        let snapshot = materialize_workspace_snapshot_json("wb-graph", &doc).expect("snapshot");
+        let plain = snapshot["wires"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|w| w["id"] == "wire-plain")
+            .expect("stored");
+        for key in ["sourceIri", "targetIri", "sceneDocumentId"] {
+            assert!(plain.get(key).is_none(), "{key} appears on a document-to-document wire: {plain}");
+        }
+
+        // Both an IRI and a document for one end is refused, and so is no target at all.
+        let both = object_payload(&json!({
+            "wireId": "w-both", "targetIri": object, "targetDocumentId": "doc-x", "updatedAt": 1i64,
+        }));
+        let error = with_doc(&doc, |txn| {
+            create_workspace_wire_in_doc(txn, &temp_dir, "wb-graph", "doc-traumdeutung", &both)
+        })
+        .unwrap_err();
+        assert!(error.contains("not both"), "{error}");
+        let none = object_payload(&json!({ "wireId": "w-none", "updatedAt": 1i64 }));
+        let error = with_doc(&doc, |txn| {
+            create_workspace_wire_in_doc(txn, &temp_dir, "wb-graph", "doc-traumdeutung", &none)
+        })
+        .unwrap_err();
+        assert_eq!(error, "create wire operation is missing target documentId");
     }
 
     #[test]

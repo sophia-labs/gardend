@@ -419,6 +419,7 @@
       "schema": "parity/local-openapi.json",
       "liveProbe": "parity:loopback readAdapters, hostedAliases, and wireMutations post-read checks",
       "routes": [
+        "GET /backlinks/{graph_id}",
         "GET /wires/{graph_id}/predicates",
         "GET /wires/{graph_id}/document/{document_id}/bundle",
         "GET /wires/{graph_id}/document/{document_id}/outgoing",
@@ -461,6 +462,7 @@
         "read_document",
         "read_blocks",
         "document_digest",
+        "get_backlinks",
         "get_block",
         "query_blocks",
         "search_documents",
