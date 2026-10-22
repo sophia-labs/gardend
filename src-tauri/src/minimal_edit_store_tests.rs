@@ -710,6 +710,72 @@ fn mcp_write_reports_the_block_the_person_won() {
     });
 }
 
+/// Live check L5 (10-21): with the document open, the editor keeps an empty paragraph at its end, which
+/// markdown cannot say. Writing the markdown back unchanged touches nothing while it is there, and a paragraph
+/// the agent appends goes before it, so the editor never has to add another.
+#[test]
+fn open_editor_trailing_paragraph_survives_markdown_write_back() {
+    with_env(|env| {
+        create(env, "trailing");
+        write_tiptap(
+            env,
+            "trailing",
+            vec![
+                paragraph("p1", "First paragraph"),
+                paragraph("p2", "Second paragraph"),
+            ],
+        );
+        let markdown = read_markdown(env, "trailing");
+
+        // The editor's trailing-node plugin adds an empty paragraph at the end.
+        let room = room_of(env, "trailing");
+        let person = person_synced(&room);
+        let added = {
+            let before = person.transact().state_vector();
+            let fragment = person.get_or_insert_xml_fragment("content");
+            {
+                let mut txn = person.transact_mut();
+                let end = fragment.len(&txn);
+                fragment.insert(&mut txn, end, yrs::XmlElementPrelim::empty("paragraph"));
+            }
+            let update = person.transact().encode_state_as_update_v1(&before);
+            update
+        };
+        assert!(run(room.apply_client_update(&added)).unwrap());
+        assert_eq!(
+            block_texts(&room_json(&room)).len(),
+            3,
+            "the trailing paragraph is in the room"
+        );
+
+        let state_before = room_state(&room);
+        let mut rx = room.subscribe_updates_for_test();
+        write_markdown(env, "trailing", &markdown);
+        assert_eq!(
+            room_state(&room),
+            state_before,
+            "writing the markdown back changed the room"
+        );
+        assert!(
+            drain_updates(&mut rx).is_empty(),
+            "writing the markdown back broadcast an update"
+        );
+
+        let appended = format!("{}\n\nThird paragraph\n", markdown.trim_end());
+        write_markdown(env, "trailing", &appended);
+        assert_eq!(
+            block_texts(&room_json(&room)),
+            vec![
+                "First paragraph".to_string(),
+                "Second paragraph".to_string(),
+                "Third paragraph".to_string(),
+                String::new(),
+            ],
+            "the appended paragraph must go before the editor's trailing one"
+        );
+    });
+}
+
 /// The other half of I4's contract, so the semantics are written down: without `expectedRevision` the write
 /// is two-way, "the document becomes what I sent", and the agent's stale copy of the paragraph wins.
 #[test]

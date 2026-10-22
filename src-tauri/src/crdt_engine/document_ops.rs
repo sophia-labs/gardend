@@ -191,7 +191,8 @@ async fn preflight_document_write_revision(
                 Some(fragment) => minimal_edit::model::read_fragment(&txn, &fragment, policy),
                 None => CurrentFragment::default(),
             };
-            let noop = minimal_edit::plan::plan_fragment(&current, desired, policy).is_noop();
+            let desired = keep_trailing_empty_paragraph(&current, desired.clone(), policy);
+            let noop = minimal_edit::plan::plan_fragment(&current, &desired, policy).is_noop();
             let live_json = projection::tiptap_json_in(&txn);
             drop(txn);
             (noop && supplied_comments_match(doc, comments), live_json)
@@ -482,6 +483,7 @@ pub(crate) async fn document_write_classified(
                 let read_started = std::time::Instant::now();
                 let current = minimal_edit::model::read_fragment(&*txn, &fragment, &policy);
                 let read_ms = elapsed_ms(read_started);
+                let desired = keep_trailing_empty_paragraph(&current, desired, &policy);
 
                 let plan_started = std::time::Instant::now();
                 let (desired, live_edits) = match rebase_base.as_ref() {
@@ -732,6 +734,43 @@ fn collect_block_ids(nodes: &[Value], out: &mut std::collections::BTreeSet<Strin
             collect_block_ids(children, out);
         }
     }
+}
+
+/// The editor keeps an empty paragraph at the end of every document (its trailing-node plugin), and markdown
+/// cannot say an empty paragraph (the exporter skips it). A write that ends without one would remove it and the
+/// editor would add it straight back: a remove, a re-add, a broadcast and a new revision on every agent
+/// write-back to an open document (live check L5, 10-21). So when the document ends with an empty paragraph
+/// and the write does not, the write keeps it, after everything it states. Restore states everything exactly.
+fn keep_trailing_empty_paragraph(
+    current: &CurrentFragment,
+    mut desired: DesiredFragment,
+    policy: &WritePolicy,
+) -> DesiredFragment {
+    if policy.format == SourceFormat::Restore {
+        return desired;
+    }
+    let is_empty_paragraph = |child: &minimal_edit::CurrentChild| {
+        match child {
+        minimal_edit::CurrentChild::Element(node) => {
+            node.tag == "paragraph"
+                && node.children.iter().all(|inner| {
+                    matches!(inner, minimal_edit::CurrentChild::Text(text) if text.byte_len == 0)
+                })
+        }
+        minimal_edit::CurrentChild::Text(_) => false,
+    }
+    };
+    let desired_ends_empty = matches!(
+        desired.children.last(),
+        Some(minimal_edit::DesiredChild::Element(node))
+            if node.tag == "paragraph" && node.children.is_empty()
+    );
+    if current.children.last().is_some_and(is_empty_paragraph) && !desired_ends_empty {
+        let trailing =
+            minimal_edit::model::desired_from_tiptap_nodes(&[json!({"type": "paragraph"})], policy);
+        desired.children.extend(trailing.children);
+    }
+    desired
 }
 
 /// Every string under an id key (`id`, `blockId`, `data-block-id`) anywhere in a caller's payload value: the
@@ -3519,6 +3558,7 @@ pub(crate) async fn ingest_markdown_original_steps_classified(
     room.update_doc(move |_doc, txn| {
         let fragment = txn.get_or_insert_xml_fragment("content");
         let current = minimal_edit::model::read_fragment(&*txn, &fragment, &policy);
+        let desired = keep_trailing_empty_paragraph(&current, desired.clone(), &policy);
         let plan = minimal_edit::plan::plan_fragment(&current, &desired, &policy);
         minimal_edit::emit::emit_fragment(txn, &fragment, &current, &plan)?;
         Ok(())
