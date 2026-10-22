@@ -21,7 +21,12 @@ pub(super) fn document_digest_wire_summary(
 ) -> DocumentDigestWireSummary {
     let connected_wires = wires
         .iter()
-        .filter(|wire| wire_is_active(wire) && wire_matches_document(wire, document_id, "both"))
+        // Edges out of or into the document only: a wire merely drawn on a board is not a connection of it.
+        .filter(|wire| {
+            wire_is_active(wire)
+                && (wire_matches_document(wire, document_id, "outgoing")
+                    || wire_matches_document(wire, document_id, "incoming"))
+        })
         .collect::<Vec<_>>();
     let outgoing_count = connected_wires
         .iter()
