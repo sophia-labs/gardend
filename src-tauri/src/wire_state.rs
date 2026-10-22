@@ -95,7 +95,9 @@ mod tests {
         assert!(!wire_matches_iri(&into, object, "outgoing"));
         assert!(wire_matches_iri(&out_of, object, "outgoing"));
         assert!(!wire_matches_iri(&out_of, object, "incoming"));
-        assert!(wire_matches_iri(&into, object, "both") && wire_matches_iri(&out_of, object, "both"));
+        assert!(
+            wire_matches_iri(&into, object, "both") && wire_matches_iri(&out_of, object, "both")
+        );
         assert!(!wire_matches_iri(&into, "urn:other", "both"));
         assert!(!wire_matches_iri(&into, object, "sideways"));
         // a document-to-document wire never matches an IRI

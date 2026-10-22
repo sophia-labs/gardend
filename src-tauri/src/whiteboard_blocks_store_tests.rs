@@ -66,7 +66,8 @@ impl Env {
         }
         let mut scene = Scene::from_elements(elements);
         scene.dirty = scene.elements.keys().cloned().collect();
-        let graph_dir = crate::graph_paths::existing_graph_dir(&self.app, GRAPH).expect("graph dir");
+        let graph_dir =
+            crate::graph_paths::existing_graph_dir(&self.app, GRAPH).expect("graph dir");
         let registry = self.app.state::<RoomRegistry>();
         let room = run(registry.get_or_create(
             &format!("doc:{GRAPH}:{doc}"),
@@ -108,7 +109,8 @@ fn with_env(test: impl FnOnce(&Env)) {
     let profile: PathBuf =
         std::env::temp_dir().join(format!("garden-wbs-g1-{}", uuid::Uuid::new_v4()));
     std::env::set_var("GARDEN_PROFILE_DIR", &profile);
-    let jobs_dir = std::env::temp_dir().join(format!("garden-wbs-g1-jobs-{}", uuid::Uuid::new_v4()));
+    let jobs_dir =
+        std::env::temp_dir().join(format!("garden-wbs-g1-jobs-{}", uuid::Uuid::new_v4()));
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let app = crate::tauri_runtime::build_mock_app_for_tests(true);
         crate::graph_service::create_graph_service(
@@ -160,8 +162,14 @@ fn whiteboard_record_lists_a_block_per_live_shape() {
                 .find(|b| b.id == id)
                 .and_then(|b| b.parent_id.clone())
         };
-        assert_eq!(parent("lnk0000000000000000001").as_deref(), Some("frm0000000000000000001"));
-        assert_eq!(parent("crd0000000000000000001").as_deref(), Some("frm0000000000000000001"));
+        assert_eq!(
+            parent("lnk0000000000000000001").as_deref(),
+            Some("frm0000000000000000001")
+        );
+        assert_eq!(
+            parent("crd0000000000000000001").as_deref(),
+            Some("frm0000000000000000001")
+        );
         assert_eq!(parent("box0000000000000000001"), None);
         // Re-persisting the same board changes no block.
         let again = env.record(&doc);
@@ -183,7 +191,10 @@ fn semantic_sources_are_per_shape() {
             "a board keeps one body passage, so short notes, arrow labels and the title stay searchable"
         );
         assert!(
-            sources.iter().filter(|s| s.block_id != "body").all(|s| s.kind == "block"),
+            sources
+                .iter()
+                .filter(|s| s.block_id != "body")
+                .all(|s| s.kind == "block"),
             "and its indexable shapes are passages of their own"
         );
         // The index keeps passages of three words or more: the box, the card and the linked box. The note
@@ -241,7 +252,9 @@ fn search_blocks_finds_a_shape() {
 fn block_tools_refuse_a_whiteboard() {
     with_env(|env| {
         let doc = env.draw_v2_board();
-        let refusal = |tool: &str| format!("{tool}: a whiteboard is drawn, not written: use whiteboard_apply");
+        let refusal = |tool: &str| {
+            format!("{tool}: a whiteboard is drawn, not written: use whiteboard_apply")
+        };
         let attempts = [
             (
                 "insert_blocks",
@@ -279,7 +292,10 @@ fn block_tools_refuse_a_whiteboard() {
             ),
         )
         .expect("create a text document");
-        let text_doc = text_doc["documentId"].as_str().unwrap_or("plain").to_string();
+        let text_doc = text_doc["documentId"]
+            .as_str()
+            .unwrap_or("plain")
+            .to_string();
         env.call(
             "insert_blocks",
             json!({"documentId": text_doc, "content": "A plain paragraph", "format": "markdown", "index": 0}),
@@ -312,7 +328,10 @@ fn block_tools_refuse_a_whiteboard() {
             "delete_blocks",
             json!({"documentId": text_doc, "blockIds": [block_id]}),
         ) {
-            assert!(!error.contains("is drawn, not written"), "delete_blocks: {error}");
+            assert!(
+                !error.contains("is drawn, not written"),
+                "delete_blocks: {error}"
+            );
         }
     });
 }
@@ -326,7 +345,10 @@ fn read_blocks_reads_shapes() {
             .expect("read_blocks");
         assert_eq!(read["total_blocks"], SHAPES.len());
         let rows = read["blocks"].as_array().expect("blocks");
-        let ids: Vec<&str> = rows.iter().map(|r| r["blockId"].as_str().unwrap()).collect();
+        let ids: Vec<&str> = rows
+            .iter()
+            .map(|r| r["blockId"].as_str().unwrap())
+            .collect();
         assert_eq!(ids, SHAPES.to_vec());
         let content = |id: &str| {
             rows.iter()
@@ -339,8 +361,14 @@ fn read_blocks_reads_shapes() {
         assert_eq!(content("box0000000000000000001"), "Freud: the dream-work");
         assert_eq!(content("note000000000000000001"), "condensation");
         assert_eq!(content("frm0000000000000000001"), "Dream-work");
-        assert_eq!(content("crd0000000000000000001"), "DreamReport: The Wolf Man dream");
-        assert_eq!(content("lnk0000000000000000001"), "The Interpretation of Dreams");
+        assert_eq!(
+            content("crd0000000000000000001"),
+            "DreamReport: The Wolf Man dream"
+        );
+        assert_eq!(
+            content("lnk0000000000000000001"),
+            "The Interpretation of Dreams"
+        );
         let card = rows
             .iter()
             .find(|r| r["blockId"] == "crd0000000000000000001")

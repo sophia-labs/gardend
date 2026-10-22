@@ -28,8 +28,10 @@ pub(super) fn push_wire_triples(
     // semantics G3), whatever else the row carries.
     let source_iri = json_string(wire.get("sourceIri"));
     let target_iri = json_string(wire.get("targetIri"));
-    let source_document_id = json_string(wire.get("sourceDocumentId")).filter(|_| source_iri.is_none());
-    let target_document_id = json_string(wire.get("targetDocumentId")).filter(|_| target_iri.is_none());
+    let source_document_id =
+        json_string(wire.get("sourceDocumentId")).filter(|_| source_iri.is_none());
+    let target_document_id =
+        json_string(wire.get("targetDocumentId")).filter(|_| target_iri.is_none());
 
     if let Some(iri) = &source_iri {
         push_uri_triple(
@@ -484,7 +486,9 @@ mod tests {
         // The mirror image: an IRI source.
         let wire = serde_json::json!({ "sourceIri": object, "targetDocumentId": "doc-b", "predicate": "supports" });
         let real = render_set("wb-graph", subject, &wire);
-        assert!(real.contains(&format!("<{subject}> <{WIRE_NS}sourceResource> <{object}> .")));
+        assert!(real.contains(&format!(
+            "<{subject}> <{WIRE_NS}sourceResource> <{object}> ."
+        )));
         assert!(real.contains(&format!(
             "<{subject}> <{WIRE_NS}targetDocument> <urn:mnemosyne:local:document:doc-b> ."
         )));
@@ -517,7 +521,9 @@ mod tests {
         }
         .expected();
         assert_eq!(real, model);
-        assert!(!real.iter().any(|t| t.contains("Resource") || t.contains("sceneDocumentId")));
+        assert!(!real
+            .iter()
+            .any(|t| t.contains("Resource") || t.contains("sceneDocumentId")));
     }
 
     /// CONTENT ORACLE — the OPEN-predicate case (W2 teeth, content side): an absolute
@@ -1168,13 +1174,16 @@ mod shacl_wire_conformance_oracle {
         let projection = read_back_wire_projection(&store);
         for term in ["sourceResource", "targetResource", "sceneDocumentId"] {
             assert!(
-                projection.iter().any(|(_, p, _)| p == &format!("{WIRE_NS}{term}")),
+                projection
+                    .iter()
+                    .any(|(_, p, _)| p == &format!("{WIRE_NS}{term}")),
                 "PRECONDITION: wire:{term} is in the projection"
             );
         }
         assert!(
             !projection.iter().any(|(s, p, _)| s.ends_with(":wire:w1")
-                && (p == &format!("{WIRE_NS}targetDocument") || p == &format!("{WIRE_NS}targetBlock"))),
+                && (p == &format!("{WIRE_NS}targetDocument")
+                    || p == &format!("{WIRE_NS}targetBlock"))),
             "an IRI target has no wire:targetDocument/Block"
         );
         validate_desired(&projection, wires_vocabulary())

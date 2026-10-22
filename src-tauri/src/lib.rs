@@ -175,6 +175,10 @@ pub mod observatory;
 // Depends on `capture_event` (headless-only): normalizes the
 // gateway-forwarded `x-sophia-capture-identity` header into cell request
 // scope. See plans/observatory-capture-phase1-spine-spec-20260718.md.
+mod backlinks_service;
+#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
+mod backlinks_store_tests;
+mod loopback_backlinks_routes;
 #[cfg(feature = "headless")]
 mod loopback_capture_identity;
 mod loopback_client_token_audit;
@@ -230,7 +234,6 @@ mod loopback_semantic_routes;
 mod loopback_server;
 mod loopback_service_routes;
 mod loopback_state;
-mod loopback_backlinks_routes;
 mod loopback_system_scopes;
 mod loopback_time_travel_routes;
 mod loopback_token_grants;
@@ -264,9 +267,6 @@ mod memory_semantic_recall_service;
 mod model_setup_paths;
 mod multipart_pending_upload;
 mod service_mcp;
-mod backlinks_service;
-#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
-mod backlinks_store_tests;
 // First-launch onboarding (welcome-graph seed). Desktop-only: the seed command
 // is wired through the native invoke-handler and the bundled archive
 // (`include_bytes!` of onboarding-v2.tar.gz) has no role in a headless cell,
@@ -419,15 +419,15 @@ mod verbalize;
 mod visitor_fence;
 mod web_fetch;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
-mod workflow_plan_tests;
-#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
-mod write_placement_store_tests;
-#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod whiteboard_blocks_store_tests;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod whiteboard_lane_store_tests;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod wire_iri_store_tests;
+#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
+mod workflow_plan_tests;
+#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
+mod write_placement_store_tests;
 // Native title-bar appearance (macOS overlay/frameless modes). GUI-only: pulls
 // Tauri webview/window APIs (WebviewWindowBuilder, ns_window, objc2), so it is
 // excluded from the headless cell build.

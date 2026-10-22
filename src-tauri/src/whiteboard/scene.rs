@@ -1405,10 +1405,17 @@ fn promote_arrow(
         },
     });
     let has_label = bound_text(scene, &el)
-        .map(|t| !s(t, "originalText").or_else(|| s(t, "text")).unwrap_or("").is_empty())
+        .map(|t| {
+            !s(t, "originalText")
+                .or_else(|| s(t, "text"))
+                .unwrap_or("")
+                .is_empty()
+        })
         .unwrap_or(false);
     let stroke_was = s(&el, "strokeColor").unwrap_or(INK).to_string();
-    let accent = palette_pair("green").map(|(stroke, _)| stroke).unwrap_or(INK);
+    let accent = palette_pair("green")
+        .map(|(stroke, _)| stroke)
+        .unwrap_or(INK);
     touch(ctx, scene, &arrow_id, |a| {
         a.insert("strokeColor".into(), json!(accent));
         let mut custom = a

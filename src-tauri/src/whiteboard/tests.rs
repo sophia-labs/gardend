@@ -929,13 +929,13 @@ fn outline_reads_cards_and_wires() {
 
     let all = shapes(&scene);
     let ids: Vec<&str> = all.iter().map(|s| s.id.as_str()).collect();
-    assert_eq!(
-        ids,
-        vec![BOX, NOTE, "frm0000000000000000001", CARD, LINKED]
-    );
+    assert_eq!(ids, vec![BOX, NOTE, "frm0000000000000000001", CARD, LINKED]);
     let card = all.iter().find(|s| s.id == CARD).unwrap();
     assert_eq!(card.kind, "card");
-    assert_eq!(card.text, "The Wolf Man dream", "a card's text is its label");
+    assert_eq!(
+        card.text, "The Wolf Man dream",
+        "a card's text is its label"
+    );
     assert_eq!(
         card.card,
         Some(super::outline::CardRead {
@@ -945,7 +945,10 @@ fn outline_reads_cards_and_wires() {
             class_label: "DreamReport".into(),
         })
     );
-    assert!(all.iter().filter(|s| s.id != CARD).all(|s| s.card.is_none()));
+    assert!(all
+        .iter()
+        .filter(|s| s.id != CARD)
+        .all(|s| s.card.is_none()));
     let card_json = super::outline::shape_json(card);
     assert_eq!(
         card_json["card"],
@@ -1029,11 +1032,15 @@ fn resolve_wire_end_follows_the_endpoint_rule() {
     assert_eq!(end.document_id.as_deref(), Some("wb-board"));
     assert_eq!(end.block_id.as_deref(), Some(LINKED));
     // An arrow, a deleted element and a missing one are refused by name.
-    assert!(resolve_wire_end(&scene, &ctx, WIRED).unwrap_err().contains(WIRED));
+    assert!(resolve_wire_end(&scene, &ctx, WIRED)
+        .unwrap_err()
+        .contains(WIRED));
     assert!(resolve_wire_end(&scene, &ctx, "del0000000000000000001")
         .unwrap_err()
         .contains("was deleted"));
-    assert!(resolve_wire_end(&scene, &ctx, "nope").unwrap_err().contains("nope"));
+    assert!(resolve_wire_end(&scene, &ctx, "nope")
+        .unwrap_err()
+        .contains("nope"));
 }
 
 #[test]
@@ -1070,7 +1077,10 @@ fn wire_move_marks_the_arrow_and_drafts_a_wire() {
         draft.source.block_id.as_ref(),
         "an unlinked shape is a block of the board named by its element id"
     );
-    assert_eq!(draft.target.block_id.as_ref(), Some(&draft.scene.target_element_id));
+    assert_eq!(
+        draft.target.block_id.as_ref(),
+        Some(&draft.scene.target_element_id)
+    );
 
     // The mark, the accent stroke and the label the predicate gave.
     let arrow = &after.elements[plain];
@@ -1085,7 +1095,10 @@ fn wire_move_marks_the_arrow_and_drafts_a_wire() {
 
     // The already-labelled arrow keeps its label, and says it did not make it.
     let kept = &after.elements[WIRED_LABELLED];
-    assert_eq!(kept["customData"]["mnemosyneWire"]["labelFromPredicate"], false);
+    assert_eq!(
+        kept["customData"]["mnemosyneWire"]["labelFromPredicate"],
+        false
+    );
     assert_eq!(
         kept["customData"]["mnemosyneWire"]["strokeWas"], "#1e1e1e",
         "the stroke the fixture arrow had (the legacy ink), remembered for unwiring"
@@ -1095,8 +1108,14 @@ fn wire_move_marks_the_arrow_and_drafts_a_wire() {
 
     // The outline now reads both as wires.
     let md = outline_markdown("t", &after);
-    assert!(md.contains("\u{2014}supports (wire)\u{2192} Target"), "{md}");
-    assert!(md.contains("\u{2014}condenses (wire)\u{2192} condensation"), "{md}");
+    assert!(
+        md.contains("\u{2014}supports (wire)\u{2192} Target"),
+        "{md}"
+    );
+    assert!(
+        md.contains("\u{2014}condenses (wire)\u{2192} condensation"),
+        "{md}"
+    );
 
     // Same seed, same ids; another seed, another wire id.
     let (_, _, again) = run(7);
@@ -1219,7 +1238,10 @@ fn card_move_makes_a_live_embeddable() {
                    "label": "The Wolf Man dream", "classLabel": "Dream report"})
         );
         assert_eq!(wolf_el["customData"]["sophia"]["by"], "tool");
-        assert_eq!((wolf_el["width"].as_f64(), wolf_el["height"].as_f64()), (Some(320.0), Some(180.0)));
+        assert_eq!(
+            (wolf_el["width"].as_f64(), wolf_el["height"].as_f64()),
+            (Some(320.0), Some(180.0))
+        );
         assert_eq!(wolf_el["boundElements"], json!([]));
         let src_el = element(&raw, &src);
         assert_eq!(src_el["type"], "embeddable");
@@ -1243,21 +1265,30 @@ fn card_move_makes_a_live_embeddable() {
         // It reads back as a card.
         let read = h.read(&doc);
         let shapes_read = read["shapes"].as_array().unwrap();
-        let wolf_shape = shapes_read.iter().find(|s| s["id"] == wolf.as_str()).unwrap();
+        let wolf_shape = shapes_read
+            .iter()
+            .find(|s| s["id"] == wolf.as_str())
+            .unwrap();
         assert_eq!(wolf_shape["kind"], "card");
         assert_eq!(wolf_shape["text"], "The Wolf Man dream");
         assert_eq!(
             wolf_shape["card"],
             json!({"iri": iri, "label": "The Wolf Man dream", "classLabel": "Dream report"})
         );
-        let src_shape = shapes_read.iter().find(|s| s["id"] == src.as_str()).unwrap();
+        let src_shape = shapes_read
+            .iter()
+            .find(|s| s["id"] == src.as_str())
+            .unwrap();
         assert_eq!(src_shape["kind"], "card");
         assert_eq!(
             src_shape["card"],
             json!({"documentId": source, "label": "Source text", "classLabel": ""})
         );
         let md = read["markdown"].as_str().unwrap();
-        assert!(md.contains("[card: Dream report \u{2014} The Wolf Man dream]"), "{md}");
+        assert!(
+            md.contains("[card: Dream report \u{2014} The Wolf Man dream]"),
+            "{md}"
+        );
         assert!(md.contains("[card: Source text]"), "{md}");
 
         // Refusals write nothing.
@@ -1315,7 +1346,10 @@ fn link_to_an_object_keeps_its_labels() {
         .expect("link");
         let raw = h.elements(&doc);
         let a_el = element(&raw, &a);
-        assert_eq!(a_el["link"], super::links::object_link(&h.graph_id, &iri).as_str());
+        assert_eq!(
+            a_el["link"],
+            super::links::object_link(&h.graph_id, &iri).as_str()
+        );
         assert_eq!(
             a_el["customData"]["mnemosyne"],
             json!({"kind": "object", "graphId": h.graph_id, "iri": iri,
@@ -1323,7 +1357,10 @@ fn link_to_an_object_keeps_its_labels() {
             "the snapshot keeps both labels"
         );
         let b_el = element(&raw, &b);
-        assert_eq!(b_el["link"], super::links::document_link(&h.graph_id, &source).as_str());
+        assert_eq!(
+            b_el["link"],
+            super::links::document_link(&h.graph_id, &source).as_str()
+        );
         assert_eq!(
             b_el["customData"]["mnemosyne"],
             json!({"kind": "document", "graphId": h.graph_id, "id": source, "title": "Source text"})
@@ -1415,10 +1452,22 @@ fn wire_move_follows_the_endpoint_rule() {
         assert_eq!(labelled_text(&raw, &e1).as_deref(), Some("supports"));
         let mark = &element(&raw, &e2)["customData"]["mnemosyneWire"];
         assert_eq!(mark["labelFromPredicate"], false);
-        assert_eq!(labelled_text(&raw, &e2).as_deref(), Some("relates"), "its own label stays");
+        assert_eq!(
+            labelled_text(&raw, &e2).as_deref(),
+            Some("relates"),
+            "its own label stays"
+        );
         let read = h.read(&doc);
-        let wired = read["arrows"].as_array().unwrap().iter().find(|x| x["id"] == e1.as_str()).unwrap();
-        assert_eq!(wired["wire"], json!({"wireId": wire1, "predicate": "supports"}));
+        let wired = read["arrows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|x| x["id"] == e1.as_str())
+            .unwrap();
+        assert_eq!(
+            wired["wire"],
+            json!({"wireId": wire1, "predicate": "supports"})
+        );
 
         // The stored wires: a document end and an IRI end; two block ends of the board.
         let on_source = h.call("get_wires", json!({"documentId": source})).unwrap();
@@ -1490,8 +1539,14 @@ fn wire_move_refuses_a_dangling_arrow() {
         let before = h.elements(&doc);
         let dangling = "has a dangling end: bind both ends before making a wire";
         for (moves, needle) in [
-            (json!([{"op":"wire","arrow":unbound,"predicate":"supports"}]), dangling.to_string()),
-            (json!([{"op":"wire","arrow":deleted,"predicate":"supports"}]), dangling.to_string()),
+            (
+                json!([{"op":"wire","arrow":unbound,"predicate":"supports"}]),
+                dangling.to_string(),
+            ),
+            (
+                json!([{"op":"wire","arrow":deleted,"predicate":"supports"}]),
+                dangling.to_string(),
+            ),
             (
                 json!([{"op":"wire","arrow":wired,"predicate":"supports"}]),
                 format!("arrow '{wired}' is already a wire: unwire it first"),
@@ -1556,7 +1611,10 @@ fn wire_move_failure_unmarks_the_arrow() {
         });
         let before = element(&h.elements(&doc), &e).clone();
         let error = h
-            .apply(&doc, json!([{"op":"wire","arrow":e,"predicate":"supports"}]))
+            .apply(
+                &doc,
+                json!([{"op":"wire","arrow":e,"predicate":"supports"}]),
+            )
             .expect_err("the store refuses the draft");
         assert!(error.contains("wire:"), "{error}");
         let raw = h.elements(&doc);
@@ -1565,7 +1623,10 @@ fn wire_move_failure_unmarks_the_arrow() {
             arrow["customData"].get("mnemosyneWire").is_none(),
             "the mark is gone: {arrow}"
         );
-        assert_eq!(arrow["strokeColor"], before["strokeColor"], "the stroke it had");
+        assert_eq!(
+            arrow["strokeColor"], before["strokeColor"],
+            "the stroke it had"
+        );
         assert_eq!(
             labelled_text(&raw, &e),
             None,
@@ -1577,7 +1638,10 @@ fn wire_move_failure_unmarks_the_arrow() {
         patch_element(&h, &doc, &a, |el| {
             el.insert("link".into(), Value::Null);
         });
-        h.apply(&doc, json!([{"op":"wire","arrow":e,"predicate":"supports"}]))
-            .expect("wires once the end is sound");
+        h.apply(
+            &doc,
+            json!([{"op":"wire","arrow":e,"predicate":"supports"}]),
+        )
+        .expect("wires once the end is sound");
     });
 }

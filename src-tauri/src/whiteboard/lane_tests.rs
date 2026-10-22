@@ -8,7 +8,7 @@ use super::lane::{
     connection_subject, current_triples, desired_triples, reconcile_desired, reconcile_record,
     reconcile_scene, remove_document, BOARD, CARD, CLUSTER, CONNECTION, DOCUMENT_ID, FROM,
     IN_CLUSTER, NS, ON_BOARD, PROMOTED_TO, PROV_GENERATED_AT_TIME, PROV_WAS_ATTRIBUTED_TO,
-    REFERS_TO, RDFS_LABEL, SHAPE, SHAPE_KIND, TO,
+    RDFS_LABEL, REFERS_TO, SHAPE, SHAPE_KIND, TO,
 };
 use super::ops;
 use super::scene::{Element, Scene};
@@ -215,7 +215,11 @@ fn expected_v2() -> BTreeSet<String> {
             iri_line(&s, FROM, &from),
             iri_line(&s, TO, &to),
             text_line(&s, RDFS_LABEL, label),
-            iri_line(&s, PROV_WAS_ATTRIBUTED_TO, &format!("urn:sophia:agent:{by}")),
+            iri_line(
+                &s,
+                PROV_WAS_ATTRIBUTED_TO,
+                &format!("urn:sophia:agent:{by}"),
+            ),
             time_line(&s, at),
         ]);
         if let Some(wire) = wire {
@@ -296,8 +300,14 @@ fn lane_matches_the_scene() {
     assert_eq!(typed(SHAPE).len(), 3, "box, note and the linked box");
     let all = lines(&desired).into_iter().collect::<Vec<_>>().join("\n");
     assert!(!all.contains("del0000000000000000001"), "the tombstone");
-    assert!(!all.contains("arw0000000000000000003"), "the dangling arrow");
-    assert!(!all.contains("txt000000000000000"), "bound text is no subject");
+    assert!(
+        !all.contains("arw0000000000000000003"),
+        "the dangling arrow"
+    );
+    assert!(
+        !all.contains("txt000000000000000"),
+        "bound text is no subject"
+    );
 
     // v1: the board, the box, the note and the `condenses` connection; nothing for the deleted rectangle.
     let v1 = desired_triples(G, DOC, TITLE, &scene_of(V1)).expect("v1 lane");
@@ -399,7 +409,9 @@ fn cold_record_reads_the_sidecar() {
     let inline_store = memory_store();
     reconcile_record(&inline_store, &dir, &record(Some("whiteboard"), &inline)).expect("inline");
     assert_eq!(
-        current_triples(&inline_store, G, DOC).expect("survey").len(),
+        current_triples(&inline_store, G, DOC)
+            .expect("survey")
+            .len(),
         25
     );
 
@@ -530,8 +542,7 @@ fn authorship_becomes_prov() {
         "u1".into(),
         rect("u1", Some("urn:sophia:agent:geist-7"), Some(json!(0))),
     );
-    let triples =
-        desired_triples(G, DOC, TITLE, &Scene::from_elements(elements)).expect("lane");
+    let triples = desired_triples(G, DOC, TITLE, &Scene::from_elements(elements)).expect("lane");
     let all = lines(&triples);
 
     for (id, by) in [("p1", "person"), ("o1", "owner"), ("d1", "demi-1")] {

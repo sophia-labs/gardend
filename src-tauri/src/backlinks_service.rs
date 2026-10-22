@@ -239,14 +239,13 @@ fn incoming_query(graph_id: &str, target: &Resolved) -> String {
         } => (
             subject.as_str(),
             match block_ref {
-                Some(block) => format!("?w wire:targetDocument <{subject}> . ?w wire:targetBlock <{block}> ."),
+                Some(block) => {
+                    format!("?w wire:targetDocument <{subject}> . ?w wire:targetBlock <{block}> .")
+                }
                 None => format!("?w wire:targetDocument <{subject}> ."),
             },
         ),
-        Resolved::Object { iri } => (
-            iri.as_str(),
-            format!("?w wire:targetResource <{iri}> ."),
-        ),
+        Resolved::Object { iri } => (iri.as_str(), format!("?w wire:targetResource <{iri}> .")),
     };
 
     // Wire: an incoming wire (a bidirectional wire's `-inv` twin and a deleted wire are skipped).
@@ -323,10 +322,7 @@ fn link_hrefs(graph_id: &str, target: &Resolved) -> Vec<String> {
     hrefs
 }
 
-fn solutions(
-    store: &Store,
-    query: &str,
-) -> Result<Vec<oxigraph::sparql::QuerySolution>, String> {
+fn solutions(store: &Store, query: &str) -> Result<Vec<oxigraph::sparql::QuerySolution>, String> {
     let results = SparqlEvaluator::new()
         .parse_query(query)
         .map_err(|error| format!("get_backlinks: query: {error}"))?
@@ -393,8 +389,10 @@ fn row_from_solution(solution: &oxigraph::sparql::QuerySolution) -> Option<Backl
             row.source_block_id = text(solution, "sblk")
                 .and_then(|block| tail_after(&block, "#block-"))
                 .or_else(|| text(solution, "sse"));
-            row.predicate = text(solution, "pred").map(|uri| crate::wire_predicates::predicate_short_name(&uri));
-            row.wire_id = text(solution, "w").map(|subject| tail_after(&subject, ":wire:").unwrap_or(subject));
+            row.predicate = text(solution, "pred")
+                .map(|uri| crate::wire_predicates::predicate_short_name(&uri));
+            row.wire_id = text(solution, "w")
+                .map(|subject| tail_after(&subject, ":wire:").unwrap_or(subject));
             Some(row)
         }
         "embed" | "wikilink" | "link" => {

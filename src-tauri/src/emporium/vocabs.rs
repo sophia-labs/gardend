@@ -143,7 +143,8 @@ pub(crate) const PDF_SOURCE_GOLDEN_SHA: &str =
 /// The whiteboard lane: a board's shapes, cards, connections and clusters, derived from its Y.Doc into the graph's
 /// `:projection:whiteboard` (G2). Read-only like the PDF pack: `whiteboard::lane` is its only writer, and the served
 /// pack intentionally omits the top-level `write_target`. Subjects are document-rooted, not lane-rooted.
-pub(crate) const WHITEBOARD_GOLDEN_JSON: &str = include_str!("vocabs/sophia-whiteboard.golden.json");
+pub(crate) const WHITEBOARD_GOLDEN_JSON: &str =
+    include_str!("vocabs/sophia-whiteboard.golden.json");
 /// Pinned sha256 of the exact `sophia-whiteboard` golden bytes
 /// (`shasum -a 256 src/emporium/vocabs/sophia-whiteboard.golden.json` after any edit).
 pub(crate) const WHITEBOARD_GOLDEN_SHA: &str =

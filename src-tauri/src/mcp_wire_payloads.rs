@@ -60,7 +60,9 @@ pub(super) fn wire_create_payload(
         (board, None)
     } else {
         let document_id = named_source
-            .or_else(|| mcp_arg_string_with_fallback(wire_input, arguments, &["document_id", "documentId"]))
+            .or_else(|| {
+                mcp_arg_string_with_fallback(wire_input, arguments, &["document_id", "documentId"])
+            })
             .ok_or_else(|| "source_document_id is required".to_string())?;
         (document_id.clone(), Some(document_id))
     };
@@ -75,14 +77,18 @@ pub(super) fn wire_create_payload(
     let predicate = mcp_arg_string_with_fallback(wire_input, arguments, &["predicate"])
         .unwrap_or_else(|| "isWiredTo".to_string());
     // An IRI end names no block or mark: the stored wire does not carry the carrier.
-    let source_block_id = mcp_arg_string_with_fallback(wire_input, arguments, &["source_block_id", "sourceBlockId"])
-        .filter(|_| source_iri.is_none());
-    let source_mark_id = mcp_arg_string_with_fallback(wire_input, arguments, &["source_mark_id", "sourceMarkId"])
-        .filter(|_| source_iri.is_none());
-    let target_block_id = mcp_arg_string_with_fallback(wire_input, arguments, &["target_block_id", "targetBlockId"])
-        .filter(|_| target_iri.is_none());
-    let target_mark_id = mcp_arg_string_with_fallback(wire_input, arguments, &["target_mark_id", "targetMarkId"])
-        .filter(|_| target_iri.is_none());
+    let source_block_id =
+        mcp_arg_string_with_fallback(wire_input, arguments, &["source_block_id", "sourceBlockId"])
+            .filter(|_| source_iri.is_none());
+    let source_mark_id =
+        mcp_arg_string_with_fallback(wire_input, arguments, &["source_mark_id", "sourceMarkId"])
+            .filter(|_| source_iri.is_none());
+    let target_block_id =
+        mcp_arg_string_with_fallback(wire_input, arguments, &["target_block_id", "targetBlockId"])
+            .filter(|_| target_iri.is_none());
+    let target_mark_id =
+        mcp_arg_string_with_fallback(wire_input, arguments, &["target_mark_id", "targetMarkId"])
+            .filter(|_| target_iri.is_none());
     let mut payload = serde_json::json!({
         "wireId": mcp_arg_string_with_fallback(wire_input, arguments, &["wire_id", "wireId", "id"]),
         "sourceDocumentId": source_document_id,
@@ -102,11 +108,19 @@ pub(super) fn wire_create_payload(
         ("sceneDocumentId", scene_document_id),
         (
             "sceneGraphId",
-            mcp_arg_string_with_fallback(wire_input, arguments, &["scene_graph_id", "sceneGraphId"]),
+            mcp_arg_string_with_fallback(
+                wire_input,
+                arguments,
+                &["scene_graph_id", "sceneGraphId"],
+            ),
         ),
         (
             "sceneElementId",
-            mcp_arg_string_with_fallback(wire_input, arguments, &["scene_element_id", "sceneElementId"]),
+            mcp_arg_string_with_fallback(
+                wire_input,
+                arguments,
+                &["scene_element_id", "sceneElementId"],
+            ),
         ),
         (
             "sceneSourceElementId",
@@ -126,7 +140,11 @@ pub(super) fn wire_create_payload(
         ),
         (
             "sceneStableKey",
-            mcp_arg_string_with_fallback(wire_input, arguments, &["scene_stable_key", "sceneStableKey"]),
+            mcp_arg_string_with_fallback(
+                wire_input,
+                arguments,
+                &["scene_stable_key", "sceneStableKey"],
+            ),
         ),
     ] {
         if let Some(value) = value {
@@ -222,8 +240,18 @@ mod tests {
             "wb-graph",
         )
         .expect("plain");
-        for key in ["sourceIri", "targetIri", "sceneDocumentId", "sceneGraphId", "sceneElementId", "sceneStableKey"] {
-            assert!(plain.get(key).is_none(), "{key} appears in a plain wire's payload");
+        for key in [
+            "sourceIri",
+            "targetIri",
+            "sceneDocumentId",
+            "sceneGraphId",
+            "sceneElementId",
+            "sceneStableKey",
+        ] {
+            assert!(
+                plain.get(key).is_none(),
+                "{key} appears in a plain wire's payload"
+            );
         }
     }
 

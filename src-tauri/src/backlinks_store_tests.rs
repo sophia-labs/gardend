@@ -38,8 +38,7 @@ impl Env {
 
     /// `get_backlinks` rows, through the dispatch table.
     fn backlinks(&self, args: Value) -> Vec<Value> {
-        self.call("get_backlinks", args)
-            .unwrap()["backlinks"]
+        self.call("get_backlinks", args).unwrap()["backlinks"]
             .as_array()
             .cloned()
             .unwrap_or_default()
@@ -57,7 +56,8 @@ fn with_env(test: impl FnOnce(&Env)) {
     let previous = std::env::var_os("GARDEN_PROFILE_DIR");
     let profile = std::env::temp_dir().join(format!("garden-backlinks-{}", uuid::Uuid::new_v4()));
     std::env::set_var("GARDEN_PROFILE_DIR", &profile);
-    let jobs_dir = std::env::temp_dir().join(format!("garden-backlinks-jobs-{}", uuid::Uuid::new_v4()));
+    let jobs_dir =
+        std::env::temp_dir().join(format!("garden-backlinks-jobs-{}", uuid::Uuid::new_v4()));
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let app = crate::tauri_runtime::build_mock_app_for_tests(true);
         crate::graph_service::create_graph_service(
@@ -131,12 +131,18 @@ struct Lane<'a> {
 
 impl<'a> Lane<'a> {
     fn new(env: &'a Env) -> Self {
-        Self::in_graph(env, &format!("urn:mnemosyne:local:graph:{GRAPH}:projection:whiteboard"))
+        Self::in_graph(
+            env,
+            &format!("urn:mnemosyne:local:graph:{GRAPH}:projection:whiteboard"),
+        )
     }
 
     /// A second lane graph, to show a duplicate quad in another named graph reports once.
     fn in_graph(env: &'a Env, graph: &str) -> Self {
-        Self { env, graph: graph.to_string() }
+        Self {
+            env,
+            graph: graph.to_string(),
+        }
     }
 
     fn quad(&self, subject: &str, predicate: &str, object: Term) -> Quad {
@@ -151,7 +157,9 @@ impl<'a> Lane<'a> {
     fn put(&self, subject: &str, predicate: &str, object: Term) {
         let dir = crate::paths::existing_graph_dir(&self.env.app, GRAPH).unwrap();
         let store = crate::rdf_store_service::open_graph_store(&dir).unwrap();
-        store.insert(&self.quad(subject, predicate, object)).unwrap();
+        store
+            .insert(&self.quad(subject, predicate, object))
+            .unwrap();
     }
 
     fn node(iri: &str) -> Term {
@@ -177,7 +185,11 @@ impl<'a> Lane<'a> {
         let subject = Self::block(board, element);
         self.put(&subject, RDF_TYPE, Self::node(&format!("{WB}{class}")));
         self.put(&subject, &format!("{WB}documentId"), Self::text(board));
-        self.put(&subject, &format!("{WB}onBoard"), Self::node(&doc_subject(board)));
+        self.put(
+            &subject,
+            &format!("{WB}onBoard"),
+            Self::node(&doc_subject(board)),
+        );
         if let Some(target) = refers_to {
             self.put(&subject, &format!("{WB}refersTo"), Self::node(target));
         }
@@ -187,14 +199,28 @@ impl<'a> Lane<'a> {
         let subject = Self::arrow(board, element);
         self.put(&subject, RDF_TYPE, Self::node(&format!("{WB}Connection")));
         self.put(&subject, &format!("{WB}documentId"), Self::text(board));
-        self.put(&subject, &format!("{WB}onBoard"), Self::node(&doc_subject(board)));
-        self.put(&subject, &format!("{WB}from"), Self::node(&Self::block(board, from)));
-        self.put(&subject, &format!("{WB}to"), Self::node(&Self::block(board, to)));
+        self.put(
+            &subject,
+            &format!("{WB}onBoard"),
+            Self::node(&doc_subject(board)),
+        );
+        self.put(
+            &subject,
+            &format!("{WB}from"),
+            Self::node(&Self::block(board, from)),
+        );
+        self.put(
+            &subject,
+            &format!("{WB}to"),
+            Self::node(&Self::block(board, to)),
+        );
     }
 }
 
 fn field<'a>(row: &'a Value, key: &str) -> &'a str {
-    row[key].as_str().unwrap_or_else(|| panic!("{key} missing in {row}"))
+    row[key]
+        .as_str()
+        .unwrap_or_else(|| panic!("{key} missing in {row}"))
 }
 
 // ---------------------------------------------------------------------------
@@ -237,7 +263,9 @@ fn backlinks_find_an_incoming_wire() {
         assert_eq!(field(row, "sourceTitle"), "doc-a");
 
         // The response says what was asked, and counts.
-        let answer = env.call("get_backlinks", json!({"documentId": "doc-b"})).unwrap();
+        let answer = env
+            .call("get_backlinks", json!({"documentId": "doc-b"}))
+            .unwrap();
         assert_eq!(answer["count"], 1);
         assert_eq!(answer["graphId"], GRAPH);
         assert_eq!(answer["target"]["documentId"], "doc-b");
@@ -249,7 +277,14 @@ fn backlinks_find_an_incoming_wire() {
                    "predicate": "related", "bidirectional": true}),
         );
         let rows = env.backlinks(json!({"documentId": "doc-b"}));
-        let both: Vec<&Value> = rows.iter().filter(|r| r["wireId"].as_str().is_some_and(|id| id.starts_with("wire-both"))).collect();
+        let both: Vec<&Value> = rows
+            .iter()
+            .filter(|r| {
+                r["wireId"]
+                    .as_str()
+                    .is_some_and(|id| id.starts_with("wire-both"))
+            })
+            .collect();
         assert_eq!(both.len(), 1, "the -inv twin is skipped: {rows:?}");
         assert_eq!(field(both[0], "wireId"), "wire-both");
 
@@ -257,7 +292,9 @@ fn backlinks_find_an_incoming_wire() {
         let narrowed = env.backlinks(json!({"documentId": "doc-b", "blockId": "p9"}));
         assert_eq!(narrowed.len(), 1, "{narrowed:?}");
         assert_eq!(field(&narrowed[0], "wireId"), "wire-ab");
-        assert!(env.backlinks(json!({"documentId": "doc-b", "blockId": "nope"})).is_empty());
+        assert!(env
+            .backlinks(json!({"documentId": "doc-b", "blockId": "nope"}))
+            .is_empty());
 
         // Nothing points at doc-c.
         create(env, "doc-c");
@@ -304,18 +341,22 @@ fn backlinks_find_a_wikilink() {
         write_tiptap(
             env,
             "doc-source",
-            vec![json!({"type": "paragraph", "attrs": {"data-block-id": "p-link"}, "content": [
-                {"type": "text", "text": "See "},
-                {"type": "wikilink", "attrs": {"targetDocId": "doc-target", "targetGraphId": GRAPH, "label": "the target"}},
-            ]})],
+            vec![
+                json!({"type": "paragraph", "attrs": {"data-block-id": "p-link"}, "content": [
+                    {"type": "text", "text": "See "},
+                    {"type": "wikilink", "attrs": {"targetDocId": "doc-target", "targetGraphId": GRAPH, "label": "the target"}},
+                ]}),
+            ],
         );
         create(env, "doc-elsewhere");
         write_tiptap(
             env,
             "doc-elsewhere",
-            vec![json!({"type": "paragraph", "attrs": {"data-block-id": "p-far"}, "content": [
-                {"type": "wikilink", "attrs": {"targetDocId": "doc-target", "targetGraphId": "another-graph", "label": "far"}},
-            ]})],
+            vec![
+                json!({"type": "paragraph", "attrs": {"data-block-id": "p-far"}, "content": [
+                    {"type": "wikilink", "attrs": {"targetDocId": "doc-target", "targetGraphId": "another-graph", "label": "far"}},
+                ]}),
+            ],
         );
 
         let rows = env.backlinks(json!({"documentId": "doc-target"}));
@@ -335,11 +376,26 @@ fn backlinks_find_a_board_link_and_card() {
         create(env, "doc-traumdeutung");
         let board = create_board(env, "Dream-work board");
         let lane = Lane::new(env);
-        lane.element(&board, "lnk0000000000000000001", "Shape", Some(&doc_subject("doc-traumdeutung")));
+        lane.element(
+            &board,
+            "lnk0000000000000000001",
+            "Shape",
+            Some(&doc_subject("doc-traumdeutung")),
+        );
         lane.element(&board, "crd0000000000000000001", "Card", Some(OBJECT));
         lane.element(&board, "box0000000000000000001", "Shape", None);
-        lane.element(&board, "self000000000000000001", "Shape", Some(&doc_subject(&board)));
-        lane.connection(&board, "arw0000000000000000002", "lnk0000000000000000001", "crd0000000000000000001");
+        lane.element(
+            &board,
+            "self000000000000000001",
+            "Shape",
+            Some(&doc_subject(&board)),
+        );
+        lane.connection(
+            &board,
+            "arw0000000000000000002",
+            "lnk0000000000000000001",
+            "crd0000000000000000001",
+        );
 
         // The document: a shape refers to it, and the arrow leaves that shape.
         let rows = env.backlinks(json!({"documentId": "doc-traumdeutung"}));
@@ -401,7 +457,9 @@ fn backlinks_for_an_object_iri() {
         assert_eq!(field(&rows[2], "sourceDocumentId"), board);
 
         // An object nobody points at, and an IRI that is not one, answer empty lists.
-        assert!(env.backlinks(json!({"iri": "urn:mnemosyne:local:graph:wb-graph:dream:nobody"})).is_empty());
+        assert!(env
+            .backlinks(json!({"iri": "urn:mnemosyne:local:graph:wb-graph:dream:nobody"}))
+            .is_empty());
         assert!(env.backlinks(json!({"iri": "not an iri"})).is_empty());
     });
 }
@@ -435,19 +493,33 @@ fn backlinks_are_sorted_and_deduplicated() {
         create(env, "doc-b");
         create(env, "doc-a");
         // Created out of order.
-        create_wire(env, json!({"wireId": "w-b", "sourceDocumentId": "doc-b", "targetDocumentId": "doc-target", "predicate": "supports"}));
-        create_wire(env, json!({"wireId": "w-a", "sourceDocumentId": "doc-a", "targetDocumentId": "doc-target", "predicate": "supports"}));
+        create_wire(
+            env,
+            json!({"wireId": "w-b", "sourceDocumentId": "doc-b", "targetDocumentId": "doc-target", "predicate": "supports"}),
+        );
+        create_wire(
+            env,
+            json!({"wireId": "w-a", "sourceDocumentId": "doc-a", "targetDocumentId": "doc-target", "predicate": "supports"}),
+        );
         let board = create_board(env, "Board");
         let lane = Lane::new(env);
         lane.element(&board, "lnk1", "Shape", Some(&doc_subject("doc-target")));
         // The same shape, asserted again in another named graph of the same store.
-        let again = Lane::in_graph(env, &format!("urn:mnemosyne:local:graph:{GRAPH}:projection:whiteboard-copy"));
+        let again = Lane::in_graph(
+            env,
+            &format!("urn:mnemosyne:local:graph:{GRAPH}:projection:whiteboard-copy"),
+        );
         again.element(&board, "lnk1", "Shape", Some(&doc_subject("doc-target")));
 
         let first = env.backlinks(json!({"documentId": "doc-target"}));
         let summary: Vec<(String, String)> = first
             .iter()
-            .map(|r| (field(r, "kind").to_string(), field(r, "sourceDocumentId").to_string()))
+            .map(|r| {
+                (
+                    field(r, "kind").to_string(),
+                    field(r, "sourceDocumentId").to_string(),
+                )
+            })
             .collect();
         assert_eq!(
             summary,
@@ -470,15 +542,24 @@ fn backlinks_refuse_neither_or_both_targets() {
     with_env(|env| {
         create(env, "doc-a");
         let neither = env.call("get_backlinks", json!({})).unwrap_err();
-        assert!(neither.contains("exactly one of documentId and iri"), "{neither}");
+        assert!(
+            neither.contains("exactly one of documentId and iri"),
+            "{neither}"
+        );
         let both = env
-            .call("get_backlinks", json!({"documentId": "doc-a", "iri": OBJECT}))
+            .call(
+                "get_backlinks",
+                json!({"documentId": "doc-a", "iri": OBJECT}),
+            )
             .unwrap_err();
         assert!(both.contains("exactly one of documentId and iri"), "{both}");
         let block_with_iri = env
             .call("get_backlinks", json!({"iri": OBJECT, "blockId": "p1"}))
             .unwrap_err();
-        assert!(block_with_iri.contains("blockId goes with documentId"), "{block_with_iri}");
+        assert!(
+            block_with_iri.contains("blockId goes with documentId"),
+            "{block_with_iri}"
+        );
 
         // The service itself, without the dispatch.
         let direct = crate::backlinks_service::mcp_local_get_backlinks(
@@ -486,11 +567,17 @@ fn backlinks_refuse_neither_or_both_targets() {
             &json!({"graphId": GRAPH}),
         )
         .unwrap_err();
-        assert!(direct.contains("exactly one of documentId and iri"), "{direct}");
+        assert!(
+            direct.contains("exactly one of documentId and iri"),
+            "{direct}"
+        );
 
         // A well-formed question about an unknown graph is an empty answer, not an error.
         let unknown = env
-            .call("get_backlinks", json!({"graphId": "no-such-graph", "documentId": "doc-a"}))
+            .call(
+                "get_backlinks",
+                json!({"graphId": "no-such-graph", "documentId": "doc-a"}),
+            )
             .unwrap();
         assert_eq!(unknown["count"], 0);
     });

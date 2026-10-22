@@ -199,8 +199,16 @@ mod tests {
         assert_eq!(value["targetSnippet"], "target text");
         assert_eq!(value["bidirectional"], true);
         // a document-to-document wire gains none of the new keys
-        for key in ["sourceIri", "targetIri", "sceneDocumentId", "sceneElementId"] {
-            assert!(value.get(key).is_none(), "{key} appears on a plain wire: {value}");
+        for key in [
+            "sourceIri",
+            "targetIri",
+            "sceneDocumentId",
+            "sceneElementId",
+        ] {
+            assert!(
+                value.get(key).is_none(),
+                "{key} appears on a plain wire: {value}"
+            );
         }
     }
 
@@ -218,7 +226,8 @@ mod tests {
             "sceneDocumentId": "wb-board",
             "sceneElementId": "arw0000000000000000002",
         });
-        let documents = vec![serde_json::json!({ "documentId": "doc-traumdeutung", "title": "Traumdeutung" })];
+        let documents =
+            vec![serde_json::json!({ "documentId": "doc-traumdeutung", "title": "Traumdeutung" })];
         let value = wire_summary(&wire, "wb-graph", &documents);
         assert_eq!(value["targetIri"], object);
         assert!(value["targetDocumentId"].is_null());

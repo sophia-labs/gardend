@@ -52,7 +52,8 @@ fn with_env(test: impl FnOnce(&Env)) {
     let previous = std::env::var_os("GARDEN_PROFILE_DIR");
     let profile = std::env::temp_dir().join(format!("garden-wire-iri-{}", uuid::Uuid::new_v4()));
     std::env::set_var("GARDEN_PROFILE_DIR", &profile);
-    let jobs_dir = std::env::temp_dir().join(format!("garden-wire-iri-jobs-{}", uuid::Uuid::new_v4()));
+    let jobs_dir =
+        std::env::temp_dir().join(format!("garden-wire-iri-jobs-{}", uuid::Uuid::new_v4()));
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let app = crate::tauri_runtime::build_mock_app_for_tests(true);
         crate::graph_service::create_graph_service(
@@ -196,7 +197,10 @@ fn draft(wire_id: &str, source: SceneWireEnd, target: SceneWireEnd) -> SceneWire
     }
 }
 
-fn write_drafts(env: &Env, drafts: &[SceneWireDraft]) -> Result<Vec<crate::scene_wire::SceneWireCreated>, String> {
+fn write_drafts(
+    env: &Env,
+    drafts: &[SceneWireDraft],
+) -> Result<Vec<crate::scene_wire::SceneWireCreated>, String> {
     run(create_scene_wires(&env.app, GRAPH, drafts))
 }
 
@@ -253,7 +257,10 @@ fn create_wires_keeps_scene_provenance() {
 
         // get_wires answers the arrow and the board.
         let got = env
-            .call("get_wires", json!({"documentId": "doc-a", "direction": "outgoing"}))
+            .call(
+                "get_wires",
+                json!({"documentId": "doc-a", "direction": "outgoing"}),
+            )
             .unwrap();
         let row = got["wires"]
             .as_array()
@@ -268,10 +275,22 @@ fn create_wires_keeps_scene_provenance() {
         let triples = wire_triples(env, "wire-scene");
         assert_eq!(objects_of(&triples, "sceneGraphId"), vec![GRAPH]);
         assert_eq!(objects_of(&triples, "sceneDocumentId"), vec![BOARD]);
-        assert_eq!(objects_of(&triples, "sceneElementId"), vec!["arw0000000000000000002"]);
-        assert_eq!(objects_of(&triples, "sceneSourceElementId"), vec!["lnk0000000000000000001"]);
-        assert_eq!(objects_of(&triples, "sceneTargetElementId"), vec!["crd0000000000000000001"]);
-        assert_eq!(objects_of(&triples, "sceneStableKey"), vec!["wb:wb-board:arw0000000000000000002"]);
+        assert_eq!(
+            objects_of(&triples, "sceneElementId"),
+            vec!["arw0000000000000000002"]
+        );
+        assert_eq!(
+            objects_of(&triples, "sceneSourceElementId"),
+            vec!["lnk0000000000000000001"]
+        );
+        assert_eq!(
+            objects_of(&triples, "sceneTargetElementId"),
+            vec!["crd0000000000000000001"]
+        );
+        assert_eq!(
+            objects_of(&triples, "sceneStableKey"),
+            vec!["wb:wb-board:arw0000000000000000002"]
+        );
 
         // A board lists the wires drawn on it (under "both" only, which is the default).
         let board = env.call("get_wires", json!({"documentId": BOARD})).unwrap();
@@ -281,12 +300,22 @@ fn create_wires_keeps_scene_provenance() {
             .iter()
             .map(|wire| wire["id"].as_str().unwrap())
             .collect();
-        assert_eq!(ids.len(), 2, "the board lists its two arrows, not the plain wire: {board}");
+        assert_eq!(
+            ids.len(),
+            2,
+            "the board lists its two arrows, not the plain wire: {board}"
+        );
         assert!(ids.contains(&"wire-scene") && ids.contains(&"wire-snake"));
         let outgoing = env
-            .call("get_wires", json!({"documentId": BOARD, "direction": "outgoing"}))
+            .call(
+                "get_wires",
+                json!({"documentId": BOARD, "direction": "outgoing"}),
+            )
             .unwrap();
-        assert_eq!(outgoing["count"], 0, "an arrow is not an edge out of the board");
+        assert_eq!(
+            outgoing["count"], 0,
+            "an arrow is not an edge out of the board"
+        );
 
         // Regression: a document-to-document wire stores and projects none of the new fields.
         let plain = snapshot_wire(env, "wire-plain");
@@ -297,7 +326,10 @@ fn create_wires_keeps_scene_provenance() {
         assert_eq!(plain["targetDocumentId"], "doc-b");
         let triples = wire_triples(env, "wire-plain");
         for name in ["sourceResource", "targetResource", "sceneDocumentId"] {
-            assert!(objects_of(&triples, name).is_empty(), "wire:{name} on a plain wire");
+            assert!(
+                objects_of(&triples, name).is_empty(),
+                "wire:{name} on a plain wire"
+            );
         }
         assert_eq!(
             objects_of(&triples, "targetDocument"),
@@ -327,7 +359,10 @@ fn wire_to_an_object_iri_round_trips() {
         let stored = snapshot_wire(env, "wire-wb-0001");
         assert_eq!(stored["sourceDocumentId"], "doc-traumdeutung");
         assert_eq!(stored["targetIri"], OBJECT);
-        assert!(stored["targetDocumentId"].is_null(), "an IRI end has no document id: {stored}");
+        assert!(
+            stored["targetDocumentId"].is_null(),
+            "an IRI end has no document id: {stored}"
+        );
         assert!(stored["targetBlockId"].is_null());
         assert_eq!(stored["targetTitle"], "The Wolf Man dream");
         assert_eq!(stored["sceneDocumentId"], BOARD);
@@ -364,7 +399,10 @@ fn wire_to_an_object_iri_round_trips() {
         // Replaying the same draft (same wire id) replaces, not duplicates.
         write_drafts(env, &drafts).unwrap();
         assert_eq!(snapshot_wires(env).len(), 1, "a replay leaves one wire");
-        assert_eq!(objects_of(&wire_triples(env, "wire-wb-0001"), "targetResource"), vec![OBJECT]);
+        assert_eq!(
+            objects_of(&wire_triples(env, "wire-wb-0001"), "targetResource"),
+            vec![OBJECT]
+        );
 
         // An object SOURCE: the board carries the queue operation and is not stored as the source.
         write_drafts(
@@ -411,9 +449,21 @@ fn get_wires_by_iri() {
         write_drafts(
             env,
             &[
-                draft("wire-into", document_end("doc-a"), object_end(OBJECT, "The Wolf Man dream")),
-                draft("wire-out-of", object_end(OBJECT, "The Wolf Man dream"), document_end("doc-b")),
-                draft("wire-elsewhere", document_end("doc-a"), document_end("doc-b")),
+                draft(
+                    "wire-into",
+                    document_end("doc-a"),
+                    object_end(OBJECT, "The Wolf Man dream"),
+                ),
+                draft(
+                    "wire-out-of",
+                    object_end(OBJECT, "The Wolf Man dream"),
+                    document_end("doc-b"),
+                ),
+                draft(
+                    "wire-elsewhere",
+                    document_end("doc-a"),
+                    document_end("doc-b"),
+                ),
             ],
         )
         .unwrap();
@@ -449,10 +499,15 @@ fn get_wires_by_iri() {
 
         // An object nothing points at has no wires; a document is still asked the old way.
         let none = env
-            .call("get_wires", json!({"iri": "urn:mnemosyne:local:graph:wb-graph:dream:nobody"}))
+            .call(
+                "get_wires",
+                json!({"iri": "urn:mnemosyne:local:graph:wb-graph:dream:nobody"}),
+            )
             .unwrap();
         assert_eq!(none["count"], 0);
-        let doc = env.call("get_wires", json!({"documentId": "doc-a"})).unwrap();
+        let doc = env
+            .call("get_wires", json!({"documentId": "doc-a"}))
+            .unwrap();
         assert_eq!(doc["document_id"], "doc-a");
         assert_eq!(ids(&doc), vec!["wire-elsewhere", "wire-into"]);
 
@@ -460,9 +515,15 @@ fn get_wires_by_iri() {
         let both_given = env
             .call("get_wires", json!({"iri": OBJECT, "documentId": "doc-a"}))
             .unwrap_err();
-        assert!(both_given.contains("exactly one of documentId and iri"), "{both_given}");
+        assert!(
+            both_given.contains("exactly one of documentId and iri"),
+            "{both_given}"
+        );
         let neither = env.call("get_wires", json!({})).unwrap_err();
-        assert!(neither.contains("exactly one of documentId and iri"), "{neither}");
+        assert!(
+            neither.contains("exactly one of documentId and iri"),
+            "{neither}"
+        );
     });
 }
 
@@ -477,8 +538,16 @@ fn traverse_wires_crosses_an_object() {
         write_drafts(
             env,
             &[
-                draft("wire-a-o", document_end("doc-a"), object_end(OBJECT, "The Wolf Man dream")),
-                draft("wire-o-b", object_end(OBJECT, "The Wolf Man dream"), document_end("doc-b")),
+                draft(
+                    "wire-a-o",
+                    document_end("doc-a"),
+                    object_end(OBJECT, "The Wolf Man dream"),
+                ),
+                draft(
+                    "wire-o-b",
+                    object_end(OBJECT, "The Wolf Man dream"),
+                    document_end("doc-b"),
+                ),
             ],
         )
         .unwrap();
@@ -499,7 +568,11 @@ fn traverse_wires_crosses_an_object() {
                 .and_then(|entry| entry["depth"].as_u64())
         };
         assert_eq!(depth_of(&from_a, "iri", OBJECT), Some(1), "{from_a}");
-        assert_eq!(depth_of(&from_a, "documentId", "doc-b"), Some(2), "{from_a}");
+        assert_eq!(
+            depth_of(&from_a, "documentId", "doc-b"),
+            Some(2),
+            "{from_a}"
+        );
         assert_eq!(depth_of(&from_a, "documentId", "doc-a"), Some(0));
         let object_entry = from_a["documents"]
             .as_array()
@@ -525,7 +598,10 @@ fn traverse_wires_crosses_an_object() {
 
         // Depth 1 stops at the object.
         let shallow = env
-            .call("traverse_wires", json!({"documentId": "doc-a", "maxDepth": 1}))
+            .call(
+                "traverse_wires",
+                json!({"documentId": "doc-a", "maxDepth": 1}),
+            )
             .unwrap();
         assert_eq!(depth_of(&shallow, "iri", OBJECT), Some(1));
         assert_eq!(depth_of(&shallow, "documentId", "doc-b"), None);
@@ -536,15 +612,29 @@ fn traverse_wires_crosses_an_object() {
             .unwrap();
         assert_eq!(from_o["iri"], OBJECT);
         assert!(from_o["documentId"].is_null());
-        assert_eq!(depth_of(&from_o, "documentId", "doc-a"), Some(1), "{from_o}");
-        assert_eq!(depth_of(&from_o, "documentId", "doc-b"), Some(1), "{from_o}");
+        assert_eq!(
+            depth_of(&from_o, "documentId", "doc-a"),
+            Some(1),
+            "{from_o}"
+        );
+        assert_eq!(
+            depth_of(&from_o, "documentId", "doc-b"),
+            Some(1),
+            "{from_o}"
+        );
         assert_eq!(depth_of(&from_o, "iri", OBJECT), Some(0));
 
         // Exactly one start.
         let both = env
-            .call("traverse_wires", json!({"iri": OBJECT, "documentId": "doc-a"}))
+            .call(
+                "traverse_wires",
+                json!({"iri": OBJECT, "documentId": "doc-a"}),
+            )
             .unwrap_err();
-        assert!(both.contains("exactly one of document_id and iri"), "{both}");
+        assert!(
+            both.contains("exactly one of document_id and iri"),
+            "{both}"
+        );
         assert!(env.call("traverse_wires", json!({})).is_err());
     });
 }
@@ -562,9 +652,20 @@ fn scene_wire_drafts_are_validated_whole() {
         let mut both = good("wire-bad");
         both.target.iri = Some(OBJECT.to_string());
         let error = write_drafts(env, &[good("wire-1"), both, good("wire-3")]).unwrap_err();
-        assert!(error.contains("wire 2 (wire-bad)") && error.contains("not both"), "{error}");
-        assert!(snapshot_wires(env).is_empty(), "nothing was written: {:?}", snapshot_wires(env));
-        assert_eq!(env.call("get_wires", json!({"documentId": "doc-a"})).unwrap()["count"], 0);
+        assert!(
+            error.contains("wire 2 (wire-bad)") && error.contains("not both"),
+            "{error}"
+        );
+        assert!(
+            snapshot_wires(env).is_empty(),
+            "nothing was written: {:?}",
+            snapshot_wires(env)
+        );
+        assert_eq!(
+            env.call("get_wires", json!({"documentId": "doc-a"}))
+                .unwrap()["count"],
+            0
+        );
 
         // The last one has no predicate.
         let mut mute = good("wire-3");
@@ -597,7 +698,10 @@ fn scene_wire_drafts_are_validated_whole() {
         // The same three, all good, are all written, in order.
         let created = write_drafts(env, &[good("wire-1"), good("wire-2"), good("wire-3")]).unwrap();
         assert_eq!(
-            created.iter().map(|c| c.wire_id.as_str()).collect::<Vec<_>>(),
+            created
+                .iter()
+                .map(|c| c.wire_id.as_str())
+                .collect::<Vec<_>>(),
             vec!["wire-1", "wire-2", "wire-3"]
         );
         assert_eq!(snapshot_wires(env).len(), 3);

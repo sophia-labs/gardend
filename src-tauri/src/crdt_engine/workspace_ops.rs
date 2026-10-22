@@ -1979,16 +1979,24 @@ fn create_workspace_wire_in_doc(
     let named_source = string_value(pick(value, &["sourceDocumentId", "source_document_id"]));
     let named_target = string_value(pick(value, &["targetDocumentId", "target_document_id"]));
     if source_iri.is_some() && named_source.is_some() {
-        return Err("create wire operation: the source is a document or an object IRI, not both".to_string());
+        return Err(
+            "create wire operation: the source is a document or an object IRI, not both"
+                .to_string(),
+        );
     }
     if target_iri.is_some() && named_target.is_some() {
-        return Err("create wire operation: the target is a document or an object IRI, not both".to_string());
+        return Err(
+            "create wire operation: the target is a document or an object IRI, not both"
+                .to_string(),
+        );
     }
     // `targetDocumentId` is required only when the target is not an IRI.
     let target_document_id = match (&target_iri, named_target) {
         (Some(_), _) => None,
         (None, Some(id)) => Some(id),
-        (None, None) => return Err("create wire operation is missing target documentId".to_string()),
+        (None, None) => {
+            return Err("create wire operation is missing target documentId".to_string())
+        }
     };
     let target_graph_id = string_value(pick(value, &["targetGraphId", "target_graph_id"]))
         .unwrap_or_else(|| graph_id.to_string());
@@ -2006,7 +2014,10 @@ fn create_workspace_wire_in_doc(
         .filter(|_| target_iri.is_none());
     // A document end is titled from the workspace; an IRI end holds the draft's label as its title.
     let (source_title, source_snippet) = if source_iri.is_some() {
-        (string_value(pick(value, &["sourceTitle", "source_title"])), None)
+        (
+            string_value(pick(value, &["sourceTitle", "source_title"])),
+            None,
+        )
     } else {
         (
             lookup_document_title(&*txn, graph_dir, source_id),
@@ -2014,7 +2025,10 @@ fn create_workspace_wire_in_doc(
         )
     };
     let (target_title, target_snippet) = match &target_document_id {
-        None => (string_value(pick(value, &["targetTitle", "target_title"])), None),
+        None => (
+            string_value(pick(value, &["targetTitle", "target_title"])),
+            None,
+        ),
         Some(target_document_id) if target_graph_id == graph_id => (
             lookup_document_title(&*txn, graph_dir, target_document_id),
             document_snippet(graph_dir, target_document_id, target_block_id.as_deref()),
@@ -2025,7 +2039,11 @@ fn create_workspace_wire_in_doc(
     let mut data = JsonMap::new();
     data.insert(
         "sourceDocumentId".into(),
-        if source_iri.is_some() { Value::Null } else { json!(source_id) },
+        if source_iri.is_some() {
+            Value::Null
+        } else {
+            json!(source_id)
+        },
     );
     data.insert("sourceBlockId".into(), opt_string_json(source_block_id));
     data.insert(
@@ -2036,7 +2054,10 @@ fn create_workspace_wire_in_doc(
         ),
     );
     data.insert("targetGraphId".into(), json!(target_graph_id));
-    data.insert("targetDocumentId".into(), opt_string_json(target_document_id));
+    data.insert(
+        "targetDocumentId".into(),
+        opt_string_json(target_document_id),
+    );
     data.insert("targetBlockId".into(), opt_string_json(target_block_id));
     data.insert(
         "targetMarkId".into(),
@@ -4028,7 +4049,10 @@ mod tests {
         let wire = &snapshot["wires"][0];
         assert_eq!(wire["sourceDocumentId"], "doc-traumdeutung");
         assert_eq!(wire["targetIri"], object);
-        assert!(wire["targetDocumentId"].is_null(), "an IRI end has no document id: {wire}");
+        assert!(
+            wire["targetDocumentId"].is_null(),
+            "an IRI end has no document id: {wire}"
+        );
         assert!(wire["targetBlockId"].is_null());
         assert_eq!(wire["targetTitle"], "The Wolf Man dream");
         assert_eq!(wire["sceneDocumentId"], "wb-board");
@@ -4037,11 +4061,20 @@ mod tests {
         assert_eq!(wire["sceneTargetElementId"], "crd0000000000000000001");
         assert_eq!(wire["sceneStableKey"], "wb:wb-board:arw0000000000000000002");
         assert!(wire.get("sourceIri").is_none());
-        assert!(wire.get("extra").is_none(), "the new fields are known fields, not extras: {wire}");
+        assert!(
+            wire.get("extra").is_none(),
+            "the new fields are known fields, not extras: {wire}"
+        );
 
         // A refresh keeps an IRI end's label, and the IRI.
         let refreshed = with_doc(&doc, |txn| {
-            refresh_workspace_wire_in_doc(txn, &temp_dir, "wb-graph", "wire-wb-0001", 1_700_000_060_000.0)
+            refresh_workspace_wire_in_doc(
+                txn,
+                &temp_dir,
+                "wb-graph",
+                "wire-wb-0001",
+                1_700_000_060_000.0,
+            )
         })
         .expect("refresh");
         let response = create_hosted_wire_response("wb-graph", "wire-wb-0001", &refreshed);
@@ -4066,7 +4099,10 @@ mod tests {
             .find(|w| w["id"] == "wire-from-object")
             .expect("stored");
         assert_eq!(wire["sourceIri"], object);
-        assert!(wire["sourceDocumentId"].is_null(), "the carrier is not stored: {wire}");
+        assert!(
+            wire["sourceDocumentId"].is_null(),
+            "the carrier is not stored: {wire}"
+        );
         assert_eq!(wire["sourceTitle"], "The Wolf Man dream");
         assert_eq!(wire["targetDocumentId"], "doc-traumdeutung");
 
@@ -4087,7 +4123,10 @@ mod tests {
             .find(|w| w["id"] == "wire-plain")
             .expect("stored");
         for key in ["sourceIri", "targetIri", "sceneDocumentId"] {
-            assert!(plain.get(key).is_none(), "{key} appears on a document-to-document wire: {plain}");
+            assert!(
+                plain.get(key).is_none(),
+                "{key} appears on a document-to-document wire: {plain}"
+            );
         }
 
         // Both an IRI and a document for one end is refused, and so is no target at all.

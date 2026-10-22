@@ -150,7 +150,10 @@ pub(super) fn iri_titles_of(wires: &[serde_json::Value]) -> BTreeMap<String, Str
     let mut titles = BTreeMap::new();
     for wire in wires {
         for (iri_key, title_key) in [("sourceIri", "sourceTitle"), ("targetIri", "targetTitle")] {
-            if let (Some(iri), Some(title)) = (json_string(wire.get(iri_key)), json_string(wire.get(title_key))) {
+            if let (Some(iri), Some(title)) = (
+                json_string(wire.get(iri_key)),
+                json_string(wire.get(title_key)),
+            ) {
                 titles.entry(iri).or_insert(title);
             }
         }
@@ -208,12 +211,24 @@ mod tests {
     fn traversal_targets_cross_an_object_end() {
         let into = serde_json::json!({ "sourceDocumentId": "doc-a", "targetIri": OBJECT });
         let out_of = serde_json::json!({ "sourceIri": OBJECT, "targetDocumentId": "doc-b" });
-        assert_eq!(wire_traversal_targets(&into, "doc-a", "outgoing"), vec![OBJECT]);
-        assert_eq!(wire_traversal_targets(&into, OBJECT, "incoming"), vec!["doc-a"]);
+        assert_eq!(
+            wire_traversal_targets(&into, "doc-a", "outgoing"),
+            vec![OBJECT]
+        );
+        assert_eq!(
+            wire_traversal_targets(&into, OBJECT, "incoming"),
+            vec!["doc-a"]
+        );
         assert_eq!(wire_traversal_targets(&into, OBJECT, "both"), vec!["doc-a"]);
         assert!(wire_traversal_targets(&into, "doc-a", "incoming").is_empty());
-        assert_eq!(wire_traversal_targets(&out_of, OBJECT, "outgoing"), vec!["doc-b"]);
-        assert_eq!(wire_traversal_targets(&out_of, "doc-b", "incoming"), vec![OBJECT]);
+        assert_eq!(
+            wire_traversal_targets(&out_of, OBJECT, "outgoing"),
+            vec!["doc-b"]
+        );
+        assert_eq!(
+            wire_traversal_targets(&out_of, "doc-b", "incoming"),
+            vec![OBJECT]
+        );
         assert!(wire_traversal_targets(&out_of, OBJECT, "incoming").is_empty());
     }
 

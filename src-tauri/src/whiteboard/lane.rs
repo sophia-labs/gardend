@@ -114,7 +114,10 @@ impl Emit {
         self.out.push((
             subject.to_string(),
             predicate.to_string(),
-            Term::Lit(Literal::new_typed_literal(value, oxigraph::model::vocab::xsd::DATE_TIME)),
+            Term::Lit(Literal::new_typed_literal(
+                value,
+                oxigraph::model::vocab::xsd::DATE_TIME,
+            )),
         ));
     }
 }
@@ -270,7 +273,9 @@ pub(crate) fn desired_triples(
             if let Some(target) = refers_to(graph_id, element) {
                 emit.iri(subject, REFERS_TO, &target);
             }
-            if let Some((frame_subject, Node::Cluster)) = s(element, "frameId").and_then(|f| nodes.get(f)) {
+            if let Some((frame_subject, Node::Cluster)) =
+                s(element, "frameId").and_then(|f| nodes.get(f))
+            {
                 emit.iri(subject, IN_CLUSTER, frame_subject);
             }
         }

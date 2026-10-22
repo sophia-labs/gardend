@@ -157,8 +157,14 @@ mod tests {
                 .parent_id
                 .clone()
         };
-        assert_eq!(parent("lnk0000000000000000001").as_deref(), Some("frm0000000000000000001"));
-        assert_eq!(parent("crd0000000000000000001").as_deref(), Some("frm0000000000000000001"));
+        assert_eq!(
+            parent("lnk0000000000000000001").as_deref(),
+            Some("frm0000000000000000001")
+        );
+        assert_eq!(
+            parent("crd0000000000000000001").as_deref(),
+            Some("frm0000000000000000001")
+        );
         assert_eq!(parent("box0000000000000000001"), None);
         assert_eq!(parent("frm0000000000000000001"), None);
         // A frame that was deleted is not a parent.

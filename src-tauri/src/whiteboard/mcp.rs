@@ -368,8 +368,7 @@ pub(crate) async fn mcp_local_whiteboard_apply(
         // The wires the `wire` moves decided on are stored after the scene is written. When they cannot be, the
         // arrows must not stay marked as wires that do not exist: unmark them in a second write, persist, and say so.
         if !wires.is_empty() {
-            if let Err(error) =
-                crate::scene_wire::create_scene_wires(&app, &graph_id, &wires).await
+            if let Err(error) = crate::scene_wire::create_scene_wires(&app, &graph_id, &wires).await
             {
                 let arrows: Vec<String> = wires
                     .iter()

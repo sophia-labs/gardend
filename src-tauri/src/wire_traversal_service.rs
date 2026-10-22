@@ -125,7 +125,9 @@ pub(super) fn mcp_local_traverse_wires(
         let key = |entry: &serde_json::Value| {
             json_string(entry.get("documentId")).or_else(|| json_string(entry.get("iri")))
         };
-        left_depth.cmp(&right_depth).then_with(|| key(left).cmp(&key(right)))
+        left_depth
+            .cmp(&right_depth)
+            .then_with(|| key(left).cmp(&key(right)))
     });
     let reachable_count = reachable_documents.len().saturating_sub(1);
     let document_count = reachable_documents.len();

@@ -69,7 +69,8 @@ fn with_env(test: impl FnOnce(&Env)) {
     let previous = std::env::var_os("GARDEN_PROFILE_DIR");
     let profile = std::env::temp_dir().join(format!("garden-wb-lane-{}", uuid::Uuid::new_v4()));
     std::env::set_var("GARDEN_PROFILE_DIR", &profile);
-    let jobs_dir = std::env::temp_dir().join(format!("garden-wb-lane-jobs-{}", uuid::Uuid::new_v4()));
+    let jobs_dir =
+        std::env::temp_dir().join(format!("garden-wb-lane-jobs-{}", uuid::Uuid::new_v4()));
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let app = crate::tauri_runtime::build_mock_app_for_tests(true);
         crate::graph_service::create_graph_service(
@@ -212,7 +213,11 @@ fn persisting_a_board_fills_and_follows_its_lane() {
         let mut elements = fixture_elements();
         draw(env, &doc, title, &elements);
         let lane_now = lane_of(env, &doc);
-        assert_eq!(lane_now.len(), 58, "the persistence tail ran the lane: {lane_now:#?}");
+        assert_eq!(
+            lane_now.len(),
+            58,
+            "the persistence tail ran the lane: {lane_now:#?}"
+        );
         assert_eq!(lane_now, expected(&doc, title, &elements));
 
         // A person deletes the card and relabels the note: the tail reconciles the stale triples away.
@@ -228,7 +233,9 @@ fn persisting_a_board_fills_and_follows_its_lane() {
         draw(env, &doc, title, &elements);
         let after = lane_of(env, &doc);
         assert!(!after.iter().any(|l| l.contains(CRD)), "{after:#?}");
-        assert!(after.iter().any(|l| l.contains("condensation (Verdichtung)")));
+        assert!(after
+            .iter()
+            .any(|l| l.contains("condensation (Verdichtung)")));
         assert!(!after.iter().any(|l| l.ends_with("\"condensation\"")));
         assert_eq!(after, expected(&doc, title, &elements));
     });
@@ -262,11 +269,15 @@ fn delete_board_empties_its_span() {
             .map(|q| q.subject.to_string())
             .collect();
         assert!(
-            !subjects.iter().any(|s| s.contains(&format!("document:{gone}"))),
+            !subjects
+                .iter()
+                .any(|s| s.contains(&format!("document:{gone}"))),
             "no lane subject of the deleted board survives: {subjects:?}"
         );
         assert!(
-            subjects.iter().any(|s| s.contains(&format!("document:{kept}"))),
+            subjects
+                .iter()
+                .any(|s| s.contains(&format!("document:{kept}"))),
             "the other board keeps its subjects"
         );
         assert_eq!(
@@ -318,7 +329,9 @@ fn restore_reprojects() {
         draw(env, &doc, title, &elements);
         let with_second = lane_of(env, &doc);
         assert!(
-            with_second.iter().any(|l| l.contains("crd0000000000000000002")),
+            with_second
+                .iter()
+                .any(|l| l.contains("crd0000000000000000002")),
             "the second card is in the lane before the restore"
         );
         assert!(with_second.len() > 58);

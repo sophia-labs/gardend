@@ -112,15 +112,31 @@ pub(crate) async fn create_scene_wires(
 
 /// Check one end: exactly one of a document and an object IRI; an object IRI is absolute and carries no block.
 fn validate_end(side: &str, end: &SceneWireEnd) -> Result<(), String> {
-    let document_id = end.document_id.as_deref().map(str::trim).filter(|id| !id.is_empty());
-    let iri = end.iri.as_deref().map(str::trim).filter(|iri| !iri.is_empty());
+    let document_id = end
+        .document_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty());
+    let iri = end
+        .iri
+        .as_deref()
+        .map(str::trim)
+        .filter(|iri| !iri.is_empty());
     match (document_id, iri) {
-        (Some(_), Some(_)) => Err(format!("the {side} is a document or an object IRI, not both")),
+        (Some(_), Some(_)) => Err(format!(
+            "the {side} is a document or an object IRI, not both"
+        )),
         (None, None) => Err(format!("the {side} needs a document id or an object IRI")),
         (Some(_), None) => Ok(()),
         (None, Some(iri)) => {
-            if end.block_id.as_deref().is_some_and(|block| !block.trim().is_empty()) {
-                return Err(format!("the {side} is an object IRI and cannot name a block"));
+            if end
+                .block_id
+                .as_deref()
+                .is_some_and(|block| !block.trim().is_empty())
+            {
+                return Err(format!(
+                    "the {side} is an object IRI and cannot name a block"
+                ));
             }
             if !is_absolute_resource_iri(iri) {
                 return Err(format!("the {side} IRI {iri:?} is not an absolute IRI"));
@@ -311,7 +327,10 @@ mod tests {
         assert_eq!(payload["sceneElementId"], "arw0000000000000000002");
         assert_eq!(payload["sceneSourceElementId"], "lnk0000000000000000001");
         assert_eq!(payload["sceneTargetElementId"], "crd0000000000000000001");
-        assert_eq!(payload["sceneStableKey"], "wb:wb-board:arw0000000000000000002");
+        assert_eq!(
+            payload["sceneStableKey"],
+            "wb:wb-board:arw0000000000000000002"
+        );
         assert!(payload.get("sourceIri").is_none());
     }
 
@@ -353,18 +372,39 @@ mod tests {
         };
         // neither / both on an end
         check(
-            draft(SceneWireEnd { document_id: None, block_id: None, iri: None, graph_id: None, label: None }, ok_target()),
+            draft(
+                SceneWireEnd {
+                    document_id: None,
+                    block_id: None,
+                    iri: None,
+                    graph_id: None,
+                    label: None,
+                },
+                ok_target(),
+            ),
             "needs a document id or an object IRI",
         );
         check(
             draft(
-                SceneWireEnd { document_id: Some("doc-a".into()), block_id: None, iri: Some(OBJECT.into()), graph_id: None, label: None },
+                SceneWireEnd {
+                    document_id: Some("doc-a".into()),
+                    block_id: None,
+                    iri: Some(OBJECT.into()),
+                    graph_id: None,
+                    label: None,
+                },
                 ok_target(),
             ),
             "not both",
         );
-        check(draft(ok_source(), object_end("not-absolute", None)), "not an absolute IRI");
-        check(draft(ok_source(), object_end("urn:has space", None)), "not an absolute IRI");
+        check(
+            draft(ok_source(), object_end("not-absolute", None)),
+            "not an absolute IRI",
+        );
+        check(
+            draft(ok_source(), object_end("urn:has space", None)),
+            "not an absolute IRI",
+        );
         let mut with_block = object_end(OBJECT, None);
         with_block.block_id = Some("b".into());
         check(draft(ok_source(), with_block), "cannot name a block");
