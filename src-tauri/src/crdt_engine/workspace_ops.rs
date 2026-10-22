@@ -14,6 +14,7 @@
 //!   same persistence the `save_workspace` Tauri command performs (snapshot
 //!   JSON + RDF materialization + graph touch).
 
+use crate::app_error::PersistenceError;
 use crate::app_runtime::AppHandle;
 use crate::crdt_engine::rooms::{Room, RoomRegistry};
 use crate::crdt_queue::CrdtOperation;
@@ -44,8 +45,19 @@ pub(crate) async fn apply_classified(
     app: &AppHandle,
     operation: &CrdtOperation,
 ) -> ApplyOperationResult<Value> {
-    let mut hot_committed = false;
-    let outcome: Result<Value, String> = async {
+    apply_classified_with_prior_hot_commit(app, operation, false).await
+}
+
+/// A bulk import may already own durable child steps. Pass that fact into
+/// classification while errors are still typed: storage failures retain the
+/// outer tail, while a child's permanent refusal stays terminal.
+pub(super) async fn apply_classified_with_prior_hot_commit(
+    app: &AppHandle,
+    operation: &CrdtOperation,
+    prior_hot_commit: bool,
+) -> ApplyOperationResult<Value> {
+    let mut hot_committed = prior_hot_commit;
+    let outcome: Result<Value, PersistenceError> = async {
         let graph_id = operation.graph_id.clone();
         let graph_dir = crate::graph_paths::existing_graph_dir(app, &graph_id)?;
         let room = workspace_room(app, &graph_id, &graph_dir).await?;
@@ -153,9 +165,9 @@ pub(crate) async fn apply_classified(
                     .with_doc(move |doc| document_row_exists_in_workspace(doc, &row_id))
                     .await;
                 if !present && !recovered {
-                    return Err(format!(
+                    return Err(PersistenceError::permanent(format!(
                         "document_id contains invalid characters, and no workspace row has the id {document_id:?}"
-                    ));
+                    )));
                 }
                 if present {
                     commit_hot!(update_workspace_doc_checked(&room, |_doc, txn| {
@@ -235,9 +247,9 @@ pub(crate) async fn apply_classified(
                 if recovered_folder_still_exists
                     && recovered_folder_delete_targets(&graph_dir, &graph_id, &folder_id)?.is_none()
                 {
-                    return Err(format!(
+                    return Err(PersistenceError::permanent(format!(
                         "recovered hard folder cascade snapshot does not contain {folder_id}"
-                    ));
+                    )));
                 }
             }
             let (folder_existed, mut child_documents, mut child_artifacts, mut deleted_folders) =
@@ -426,7 +438,7 @@ pub(crate) async fn apply_classified(
             }));
             json!({ "wireId": wire_id, "deleted": true })
         }
-        other => return Err(format!("unsupported workspace CRDT operation: {other}")),
+        other => return Err(PersistenceError::permanent(format!("unsupported workspace CRDT operation: {other}"))),
         };
 
         persist_workspace(app, &graph_id, &graph_dir, &room, &operation.operation_id).await?;
@@ -453,7 +465,7 @@ pub(crate) async fn upsert_document_entry(
     graph_id: &str,
     payload: &Value,
     operation_id: &str,
-) -> Result<Value, String> {
+) -> Result<Value, PersistenceError> {
     let graph_dir = crate::graph_paths::existing_graph_dir(app, graph_id)?;
     let room = workspace_room(app, graph_id, &graph_dir).await?;
     let result =
@@ -467,10 +479,10 @@ pub(crate) async fn workspace_room(
     app: &AppHandle,
     graph_id: &str,
     graph_dir: &Path,
-) -> Result<Arc<Room>, String> {
+) -> Result<Arc<Room>, PersistenceError> {
     let registry = app.state::<RoomRegistry>();
     registry
-        .get_or_create(
+        .get_or_create_classified(
             &format!("workspace:{graph_id}"),
             crate::ydoc_paths::workspace_ydoc_state_path(graph_dir),
         )
@@ -483,11 +495,14 @@ pub(crate) async fn workspace_room(
 /// separate preflight read and the checked write. Validating the whole graph
 /// also prevents a mutation of one healthy subtree from silently blessing or
 /// deleting around an unrelated closed cycle introduced by raw CRDT sync.
-pub(crate) async fn update_workspace_doc_checked<T, F>(room: &Room, mutate: F) -> Result<T, String>
+pub(crate) async fn update_workspace_doc_checked<T, F>(
+    room: &Room,
+    mutate: F,
+) -> Result<T, PersistenceError>
 where
     F: FnOnce(&Doc, &mut TransactionMut<'_>) -> Result<T, String>,
 {
-    room.update_doc(|doc, txn| {
+    room.update_doc_classified(|doc, txn| {
         validate_folder_parent_graph(&read_folder_entities(&*txn))?;
         mutate(doc, txn)
     })
@@ -503,7 +518,7 @@ pub(crate) async fn persist_workspace(
     graph_dir: &Path,
     room: &Arc<Room>,
     operation_id: &str,
-) -> Result<bool, String> {
+) -> Result<bool, PersistenceError> {
     let _projection_guard = room.lock_projection_flush().await;
     if !room.needs_projection_flush() {
         return Ok(false);
@@ -576,9 +591,11 @@ pub(crate) async fn rebuild_workspace_projection(
 pub(super) async fn materialize_workspace(
     room: &Room,
     graph_id: &str,
-) -> Result<(u64, Value), String> {
+) -> Result<(u64, Value), PersistenceError> {
     let (epoch, snapshot) = room
-        .with_doc_version(|doc| materialize_workspace_snapshot_json(graph_id, doc))
+        .with_doc_version(|doc| {
+            materialize_workspace_snapshot_json(graph_id, doc).map_err(PersistenceError::permanent)
+        })
         .await;
     Ok((epoch, snapshot?))
 }
@@ -587,7 +604,7 @@ pub(super) fn persist_materialized_workspace(
     graph_id: &str,
     graph_dir: &Path,
     snapshot: &Value,
-) -> Result<(), String> {
+) -> Result<(), PersistenceError> {
     let _durability_guard = crate::cell_durability::write_guard();
     crate::storage::write_json(
         &crate::ydoc_paths::workspace_snapshot_path(graph_dir),
@@ -595,8 +612,7 @@ pub(super) fn persist_materialized_workspace(
     )?;
     let store = crate::rdf_service::open_graph_store(graph_dir)?;
     crate::rdf_service::reconcile_workspace_snapshot(&store, graph_id, snapshot)?;
-    crate::graph_record_store::touch_graph_content_revision(graph_dir)
-        .map_err(crate::app_error::AppError::message)?;
+    crate::graph_record_store::touch_graph_content_revision(graph_dir)?;
     Ok(())
 }
 
@@ -606,7 +622,7 @@ async fn sync_workspace_document_titles(
     graph_dir: &Path,
     snapshot: &Value,
     operation_id: &str,
-) -> Result<(), String> {
+) -> Result<(), PersistenceError> {
     let registry = app.state::<RoomRegistry>();
     let documents = snapshot
         .get("documents")
@@ -646,8 +662,7 @@ async fn sync_workspace_document_titles(
         // is durable, so inspect only the freshly-written manifest there and
         // never route through hydration while the marker still exists.
         if tombstoned {
-            let record_title = crate::storage::read_json::<Value>(&manifest)
-                .map_err(crate::app_error::AppError::message)?
+            let record_title = crate::storage::read_json::<Value>(&manifest)?
                 .get("title")
                 .and_then(Value::as_str)
                 .unwrap_or_default()
@@ -655,9 +670,9 @@ async fn sync_workspace_document_titles(
             if record_title == title {
                 continue;
             }
-            return Err(format!(
+            return Err(PersistenceError::permanent(format!(
                 "tombstoned recreation title mismatch for {document_id}"
-            ));
+            )));
         }
         let Some(record) = crate::document_record_store::read_document_record_if_title_changed(
             graph_dir, &manifest, title,

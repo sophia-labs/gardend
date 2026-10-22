@@ -121,6 +121,103 @@ impl fmt::Display for AppError {
 
 impl Error for AppError {}
 
+/// Failure of a persistence tail whose room state may already be committed.
+/// Keep permanent refusals typed until the executor decides whether to retain
+/// the operation. Legacy string-only storage failures remain retryable.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum PersistenceError {
+    Permanent(String),
+    Transient(String),
+}
+
+impl PersistenceError {
+    pub(crate) fn permanent(message: impl Into<String>) -> Self {
+        Self::Permanent(message.into())
+    }
+
+    pub(crate) fn with_context(self, context: impl fmt::Display) -> Self {
+        match self {
+            Self::Permanent(message) => Self::Permanent(format!("{context}: {message}")),
+            Self::Transient(message) => Self::Transient(format!("{context}: {message}")),
+        }
+    }
+
+    pub(crate) fn io(error: std::io::Error, context: impl fmt::Display) -> Self {
+        let message = format!("{context}: {error}");
+        match error.kind() {
+            std::io::ErrorKind::NotFound | std::io::ErrorKind::PermissionDenied => {
+                Self::Permanent(message)
+            }
+            _ => Self::Transient(message),
+        }
+    }
+}
+
+impl From<String> for PersistenceError {
+    fn from(message: String) -> Self {
+        Self::Transient(message)
+    }
+}
+
+impl From<&str> for PersistenceError {
+    fn from(message: &str) -> Self {
+        Self::Transient(message.to_string())
+    }
+}
+
+impl From<AppError> for PersistenceError {
+    fn from(error: AppError) -> Self {
+        if error.code() == Some("permanent_persistence_failure") {
+            return Self::Permanent(error.message());
+        }
+        match error.kind() {
+            AppErrorKind::Validation | AppErrorKind::NotFound | AppErrorKind::Conflict => {
+                Self::Permanent(error.message())
+            }
+            _ => Self::Transient(error.message()),
+        }
+    }
+}
+
+impl fmt::Display for PersistenceError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Permanent(message) | Self::Transient(message) => formatter.write_str(message),
+        }
+    }
+}
+
+impl Error for PersistenceError {}
+
+impl std::ops::Deref for PersistenceError {
+    type Target = str;
+
+    fn deref(&self) -> &str {
+        match self {
+            Self::Permanent(message) | Self::Transient(message) => message,
+        }
+    }
+}
+
+impl From<PersistenceError> for String {
+    fn from(error: PersistenceError) -> Self {
+        match error {
+            PersistenceError::Permanent(message) | PersistenceError::Transient(message) => message,
+        }
+    }
+}
+
+impl From<PersistenceError> for AppError {
+    fn from(error: PersistenceError) -> Self {
+        match error {
+            PersistenceError::Permanent(message) => {
+                Self::storage(message).with_code("permanent_persistence_failure")
+            }
+            PersistenceError::Transient(message) => Self::storage(message),
+        }
+    }
+}
+
 impl From<AppError> for String {
     fn from(error: AppError) -> Self {
         error.message

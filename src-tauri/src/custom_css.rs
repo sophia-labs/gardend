@@ -151,7 +151,7 @@ pub(crate) async fn read(app: &AppHandle, graph: &str) -> AppResult<Value> {
         .ok_or_else(|| conflict("graph incarnation is missing"))?;
     let room = workspace_ops::workspace_room(app, graph, &dir)
         .await
-        .map_err(AppError::storage)?;
+        .map_err(AppError::from)?;
     room.with_doc(|doc| {
         read_state(&doc.transact(), &incarnation).map(|state| snapshot(graph, &state))
     })

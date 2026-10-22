@@ -1,5 +1,6 @@
 //! Cold-projection flush for hosted Y.Doc rooms.
 
+use crate::app_error::PersistenceError;
 use crate::app_runtime::AppHandle;
 use crate::crdt_engine::executor::{ApplyOperationError, ApplyOperationResult};
 use crate::crdt_engine::rooms::{Room, RoomRegistry};
@@ -70,7 +71,11 @@ pub(crate) async fn apply(app: &AppHandle, operation: &CrdtOperation) -> Result<
         .map_err(ApplyOperationError::into_message)
 }
 
-fn classify_flush_error(error: String) -> ApplyOperationError {
+fn classify_flush_error(error: impl Into<PersistenceError>) -> ApplyOperationError {
+    let error = match error.into() {
+        PersistenceError::Permanent(error) => return ApplyOperationError::terminal(error),
+        PersistenceError::Transient(error) => error,
+    };
     let terminal = [
         "graph not found:",
         "stale graph generation",
@@ -209,7 +214,7 @@ pub(crate) async fn apply_classified(
             )
             .await
             .map_err(|error| {
-                classify_flush_error(format!("crdt.flush workspace {graph_id}: {error}"))
+                classify_flush_error(error.with_context(format!("crdt.flush workspace {graph_id}")))
             })?;
         }
 
@@ -242,9 +247,9 @@ pub(crate) async fn apply_classified(
             )
             .await
             .map_err(|error| {
-                classify_flush_error(format!(
-                    "crdt.flush document {graph_id}/{document_id}: {error}"
-                ))
+                classify_flush_error(
+                    error.with_context(format!("crdt.flush document {graph_id}/{document_id}")),
+                )
             })?;
             if persisted.is_some() {
                 documents_flushed.push(document_id);
@@ -286,9 +291,9 @@ pub(crate) async fn apply_classified(
                 drop(room);
                 registry.evict_room(&room_key);
                 let persisted = flush_result.map_err(|error| {
-                    classify_flush_error(format!(
-                        "crdt.flush document {graph_id}/{document_id}: {error}"
-                    ))
+                    classify_flush_error(
+                        error.with_context(format!("crdt.flush document {graph_id}/{document_id}")),
+                    )
                 })?;
                 if persisted.is_some() {
                     documents_flushed.push(document_id);
@@ -328,11 +333,11 @@ async fn hydrate_workspace_and_named_document_room(
     graph_id: &str,
     graph_dir: &Path,
     document_id: Option<&str>,
-) -> Result<(), String> {
+) -> Result<(), PersistenceError> {
     let workspace_path = crate::ydoc_paths::workspace_ydoc_state_path(graph_dir);
     if workspace_path.is_file() {
         registry
-            .get_or_create(&format!("workspace:{graph_id}"), workspace_path)
+            .get_or_create_classified(&format!("workspace:{graph_id}"), workspace_path)
             .await?;
     }
 
@@ -345,7 +350,7 @@ async fn hydrate_workspace_and_named_document_room(
             crate::ydoc_paths::checked_document_ydoc_state_path(graph_dir, document_id)?;
         if state_path.is_file() {
             registry
-                .get_or_create(&format!("doc:{graph_id}:{document_id}"), state_path)
+                .get_or_create_classified(&format!("doc:{graph_id}:{document_id}"), state_path)
                 .await?;
         }
     }

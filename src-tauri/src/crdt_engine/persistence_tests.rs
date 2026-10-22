@@ -241,6 +241,90 @@ fn older_document_materialization_cannot_clear_newer_projection() {
 }
 
 #[test]
+fn projection_only_save_refusals_are_terminal_after_hot_commit() {
+    with_profile("garden-projection-terminal-refusal", || {
+        crate::app_runtime::async_runtime::block_on(async {
+            let app = crate::tauri_runtime::build_mock_app_for_tests(true);
+            let graph_id = "projection-refusal";
+            let document_id = "document-refusal";
+            create_graph_service(
+                &app,
+                CreateGraphInput {
+                    title: "Projection Refusal".to_string(),
+                    graph_id: Some(graph_id.to_string()),
+                    description: None,
+                    operation_id: None,
+                },
+            )
+            .expect("create graph");
+            let coordinator =
+                app.state::<super::persistence_coordinator::GraphPersistenceCoordinator>();
+            let mut lease = coordinator.acquire_hot_write(graph_id).await.unwrap();
+            crate::document_service::create_document_with_lease(
+                app.clone(),
+                crate::document_types::CreateDocumentInput {
+                    graph_id: graph_id.to_string(),
+                    document_id: Some(document_id.to_string()),
+                    title: "Projection Refusal".to_string(),
+                },
+            )
+            .unwrap();
+            let graph_dir = existing_graph_dir(&app, graph_id).unwrap();
+            let state_path = document_ydoc_state_path(&graph_dir, document_id);
+            let room = app
+                .state::<RoomRegistry>()
+                .get_or_create(&format!("doc:{graph_id}:{document_id}"), state_path.clone())
+                .await
+                .unwrap();
+            replace_room_text(&room, "committed", "durable hot edit").await;
+            let authority = std::fs::read(&state_path).unwrap();
+            let manifest = document_dir(&graph_dir, document_id)
+                .unwrap()
+                .join("document.json");
+            let record = std::fs::read(&manifest).unwrap();
+            lease.release_for_projection();
+
+            for tombstoned in [false, true] {
+                if tombstoned {
+                    crate::document_tombstone_store::write_document_tombstone_for_operation(
+                        &graph_dir,
+                        document_id,
+                        Some("delete-before-projection"),
+                    )
+                    .unwrap();
+                }
+                // Call the new save entry directly: reconciliation can reject
+                // these fences earlier, which would hide a string conversion
+                // accidentally left inside the projection-only save path.
+                let input = serde_json::from_value(json!({
+                    "graphId": graph_id, "documentId": document_id,
+                    "title": "Projection Refusal", "body": "durable hot edit",
+                    "expectedRevision": 7,
+                }))
+                .unwrap();
+                let error = crate::document_persistence_service::save_room_document_projection(
+                    app.clone(),
+                    input,
+                )
+                .expect_err("permanent projection fence");
+                assert!(error.contains(if tombstoned {
+                    "document tombstoned:"
+                } else {
+                    "revision conflict:"
+                }));
+                assert!(matches!(
+                    ApplyOperationError::retryable_after_hot_commit(error),
+                    ApplyOperationError::Terminal(_)
+                ));
+                assert_eq!(std::fs::read(&state_path).unwrap(), authority);
+                assert_eq!(std::fs::read(&manifest).unwrap(), record);
+                assert!(room.needs_projection_flush());
+            }
+        });
+    });
+}
+
+#[test]
 fn fresh_registry_hydration_does_not_create_a_document_revision() {
     with_profile("garden-document-restart-idempotency", || {
         crate::app_runtime::async_runtime::block_on(async {

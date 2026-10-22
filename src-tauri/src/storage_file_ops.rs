@@ -11,8 +11,12 @@ use std::{
 };
 
 pub fn read_bytes(path: &Path) -> AppResult<Vec<u8>> {
-    fs::read(path)
-        .map_err(|error| AppError::storage(format!("read {}: {error}", display_path(path))))
+    fs::read(path).map_err(|error| {
+        AppError::from(crate::app_error::PersistenceError::io(
+            error,
+            format!("read {}", display_path(path)),
+        ))
+    })
 }
 
 pub fn write_bytes(path: &Path, bytes: &[u8]) -> AppResult<()> {
@@ -21,7 +25,7 @@ pub fn write_bytes(path: &Path, bytes: &[u8]) -> AppResult<()> {
     }
 
     let temp_path = atomic_temp_path(path);
-    let result = write_bytes_atomic(path, &temp_path, bytes, None).map_err(AppError::storage);
+    let result = write_bytes_atomic(path, &temp_path, bytes, None).map_err(AppError::from);
     if result.is_err() {
         let _ = fs::remove_file(&temp_path);
     }
@@ -34,7 +38,7 @@ pub fn copy_file_atomic(source: &Path, target: &Path) -> AppResult<u64> {
     }
 
     let temp_path = atomic_temp_path(target);
-    let result = copy_file_atomic_inner(source, target, &temp_path).map_err(AppError::storage);
+    let result = copy_file_atomic_inner(source, target, &temp_path).map_err(AppError::from);
     if result.is_err() {
         let _ = fs::remove_file(&temp_path);
     }
@@ -52,10 +56,13 @@ pub fn remove_file_if_exists(path: &Path) -> AppResult<bool> {
 
 pub fn remove_dir_all(path: &Path) -> AppResult<()> {
     fs::remove_dir_all(path).map_err(|error| {
-        AppError::storage(format!("remove directory {}: {error}", display_path(path)))
+        AppError::from(crate::app_error::PersistenceError::io(
+            error,
+            format!("remove directory {}", display_path(path)),
+        ))
     })?;
     if let Some(parent) = path.parent() {
-        sync_parent_dir(parent).map_err(AppError::storage)?;
+        sync_parent_dir(parent).map_err(AppError::from)?;
     }
     Ok(())
 }
@@ -64,14 +71,14 @@ fn remove_file_inner(path: &Path, allow_missing: bool) -> AppResult<bool> {
     match fs::remove_file(path) {
         Ok(()) => {
             if let Some(parent) = path.parent() {
-                sync_parent_dir(parent).map_err(AppError::storage)?;
+                sync_parent_dir(parent).map_err(AppError::from)?;
             }
             Ok(true)
         }
         Err(error) if allow_missing && error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(error) => Err(AppError::storage(format!(
-            "remove {}: {error}",
-            display_path(path)
+        Err(error) => Err(AppError::from(crate::app_error::PersistenceError::io(
+            error,
+            format!("remove {}", display_path(path)),
         ))),
     }
 }
@@ -82,8 +89,7 @@ pub(crate) fn write_secret_bytes(path: &Path, bytes: &[u8]) -> AppResult<()> {
     }
 
     let temp_path = atomic_temp_path(path);
-    let result =
-        write_bytes_atomic(path, &temp_path, bytes, Some(0o600)).map_err(AppError::storage);
+    let result = write_bytes_atomic(path, &temp_path, bytes, Some(0o600)).map_err(AppError::from);
     if result.is_err() {
         let _ = fs::remove_file(&temp_path);
     }
@@ -103,7 +109,12 @@ pub fn append_secret_line(path: &Path, line: &str) -> AppResult<()> {
             .append(true)
             .mode(0o600)
             .open(path)
-            .map_err(|error| AppError::storage(format!("open {}: {error}", display_path(path))))?
+            .map_err(|error| {
+                AppError::from(crate::app_error::PersistenceError::io(
+                    error,
+                    format!("open {}", display_path(path)),
+                ))
+            })?
     };
 
     #[cfg(not(unix))]
@@ -111,7 +122,12 @@ pub fn append_secret_line(path: &Path, line: &str) -> AppResult<()> {
         .create(true)
         .append(true)
         .open(path)
-        .map_err(|error| AppError::storage(format!("open {}: {error}", display_path(path))))?;
+        .map_err(|error| {
+            AppError::from(crate::app_error::PersistenceError::io(
+                error,
+                format!("open {}", display_path(path)),
+            ))
+        })?;
 
     // Keep one logical JSONL record in one append buffer. In particular, do
     // not expose a newline-less JSON write that another O_APPEND writer can
@@ -121,7 +137,12 @@ pub fn append_secret_line(path: &Path, line: &str) -> AppResult<()> {
     record.push(b'\n');
     file.write_all(&record)
         .and_then(|_| crate::storage_atomic::traced_sync(&file, "file"))
-        .map_err(|error| AppError::storage(format!("append {}: {error}", display_path(path))))?;
+        .map_err(|error| {
+            AppError::from(crate::app_error::PersistenceError::io(
+                error,
+                format!("append {}", display_path(path)),
+            ))
+        })?;
     Ok(())
 }
 
@@ -151,16 +172,16 @@ pub fn create_dir_all(path: &Path) -> AppResult<()> {
                 } else {
                     parent
                 };
-                sync_parent_dir(parent).map_err(AppError::storage)?;
+                sync_parent_dir(parent).map_err(AppError::from)?;
             }
             Ok(())
         }
         // Also accepts a directory made by a concurrent creator, which owns
         // the sync of its new entry, just as we own the successful mkdir above.
         Err(_) if path.is_dir() => Ok(()),
-        Err(error) => Err(AppError::storage(format!(
-            "create {}: {error}",
-            display_path(path)
+        Err(error) => Err(AppError::from(crate::app_error::PersistenceError::io(
+            error,
+            format!("create {}", display_path(path)),
         ))),
     }
 }

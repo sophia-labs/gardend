@@ -205,7 +205,7 @@ pub(crate) fn read_graph_record_no_heal(
     if !graph_path.is_file() {
         return Err(AppError::not_found(format!("graph not found: {graph_id}")));
     }
-    let graph = read_json::<GraphRecord>(&graph_path).map_err(AppError::storage)?;
+    let graph = read_json::<GraphRecord>(&graph_path)?;
     if graph.status == GRAPH_STATUS_DELETED {
         return Err(AppError::not_found(format!("graph not found: {graph_id}")));
     }

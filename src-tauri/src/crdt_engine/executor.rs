@@ -10,6 +10,7 @@
 //! hang into the 600s queue timeout.
 
 use super::persistence_coordinator::HotWriteLease;
+use crate::app_error::PersistenceError;
 use crate::app_runtime::AppHandle;
 use crate::crdt_operation_journal::record_crdt_operation_completion;
 use crate::crdt_operation_queue::RetrySchedule;
@@ -38,8 +39,11 @@ impl ApplyOperationError {
         Self::Terminal(error.into())
     }
 
-    pub(crate) fn retryable_after_hot_commit(error: impl Into<String>) -> Self {
-        Self::RetryableAfterHotCommit(error.into())
+    pub(crate) fn retryable_after_hot_commit(error: impl Into<PersistenceError>) -> Self {
+        match error.into() {
+            PersistenceError::Permanent(message) => Self::Terminal(message),
+            PersistenceError::Transient(message) => Self::RetryableAfterHotCommit(message),
+        }
     }
 
     pub(crate) fn message(&self) -> &str {
@@ -58,6 +62,12 @@ impl ApplyOperationError {
 impl From<String> for ApplyOperationError {
     fn from(error: String) -> Self {
         Self::Terminal(error)
+    }
+}
+
+impl From<PersistenceError> for ApplyOperationError {
+    fn from(error: PersistenceError) -> Self {
+        Self::retryable_after_hot_commit(error)
     }
 }
 
@@ -93,7 +103,7 @@ fn is_heavy_kind(kind: &str) -> bool {
     HEAVY_KINDS.contains(&kind)
 }
 
-/// Default number of times a `crdt.flush` operation is requeued after a
+/// Default number of times an operation is requeued after a
 /// retryable failure before it completes as failed. The value is a generous
 /// choice, not derived from another bound. With the queue's backoff it is
 /// about 20 seconds for an attached caller and about 20 minutes for a
@@ -108,9 +118,13 @@ const DEFAULT_MAX_RETRYABLE_ATTEMPTS: u32 = 25;
 /// and the room stays dirty when a flush fails, so the next write to the same
 /// room schedules a flush that rebuilds it. Other kinds have tails (workspace
 /// membership, tombstones, import steps) that only their own retry repairs,
-/// so they keep retrying without a ceiling.
-fn retry_ceiling_applies(kind: &str) -> bool {
-    kind == "crdt.flush"
+/// which was why the ceiling originally applied only to flushes. Unbounded
+/// retries, however, turn one poisoned tail into a permanent graph FIFO
+/// barrier. Every kind now has the same generous, configurable ceiling.
+/// Transient failures still retain their exact operation until that ceiling;
+/// completing as failed must never acknowledge an unfinished tail as success.
+fn retry_ceiling_applies(_kind: &str) -> bool {
+    true
 }
 
 /// Retry ceiling, overridable with `GARDEN_CRDT_MAX_RETRIES` (a positive
@@ -185,13 +199,18 @@ pub(crate) async fn drain_queue(app: AppHandle) {
                     complete_terminal(&app, &operation, Err(error));
                 }
                 Err(ApplyOperationError::RetryableAfterHotCommit(error)) => {
-                    // A flush that keeps failing completes as failed once the
+                    // An operation that keeps failing completes as failed once the
                     // retry ceiling is reached, so the caller gets the error
                     // and the graph's retry barrier is released. The room
                     // state it was projecting is already committed.
                     let prior_retries = queue.retry_attempt_count(&operation.operation_id);
                     let ceiling = max_retryable_attempts();
                     if retry_ceiling_applies(&operation.kind) && prior_retries >= ceiling {
+                        let incomplete_tail = if operation.kind == "crdt.flush" {
+                            ""
+                        } else {
+                            " Operation-specific tail work may remain incomplete."
+                        };
                         log::error!(
                             "executor: operation {} ({}) failed attempt {} and reached the retry ceiling ({ceiling}); giving up: {error}",
                             operation.operation_id,
@@ -204,7 +223,7 @@ pub(crate) async fn drain_queue(app: AppHandle) {
                             Err(format!(
                                 "projection flush failed after {} attempts; giving up. The room \
                                  state is committed and stays dirty; the next write to the room \
-                                 flushes it again: {error}",
+                                 flushes it again: {error}{incomplete_tail}",
                                 prior_retries + 1
                             )),
                         );
@@ -330,8 +349,33 @@ pub(super) async fn apply_operation_classified(
     {
         let mut graph_guard = coordinator.acquire_hot_write(&operation.graph_id).await?;
         graph_guard.set_crdt_kind(&operation.kind);
-        require_current_graph_incarnation(app, operation)?;
-        return apply_operation_inner(app, operation, Some(&mut graph_guard)).await;
+        require_current_graph_incarnation(app, operation).map_err(ApplyOperationError::terminal)?;
+        let outcome = apply_operation_inner(app, operation, Some(&mut graph_guard)).await;
+        if matches!(
+            &outcome,
+            Err(ApplyOperationError::RetryableAfterHotCommit(_))
+        ) {
+            // Some legacy import helpers still return only a message. Check
+            // the actual lifecycle fence before retaining any kind's tail;
+            // a removed/replaced graph or superseded generation cannot heal.
+            require_current_graph_incarnation(app, operation)?;
+            if let Some(expected) = operation
+                .payload
+                .get("graphGeneration")
+                .and_then(Value::as_u64)
+            {
+                // An unreadable coordinator is not proof of replacement.
+                // Keep the original transient failure until its retry can
+                // check again; only an observed advance is a terminal fence.
+                if coordinator
+                    .generation(&operation.graph_id)
+                    .is_ok_and(|actual| actual > expected)
+                {
+                    coordinator.require_generation(&operation.graph_id, expected)?;
+                }
+            }
+        }
+        return outcome;
     }
     // Standalone harnesses compile handlers without the production managed
     // state. They remain useful pure-operation tests, while setup_core always
@@ -350,7 +394,7 @@ pub(super) async fn apply_operation_classified(
 fn require_current_graph_incarnation(
     app: &AppHandle,
     operation: &CrdtOperation,
-) -> Result<(), String> {
+) -> Result<(), PersistenceError> {
     let expected = operation
         .payload
         .get(crate::crdt_queue::GRAPH_INCARNATION_PAYLOAD_KEY)
@@ -362,19 +406,18 @@ fn require_current_graph_incarnation(
     }
 
     let (_graph_dir, graph) =
-        crate::graph_record_store::read_graph_record_no_heal(app, &operation.graph_id)
-            .map_err(crate::app_error::AppError::message)?;
+        crate::graph_record_store::read_graph_record_no_heal(app, &operation.graph_id)?;
 
     if let Some(expected) = expected {
         return if graph.incarnation_id.as_deref() == Some(expected) {
             Ok(())
         } else {
-            Err(format!(
+            Err(PersistenceError::permanent(format!(
                 "stale graph incarnation for {}: expected {}, actual {}",
                 operation.graph_id,
                 expected,
                 graph.incarnation_id.as_deref().unwrap_or("missing"),
-            ))
+            )))
         };
     }
 
@@ -389,10 +432,10 @@ fn require_current_graph_incarnation(
         crate::clock::parse_timestamp(&operation.enqueue_timestamp),
     ) {
         if created_at > enqueued_at {
-            return Err(format!(
+            return Err(PersistenceError::permanent(format!(
                 "stale legacy graph operation for {}: graph created at {} after enqueue {}",
                 operation.graph_id, graph.created_at, operation.enqueue_timestamp,
-            ));
+            )));
         }
     }
     Ok(())
@@ -424,23 +467,13 @@ async fn apply_operation_inner(
                     .map(str::to_string)
             });
             let policy = crate::visitor_fence::RoomPolicy { fence, document_id };
-            return match crate::visitor_fence::under_room_policy(
+            // Room::update_doc_classified marks policy refusals permanent
+            // inside the transaction, before any room state reaches disk.
+            return crate::visitor_fence::under_room_policy(
                 policy,
                 apply_operation_dispatch(app, operation, lease),
             )
-            .await
-            {
-                // The policy refuses inside the room's transaction, before the
-                // mutation commits (the room is evicted): nothing to retry.
-                Err(error)
-                    if error
-                        .message()
-                        .contains(crate::visitor_fence::POLICY_REFUSAL) =>
-                {
-                    Err(ApplyOperationError::terminal(error.message().to_string()))
-                }
-                other => other,
-            };
+            .await;
         }
         Err(error) => return Err(ApplyOperationError::terminal(error)),
     }
@@ -1753,6 +1786,383 @@ mod post_hot_recovery_tests {
             std::panic::resume_unwind(payload);
         }
     }
+
+    struct RetryProfile {
+        _serial: std::sync::MutexGuard<'static, ()>,
+        path: PathBuf,
+        profile: Option<std::ffi::OsString>,
+        retries: Option<std::ffi::OsString>,
+    }
+
+    impl RetryProfile {
+        fn new() -> Self {
+            let serial = crate::tauri_runtime::profile_env_serial()
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let path = temp_profile();
+            let profile = std::env::var_os("GARDEN_PROFILE_DIR");
+            let retries = std::env::var_os("GARDEN_CRDT_MAX_RETRIES");
+            std::env::set_var("GARDEN_PROFILE_DIR", &path);
+            std::env::set_var("GARDEN_CRDT_MAX_RETRIES", "2");
+            Self {
+                _serial: serial,
+                path,
+                profile,
+                retries,
+            }
+        }
+    }
+
+    impl Drop for RetryProfile {
+        fn drop(&mut self) {
+            for (key, value) in [
+                ("GARDEN_PROFILE_DIR", &self.profile),
+                ("GARDEN_CRDT_MAX_RETRIES", &self.retries),
+            ] {
+                match value {
+                    Some(value) => std::env::set_var(key, value),
+                    None => std::env::remove_var(key),
+                }
+            }
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
+    }
+
+    fn enqueue_for_retry_test(
+        app: &AppHandle,
+        operation: CrdtOperation,
+    ) -> tokio::sync::oneshot::Receiver<crate::crdt_operation_types::CrdtOperationResult> {
+        crate::crdt_operation_journal::record_crdt_operation_queued(app, &operation)
+            .expect("journal queued operation");
+        app.state::<CrdtOperationQueue>()
+            .enqueue(operation)
+            .expect("enqueue operation")
+    }
+
+    async fn receive_without_advancing(
+        receiver: &mut tokio::sync::oneshot::Receiver<
+            crate::crdt_operation_types::CrdtOperationResult,
+        >,
+    ) -> crate::crdt_operation_types::CrdtOperationResult {
+        // Room persistence uses Garden's shared blocking runtime. Keep this
+        // paused runtime runnable until that real I/O finishes, so Tokio
+        // cannot auto-advance a retry while the test awaits its response.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            match receiver.try_recv() {
+                Ok(result) => return result,
+                Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {}
+                Err(error) => panic!("operation responder closed: {error}"),
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "executor response stalled"
+            );
+            tokio::task::yield_now().await;
+        }
+    }
+
+    async fn comment_for_retry_test(app: &AppHandle, graph: &str, id: &str) -> CrdtOperation {
+        let incarnation = create_graph(app, graph);
+        super::apply_operation_classified(
+            app,
+            &ordinary_operation(
+                &format!("seed-{id}"),
+                "document.write",
+                graph,
+                Some("comment-doc"),
+                &incarnation,
+                json!({"title": "Comments", "content": "Seed content", "format": "markdown"}),
+            ),
+        )
+        .await
+        .expect("seed real comment room and store");
+        ordinary_operation(
+            id,
+            "document.editComment",
+            graph,
+            Some("comment-doc"),
+            &incarnation,
+            json!({"action": "set", "commentId": "comment", "text": "Hot comment", "updatedAt": 1720000000000_u64}),
+        )
+    }
+
+    fn folder_after(operation: &CrdtOperation, graph: &str, incarnation: &str) -> CrdtOperation {
+        ordinary_operation(
+            &format!("after-{}-{graph}", operation.operation_id),
+            "workspace.createFolder",
+            graph,
+            None,
+            incarnation,
+            json!({"folderId": "after-poison", "name": "After poison", "order": 1720000000000_u64}),
+        )
+    }
+
+    #[test]
+    fn tombstone_after_comment_hot_commit_fails_once_and_releases_same_graph() {
+        let _profile = RetryProfile::new();
+        let (provider, exporter, dispatch) = crate::telemetry::test_support::capture(true);
+        tracing::dispatcher::with_default(&dispatch, || {
+            current_runtime().block_on(async {
+                tokio::time::pause();
+                let app = crate::tauri_runtime::build_mock_app_for_tests(true);
+                let edit =
+                    comment_for_retry_test(&app, "terminal-comment", "op-terminal-comment").await;
+                let follower = folder_after(
+                    &edit,
+                    &edit.graph_id,
+                    edit.payload["graphIncarnation"].as_str().unwrap(),
+                );
+                crate::crdt_engine::document_ops::tombstone_edit_comment_after_hot_for_test(
+                    &edit.operation_id,
+                );
+                let mut failed = enqueue_for_retry_test(&app, edit.clone());
+                let mut next = enqueue_for_retry_test(&app, follower);
+                let before = tokio::time::Instant::now();
+                super::drain_queue(app.clone()).await;
+                let failure = failed
+                    .try_recv()
+                    .expect("terminal caller completes in the first drain");
+                assert!(!failure.ok);
+                assert!(failure.error.unwrap().contains("document tombstoned:"));
+                assert!(
+                    next.try_recv()
+                        .expect("same-graph follower completes without backoff")
+                        .ok
+                );
+                assert_eq!(tokio::time::Instant::now(), before);
+                let queue = app.state::<CrdtOperationQueue>();
+                assert_eq!(queue.retry_wait_count_for_test().unwrap(), 0);
+                assert_eq!(queue.counts_for_test().unwrap(), (0, 0));
+                assert!(
+                    crate::crdt_operation_journal::recover_pending_crdt_operations(&app)
+                        .unwrap()
+                        .is_empty()
+                );
+                // The failure happened after the room's authoritative commit.
+                let graph_dir =
+                    crate::graph_paths::existing_graph_dir(&app, &edit.graph_id).unwrap();
+                let bytes = std::fs::read(crate::ydoc_paths::document_ydoc_state_path(
+                    &graph_dir,
+                    "comment-doc",
+                ))
+                .unwrap();
+                let doc = Doc::new();
+                doc.transact_mut()
+                    .apply_update(Update::decode_v1(&bytes).unwrap())
+                    .unwrap();
+                assert!(doc
+                    .transact()
+                    .get_map("comments")
+                    .unwrap()
+                    .contains_key(&doc.transact(), "comment"));
+            })
+        });
+        provider.force_flush().unwrap();
+        let spans = exporter.get_finished_spans().unwrap();
+        let attempts: Vec<_> = spans
+            .iter()
+            .filter(|span| {
+                span.name == "crdt.op.apply"
+                    && span.attributes.iter().any(|kv| {
+                        kv.key.as_str() == "sophia.operation.id"
+                            && kv.value.to_string() == "op-terminal-comment"
+                    })
+            })
+            .collect();
+        assert_eq!(
+            attempts.len(),
+            1,
+            "permanent failure must never schedule a second attempt"
+        );
+        let lease = spans
+            .iter()
+            .find(|span| {
+                span.name == "graph.lease.hot_write"
+                    && span.parent_span_id == attempts[0].span_context.span_id()
+            })
+            .expect("real operation lease span");
+        assert!(lease
+            .attributes
+            .iter()
+            .any(|kv| kv.key.as_str() == "sophia.lease.wait_ms"));
+        let mut descendants = std::collections::HashSet::from([attempts[0].span_context.span_id()]);
+        loop {
+            let before = descendants.len();
+            for span in &spans {
+                if descendants.contains(&span.parent_span_id) {
+                    descendants.insert(span.span_context.span_id());
+                }
+            }
+            if descendants.len() == before {
+                break;
+            }
+        }
+        let operation_spans: Vec<_> = spans
+            .iter()
+            .filter(|span| descendants.contains(&span.span_context.span_id()))
+            .collect();
+        assert_eq!(
+            operation_spans
+                .iter()
+                .filter(|span| span.name == "ydoc.state.persist")
+                .count(),
+            1
+        );
+        let fsync_count = operation_spans
+            .iter()
+            .flat_map(|span| &span.events.events)
+            .filter(|event| {
+                event
+                    .attributes
+                    .iter()
+                    .any(|kv| kv.key.as_str() == "sophia.fsync.what")
+            })
+            .count();
+        assert!(
+            fsync_count >= 2,
+            "the hot commit really syncs its file and directory"
+        );
+    }
+
+    #[test]
+    fn non_flush_transient_tail_stops_at_ceiling_and_next_write_repairs_room() {
+        let _profile = RetryProfile::new();
+        let (provider, exporter, dispatch) = crate::telemetry::test_support::capture(true);
+        tracing::dispatcher::with_default(&dispatch, || {
+            current_runtime().block_on(async {
+                tokio::time::pause();
+                let app = crate::tauri_runtime::build_mock_app_for_tests(true);
+                let edit =
+                    comment_for_retry_test(&app, "bounded-comment", "op-bounded-comment").await;
+                // A real cold-tail write keeps failing until the filesystem
+                // obstruction is removed; the room/record commits still run.
+                let graph_dir =
+                    crate::graph_paths::existing_graph_dir(&app, &edit.graph_id).unwrap();
+                let blocker = crate::document_history_store::document_tail_commit_path(
+                    &graph_dir,
+                    "comment-doc",
+                );
+                std::fs::remove_file(&blocker).unwrap();
+                std::fs::create_dir(&blocker).unwrap();
+                let mut failed = enqueue_for_retry_test(&app, edit.clone());
+                super::drain_queue(app.clone()).await;
+                assert_eq!(
+                    app.state::<CrdtOperationQueue>()
+                        .retry_attempt_count(&edit.operation_id),
+                    1
+                );
+                tokio::time::advance(std::time::Duration::from_secs(1)).await;
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+                while app
+                    .state::<CrdtOperationQueue>()
+                    .retry_attempt_count(&edit.operation_id)
+                    != 2
+                {
+                    assert!(
+                        std::time::Instant::now() < deadline,
+                        "second attempt stalled"
+                    );
+                    tokio::task::yield_now().await;
+                }
+                tokio::time::advance(std::time::Duration::from_secs(1)).await;
+                let failure = receive_without_advancing(&mut failed).await;
+                assert!(!failure.ok);
+                let error = failure.error.unwrap();
+                assert!(error.contains("failed after 3 attempts"), "{error}");
+                assert!(
+                    error.contains("state is committed and stays dirty; the next write"),
+                    "{error}"
+                );
+                let registry = app.state::<crate::crdt_engine::rooms::RoomRegistry>();
+                let room = registry
+                    .peek("doc:bounded-comment:comment-doc")
+                    .await
+                    .unwrap();
+                assert!(room.needs_projection_flush());
+                let queue = app.state::<CrdtOperationQueue>();
+                assert_eq!(queue.retry_wait_count_for_test().unwrap(), 0);
+                assert_eq!(queue.counts_for_test().unwrap(), (0, 0));
+                assert!(
+                    crate::crdt_operation_journal::recover_pending_crdt_operations(&app)
+                        .unwrap()
+                        .is_empty()
+                );
+
+                std::fs::remove_dir(&blocker).unwrap();
+                let mut repair = edit;
+                repair.operation_id = "op-repair-bounded-comment".to_string();
+                let mut repaired = enqueue_for_retry_test(&app, repair);
+                super::drain_queue(app.clone()).await;
+                assert!(repaired.try_recv().expect("next write completes").ok);
+                assert!(!room.needs_projection_flush());
+            })
+        });
+        provider.force_flush().unwrap();
+        let spans = exporter.get_finished_spans().unwrap();
+        assert_eq!(
+            spans
+                .iter()
+                .filter(|span| span.name == "crdt.op.apply"
+                    && span
+                        .attributes
+                        .iter()
+                        .any(|kv| kv.key.as_str() == "sophia.operation.id"
+                            && kv.value.to_string() == "op-bounded-comment"))
+                .count(),
+            3
+        );
+    }
+
+    #[test]
+    fn retrying_graph_does_not_delay_another_graphs_real_executor_queue() {
+        let _profile = RetryProfile::new();
+        current_runtime().block_on(async {
+            tokio::time::pause();
+            let app = crate::tauri_runtime::build_mock_app_for_tests(true);
+            let edit = comment_for_retry_test(&app, "retry-graph-a", "op-graph-a").await;
+            let incarnation_b = create_graph(&app, "ready-graph-b");
+            let follower_a = folder_after(
+                &edit,
+                &edit.graph_id,
+                edit.payload["graphIncarnation"].as_str().unwrap(),
+            );
+            let follower_b = folder_after(&edit, "ready-graph-b", &incarnation_b);
+            crate::crdt_engine::document_ops::fail_next_edit_comment_after_hot_for_test(
+                &edit.operation_id,
+            );
+            let mut retry_a = enqueue_for_retry_test(&app, edit.clone());
+            let mut blocked_a = enqueue_for_retry_test(&app, follower_a);
+            let mut ready_b = enqueue_for_retry_test(&app, follower_b);
+            let before = tokio::time::Instant::now();
+            super::drain_queue(app.clone()).await;
+            // Keep the paused runtime runnable while the continuation does
+            // real blocking storage I/O. No retry deadline can auto-advance.
+            let completed_b = receive_without_advancing(&mut ready_b).await;
+            assert!(completed_b.ok);
+            assert_eq!(tokio::time::Instant::now(), before);
+            assert_eq!(
+                app.state::<CrdtOperationQueue>()
+                    .retry_attempt_count(&edit.operation_id),
+                1
+            );
+            assert!(matches!(
+                retry_a.try_recv(),
+                Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+            ));
+            assert!(matches!(
+                blocked_a.try_recv(),
+                Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+            ));
+            tokio::time::advance(std::time::Duration::from_secs(1)).await;
+            assert!(receive_without_advancing(&mut retry_a).await.ok);
+            assert!(receive_without_advancing(&mut blocked_a).await.ok);
+            assert_eq!(
+                app.state::<CrdtOperationQueue>().counts_for_test().unwrap(),
+                (0, 0)
+            );
+        });
+    }
 }
 
 #[cfg(test)]
@@ -1772,10 +2182,15 @@ mod retry_ceiling_tests {
     }
 
     #[test]
-    fn retry_ceiling_applies_only_to_flush_operations() {
-        assert!(retry_ceiling_applies("crdt.flush"));
-        for kind in ["document.write", "workspace.createFolder", "import.vault"] {
-            assert!(!retry_ceiling_applies(kind), "{kind}");
+    fn retry_ceiling_applies_to_every_operation_kind() {
+        for kind in [
+            "crdt.flush",
+            "document.write",
+            "workspace.createFolder",
+            "import.vault",
+            "future.kind",
+        ] {
+            assert!(retry_ceiling_applies(kind), "{kind}");
         }
     }
 }

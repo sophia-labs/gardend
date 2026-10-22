@@ -534,7 +534,7 @@ fn apply_restore(graph_dir: &Path, manifest: &RestorePointManifest) -> AppResult
 /// Rewrite a restored whiteboard record's `body` from its restored Y.Doc bytes
 /// and re-materialize its RDF, so search finds the restored board's words.
 fn refresh_whiteboard_body(graph_dir: &Path, document_id: &str, bytes: &[u8]) -> AppResult<()> {
-    let document_dir = existing_document_dir(graph_dir, document_id).map_err(AppError::storage)?;
+    let document_dir = existing_document_dir(graph_dir, document_id).map_err(AppError::from)?;
     let manifest_path = document_dir.join("document.json");
     if !manifest_path.is_file() {
         return Ok(());

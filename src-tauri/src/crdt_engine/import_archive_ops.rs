@@ -22,6 +22,7 @@
 //! live room; first access after completion hydrates the restored files.
 
 use super::executor::{ApplyOperationError, ApplyOperationResult};
+use crate::app_error::PersistenceError;
 use crate::app_runtime::AppHandle;
 use crate::crdt_queue::CrdtOperation;
 use base64::Engine;
@@ -2695,13 +2696,17 @@ fn validate_cell_restore_contract(
     })
 }
 
-fn require_restore_marker_unchanged(contract: &CellArchiveRestoreContract) -> Result<(), String> {
+fn require_restore_marker_unchanged(
+    contract: &CellArchiveRestoreContract,
+) -> Result<(), PersistenceError> {
     let current: CellArchiveRestoreMarker = crate::storage::read_json(&contract.marker_path)
         .map_err(crate::app_error::AppError::message)?;
     if current == contract.marker {
         Ok(())
     } else {
-        Err("graph.restoreArchive: durable restore marker changed during execution".to_string())
+        Err(PersistenceError::permanent(
+            "graph.restoreArchive: durable restore marker changed during execution",
+        ))
     }
 }
 
@@ -2715,7 +2720,11 @@ pub(crate) async fn apply(app: &AppHandle, operation: &CrdtOperation) -> Result<
         .map_err(ApplyOperationError::into_message)
 }
 
-fn archive_failure(error: impl Into<String>, durable_started: bool) -> ApplyOperationError {
+fn archive_failure(
+    error: impl Into<PersistenceError>,
+    durable_started: bool,
+) -> ApplyOperationError {
+    let error = error.into();
     if durable_started {
         ApplyOperationError::retryable_after_hot_commit(error)
     } else {
@@ -2992,7 +3001,7 @@ pub(crate) async fn apply_classified(
                     operation_id: Some(operation_id.to_string()),
                 },
             )
-            .map_err(|error| ApplyOperationError::retryable_after_hot_commit(error.to_string()))?,
+            .map_err(ApplyOperationError::retryable_after_hot_commit)?,
         };
         (graph, None)
     };
@@ -3017,13 +3026,13 @@ pub(crate) async fn apply_classified(
         let workspace_started = Instant::now();
         let workspace_doc = Doc::new();
         apply_full_update(&workspace_doc, workspace_bytes, "workspace")
-            .map_err(ApplyOperationError::retryable_after_hot_commit)?;
+            .map_err(ApplyOperationError::terminal)?;
         rewrite_graph_archive_workspace(&workspace_doc, manifest, &new_graph_id);
         let snapshot = super::workspace_ops::materialize_workspace_snapshot_json(
             &new_graph_id,
             &workspace_doc,
         )
-        .map_err(ApplyOperationError::retryable_after_hot_commit)?;
+        .map_err(ApplyOperationError::terminal)?;
         if let Some(list) = snapshot.get("documents").and_then(Value::as_array) {
             for entry in list {
                 if let (Some(id), Some(doc_title)) = (
@@ -3079,9 +3088,9 @@ pub(crate) async fn apply_classified(
                 warnings.extend(contract_audit);
             }
             Err(error) => {
-                return Err(ApplyOperationError::retryable_after_hot_commit(format!(
-                    "import document {document_id}: {error}"
-                )));
+                return Err(ApplyOperationError::retryable_after_hot_commit(
+                    error.with_context(format!("import document {document_id}")),
+                ));
             }
         }
     }
@@ -3298,9 +3307,9 @@ fn import_one_document(
     document_bytes: &[u8],
     workspace_title: Option<String>,
     operation_id: &str,
-) -> Result<(String, Vec<String>), String> {
+) -> Result<(String, Vec<String>), PersistenceError> {
     let doc = Doc::new();
-    apply_full_update(&doc, document_bytes, "document")?;
+    apply_full_update(&doc, document_bytes, "document").map_err(PersistenceError::permanent)?;
     let snapshot = super::projection::materialize_ydoc(&doc, document_id);
     let audit = contract_audit(document_id, &snapshot.tiptap_json);
     let tiptap_xml = super::projection::ydoc_to_tiptap_xml(&doc);

@@ -3227,7 +3227,7 @@ async fn apply_lifecycle_operation(
         operation_id,
     )
     .await
-    .map_err(AppError::storage)?;
+    .map_err(AppError::from)?;
     drop(lease);
     Ok(json!({
         "queue": queue_result,
@@ -3319,7 +3319,7 @@ async fn apply_individual_effect(
                 operation.operation_id(),
             )
             .await
-            .map_err(AppError::storage)?;
+            .map_err(AppError::from)?;
             drop(lease);
             Ok(json!({ "merge": result, "projectionTail": projection_tail }))
         }
@@ -5106,7 +5106,7 @@ pub(crate) async fn mcp_local_source_pull(app: AppHandle, arguments: &Value) -> 
         let update_base64 = crate::document_sidecar_store::read_ydoc_update_base64(
             &document_ydoc_state_path(&graph_dir, &document.document_id),
         )
-        .map_err(AppError::storage)?
+        .map_err(AppError::from)?
         .unwrap_or_default();
         let bytes = BASE64_STANDARD.decode(&update_base64).map_err(|error| {
             AppError::storage(format!(

@@ -2122,19 +2122,6 @@ pub(crate) async fn apply(app: &AppHandle, operation: &CrdtOperation) -> Result<
         .map_err(ApplyOperationError::into_message)
 }
 
-fn promote_partial_import_error(
-    error: ApplyOperationError,
-    durable_started: bool,
-) -> ApplyOperationError {
-    match error {
-        ApplyOperationError::RetryableAfterHotCommit(_) => error,
-        ApplyOperationError::Terminal(message) if durable_started => {
-            ApplyOperationError::retryable_after_hot_commit(message)
-        }
-        ApplyOperationError::Terminal(_) => error,
-    }
-}
-
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum VaultFailurePoint {
@@ -2174,7 +2161,7 @@ fn maybe_fail_vault_step_for_test(
         })
     {
         pending.take();
-        return Err(ApplyOperationError::terminal(format!(
+        return Err(ApplyOperationError::retryable_after_hot_commit(format!(
             "injected import.vault failure at {point:?} for {operation_id}"
         )));
     }
@@ -2322,9 +2309,15 @@ pub(crate) async fn apply_classified(
             enqueue_timestamp: enqueue_timestamp.clone(),
             trace_context: operation.trace_context.clone(),
         };
-        match super::workspace_ops::apply_classified(app, &folder_operation).await {
+        match super::workspace_ops::apply_classified_with_prior_hot_commit(
+            app,
+            &folder_operation,
+            durable_started,
+        )
+        .await
+        {
             Ok(_) => durable_started = true,
-            Err(error) => return Err(promote_partial_import_error(error, durable_started)),
+            Err(error) => return Err(error),
         }
     }
 
@@ -2336,7 +2329,7 @@ pub(crate) async fn apply_classified(
         if let Err(error) =
             maybe_fail_vault_step_for_test(&operation_id, VaultFailurePoint::BeforeDocument)
         {
-            return Err(promote_partial_import_error(error, durable_started));
+            return Err(error);
         }
         let write_operation = CrdtOperation {
             operation_id: format!("{operation_id}-{index}"),
@@ -2363,7 +2356,7 @@ pub(crate) async fn apply_classified(
                     .document_ids
                     .push(assignment.document_id.clone());
             }
-            Err(error) => return Err(promote_partial_import_error(error, durable_started)),
+            Err(error) => return Err(error),
         }
     }
 
@@ -2373,7 +2366,7 @@ pub(crate) async fn apply_classified(
         if let Err(error) =
             maybe_fail_vault_step_for_test(&operation_id, VaultFailurePoint::BeforeWire)
         {
-            return Err(promote_partial_import_error(error, durable_started));
+            return Err(error);
         }
         let source_block_id = archive_source_block_id(
             app,
@@ -2399,12 +2392,18 @@ pub(crate) async fn apply_classified(
             enqueue_timestamp: enqueue_timestamp.clone(),
             trace_context: operation.trace_context.clone(),
         };
-        match super::workspace_ops::apply_classified(app, &wire_operation).await {
+        match super::workspace_ops::apply_classified_with_prior_hot_commit(
+            app,
+            &wire_operation,
+            durable_started,
+        )
+        .await
+        {
             Ok(_) => {
                 durable_started = true;
                 import_result.wires_created += 1;
             }
-            Err(error) => return Err(promote_partial_import_error(error, durable_started)),
+            Err(error) => return Err(error),
         }
     }
 

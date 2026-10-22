@@ -13,8 +13,12 @@ pub fn read_json<T>(path: &Path) -> AppResult<T>
 where
     T: for<'de> Deserialize<'de>,
 {
-    let data = fs::read_to_string(path)
-        .map_err(|error| AppError::storage(format!("read {}: {error}", display_path(path))))?;
+    let data = fs::read_to_string(path).map_err(|error| {
+        AppError::from(crate::app_error::PersistenceError::io(
+            error,
+            format!("read {}", display_path(path)),
+        ))
+    })?;
     serde_json::from_str(&data)
         .map_err(|error| AppError::serialization(format!("parse {}: {error}", display_path(path))))
 }

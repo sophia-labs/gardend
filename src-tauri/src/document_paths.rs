@@ -1,3 +1,4 @@
+use crate::app_error::PersistenceError;
 use crate::{
     graph_paths::{artifacts_dir, documents_dir, images_dir},
     ids::validate_local_id,
@@ -26,10 +27,12 @@ use std::sync::{Mutex, OnceLock};
 pub(crate) fn existing_document_dir(
     graph_dir: &Path,
     document_id: &str,
-) -> Result<PathBuf, String> {
+) -> Result<PathBuf, PersistenceError> {
     let document_dir = document_dir(graph_dir, document_id)?;
     if !document_dir.join("document.json").is_file() {
-        return Err(format!("document not found: {document_id}"));
+        return Err(PersistenceError::permanent(format!(
+            "document not found: {document_id}"
+        )));
     }
     Ok(document_dir)
 }
@@ -125,6 +128,7 @@ pub(crate) fn self_heal_missing_document_with_lease(
         },
     )
     .map(|_| ())
+    .map_err(Into::into)
 }
 
 /// The title the workspace Y.Doc has recorded for `document_id`, read from
