@@ -3811,7 +3811,7 @@ fn write_new(root: &Path, relative: &str, bytes: &[u8]) -> Result<(), String> {
     file.write_all(bytes)
         .and_then(|_| file.sync_all())
         .map_err(|e| e.to_string())?;
-    crate::storage_atomic::sync_parent_dir(&parent)
+    crate::storage_atomic::sync_parent_dir(&parent).map_err(Into::into)
 }
 
 fn persist_history(graph_dir: &Path, items: &[History]) -> Result<Vec<Value>, String> {

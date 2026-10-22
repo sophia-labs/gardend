@@ -1,3 +1,4 @@
+use crate::app_error::PersistenceError;
 use crate::{
     clock::timestamp,
     ids::validate_local_id,
@@ -83,10 +84,13 @@ pub(crate) fn document_is_tombstoned(graph_dir: &Path, document_id: &str) -> Res
 pub(crate) fn require_document_not_tombstoned(
     graph_dir: &Path,
     document_id: &str,
-) -> Result<(), String> {
-    crate::document_body_availability::require_available(graph_dir, document_id)?;
+) -> Result<(), PersistenceError> {
+    crate::document_body_availability::require_available(graph_dir, document_id)
+        .map_err(PersistenceError::permanent)?;
     if document_is_tombstoned(graph_dir, document_id)? {
-        return Err(format!("document tombstoned: {document_id}"));
+        return Err(PersistenceError::permanent(format!(
+            "document tombstoned: {document_id}"
+        )));
     }
     Ok(())
 }
@@ -98,14 +102,18 @@ pub(crate) fn require_document_tombstone_matches(
     graph_dir: &Path,
     document_id: &str,
     expected_deletion_id: &str,
-) -> Result<DocumentTombstone, String> {
-    crate::document_body_availability::require_available(graph_dir, document_id)?;
-    let current = read_document_tombstone(graph_dir, document_id)?
-        .ok_or_else(|| format!("document tombstone missing during recreation: {document_id}"))?;
+) -> Result<DocumentTombstone, PersistenceError> {
+    crate::document_body_availability::require_available(graph_dir, document_id)
+        .map_err(PersistenceError::permanent)?;
+    let current = read_document_tombstone(graph_dir, document_id)?.ok_or_else(|| {
+        PersistenceError::permanent(format!(
+            "document tombstone missing during recreation: {document_id}"
+        ))
+    })?;
     if current.deletion_id != expected_deletion_id {
-        return Err(format!(
+        return Err(PersistenceError::permanent(format!(
             "document deletion boundary changed during recreation: {document_id}"
-        ));
+        )));
     }
     Ok(current)
 }
@@ -152,21 +160,26 @@ pub(crate) fn clear_document_tombstone_if_matches(
     graph_dir: &Path,
     document_id: &str,
     expected_deletion_id: &str,
-) -> Result<bool, String> {
+) -> Result<bool, PersistenceError> {
     // Deletes establish/replace their fence under this same per-document
     // lock. Keep compare + unlink in one critical section so a newer delete
     // cannot land after our UUID check and then have its marker removed.
-    crate::document_history_service::with_document_history_lock(graph_dir, document_id, || {
-        let Some(current) = read_document_tombstone(graph_dir, document_id)? else {
-            return Ok(false);
-        };
-        if current.deletion_id != expected_deletion_id {
-            return Err(format!(
-                "stale document recreation for {document_id}: deletion boundary changed"
-            ));
-        }
-        remove_file_if_exists(&document_tombstone_path(graph_dir, document_id)?).map_err(Into::into)
-    })
+    crate::document_history_service::with_document_history_lock_classified(
+        graph_dir,
+        document_id,
+        || {
+            let Some(current) = read_document_tombstone(graph_dir, document_id)? else {
+                return Ok(false);
+            };
+            if current.deletion_id != expected_deletion_id {
+                return Err(PersistenceError::permanent(format!(
+                    "stale document recreation for {document_id}: deletion boundary changed"
+                )));
+            }
+            remove_file_if_exists(&document_tombstone_path(graph_dir, document_id)?)
+                .map_err(Into::into)
+        },
+    )
 }
 
 /// Recover the canonical graph/document identity encoded by a document

@@ -20,6 +20,7 @@
 //! default byte offsets, so every Y.Text call converts UTF-16 → UTF-8 byte
 //! offsets against the segment's current content.
 
+use crate::app_error::PersistenceError;
 use crate::app_runtime::AppHandle;
 use crate::crdt_queue::CrdtOperation;
 use serde_json::{json, Map, Value};
@@ -1444,7 +1445,7 @@ async fn document_context(
     let state_path = crate::ydoc_paths::checked_document_ydoc_state_path(&graph_dir, document_id)?;
     let registry = app.state::<super::rooms::RoomRegistry>();
     let room = registry
-        .get_or_create(&format!("doc:{graph_id}:{document_id}"), state_path)
+        .get_or_create_classified(&format!("doc:{graph_id}:{document_id}"), state_path)
         .await?;
     Ok(DocContext {
         room,
@@ -1462,7 +1463,7 @@ async fn persist_document(
     app: &AppHandle,
     ctx: &DocContext,
     operation: &CrdtOperation,
-) -> Result<(), String> {
+) -> Result<(), PersistenceError> {
     let title = crate::document_paths::document_dir(&ctx.graph_dir, &ctx.document_id)
         .ok()
         .map(|dir| dir.join("document.json"))
@@ -1559,7 +1560,7 @@ async fn block_insert(app: &AppHandle, operation: &CrdtOperation) -> ApplyOperat
 
     let outcome = ctx
         .room
-        .update_doc(move |_doc, txn| {
+        .update_doc_classified(move |_doc, txn| {
             // Replay guard: the ledger is co-written transactionally with the
             // mutation, so a hit means the prior apply was durable.
             if let Some(hit) = read_ledger_entry(txn, &operation_id) {
@@ -1661,7 +1662,7 @@ async fn block_update(app: &AppHandle, operation: &CrdtOperation) -> ApplyOperat
     let ctx = document_context(app, operation, &document_id).await?;
     let updated = ctx
         .room
-        .update_doc(move |_doc, txn| {
+        .update_doc_classified(move |_doc, txn| {
             let fragment = content_fragment(txn);
             let block_index = index_blocks_in_fragment(txn, &fragment);
             let mut updated: Vec<String> = Vec::new();
@@ -1754,7 +1755,7 @@ async fn block_edit_text(
 
     let outcome = ctx
         .room
-        .update_doc(move |_doc, txn| {
+        .update_doc_classified(move |_doc, txn| {
             // Replay guard: offset-based text mutations are NOT idempotent —
             // replaying against mutated text corrupts silently. The ledger is
             // the only correct guard here.
@@ -1808,7 +1809,7 @@ async fn block_delete(app: &AppHandle, operation: &CrdtOperation) -> ApplyOperat
     let ctx = document_context(app, operation, &document_id).await?;
     let (deleted, missing, remaining) = ctx
         .room
-        .update_doc(move |_doc, txn| {
+        .update_doc_classified(move |_doc, txn| {
             let fragment = content_fragment(txn);
             let block_index = index_blocks_in_fragment(txn, &fragment);
             let mut deleted: Vec<String> = Vec::new();

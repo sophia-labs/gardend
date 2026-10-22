@@ -1,11 +1,11 @@
+use crate::app_error::PersistenceError;
 use crate::app_runtime::AppHandle;
 use crate::{
     clock::timestamp,
     crdt_queue::record_crdt_phase,
     document_history_file_store::{read_document_tail_commit, write_document_tail_commit},
     document_history_service::{
-        committed_snapshot_for_document, ensure_document_snapshot_for_revision,
-        ensure_document_snapshot_for_revision_with_tombstone_fence,
+        committed_snapshot_for_document, ensure_document_snapshot_for_revision_with_tombstone_fence,
     },
     document_history_store::{LocalDocumentTailCommit, DOCUMENT_TAIL_COMMIT_SCHEMA_VERSION},
     document_meaningful_object::reconcile_document_record,
@@ -72,7 +72,7 @@ fn document_tail_commit_is_current(
 pub(super) fn ensure_document_persistence_tail(
     graph_dir: &Path,
     document: &DocumentRecord,
-) -> Result<bool, String> {
+) -> Result<bool, PersistenceError> {
     ensure_document_persistence_tail_with_tombstone_fence(graph_dir, document, None)
 }
 
@@ -80,7 +80,7 @@ pub(crate) fn ensure_document_persistence_tail_with_tombstone_fence(
     graph_dir: &Path,
     document: &DocumentRecord,
     expected_deletion_id: Option<&str>,
-) -> Result<bool, String> {
+) -> Result<bool, PersistenceError> {
     let _durability_guard = crate::cell_durability::write_guard();
     if let Some(expected_deletion_id) = expected_deletion_id {
         crate::document_tombstone_store::require_document_tombstone_matches(
@@ -110,10 +110,9 @@ pub(crate) fn ensure_document_persistence_tail_with_tombstone_fence(
             Some(expected_deletion_id),
         )?
     } else {
-        ensure_document_snapshot_for_revision(graph_dir, document)?
+        ensure_document_snapshot_for_revision_with_tombstone_fence(graph_dir, document, None)?
     };
-    let graph_content_revision =
-        touch_graph_content_revision(graph_dir).map_err(crate::app_error::AppError::message)?;
+    let graph_content_revision = touch_graph_content_revision(graph_dir)?;
     write_document_tail_commit(
         graph_dir,
         &LocalDocumentTailCommit {
@@ -176,7 +175,7 @@ pub(super) fn save_workspace(
             &app,
             &input.graph_id,
         )?;
-    save_workspace_with_lease(app, input)
+    save_workspace_with_lease(app, input).map_err(Into::into)
 }
 
 /// Non-reentrant workspace save body for a queue/import root that already
@@ -184,7 +183,7 @@ pub(super) fn save_workspace(
 pub(crate) fn save_workspace_with_lease(
     app: AppHandle,
     input: SaveWorkspaceInput,
-) -> Result<WorkspaceRecord, String> {
+) -> Result<WorkspaceRecord, PersistenceError> {
     let _flush_guard = crate::cell_durability::write_guard();
     require_no_active_restore(&app, &input.graph_id)?;
     let trace_operation_id = input.trace_operation_id.clone();
@@ -269,7 +268,7 @@ pub(crate) fn save_workspace_with_lease(
         "rustReadWorkspaceRecordMs",
         read_started.elapsed(),
     );
-    record
+    record.map_err(Into::into)
 }
 
 /// Hot-path workspace persistence: write only the workspace Y.Doc binary state
@@ -363,7 +362,7 @@ pub(super) fn save_document(
             &app,
             &input.graph_id,
         )?;
-    save_document_with_lease(app, input)
+    save_document_with_lease(app, input).map_err(Into::into)
 }
 
 /// Non-reentrant document save body for queue/import handlers that already
@@ -371,7 +370,7 @@ pub(super) fn save_document(
 pub(crate) fn save_document_with_lease(
     app: AppHandle,
     input: SaveDocumentInput,
-) -> Result<DocumentRecord, String> {
+) -> Result<DocumentRecord, PersistenceError> {
     save_document_with_tombstone_fence(app, input, None)
 }
 
@@ -382,7 +381,7 @@ pub(crate) fn save_document_for_recreation(
     app: AppHandle,
     input: SaveDocumentInput,
     expected_deletion_id: &str,
-) -> Result<DocumentRecord, String> {
+) -> Result<DocumentRecord, PersistenceError> {
     save_document_with_tombstone_fence(app, input, Some(expected_deletion_id))
 }
 
@@ -392,7 +391,7 @@ fn save_document_with_tombstone_fence(
     app: AppHandle,
     input: SaveDocumentInput,
     expected_deletion_id: Option<&str>,
-) -> Result<DocumentRecord, String> {
+) -> Result<DocumentRecord, PersistenceError> {
     let _flush_guard = crate::cell_durability::write_guard();
     require_no_active_restore(&app, &input.graph_id)?;
     let trace_operation_id = input.trace_operation_id.clone();
@@ -478,14 +477,17 @@ fn save_document_with_tombstone_fence(
 /// | `Some(e)`           | `current == e`          | `current + 1` (normal write)     |
 /// | `Some(e)`           | `current == e + 1`      | `current` (already-applied replay) |
 /// | `Some(e)`           | anything else           | `Err` (conflict)                 |
-pub(crate) fn next_revision(current: u64, expected_revision: Option<u64>) -> Result<u64, String> {
+pub(crate) fn next_revision(
+    current: u64,
+    expected_revision: Option<u64>,
+) -> Result<u64, PersistenceError> {
     match expected_revision {
         None => Ok(current.saturating_add(1)),
         Some(expected) if current == expected => Ok(current.saturating_add(1)),
         Some(expected) if current == expected.saturating_add(1) => Ok(current),
-        Some(expected) => Err(format!(
+        Some(expected) => Err(PersistenceError::permanent(format!(
             "revision conflict: expected {expected}, actual {current}"
-        )),
+        ))),
     }
 }
 
@@ -494,7 +496,7 @@ fn read_or_initialize_document_record(
     graph_id: &str,
     document_id: &str,
     title: &str,
-) -> Result<DocumentRecord, String> {
+) -> Result<DocumentRecord, PersistenceError> {
     let document_dir = document_dir(graph_dir, document_id)?;
     if document_dir.join("document.json").is_file() {
         return read_json::<DocumentRecord>(&document_dir.join("document.json"))

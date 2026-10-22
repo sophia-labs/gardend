@@ -1,3 +1,4 @@
+use crate::app_error::PersistenceError;
 pub(super) use crate::document_sidecar_store::write_ydoc_update;
 pub(super) use crate::workspace_record_store::read_workspace_record;
 use crate::{
@@ -23,13 +24,20 @@ pub(super) fn read_document_record(
     graph_dir: &Path,
     manifest_path: &Path,
 ) -> Result<DocumentRecord, String> {
+    read_document_record_classified(graph_dir, manifest_path).map_err(Into::into)
+}
+
+pub(super) fn read_document_record_classified(
+    graph_dir: &Path,
+    manifest_path: &Path,
+) -> Result<DocumentRecord, PersistenceError> {
     let document = read_json::<DocumentRecord>(manifest_path)?;
-    validate_document_record_ids(&document)?;
+    validate_document_record_ids(&document).map_err(PersistenceError::permanent)?;
     crate::document_tombstone_store::require_document_not_tombstoned(
         graph_dir,
         &document.document_id,
     )?;
-    hydrate_document_record(graph_dir, document, SidecarBackfill::Allowed)
+    hydrate_document_record(graph_dir, document, SidecarBackfill::Allowed).map_err(Into::into)
 }
 
 /// The workspace title sweep needs history only when it will actually save a
@@ -41,7 +49,7 @@ pub(super) fn read_document_record_if_title_changed(
     graph_dir: &Path,
     manifest_path: &Path,
     title: &str,
-) -> Result<Option<DocumentRecord>, String> {
+) -> Result<Option<DocumentRecord>, PersistenceError> {
     let document = read_json::<DocumentRecord>(manifest_path)?;
     validate_document_record_ids(&document)?;
     crate::document_tombstone_store::require_document_not_tombstoned(
@@ -51,7 +59,9 @@ pub(super) fn read_document_record_if_title_changed(
     if document.title == title {
         return Ok(None);
     }
-    hydrate_document_record(graph_dir, document, SidecarBackfill::Allowed).map(Some)
+    hydrate_document_record(graph_dir, document, SidecarBackfill::Allowed)
+        .map(Some)
+        .map_err(Into::into)
 }
 
 /// Transient compact-inventory projection, NOT another persisted authority.
@@ -143,7 +153,9 @@ pub(super) fn read_document_record_for_identity(
     if document.graph_id != expected_graph_id || document.document_id != expected_document_id {
         return Ok(None);
     }
-    hydrate_document_record(graph_dir, document, backfill).map(Some)
+    hydrate_document_record(graph_dir, document, backfill)
+        .map(Some)
+        .map_err(Into::into)
 }
 
 fn validate_document_record_ids(document: &DocumentRecord) -> Result<(), String> {
@@ -169,7 +181,7 @@ fn hydrate_document_record(
     graph_dir: &Path,
     mut document: DocumentRecord,
     backfill: SidecarBackfill,
-) -> Result<DocumentRecord, String> {
+) -> Result<DocumentRecord, PersistenceError> {
     #[cfg(test)]
     RECORD_READ_COUNTS.with(|counts| {
         let (cold, hydration) = counts.get();
@@ -256,7 +268,7 @@ fn visit_graph_documents_cold(
 pub(super) fn write_document_record(
     graph_dir: &Path,
     document: &DocumentRecord,
-) -> Result<(), String> {
+) -> Result<(), PersistenceError> {
     crate::document_body_availability::require_available(graph_dir, &document.document_id)?;
     let _durability_guard = crate::cell_durability::write_guard();
     let (document_dir, _) = ensure_document_dirs(graph_dir, &document.document_id)?;

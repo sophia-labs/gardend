@@ -25,6 +25,7 @@
 //! with the id in the `sophia` sidecar — the id travels in the file
 //! (FLOW-GARDEN-P1).
 
+use crate::app_error::PersistenceError;
 use crate::app_runtime::AppHandle;
 use crate::crdt_queue::{CrdtOperation, RECOVERED_OPERATION_PAYLOAD_KEY};
 use crate::flow_board::{
@@ -59,7 +60,7 @@ async fn seed_board(
     app: &AppHandle,
     operation: &CrdtOperation,
     hot_committed: &mut bool,
-) -> Result<Value, String> {
+) -> Result<Value, PersistenceError> {
     let graph_id = operation.graph_id.clone();
     let graph_dir = crate::graph_paths::existing_graph_dir(app, &graph_id)?;
     let payload = &operation.payload;
@@ -128,38 +129,44 @@ async fn seed_board(
     match (entry_exists, entry_kind.as_deref()) {
         (true, Some(FLOW_BOARD_KIND)) => {}
         (true, other) => {
-            return Err(format!(
+            return Err(PersistenceError::permanent(format!(
                 "flow.seed: document '{BOARD_DOCUMENT_ID}' already exists in this graph but is \
                  not a flow board (documentKind: {other:?}) — refusing to seed over it"
-            ));
+            )));
         }
         (false, _) => {
-            super::workspace_ops::upsert_document_entry(
+            let entry = json!({
+                "documentId": BOARD_DOCUMENT_ID,
+                "title": "Flow board",
+                "documentKind": FLOW_BOARD_KIND,
+                "order": entry_ts,
+                "updatedAt": entry_ts,
+            });
+            super::workspace_ops::update_workspace_doc_checked(&ws_room, |_doc, txn| {
+                super::workspace_ops::write_workspace_document(txn, &entry)
+            })
+            .await?;
+            *hot_committed = true;
+            super::workspace_ops::persist_workspace(
                 app,
                 &graph_id,
-                &json!({
-                    "documentId": BOARD_DOCUMENT_ID,
-                    "title": "Flow board",
-                    "documentKind": FLOW_BOARD_KIND,
-                    "order": entry_ts,
-                    "updatedAt": entry_ts,
-                }),
+                &graph_dir,
+                &ws_room,
                 &operation.operation_id,
             )
             .await?;
-            *hot_committed = true;
         }
     }
 
     // ── The whole-board room write: one transaction ───────────────────────
     let registry = app.state::<RoomRegistry>();
     let room = registry
-        .get_or_create(
+        .get_or_create_classified(
             &format!("doc:{graph_id}:{BOARD_DOCUMENT_ID}"),
             crate::ydoc_paths::document_ydoc_state_path(&graph_dir, BOARD_DOCUMENT_ID),
         )
         .await?;
-    room.update_doc(move |_doc, txn| {
+    room.update_doc_classified(move |_doc, txn| {
         let non_empty = ["resource", "scene"].iter().any(|root| {
             txn.get_map(*root)
                 .map(|map| map.len(&*txn) > 0)

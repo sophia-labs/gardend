@@ -1,3 +1,4 @@
+use crate::app_error::PersistenceError;
 use crate::app_runtime::AppHandle;
 use crate::{
     graph_service::touch_graph_content_revision,
@@ -202,7 +203,7 @@ pub(crate) fn prepare_tombstoned_document_recreation(
     app: &AppHandle,
     graph_id: &str,
     document_id: &str,
-) -> Result<Option<crate::document_tombstone_store::DocumentTombstone>, String> {
+) -> Result<Option<crate::document_tombstone_store::DocumentTombstone>, PersistenceError> {
     let graph_dir = existing_graph_dir(app, graph_id)?;
     let Some(tombstone) =
         crate::document_tombstone_store::read_document_tombstone(&graph_dir, document_id)?
@@ -221,12 +222,14 @@ pub(crate) fn prepare_tombstoned_document_recreation(
     let current =
         crate::document_tombstone_store::read_document_tombstone(&graph_dir, document_id)?
             .ok_or_else(|| {
-                format!("document tombstone disappeared during recreation: {document_id}")
+                PersistenceError::permanent(format!(
+                    "document tombstone disappeared during recreation: {document_id}"
+                ))
             })?;
     if current.deletion_id != tombstone.deletion_id {
-        return Err(format!(
+        return Err(PersistenceError::permanent(format!(
             "document deletion boundary changed during recreation: {document_id}"
-        ));
+        )));
     }
     Ok(Some(current))
 }

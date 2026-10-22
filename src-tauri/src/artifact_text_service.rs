@@ -180,7 +180,7 @@ pub(crate) async fn read_text(app: &AppHandle, graph: &str, id: &str) -> AppResu
     if owner.is_some() {
         let room = workspace_ops::workspace_room(app, graph, &dir)
             .await
-            .map_err(AppError::storage)?;
+            .map_err(AppError::from)?;
         let exists = room
             .with_doc(|doc| {
                 let txn = doc.transact();
@@ -384,7 +384,7 @@ pub(crate) async fn apply(
     let result = apply_inner(app, operation, &mut committed).await;
     result.map_err(|e| {
         let message=format!("{}: {}",e.code().unwrap_or("artifact_text_mutation_failed"),e.message_ref());
-        if committed { ApplyOperationError::retryable_after_hot_commit(message) }
+        if committed { ApplyOperationError::retryable_after_hot_commit(crate::app_error::PersistenceError::from(e.with_message(message))) }
         else { ApplyOperationError::terminal(format!("{message}; any retained prepared operation must be retried with the same operation_id")) }
     })
 }
@@ -410,7 +410,7 @@ async fn apply_inner(
         hash(&serde_json::to_vec(&input).map_err(|e| AppError::serialization(e.to_string()))?);
     let room = workspace_ops::workspace_room(app, &operation.graph_id, &dir)
         .await
-        .map_err(AppError::storage)?;
+        .map_err(AppError::from)?;
     let exists = room
         .with_doc(|doc| {
             let txn = doc.transact();
@@ -650,7 +650,7 @@ async fn apply_inner(
         map.insert(txn,"sf_sizeBytes",Any::Number(actual.len() as f64));
         map.insert(txn,"updatedAt",workspace_ops::epoch_ms_to_iso(receipt.created_at as f64).as_str());
         Ok(())
-    }).await.map_err(AppError::storage)?;
+    }).await.map_err(AppError::from)?;
     workspace_ops::ensure_workspace_source_effect_persisted(
         app,
         &operation.graph_id,

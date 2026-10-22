@@ -1,3 +1,4 @@
+use crate::app_error::PersistenceError;
 use std::{
     fs,
     io::Write,
@@ -25,19 +26,24 @@ pub(crate) fn copy_file_atomic_inner(
     source: &Path,
     target: &Path,
     temp_path: &Path,
-) -> Result<u64, String> {
+) -> Result<u64, PersistenceError> {
     let bytes_copied = fs::copy(source, temp_path).map_err(|error| {
-        format!(
-            "copy {} to {}: {error}",
-            display_path(source),
-            display_path(temp_path)
+        PersistenceError::io(
+            error,
+            format!(
+                "copy {} to {}",
+                display_path(source),
+                display_path(temp_path)
+            ),
         )
     })?;
     fs::OpenOptions::new()
         .read(true)
         .open(temp_path)
         .and_then(|file| traced_sync(&file, "atomic.copy"))
-        .map_err(|error| format!("sync {}: {error}", display_path(temp_path)))?;
+        .map_err(|error| {
+            PersistenceError::io(error, format!("sync {}", display_path(temp_path)))
+        })?;
     rename_atomic(temp_path, target)?;
     if let Some(parent) = target.parent() {
         sync_parent_dir(parent)?;
@@ -50,7 +56,7 @@ pub(crate) fn write_bytes_atomic(
     temp_path: &Path,
     bytes: &[u8],
     #[cfg_attr(not(unix), allow(unused_variables))] unix_mode: Option<u32>,
-) -> Result<(), String> {
+) -> Result<(), PersistenceError> {
     let mut options = fs::OpenOptions::new();
     options.create_new(true).write(true);
     #[cfg(unix)]
@@ -60,13 +66,15 @@ pub(crate) fn write_bytes_atomic(
         }
     }
 
-    let mut file = options
-        .open(temp_path)
-        .map_err(|error| format!("write {}: {error}", display_path(temp_path)))?;
-    file.write_all(bytes)
-        .map_err(|error| format!("write {}: {error}", display_path(temp_path)))?;
-    traced_sync(&file, "atomic.file")
-        .map_err(|error| format!("sync {}: {error}", display_path(temp_path)))?;
+    let mut file = options.open(temp_path).map_err(|error| {
+        PersistenceError::io(error, format!("write {}", display_path(temp_path)))
+    })?;
+    file.write_all(bytes).map_err(|error| {
+        PersistenceError::io(error, format!("write {}", display_path(temp_path)))
+    })?;
+    traced_sync(&file, "atomic.file").map_err(|error| {
+        PersistenceError::io(error, format!("sync {}", display_path(temp_path)))
+    })?;
     drop(file);
 
     rename_atomic(temp_path, path)?;
@@ -76,12 +84,14 @@ pub(crate) fn write_bytes_atomic(
     Ok(())
 }
 
-pub(crate) fn sync_parent_dir(parent: &Path) -> Result<(), String> {
+pub(crate) fn sync_parent_dir(parent: &Path) -> Result<(), PersistenceError> {
     fs::OpenOptions::new()
         .read(true)
         .open(parent)
         .and_then(|directory| traced_sync(&directory, "dir"))
-        .map_err(|error| format!("sync parent {}: {error}", display_path(parent)))
+        .map_err(|error| {
+            PersistenceError::io(error, format!("sync parent {}", display_path(parent)))
+        })
 }
 
 pub(crate) fn atomic_temp_path(path: &Path) -> PathBuf {
@@ -133,7 +143,7 @@ mod tests {
     }
 }
 
-fn rename_atomic(temp_path: &Path, path: &Path) -> Result<(), String> {
+fn rename_atomic(temp_path: &Path, path: &Path) -> Result<(), PersistenceError> {
     match fs::rename(temp_path, path) {
         Ok(()) => Ok(()),
         Err(error) => {
@@ -141,24 +151,33 @@ fn rename_atomic(temp_path: &Path, path: &Path) -> Result<(), String> {
             {
                 if path.exists() {
                     fs::remove_file(path).map_err(|remove_error| {
-                        format!(
-                            "replace {} after rename failed ({error}): {remove_error}",
-                            display_path(path)
+                        PersistenceError::io(
+                            remove_error,
+                            format!(
+                                "replace {} after rename failed ({error})",
+                                display_path(path)
+                            ),
                         )
                     })?;
                     return fs::rename(temp_path, path).map_err(|rename_error| {
-                        format!(
-                            "rename {} to {}: {rename_error}",
-                            display_path(temp_path),
-                            display_path(path)
+                        PersistenceError::io(
+                            rename_error,
+                            format!(
+                                "rename {} to {}",
+                                display_path(temp_path),
+                                display_path(path)
+                            ),
                         )
                     });
                 }
             }
-            Err(format!(
-                "rename {} to {}: {error}",
-                display_path(temp_path),
-                display_path(path)
+            Err(PersistenceError::io(
+                error,
+                format!(
+                    "rename {} to {}",
+                    display_path(temp_path),
+                    display_path(path)
+                ),
             ))
         }
     }

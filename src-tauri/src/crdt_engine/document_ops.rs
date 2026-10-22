@@ -9,6 +9,7 @@
 //! see API writes live, then persist via the same Rust functions the
 //! desktop frontend's Tauri commands use (save_document → record + RDF).
 
+use crate::app_error::PersistenceError;
 use crate::app_runtime::AppHandle;
 use crate::crdt_engine::{
     builder,
@@ -19,6 +20,7 @@ use crate::crdt_engine::{
 use crate::crdt_queue::CrdtOperation;
 use crate::document_paths::document_dir;
 use crate::document_record_store::read_document_record;
+use crate::document_record_store::read_document_record_classified;
 use crate::document_types::{DocumentRecord, SaveDocumentInput};
 use crate::graph_paths::existing_graph_dir;
 use crate::ydoc_paths::checked_document_ydoc_state_path;
@@ -386,7 +388,9 @@ pub(crate) async fn document_write_classified(
             .recreate_tombstoned_document_room(&room_key, state_path, &tombstone.deletion_id)
             .await
     } else {
-        registry.get_or_create(&room_key, state_path).await
+        registry
+            .get_or_create_classified(&room_key, state_path)
+            .await
     }
     .map_err(ApplyOperationError::retryable_after_hot_commit)?;
     let content_nodes: Vec<Value> = tiptap_json
@@ -486,7 +490,7 @@ pub(crate) async fn document_write_classified(
     let mut write_outcome: Option<DocumentWriteOutcome> = None;
     if revision_disposition == DocumentWriteRevisionDisposition::Apply {
         let outcome = room
-            .update_doc(|_doc, txn| {
+            .update_doc_classified(|_doc, txn| {
                 // doc.get_or_insert_* opens its own transaction and panics while
                 // one is live (yrs 0.27): use the in-transaction variants.
                 let fragment = txn.get_or_insert_xml_fragment("content");
@@ -581,8 +585,9 @@ pub(crate) async fn document_write_classified(
             .as_ref()
             .is_some_and(|record| record.title == title);
     let record_result = match (no_op_write, existing_record.as_ref()) {
-        (true, Some(record)) => serde_json::to_value(record)
-            .map_err(|error| format!("serialize unchanged document record: {error}")),
+        (true, Some(record)) => serde_json::to_value(record).map_err(|error| {
+            PersistenceError::from(format!("serialize unchanged document record: {error}"))
+        }),
         _ => {
             persist_room_document_with_expected_revision(
                 app,
@@ -658,7 +663,7 @@ pub(crate) async fn document_write_classified(
         )
         .map_err(ApplyOperationError::retryable_after_hot_commit)?;
         if !cleared {
-            return Err(ApplyOperationError::retryable_after_hot_commit(format!(
+            return Err(ApplyOperationError::terminal(format!(
                 "document tombstone disappeared before recreation commit: {document_id}"
             )));
         }
@@ -1271,7 +1276,7 @@ pub(crate) async fn persist_room_document(
     title: &str,
     room: &super::rooms::Room,
     operation_id: &str,
-) -> Result<Value, String> {
+) -> Result<Value, PersistenceError> {
     persist_room_document_with_expected_revision(
         app,
         graph_id,
@@ -1295,7 +1300,7 @@ pub(crate) async fn flush_room_document_if_dirty(
     title: &str,
     room: &super::rooms::Room,
     operation_id: &str,
-) -> Result<Option<Value>, String> {
+) -> Result<Option<Value>, PersistenceError> {
     let _projection_guard = room.lock_projection_flush().await;
     if !room.needs_projection_flush() {
         return Ok(None);
@@ -1380,7 +1385,7 @@ async fn persist_room_document_with_expected_revision(
     operation_id: &str,
     expected_revision: Option<&Value>,
     expected_deletion_id: Option<&str>,
-) -> Result<Value, String> {
+) -> Result<Value, PersistenceError> {
     let _projection_guard = room.lock_projection_flush().await;
     persist_room_document_locked(
         app,
@@ -1902,15 +1907,14 @@ pub(super) fn reconcile_matching_document_projection(
     graph_id: &str,
     document_id: &str,
     candidate: &Value,
-) -> Result<Option<Value>, String> {
+) -> Result<Option<Value>, PersistenceError> {
     let graph_dir = existing_graph_dir(app, graph_id)?;
     let manifest = document_dir(&graph_dir, document_id)?.join("document.json");
     if !manifest.is_file() {
         return Ok(None);
     }
-    let raw_record: DocumentRecord =
-        crate::storage::read_json(&manifest).map_err(|error| error.to_string())?;
-    let record = read_document_record(&graph_dir, &manifest)?;
+    let raw_record: DocumentRecord = crate::storage::read_json(&manifest)?;
+    let record = read_document_record_classified(&graph_dir, &manifest)?;
     let raw_record_value = serde_json::to_value(&raw_record)
         .map_err(|error| format!("serialize raw document record: {error}"))?;
     let record_value = serde_json::to_value(&record)
@@ -1925,16 +1929,16 @@ pub(super) fn reconcile_matching_document_projection(
             return Ok(None);
         }
         if record.revision != expected.saturating_add(1) {
-            return Err(format!(
+            return Err(PersistenceError::permanent(format!(
                 "revision conflict: expected {expected}, actual {}",
                 record.revision,
-            ));
+            )));
         }
         if !fields_match {
-            return Err(format!(
+            return Err(PersistenceError::permanent(format!(
                 "revision conflict: expected {expected}, actual {}; replay content differs",
                 record.revision,
-            ));
+            )));
         }
     } else if !fields_match {
         return Ok(None);
@@ -1957,7 +1961,7 @@ async fn persist_room_document_locked(
     operation_id: &str,
     expected_revision: Option<&Value>,
     expected_deletion_id: Option<&str>,
-) -> Result<Value, String> {
+) -> Result<Value, PersistenceError> {
     let document_kind = resolve_document_kind(app, graph_id, document_id).await?;
     let materialized = materialize_room_document(
         graph_id,
@@ -1985,7 +1989,7 @@ pub(super) fn persist_materialized_room_document(
     document_id: &str,
     room: &super::rooms::Room,
     materialized: MaterializedRoomDocument,
-) -> Result<Value, String> {
+) -> Result<Value, PersistenceError> {
     persist_materialized_room_document_with_tombstone_fence(
         app,
         graph_id,
@@ -2003,7 +2007,7 @@ fn persist_materialized_room_document_with_tombstone_fence(
     room: &super::rooms::Room,
     materialized: MaterializedRoomDocument,
     expected_deletion_id: Option<&str>,
-) -> Result<Value, String> {
+) -> Result<Value, PersistenceError> {
     let record_value = if let Some(expected_deletion_id) = expected_deletion_id {
         let graph_dir = existing_graph_dir(app, graph_id)?;
         crate::document_tombstone_store::require_document_tombstone_matches(
@@ -2053,14 +2057,14 @@ pub(crate) async fn sync_room_document_title(
     title: &str,
     room: &super::rooms::Room,
     operation_id: &str,
-) -> Result<bool, String> {
+) -> Result<bool, PersistenceError> {
     let _projection_guard = room.lock_projection_flush().await;
     let graph_dir = existing_graph_dir(app, graph_id)?;
     let manifest = document_dir(&graph_dir, document_id)?.join("document.json");
     if !manifest.is_file() {
         return Ok(false);
     }
-    let record = read_document_record(&graph_dir, &manifest)?;
+    let record = read_document_record_classified(&graph_dir, &manifest)?;
     if record.title == title {
         return Ok(false);
     }
@@ -2144,7 +2148,7 @@ pub(super) fn sync_cold_document_title(
     record: &DocumentRecord,
     title: &str,
     operation_id: &str,
-) -> Result<(), String> {
+) -> Result<(), PersistenceError> {
     save_record_with_workspace_title(app, record, title, operation_id)
 }
 
@@ -2157,7 +2161,7 @@ fn save_record_with_workspace_title(
     record: &DocumentRecord,
     title: &str,
     operation_id: &str,
-) -> Result<(), String> {
+) -> Result<(), PersistenceError> {
     let mut input_value = serde_json::to_value(record)
         .map_err(|error| format!("serialize document title sync input: {error}"))?;
     let input = input_value
@@ -2883,6 +2887,10 @@ static FAIL_NEXT_EDIT_COMMENT_AFTER_HOT: std::sync::OnceLock<std::sync::Mutex<Op
     std::sync::OnceLock::new();
 
 #[cfg(test)]
+static TOMBSTONE_EDIT_COMMENT_AFTER_HOT: std::sync::OnceLock<std::sync::Mutex<Option<String>>> =
+    std::sync::OnceLock::new();
+
+#[cfg(test)]
 pub(crate) fn fail_next_edit_comment_after_hot_for_test(operation_id: impl Into<String>) {
     *FAIL_NEXT_EDIT_COMMENT_AFTER_HOT
         .get_or_init(|| std::sync::Mutex::new(None))
@@ -2891,9 +2899,39 @@ pub(crate) fn fail_next_edit_comment_after_hot_for_test(operation_id: impl Into<
 }
 
 #[cfg(test)]
+pub(crate) fn tombstone_edit_comment_after_hot_for_test(operation_id: &str) {
+    *TOMBSTONE_EDIT_COMMENT_AFTER_HOT
+        .get_or_init(|| std::sync::Mutex::new(None))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(operation_id.to_string());
+}
+
+#[cfg(test)]
 fn maybe_fail_edit_comment_after_hot_for_test(
     operation_id: &str,
+    graph_dir: &std::path::Path,
+    document_id: &str,
 ) -> Result<(), ApplyOperationError> {
+    let tombstone = {
+        let mut pending = TOMBSTONE_EDIT_COMMENT_AFTER_HOT
+            .get_or_init(|| std::sync::Mutex::new(None))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if pending.as_deref() == Some(operation_id) {
+            pending.take();
+            true
+        } else {
+            false
+        }
+    };
+    if tombstone {
+        // Exercise the real persistence refusal after the real room commit.
+        crate::document_tombstone_store::write_document_tombstone_for_operation(
+            graph_dir,
+            document_id,
+            Some("delete-between-hot-and-tail"),
+        )?;
+    }
     let mut pending = FAIL_NEXT_EDIT_COMMENT_AFTER_HOT
         .get_or_init(|| std::sync::Mutex::new(None))
         .lock()
@@ -2938,34 +2976,22 @@ pub(crate) async fn edit_comment_classified(
     let graph_dir = existing_graph_dir(app, &graph_id)?;
     let registry = app.state::<RoomRegistry>();
     let room = registry
-        .get_or_create(
+        .get_or_create_classified(
             &format!("doc:{graph_id}:{document_id}"),
             checked_document_ydoc_state_path(&graph_dir, &document_id)?,
         )
         .await
         .map_err(ApplyOperationError::retryable_after_hot_commit)?;
-    const VALIDATION_PREFIX: &str = "__garden_edit_comment_validation__:";
-    let result = match {
+    let result = {
         let comment_id = comment_id.clone();
-        room.update_doc(move |_doc, txn| {
+        room.update_doc_classified(move |_doc, txn| {
             edit_comment_in_doc(txn, &payload, action, &comment_id, now)
-                .map_err(|error| format!("{VALIDATION_PREFIX}{error}"))
         })
         .await
-    } {
-        Ok(result) => result,
-        Err(error) => match error.strip_prefix(VALIDATION_PREFIX) {
-            Some(validation) => return Err(ApplyOperationError::terminal(validation)),
-            None => {
-                // Room persistence evicts the uncommitted incarnation, so
-                // retrying the same operation is safe. Never terminalize a
-                // transient sidecar write failure.
-                return Err(ApplyOperationError::retryable_after_hot_commit(error));
-            }
-        },
-    };
+    }
+    .map_err(ApplyOperationError::retryable_after_hot_commit)?;
     #[cfg(test)]
-    maybe_fail_edit_comment_after_hot_for_test(&operation.operation_id)?;
+    maybe_fail_edit_comment_after_hot_for_test(&operation.operation_id, &graph_dir, &document_id)?;
 
     // The TS handler runs with {flush:false} and lets the editor channel's
     // debounced save persist; headless cells persist eagerly with the
@@ -3059,7 +3085,7 @@ pub(crate) async fn edit_comments_classified(
         }));
     }
     let room = registry
-        .get_or_create(
+        .get_or_create_classified(
             &format!("doc:{graph_id}:{document_id}"),
             checked_document_ydoc_state_path(&graph_dir, &document_id)?,
         )
@@ -3070,7 +3096,7 @@ pub(crate) async fn edit_comments_classified(
     let mut shared = payload.clone();
     shared.remove("comments");
     let outcome = room
-        .update_doc(move |_doc, txn| {
+        .update_doc_classified(move |_doc, txn| {
             let fragment = txn.get_or_insert_xml_fragment("content");
             let mut placed = Vec::new();
             let mut not_found = Vec::new();
@@ -3508,12 +3534,10 @@ pub(crate) async fn ingest_markdown_original_steps_classified(
                     "mimeType": mime_type,
             }))
             .map_err(|error| {
-                ApplyOperationError::retryable_after_hot_commit(format!(
-                    "assemble adopt original input: {error}"
-                ))
+                ApplyOperationError::terminal(format!("assemble adopt original input: {error}"))
             })?;
         crate::original_file_service::copy_pending_original_file_service(app, input)
-            .map_err(|error| ApplyOperationError::retryable_after_hot_commit(error.message()))?;
+            .map_err(ApplyOperationError::retryable_after_hot_commit)?;
     } else {
         let input: crate::original_file_types::SaveOriginalFileInput =
             serde_json::from_value(json!({
@@ -3524,12 +3548,10 @@ pub(crate) async fn ingest_markdown_original_steps_classified(
                     "dataBase64": data_base64.clone().unwrap_or_default(),
             }))
             .map_err(|error| {
-                ApplyOperationError::retryable_after_hot_commit(format!(
-                    "assemble save original input: {error}"
-                ))
+                ApplyOperationError::terminal(format!("assemble save original input: {error}"))
             })?;
         crate::original_file_service::save_original_file_manifest_service(app, input)
-            .map_err(|error| ApplyOperationError::retryable_after_hot_commit(error.message()))?;
+            .map_err(ApplyOperationError::retryable_after_hot_commit)?;
     }
     #[cfg(test)]
     maybe_fail_ingest_step_for_test(&operation.operation_id, IngestFailurePoint::AfterOriginal)?;
@@ -3566,7 +3588,7 @@ pub(crate) async fn ingest_markdown_original_steps_classified(
     // materialize + persist via save_document.
     let registry = app.state::<RoomRegistry>();
     let room = registry
-        .get_or_create(&format!("doc:{graph_id}:{document_id}"), state_path)
+        .get_or_create_classified(&format!("doc:{graph_id}:{document_id}"), state_path)
         .await
         .map_err(ApplyOperationError::retryable_after_hot_commit)?;
     // Parsed markdown is already canonical; the contract normaliser runs on
@@ -3591,7 +3613,7 @@ pub(crate) async fn ingest_markdown_original_steps_classified(
         ids: IdPolicy::Adopt { minted },
     };
     let desired = minimal_edit::model::desired_from_tiptap_nodes(&content_nodes, &policy);
-    room.update_doc(move |_doc, txn| {
+    room.update_doc_classified(move |_doc, txn| {
         let fragment = txn.get_or_insert_xml_fragment("content");
         let current = minimal_edit::model::read_fragment(&*txn, &fragment, &policy);
         let desired = keep_trailing_empty_paragraph(&current, desired.clone(), &policy);

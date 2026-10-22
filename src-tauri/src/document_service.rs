@@ -1,3 +1,4 @@
+use crate::app_error::PersistenceError;
 use crate::app_runtime::AppHandle;
 pub(super) use crate::document_delete_service::delete_document;
 pub(super) use crate::document_persistence_service::{
@@ -74,7 +75,7 @@ pub(super) fn create_document(
             &app,
             &input.graph_id,
         )?;
-    create_document_with_lease(app, input)
+    create_document_with_lease(app, input).map_err(Into::into)
 }
 
 /// Non-reentrant create body for queue/import handlers that already hold the
@@ -105,8 +106,8 @@ pub(crate) fn refuse_uncreatable_document_id(
 pub(crate) fn create_document_with_lease(
     app: AppHandle,
     input: CreateDocumentInput,
-) -> Result<DocumentRecord, String> {
-    let title = normalize_title(&input.title)?;
+) -> Result<DocumentRecord, PersistenceError> {
+    let title = normalize_title(&input.title).map_err(PersistenceError::permanent)?;
     create_document_record_with_lease(app, input, title)
 }
 
@@ -115,10 +116,13 @@ pub(crate) fn create_document_with_lease(
 pub(crate) fn create_imported_document_with_lease(
     app: AppHandle,
     input: CreateDocumentInput,
-) -> Result<DocumentRecord, String> {
-    let title = crate::ids::normalize_stored_title(&input.title)?;
+) -> Result<DocumentRecord, PersistenceError> {
+    let title =
+        crate::ids::normalize_stored_title(&input.title).map_err(PersistenceError::permanent)?;
     if title != input.title || input.document_id.is_none() {
-        return Err("imported document requires exact title and explicit identity".into());
+        return Err(PersistenceError::permanent(
+            "imported document requires exact title and explicit identity",
+        ));
     }
     create_document_record_with_lease(app, input, title)
 }
@@ -127,13 +131,13 @@ fn create_document_record_with_lease(
     app: AppHandle,
     input: CreateDocumentInput,
     title: String,
-) -> Result<DocumentRecord, String> {
+) -> Result<DocumentRecord, PersistenceError> {
     let _durability_guard = crate::cell_durability::write_guard();
     require_no_active_restore(&app, &input.graph_id)?;
     let graph_dir = existing_graph_dir(&app, &input.graph_id)?;
     let document_id = match input.document_id {
         Some(document_id) => {
-            validate_local_id(&document_id, "document_id")?;
+            validate_local_id(&document_id, "document_id").map_err(PersistenceError::permanent)?;
             document_id
         }
         None => make_document_id(&title),
@@ -143,13 +147,16 @@ fn create_document_record_with_lease(
     crate::document_body_availability::require_available(&graph_dir, &document_id)?;
 
     if crate::document_tombstone_store::document_is_tombstoned(&graph_dir, &document_id)? {
-        return Err(format!(
+        return Err(PersistenceError::permanent(format!(
             "document tombstoned: {document_id}; a deleted document is not created again (create a new document)"
-        ));
+        )));
     }
 
     if document_dir.join("document.json").is_file() {
-        let document = read_document_record(&graph_dir, &document_dir.join("document.json"))?;
+        let document = crate::document_record_store::read_document_record_classified(
+            &graph_dir,
+            &document_dir.join("document.json"),
+        )?;
         ensure_document_persistence_tail(&graph_dir, &document)?;
         return Ok(document);
     }

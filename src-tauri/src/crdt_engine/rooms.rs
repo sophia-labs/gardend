@@ -11,6 +11,7 @@
 //! awareness as merged AwarenessUpdate entries (plain Send data) — the
 //! server is a relay + late-joiner answerer, not an awareness participant.
 
+use crate::app_error::PersistenceError;
 use crate::app_runtime::AppHandle;
 use crate::storage_atomic::{atomic_temp_path, write_bytes_atomic};
 use axum::extract::ws::{Message as WsMessage, WebSocket};
@@ -395,6 +396,16 @@ impl RoomRegistry {
     /// Get or create the room for `key`, hydrating the Doc from
     /// `state_path` if the file exists.
     pub async fn get_or_create(&self, key: &str, state_path: PathBuf) -> Result<Arc<Room>, String> {
+        self.get_or_create_classified(key, state_path)
+            .await
+            .map_err(Into::into)
+    }
+
+    pub(crate) async fn get_or_create_classified(
+        &self,
+        key: &str,
+        state_path: PathBuf,
+    ) -> Result<Arc<Room>, PersistenceError> {
         self.get_or_create_with_tombstone_policy(key, state_path, TombstoneOpenPolicy::Reject)
     }
 
@@ -407,7 +418,7 @@ impl RoomRegistry {
         key: &str,
         state_path: PathBuf,
         expected_deletion_id: &str,
-    ) -> Result<Arc<Room>, String> {
+    ) -> Result<Arc<Room>, PersistenceError> {
         self.get_or_create_with_tombstone_policy(
             key,
             state_path,
@@ -420,21 +431,29 @@ impl RoomRegistry {
         key: &str,
         state_path: PathBuf,
         policy: TombstoneOpenPolicy<'_>,
-    ) -> Result<Arc<Room>, String> {
-        crate::document_body_availability::require_state_path_available(&state_path)?;
+    ) -> Result<Arc<Room>, PersistenceError> {
+        crate::document_body_availability::require_state_path_available(&state_path)
+            .map_err(PersistenceError::permanent)?;
         let observed_tombstone =
             crate::document_tombstone_store::tombstone_for_ydoc_state_path(&state_path)?;
         match (&policy, observed_tombstone.as_ref()) {
             (TombstoneOpenPolicy::Reject, Some(tombstone)) => {
-                return Err(format!("document tombstoned: {}", tombstone.document_id));
+                return Err(PersistenceError::permanent(format!(
+                    "document tombstoned: {}",
+                    tombstone.document_id
+                )));
             }
             (TombstoneOpenPolicy::FreshRecreation(expected), Some(tombstone))
                 if tombstone.deletion_id == *expected => {}
             (TombstoneOpenPolicy::FreshRecreation(_), Some(_)) => {
-                return Err("document deletion boundary changed before recreation".to_string());
+                return Err(PersistenceError::permanent(
+                    "document deletion boundary changed before recreation",
+                ));
             }
             (TombstoneOpenPolicy::FreshRecreation(_), None) => {
-                return Err("document tombstone missing before recreation".to_string());
+                return Err(PersistenceError::permanent(
+                    "document tombstone missing before recreation",
+                ));
             }
             (TombstoneOpenPolicy::Reject, None) => {}
         }
@@ -448,7 +467,7 @@ impl RoomRegistry {
             .iter()
             .any(|graph_id| room_key_belongs_to_graph(key, graph_id))
         {
-            return Err("graph room is unavailable during disk archive restore".to_string());
+            return Err("graph room is unavailable during disk archive restore".into());
         }
         let mut rooms = self
             .rooms
@@ -472,8 +491,9 @@ impl RoomRegistry {
         let doc = Doc::new();
         let mut hydrated = false;
         if matches!(&policy, TombstoneOpenPolicy::Reject) && state_path.exists() {
-            let bytes = std::fs::read(&state_path)
-                .map_err(|error| format!("read ydoc state {}: {error}", state_path.display()))?;
+            let bytes = std::fs::read(&state_path).map_err(|error| {
+                PersistenceError::io(error, format!("read ydoc state {}", state_path.display()))
+            })?;
             // Two on-disk shapes both mean "no application content yet": the
             // legacy zero-byte sentinel, and `write_ydoc_update`'s canonical
             // encoded-empty-Y.Doc bytes (written so an empty sidecar is still
@@ -493,12 +513,18 @@ impl RoomRegistry {
             // touches the Y.Doc.
             if !bytes.is_empty() {
                 let update = Update::decode_v1(&bytes).map_err(|error| {
-                    format!("decode ydoc state {}: {error}", state_path.display())
+                    PersistenceError::permanent(format!(
+                        "decode ydoc state {}: {error}",
+                        state_path.display()
+                    ))
                 })?;
                 if !update.is_empty() {
                     let mut txn = doc.transact_mut();
                     txn.apply_update(update).map_err(|error| {
-                        format!("hydrate ydoc {}: {error}", state_path.display())
+                        PersistenceError::permanent(format!(
+                            "hydrate ydoc {}: {error}",
+                            state_path.display()
+                        ))
                     })?;
                     hydrated = true;
                 }
@@ -543,12 +569,12 @@ impl RoomRegistry {
         room: Arc<Room>,
         policy: &TombstoneOpenPolicy<'_>,
         evict_on_error: bool,
-    ) -> Result<Arc<Room>, String> {
+    ) -> Result<Arc<Room>, PersistenceError> {
         if let Err(error) =
             crate::document_body_availability::require_state_path_available(state_path)
         {
             self.evict_room_if_identity(key, &room);
-            return Err(error);
+            return Err(PersistenceError::permanent(error));
         }
         // The room is already visible in the registry when this recheck runs,
         // so an I/O/parse error out of the tombstone store must not escape
@@ -565,7 +591,7 @@ impl RoomRegistry {
                         // this key while we held no lock.
                         self.evict_room_if_identity(key, &room);
                     }
-                    return Err(error);
+                    return Err(error.into());
                 }
             };
         let valid = match (policy, current.as_ref()) {
@@ -582,8 +608,13 @@ impl RoomRegistry {
         // entry with a live room since we dropped the lock — never evict it.
         self.evict_room_if_identity(key, &room);
         match current {
-            Some(tombstone) => Err(format!("document tombstoned: {}", tombstone.document_id)),
-            None => Err("document tombstone disappeared during recreation".to_string()),
+            Some(tombstone) => Err(PersistenceError::permanent(format!(
+                "document tombstoned: {}",
+                tombstone.document_id
+            ))),
+            None => Err(PersistenceError::permanent(
+                "document tombstone disappeared during recreation",
+            )),
         }
     }
 
@@ -1060,21 +1091,33 @@ impl Room {
     where
         F: FnOnce(&Doc, &mut yrs::TransactionMut<'_>) -> Result<T, String>,
     {
+        self.update_doc_classified(mutate).await.map_err(Into::into)
+    }
+
+    pub(crate) async fn update_doc_classified<T, F>(&self, mutate: F) -> Result<T, PersistenceError>
+    where
+        F: FnOnce(&Doc, &mut yrs::TransactionMut<'_>) -> Result<T, String>,
+    {
         if self.is_evicted() {
-            return Err("room was evicted".to_string());
+            return Err(PersistenceError::permanent("room was evicted"));
         }
         let mutation = {
             let doc = self.doc.lock().await;
             let mut txn = doc.transact_mut();
-            match mutate(&doc, &mut txn).and_then(|result| {
-                // W6: a fenced operation's document writes meet the visitor
-                // content policy before they commit (an Err evicts the room,
-                // so nothing of it persists).
-                match crate::visitor_fence::current_room_policy() {
-                    Some(policy) => self.check_visitor_policy(&policy, &txn).map(|()| result),
-                    None => Ok(result),
-                }
-            }) {
+            match mutate(&doc, &mut txn)
+                .map_err(PersistenceError::permanent)
+                .and_then(|result| {
+                    // W6: a fenced operation's document writes meet the visitor
+                    // content policy before they commit (an Err evicts the room,
+                    // so nothing of it persists).
+                    match crate::visitor_fence::current_room_policy() {
+                        Some(policy) => self
+                            .check_visitor_policy(&policy, &txn)
+                            .map(|()| result)
+                            .map_err(PersistenceError::permanent),
+                        None => Ok(result),
+                    }
+                }) {
                 Ok(result) => {
                     let update = txn.encode_update_v1();
                     if update.len() > 3 {
@@ -1100,7 +1143,7 @@ impl Room {
         // operation caller observe success. On failure `persist` evicts this
         // partially-mutated room so a later connection rehydrates the last
         // durable state instead of flushing it cold.
-        self.persist().await?;
+        self.persist_classified().await?;
         // An empty transaction still encodes a few framing bytes; only
         // broadcast when content actually changed.
         if update.len() > 3 {
@@ -1321,9 +1364,13 @@ impl Room {
 
     /// Persist the full authoritative state. Called after applied updates;
     /// cheap for M1-scale docs (full-state write, atomic rename).
+    async fn persist(&self) -> Result<(), String> {
+        self.persist_classified().await.map_err(Into::into)
+    }
+
     #[tracing::instrument(target = "gardend_otel", name = "ydoc.state.persist", skip_all,
         fields(sophia.ydoc.state_bytes = tracing::field::Empty))]
-    async fn persist(&self) -> Result<(), String> {
+    async fn persist_classified(&self) -> Result<(), PersistenceError> {
         let bytes = async {
             let doc = self.doc.lock().await;
             let txn = doc.transact();
@@ -1352,20 +1399,25 @@ impl Room {
     }
 
     #[tracing::instrument(target = "gardend_otel", name = "ydoc.state.write", skip_all, fields(sophia.ydoc.state_bytes = bytes.len() as u64))]
-    fn persist_state_bytes_at(state_path: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
-        crate::document_body_availability::require_state_path_available(state_path)?;
+    fn persist_state_bytes_at(
+        state_path: &std::path::Path,
+        bytes: &[u8],
+    ) -> Result<(), PersistenceError> {
+        crate::document_body_availability::require_state_path_available(state_path)
+            .map_err(PersistenceError::permanent)?;
         // This synchronous hot-authority commit is a durability transaction.
         // The gate prevents an EFS snapshot from walking the profile while the
         // sidecar's parent/temp/final transition is in progress. The guard is
         // re-entrant for callers that already own a broader synchronous commit.
         let _durability_guard = crate::cell_durability::write_guard();
         if let Some(parent) = state_path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|error| format!("room persist mkdir {}: {error}", parent.display()))?;
+            std::fs::create_dir_all(parent).map_err(|error| {
+                PersistenceError::io(error, format!("room persist mkdir {}", parent.display()))
+            })?;
         }
         let temp_path = atomic_temp_path(state_path);
         write_bytes_atomic(state_path, &temp_path, bytes, None)
-            .map_err(|error| format!("room persist {}: {error}", state_path.display()))
+            .map_err(|error| error.with_context(format!("room persist {}", state_path.display())))
     }
 
     #[cfg(test)]
@@ -1379,7 +1431,7 @@ impl Room {
 
     #[cfg(test)]
     pub(crate) fn persist_state_bytes_for_test(&self, bytes: &[u8]) -> Result<(), String> {
-        Room::persist_state_bytes_at(&self.state_path, bytes)
+        Room::persist_state_bytes_at(&self.state_path, bytes).map_err(Into::into)
     }
 
     #[cfg(test)]

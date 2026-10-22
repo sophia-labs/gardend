@@ -55,8 +55,7 @@ pub(super) fn save_original_file_service(
         data_base64,
     } = input;
     let graph_dir = existing_graph_dir(app, &graph_id).map_err(AppError::storage)?;
-    let document_dir =
-        existing_document_dir(&graph_dir, &document_id).map_err(AppError::storage)?;
+    let document_dir = existing_document_dir(&graph_dir, &document_id).map_err(AppError::from)?;
     let (manifest, bytes) = save_original_file_to_dir(
         &document_dir.join("original"),
         &filename,
@@ -105,8 +104,7 @@ pub(super) fn save_original_file_manifest_service(
         data_base64,
     } = input;
     let graph_dir = existing_graph_dir(app, &graph_id).map_err(AppError::storage)?;
-    let document_dir =
-        existing_document_dir(&graph_dir, &document_id).map_err(AppError::storage)?;
+    let document_dir = existing_document_dir(&graph_dir, &document_id).map_err(AppError::from)?;
     let (manifest, _) = save_original_file_to_dir(
         &document_dir.join("original"),
         &filename,
@@ -167,7 +165,7 @@ fn adopt_pending_original_file_inner(
     let _flush_guard = crate::cell_durability::write_guard();
     let graph_dir = existing_graph_dir(app, &input.graph_id).map_err(AppError::storage)?;
     let document_dir =
-        existing_document_dir(&graph_dir, &input.document_id).map_err(AppError::storage)?;
+        existing_document_dir(&graph_dir, &input.document_id).map_err(AppError::from)?;
     let pending_path = validate_pending_upload_path(&graph_dir, &input.pending_path)
         .map_err(AppError::validation)?;
     let manifest = save_original_file_from_path_to_dir(
@@ -230,7 +228,7 @@ pub(super) fn read_document_original_file(
     document_id: &str,
 ) -> AppResult<(OriginalFileManifest, Vec<u8>)> {
     let graph_dir = existing_graph_dir(app, graph_id).map_err(AppError::storage)?;
-    let document_dir = existing_document_dir(&graph_dir, document_id).map_err(AppError::storage)?;
+    let document_dir = existing_document_dir(&graph_dir, document_id).map_err(AppError::from)?;
     read_original_file_from_dir(&document_dir.join("original")).map_err(AppError::storage)
 }
 

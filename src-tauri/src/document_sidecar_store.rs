@@ -1,3 +1,4 @@
+use crate::app_error::PersistenceError;
 use crate::{
     document_types::DocumentRecord,
     paths::{document_ydoc_dir, document_ydoc_state_path},
@@ -33,7 +34,9 @@ pub(super) fn canonicalize_ydoc_update_bytes(bytes: Vec<u8>) -> Vec<u8> {
     }
 }
 
-pub(super) fn read_ydoc_update_base64(state_path: &Path) -> Result<Option<String>, String> {
+pub(super) fn read_ydoc_update_base64(
+    state_path: &Path,
+) -> Result<Option<String>, PersistenceError> {
     if !state_path.is_file() {
         return Ok(None);
     }
@@ -44,7 +47,7 @@ pub(super) fn read_ydoc_update_base64(state_path: &Path) -> Result<Option<String
 pub(super) fn write_document_state_files(
     graph_dir: &Path,
     document: &DocumentRecord,
-) -> Result<(), String> {
+) -> Result<(), PersistenceError> {
     let ydoc_dir = document_ydoc_dir(graph_dir, &document.document_id);
     create_dir_all(&ydoc_dir)?;
     write_ydoc_update(
@@ -54,7 +57,7 @@ pub(super) fn write_document_state_files(
 
     if !document.tiptap_xml.is_empty() {
         write_bytes(&ydoc_dir.join("tiptap.xml"), document.tiptap_xml.as_bytes())
-            .map_err(|error| format!("write TipTap XML: {error}"))?;
+            .map_err(|error| PersistenceError::from(error).with_context("write TipTap XML"))?;
     }
     if let Some(tiptap_json) = &document.tiptap_json {
         write_json(&ydoc_dir.join("tiptap.json"), tiptap_json)?;
@@ -67,8 +70,12 @@ pub(super) fn write_document_state_files(
     Ok(())
 }
 
-pub(super) fn write_ydoc_update(state_path: &Path, ydoc_update_base64: &str) -> Result<(), String> {
-    crate::document_body_availability::require_state_path_available(state_path)?;
+pub(super) fn write_ydoc_update(
+    state_path: &Path,
+    ydoc_update_base64: &str,
+) -> Result<(), PersistenceError> {
+    crate::document_body_availability::require_state_path_available(state_path)
+        .map_err(PersistenceError::permanent)?;
     if let Some(parent) = state_path.parent() {
         create_dir_all(parent)?;
     }
@@ -77,7 +84,7 @@ pub(super) fn write_ydoc_update(state_path: &Path, ydoc_update_base64: &str) -> 
     } else {
         BASE64_STANDARD
             .decode(ydoc_update_base64)
-            .map_err(|error| format!("decode Yjs update: {error}"))?
+            .map_err(|error| PersistenceError::permanent(format!("decode Yjs update: {error}")))?
     };
     write_bytes(state_path, &state_bytes).map_err(Into::into)
 }

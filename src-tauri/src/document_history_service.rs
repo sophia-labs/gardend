@@ -226,6 +226,17 @@ pub(crate) fn with_document_history_lock<T>(
     operation()
 }
 
+/// Tail mutations retain permanent refusal markers across the history lock.
+pub(crate) fn with_document_history_lock_classified<T>(
+    graph_dir: &Path,
+    document_id: &str,
+    operation: impl FnOnce() -> Result<T, crate::app_error::PersistenceError>,
+) -> Result<T, crate::app_error::PersistenceError> {
+    let _durability_guard = crate::cell_durability::write_guard();
+    let _guard = acquire_document_history_mutation_lock(graph_dir, document_id)?;
+    operation()
+}
+
 /// Graph duplication reads a document's history directory under the same
 /// exclusive lock as capture/copy/delete, producing one coherent index and
 /// payload view even though manual snapshots do not take the graph lease.
@@ -377,6 +388,7 @@ pub(super) fn ensure_document_snapshot_for_revision(
     document: &DocumentRecord,
 ) -> Result<LocalDocumentSnapshotMeta, String> {
     ensure_document_snapshot_for_revision_with_tombstone_fence(graph_dir, document, None)
+        .map_err(Into::into)
 }
 
 /// Internal recreation path: normal history writes reject every tombstoned
@@ -389,7 +401,7 @@ pub(super) fn ensure_document_snapshot_for_revision_with_tombstone_fence(
     graph_dir: &Path,
     document: &DocumentRecord,
     expected_deletion_id: Option<&str>,
-) -> Result<LocalDocumentSnapshotMeta, String> {
+) -> Result<LocalDocumentSnapshotMeta, crate::app_error::PersistenceError> {
     let _durability_guard = crate::cell_durability::write_guard();
     let _history_guard = acquire_document_history_mutation_lock(graph_dir, &document.document_id)?;
     if let Some(expected_deletion_id) = expected_deletion_id {
@@ -404,7 +416,7 @@ pub(super) fn ensure_document_snapshot_for_revision_with_tombstone_fence(
             &document.document_id,
         )?;
     }
-    ensure_document_snapshot_for_revision_locked(graph_dir, document)
+    ensure_document_snapshot_for_revision_locked(graph_dir, document).map_err(Into::into)
 }
 
 fn ensure_document_snapshot_for_revision_locked(
