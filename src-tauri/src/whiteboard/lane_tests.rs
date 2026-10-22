@@ -421,9 +421,11 @@ fn cold_record_reads_the_sidecar() {
     let empty_dir = temp_dir();
     let emptied = reconcile_record(&store, &empty_dir, &record(Some("whiteboard"), ""))
         .expect("a missing sidecar is an empty board");
-    assert_eq!(emptied.removes.len(), 58);
+    // An empty board is still a board: its type, id and title stay (3 triples); the 55 triples of shapes, arrows and
+    // authorship go.
+    assert_eq!(emptied.removes.len(), 55);
     assert!(emptied.adds.is_empty());
-    assert!(current_triples(&store, G, DOC).expect("survey").is_empty());
+    assert_eq!(current_triples(&store, G, DOC).expect("survey").len(), 3);
 
     // Any record that is not a whiteboard is a no-op, whatever its sidecar says.
     let filled = memory_store();
