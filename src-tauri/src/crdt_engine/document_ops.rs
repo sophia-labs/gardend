@@ -1958,6 +1958,9 @@ async fn persist_room_document_locked(
     expected_revision: Option<&Value>,
     expected_deletion_id: Option<&str>,
 ) -> Result<Value, String> {
+    if room.is_evicted() {
+        return Err("room was evicted".to_string());
+    }
     let document_kind = resolve_document_kind(app, graph_id, document_id).await?;
     let materialized = materialize_room_document(
         graph_id,
@@ -2004,6 +2007,9 @@ fn persist_materialized_room_document_with_tombstone_fence(
     materialized: MaterializedRoomDocument,
     expected_deletion_id: Option<&str>,
 ) -> Result<Value, String> {
+    if room.is_evicted() {
+        return Err("room was evicted".to_string());
+    }
     let record_value = if let Some(expected_deletion_id) = expected_deletion_id {
         let graph_dir = existing_graph_dir(app, graph_id)?;
         crate::document_tombstone_store::require_document_tombstone_matches(
@@ -2026,7 +2032,7 @@ fn persist_materialized_room_document_with_tombstone_fence(
         )? {
             Some(record) => record,
             None => {
-                let record = crate::document_persistence_service::save_document_with_lease(
+                let record = crate::document_persistence_service::save_room_document_projection(
                     app.clone(),
                     materialized.save_input,
                 )?;
@@ -2920,6 +2926,14 @@ pub(crate) async fn edit_comment_classified(
     app: &AppHandle,
     operation: &CrdtOperation,
 ) -> ApplyOperationResult<Value> {
+    edit_comment_with_lease(app, operation, None).await
+}
+
+pub(super) async fn edit_comment_with_lease(
+    app: &AppHandle,
+    operation: &CrdtOperation,
+    lease: Option<&mut super::persistence_coordinator::HotWriteLease>,
+) -> ApplyOperationResult<Value> {
     let graph_id = operation.graph_id.clone();
     let document_id = operation
         .document_id
@@ -2967,9 +2981,12 @@ pub(crate) async fn edit_comment_classified(
     #[cfg(test)]
     maybe_fail_edit_comment_after_hot_for_test(&operation.operation_id)?;
 
-    // The TS handler runs with {flush:false} and lets the editor channel's
-    // debounced save persist; headless cells persist eagerly with the
-    // existing record title (block_ops parity).
+    // The room sidecar is durable. Keep only the lifecycle fence while the
+    // per-room projection gate orders record/RDF/history work. Still await
+    // that work before success: read_document consumes the cold record.
+    if let Some(lease) = lease {
+        lease.release_for_projection();
+    }
     let title = existing_record_title(&graph_dir, &document_id);
     persist_room_document(
         app,

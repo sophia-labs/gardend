@@ -45,13 +45,21 @@ pub(super) fn write_document_state_files(
     graph_dir: &Path,
     document: &DocumentRecord,
 ) -> Result<(), String> {
-    let ydoc_dir = document_ydoc_dir(graph_dir, &document.document_id);
-    create_dir_all(&ydoc_dir)?;
     write_ydoc_update(
         &document_ydoc_state_path(graph_dir, &document.document_id),
         &document.ydoc_update_base64,
     )?;
+    write_document_projection_files(graph_dir, document)
+}
 
+/// A hosted room already persisted its authority. A delayed projection must
+/// never replace it with the older update bytes captured in its snapshot.
+pub(super) fn write_document_projection_files(
+    graph_dir: &Path,
+    document: &DocumentRecord,
+) -> Result<(), String> {
+    let ydoc_dir = document_ydoc_dir(graph_dir, &document.document_id);
+    create_dir_all(&ydoc_dir)?;
     if !document.tiptap_xml.is_empty() {
         write_bytes(&ydoc_dir.join("tiptap.xml"), document.tiptap_xml.as_bytes())
             .map_err(|error| format!("write TipTap XML: {error}"))?;

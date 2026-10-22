@@ -10,7 +10,7 @@ use serde_json::json;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::Instrument;
+use tracing::{instrument::WithSubscriber, Instrument};
 use yrs::{Doc, ReadTxn, StateVector, Transact, WriteTxn};
 
 const GRAPH: &str = "otel-graph";
@@ -43,6 +43,7 @@ impl Profile {
         handle.manage(GraphPersistenceCoordinator::default());
         handle.manage(RoomRegistry::default());
         handle.manage(CrdtOperationQueue::default());
+        handle.manage(crate::active_documents::ActiveDocumentRegistry::default());
         handle.manage(Arc::new(crate::cell_lifecycle::CellLifecycle::new()));
         handle.manage(Arc::new(crate::restore_guard::RestoreGuardState::default()));
         crate::graph_service::create_graph_service(
@@ -82,6 +83,353 @@ fn attribute<'a>(span: &'a SpanData, key: &str) -> Option<&'a opentelemetry::Val
         .iter()
         .find(|kv| kv.key.as_str() == key)
         .map(|kv| &kv.value)
+}
+
+fn milliseconds(span: &SpanData, key: &str) -> f64 {
+    match attribute(span, key) {
+        Some(opentelemetry::Value::F64(value)) => *value,
+        value => panic!("missing numeric {key}: {value:?}"),
+    }
+}
+
+fn create_document(app: &crate::app_runtime::AppHandle, document_id: &str) {
+    let coordinator = app.state::<GraphPersistenceCoordinator>();
+    let _lease = coordinator.acquire_hot_write_blocking(GRAPH).unwrap();
+    crate::document_service::create_document_with_lease(
+        app.clone(),
+        crate::document_types::CreateDocumentInput {
+            graph_id: GRAPH.to_string(),
+            document_id: Some(document_id.to_string()),
+            title: document_id.to_string(),
+        },
+    )
+    .unwrap();
+}
+
+#[test]
+fn document_projection_releases_hot_write_but_keeps_the_deletion_fence() {
+    for (kind, payload) in [
+        (
+            "block.insert",
+            json!({"blocks": [{"id": "inserted", "content": "inserted text"}]}),
+        ),
+        (
+            "document.editComment",
+            json!({"action": "set", "commentId": "note", "text": "a note"}),
+        ),
+        (
+            "block.editText",
+            json!({"blockId": "large-0", "operations": [{"type": "insert", "offset": 0, "text": "edited "}]}),
+        ),
+    ] {
+        let profile = Profile::new();
+        let app = profile.app();
+        create_document(&app, "large");
+        create_document(&app, "other");
+        let (provider, exporter, dispatch) = test_support::capture(true);
+        let work = async {
+            let registry = app.state::<RoomRegistry>();
+            let graph_dir = crate::graph_paths::existing_graph_dir(&app, GRAPH).unwrap();
+            let state_path = crate::ydoc_paths::document_ydoc_state_path(&graph_dir, "large");
+            let room = registry
+                .get_or_create("doc:otel-graph:large", state_path.clone())
+                .await
+                .unwrap();
+            // A real book-sized room. Hold only its projection gate to
+            // make the concurrency assertion deterministic on any disk.
+            room.update_doc(|_doc, txn| {
+                let fragment = txn.get_or_insert_xml_fragment("content");
+                let nodes: Vec<_> = (0..2470)
+                    .map(|index| json!({
+                        "type": "paragraph", "attrs": {"data-block-id": format!("large-{index}")},
+                        "content": [{"type": "text", "text": "A paragraph in the large document."}],
+                    }))
+                    .collect();
+                super::builder::append_nodes(txn, &fragment, &nodes);
+                Ok(())
+            })
+            .await
+            .unwrap();
+            let before = std::fs::read(&state_path).unwrap();
+            let projection_guard = room.lock_projection_flush().await;
+            let writer_app = app.clone();
+            let writer = tokio::spawn(
+                async move {
+                    crate::crdt_queue::enqueue_crdt_operation(
+                        writer_app,
+                        EnqueueCrdtOperationInput {
+                            kind: kind.to_string(),
+                            graph_id: GRAPH.to_string(),
+                            document_id: Some("large".to_string()),
+                            payload,
+                        },
+                    )
+                    .await
+                }
+                .with_current_subscriber(),
+            );
+            tokio::time::timeout(Duration::from_secs(10), async {
+                while std::fs::read(&state_path).unwrap() == before {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+            })
+            .await
+            .expect("queued mutation commits its authority before projection");
+
+            let other = registry
+                .get_or_create(
+                    "doc:otel-graph:other",
+                    crate::ydoc_paths::document_ydoc_state_path(&graph_dir, "other"),
+                )
+                .await
+                .unwrap();
+            let coordinator = app.state::<GraphPersistenceCoordinator>();
+            let other_write = tracing::info_span!(target: "gardend_otel", "test.other_document");
+            let update_other = async {
+                let lease = tokio::time::timeout(
+                    Duration::from_secs(10),
+                    coordinator.acquire_hot_write(GRAPH),
+                )
+                .await
+                .expect("another document must not wait for the blocked projection")
+                .unwrap();
+                lease.declare_rdf_read_only();
+                other.update_doc(|_doc, txn| {
+                    let fragment = txn.get_or_insert_xml_fragment("content");
+                    super::builder::append_nodes(txn, &fragment, &[json!({
+                        "type": "paragraph", "content": [{"type": "text", "text": "other document"}],
+                    })]);
+                    Ok(())
+                }).await.unwrap();
+            };
+            update_other.instrument(other_write).await;
+            assert!(
+                !writer.is_finished(),
+                "projection is still fenced by its room gate"
+            );
+            assert!(
+                tokio::time::timeout(
+                    Duration::from_millis(25),
+                    coordinator.acquire_lifecycle_exclusive(GRAPH)
+                )
+                .await
+                .is_err(),
+                "deletion still waits for the projection's lifecycle reader"
+            );
+            // Leave an observable gap between the hot commit and projection.
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            drop(projection_guard);
+            writer
+                .await
+                .unwrap()
+                .expect("projection and queued operation complete");
+            assert!(!room.needs_projection_flush());
+            assert_eq!(
+                std::fs::read(&state_path).unwrap(),
+                room.encode_state_for_test().await
+            );
+        };
+        tracing::dispatcher::with_default(&dispatch, || runtime().block_on(work));
+        provider.force_flush().unwrap();
+        let spans = exporter.get_finished_spans().unwrap();
+        let apply = spans
+            .iter()
+            .find(|span| {
+                span.name == "crdt.op.apply"
+                    && attribute(span, "sophia.crdt.kind")
+                        == Some(&opentelemetry::Value::from(kind))
+            })
+            .unwrap();
+        let hot = spans
+            .iter()
+            .find(|span| {
+                span.name == "graph.lease.hot_write"
+                    && span.parent_span_id == apply.span_context.span_id()
+            })
+            .unwrap();
+        let materialize = spans
+            .iter()
+            .find(|span| {
+                span.name == "document.materialize"
+                    && span.parent_span_id == apply.span_context.span_id()
+            })
+            .unwrap();
+        // Lease span durations include acquisition; held_ms is the actual hold.
+        let released_at = hot.start_time
+            + Duration::from_secs_f64(
+                (milliseconds(hot, "sophia.lease.wait_ms")
+                    + milliseconds(hot, "sophia.lease.held_ms"))
+                    / 1000.0,
+            );
+        assert!(
+            released_at + Duration::from_millis(50) < materialize.start_time,
+            "{kind} held the hot lease into projection"
+        );
+        let other = spans
+            .iter()
+            .find(|span| span.name == "test.other_document")
+            .unwrap();
+        let other_hot = spans
+            .iter()
+            .find(|span| {
+                span.name == "graph.lease.hot_write"
+                    && span.parent_span_id == other.span_context.span_id()
+            })
+            .unwrap();
+        assert!(milliseconds(other_hot, "sophia.lease.wait_ms") < 100.0);
+        assert!(milliseconds(other_hot, "sophia.lease.held_ms") >= 0.0);
+        assert!(other.end_time < materialize.start_time);
+        for name in [
+            "document.save",
+            "document.record.write",
+            "document.rdf.reconcile",
+            "document.history.snapshot",
+        ] {
+            assert!(
+                spans
+                    .iter()
+                    .any(|span| span.name == name && span.start_time >= materialize.end_time),
+                "missing {name}"
+            );
+        }
+    }
+}
+
+#[test]
+fn insert_success_is_visible_to_both_mcp_reads_and_rdf() {
+    let profile = Profile::new();
+    let app = profile.app();
+    create_document(&app, "read-after-insert");
+    let (provider, exporter, dispatch) = test_support::capture(true);
+    let work = async {
+        crate::mcp_block_mutation_service::mcp_local_insert_blocks(
+            app.clone(),
+            &json!({
+                "graph_id": GRAPH, "document_id": "read-after-insert",
+                "blocks": [{"id": "new-block", "content": "immediate block"}],
+            }),
+        )
+        .await
+        .unwrap();
+        let args = json!({"graph_id": GRAPH, "document_id": "read-after-insert", "format": "xml"});
+        let read_app = app.clone();
+        let read_args = args.clone();
+        let read_document =
+            crate::app_runtime::async_runtime::spawn_blocking(crate::telemetry::blocking(
+                move || crate::document_mcp_service::mcp_local_read_document(read_app, &read_args),
+            ));
+        let (document, blocks) = tokio::join!(
+            read_document,
+            crate::document_mcp_blocks::mcp_local_read_blocks(app.clone(), &args),
+        );
+        assert!(document.unwrap().unwrap()["content"]
+            .as_str()
+            .unwrap()
+            .contains("immediate block"));
+        let blocks = blocks.unwrap();
+        assert_eq!(blocks["blocks"][0]["block_id"], "new-block");
+        assert!(blocks["blocks"][0]["content"]
+            .as_str()
+            .unwrap()
+            .contains("immediate block"));
+        app.state::<crate::active_documents::ActiveDocumentRegistry>()
+            .replace(vec![(GRAPH.to_string(), "read-after-insert".to_string())])
+            .unwrap();
+        let live = crate::document_mcp_blocks::mcp_local_read_blocks(app.clone(), &args)
+            .await
+            .unwrap();
+        assert_eq!(live["blocks"][0]["block_id"], "new-block");
+        let graph_dir = crate::graph_paths::existing_graph_dir(&app, GRAPH).unwrap();
+        let store = crate::rdf_service::open_graph_store(&graph_dir).unwrap();
+        let graph = crate::rdf_authority::document_projection_graph_iri(GRAPH, "read-after-insert");
+        let query = format!(
+            "ASK WHERE {{ GRAPH <{graph}> {{ ?s ?p ?o FILTER(CONTAINS(STR(?o), \"immediate block\")) }} }}"
+        );
+        let result = oxigraph::sparql::SparqlEvaluator::new()
+            .parse_query(&query)
+            .unwrap()
+            .on_store(&store)
+            .execute()
+            .unwrap();
+        assert!(matches!(
+            result,
+            oxigraph::sparql::QueryResults::Boolean(true)
+        ));
+    };
+    tracing::dispatcher::with_default(&dispatch, || runtime().block_on(work));
+    provider.force_flush().unwrap();
+    let spans = exporter.get_finished_spans().unwrap();
+    assert!(spans
+        .iter()
+        .any(|span| span.name == "document.history.snapshot"));
+}
+
+#[test]
+fn quick_edits_project_in_queue_order() {
+    let profile = Profile::new();
+    let app = profile.app();
+    create_document(&app, "ordered");
+    let (provider, exporter, dispatch) = test_support::capture(true);
+    let work = async {
+        crate::mcp_block_mutation_service::mcp_local_insert_blocks(
+            app.clone(),
+            &json!({
+                "graph_id": GRAPH, "document_id": "ordered",
+                "blocks": [{"id": "ordered-block", "content": "base"}],
+            }),
+        )
+        .await
+        .unwrap();
+        let edit = |text: &str| EnqueueCrdtOperationInput {
+            kind: "block.editText".to_string(),
+            graph_id: GRAPH.to_string(),
+            document_id: Some("ordered".to_string()),
+            payload: json!({"blockId": "ordered-block", "operations": [{"type": "insert", "offset": 0, "text": text}]}),
+        };
+        let (first, second) = tokio::join!(biased;
+            crate::crdt_queue::enqueue_crdt_operation(app.clone(), edit("first ")),
+            crate::crdt_queue::enqueue_crdt_operation(app.clone(), edit("second ")),
+        );
+        first.unwrap();
+        second.unwrap();
+        let document = crate::document_service::read_document(
+            app.clone(),
+            GRAPH.to_string(),
+            "ordered".to_string(),
+        )
+        .unwrap();
+        assert_eq!(document.body, "second first base");
+        assert_eq!(document.revision, 3);
+        let graph_dir = crate::graph_paths::existing_graph_dir(&app, GRAPH).unwrap();
+        assert_eq!(
+            crate::document_history_file_store::read_document_history_store(
+                &graph_dir, GRAPH, "ordered"
+            )
+            .unwrap()
+            .total_count,
+            4
+        );
+    };
+    tracing::dispatcher::with_default(&dispatch, || runtime().block_on(work));
+    provider.force_flush().unwrap();
+    let spans = exporter.get_finished_spans().unwrap();
+    let mut records: Vec<_> = spans
+        .iter()
+        .filter(|span| span.name == "document.record.write")
+        .collect();
+    records.sort_by_key(|span| span.start_time);
+    assert_eq!(records.len(), 3);
+    for (index, record) in records.iter().enumerate() {
+        assert_eq!(
+            attribute(record, "sophia.document.revision")
+                .unwrap()
+                .to_string(),
+            (index + 1).to_string()
+        );
+    }
+    assert!(records
+        .windows(2)
+        .all(|pair| pair[0].end_time <= pair[1].start_time));
 }
 
 #[test]

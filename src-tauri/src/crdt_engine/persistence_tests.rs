@@ -181,6 +181,8 @@ fn older_document_materialization_cannot_clear_newer_projection() {
             .await
             .expect("old materialization");
             replace_room_text(&room, "new-block", "new projection").await;
+            let new_authority = std::fs::read(document_ydoc_state_path(&graph_dir, document_id))
+                .expect("newer room state is durable");
 
             let (started_tx, started_rx) = tokio::sync::oneshot::channel();
             let app_for_new = app.clone();
@@ -202,6 +204,11 @@ fn older_document_materialization_cannot_clear_newer_projection() {
                 persist_materialized_room_document(&app, graph_id, document_id, &room, old)
                     .expect("persist old snapshot");
             assert_eq!(old_value["revision"], 1);
+            assert_eq!(
+                std::fs::read(document_ydoc_state_path(&graph_dir, document_id)).unwrap(),
+                new_authority,
+                "an older projection must not overwrite a person's newer durable edit"
+            );
             assert!(room.needs_projection_flush());
             drop(old_guard);
 

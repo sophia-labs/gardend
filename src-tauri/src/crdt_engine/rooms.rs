@@ -53,6 +53,9 @@ pub struct Room {
     /// each must recheck the dirty epoch after acquiring this gate so the same
     /// snapshot cannot be saved twice as two document revisions.
     projection_flush_lock: Mutex<()>,
+    // A projection may run without the graph hot-write lease. Capture only
+    // committed room state, never an update whose sidecar persist can fail.
+    authority_lock: Mutex<()>,
     /// Graph deletion is a room-lifetime boundary, independent of whether the
     /// cold projection target has been configured yet. Existing websocket
     /// tasks and scheduler waits select on this signal and exit immediately.
@@ -517,6 +520,7 @@ impl RoomRegistry {
             projection_epoch: AtomicU64::new(u64::from(hydrated)),
             persisted_projection_epoch: AtomicU64::new(0),
             projection_flush_lock: Mutex::new(()),
+            authority_lock: Mutex::new(()),
             evicted: AtomicBool::new(false),
             eviction_notify: Notify::new(),
             #[cfg(not(feature = "frontend-crdt"))]
@@ -785,7 +789,7 @@ impl Room {
         self.eviction_notify.notify_waiters();
     }
 
-    fn is_evicted(&self) -> bool {
+    pub(super) fn is_evicted(&self) -> bool {
         self.evicted.load(Ordering::SeqCst)
     }
 
@@ -1060,6 +1064,7 @@ impl Room {
     where
         F: FnOnce(&Doc, &mut yrs::TransactionMut<'_>) -> Result<T, String>,
     {
+        let _authority_guard = self.authority_lock.lock().await;
         if self.is_evicted() {
             return Err("room was evicted".to_string());
         }
@@ -1233,11 +1238,12 @@ impl Room {
     }
 
     async fn apply_client_update_inner(&self, update: &[u8]) -> Result<bool, String> {
+        let waiting = crate::telemetry::timer();
+        let _authority_guard = self.authority_lock.lock().await;
         if self.is_evicted() {
             return Err("room was evicted".to_string());
         }
         let applied = {
-            let waiting = crate::telemetry::timer();
             let doc = self.doc.lock().await;
             tracing::Span::current().record(
                 "sophia.ydoc.mutex_wait_ms",
@@ -1292,6 +1298,7 @@ impl Room {
     /// epoch, so marking this snapshot persisted cannot accidentally clear a
     /// newer dirty state.
     pub(crate) async fn with_doc_version<T, F: FnOnce(&Doc) -> T>(&self, read: F) -> (u64, T) {
+        let _authority_guard = self.authority_lock.lock().await;
         let doc = self.doc.lock().await;
         let epoch = self.projection_epoch.load(Ordering::SeqCst);
         (epoch, read(&doc))

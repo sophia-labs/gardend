@@ -52,10 +52,18 @@ pub(crate) async fn apply_classified(
     app: &AppHandle,
     operation: &CrdtOperation,
 ) -> ApplyOperationResult<Value> {
+    apply_with_lease(app, operation, None).await
+}
+
+pub(super) async fn apply_with_lease(
+    app: &AppHandle,
+    operation: &CrdtOperation,
+    lease: Option<&mut super::persistence_coordinator::HotWriteLease>,
+) -> ApplyOperationResult<Value> {
     match operation.kind.as_str() {
-        "block.insert" => block_insert(app, operation).await,
+        "block.insert" => block_insert(app, operation, lease).await,
         "block.update" => block_update(app, operation).await,
-        "block.editText" => block_edit_text(app, operation).await,
+        "block.editText" => block_edit_text(app, operation, lease).await,
         "block.delete" => block_delete(app, operation).await,
         other => Err(ApplyOperationError::terminal(format!(
             "unsupported block operation: {other}"
@@ -1504,7 +1512,14 @@ async fn finish_ledger_guarded(
     ctx: &DocContext,
     operation: &CrdtOperation,
     outcome: TxnOutcome,
+    lease: Option<&mut super::persistence_coordinator::HotWriteLease>,
 ) -> ApplyOperationResult<Value> {
+    // update_doc has persisted the mutation and its replay ledger together.
+    // Await the serialized projection for read-after-write, with only the
+    // lifecycle fence held; projection writes never replace that sidecar.
+    if let Some(lease) = lease {
+        lease.release_for_projection();
+    }
     let (replayed, envelope) = match outcome {
         TxnOutcome::Replayed(cached) => {
             persist_document(app, ctx, operation)
@@ -1535,7 +1550,11 @@ async fn finish_ledger_guarded(
 // ---------------------------------------------------------------------------
 
 /// Port of applyBlockInsert.
-async fn block_insert(app: &AppHandle, operation: &CrdtOperation) -> ApplyOperationResult<Value> {
+async fn block_insert(
+    app: &AppHandle,
+    operation: &CrdtOperation,
+    lease: Option<&mut super::persistence_coordinator::HotWriteLease>,
+) -> ApplyOperationResult<Value> {
     let document_id = require_document_id(operation, "block.insert")?;
     let payload = obj(&operation.payload);
     let (blocks, contract_warnings) =
@@ -1644,7 +1663,7 @@ async fn block_insert(app: &AppHandle, operation: &CrdtOperation) -> ApplyOperat
         })
         .await?;
 
-    finish_ledger_guarded(app, &ctx, operation, outcome).await
+    finish_ledger_guarded(app, &ctx, operation, outcome, lease).await
 }
 
 /// Port of applyBlockUpdate.
@@ -1735,6 +1754,7 @@ async fn block_update(app: &AppHandle, operation: &CrdtOperation) -> ApplyOperat
 async fn block_edit_text(
     app: &AppHandle,
     operation: &CrdtOperation,
+    lease: Option<&mut super::persistence_coordinator::HotWriteLease>,
 ) -> ApplyOperationResult<Value> {
     let document_id = require_document_id(operation, "block.editText")?;
     let payload = obj(&operation.payload);
@@ -1791,7 +1811,7 @@ async fn block_edit_text(
         })
         .await?;
 
-    finish_ledger_guarded(app, &ctx, operation, outcome).await
+    finish_ledger_guarded(app, &ctx, operation, outcome, lease).await
 }
 
 /// Port of applyBlockDelete.

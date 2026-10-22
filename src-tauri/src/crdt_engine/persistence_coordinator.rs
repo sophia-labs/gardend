@@ -64,6 +64,7 @@ pub(crate) struct HotWriteLease {
     dirty: DirtyLeaseState,
     _shared: SharedLease,
     _trace: LeaseTrace,
+    hot_write_released: bool,
 }
 
 pub(crate) struct ExclusiveLease {
@@ -326,6 +327,25 @@ macro_rules! impl_writing_lease {
 impl_writing_lease!(HotWriteLease);
 impl_writing_lease!(ExclusiveLease);
 
+impl HotWriteLease {
+    /// The room has committed its authority; only its ordered projection tail
+    /// remains. Keep the lifecycle reader continuously held against deletion
+    /// and mark RDF dirty when that tail finishes, while allowing other hot
+    /// writers through now. The tail must never rewrite the room sidecar.
+    pub(crate) fn release_for_projection(&mut self) {
+        if !self.hot_write_released {
+            self.hot_write_released = true;
+            release_hot_write(&self.gate);
+            // End the hold measurement here, not when the projection finishes.
+            self._trace = LeaseTrace {
+                span: tracing::Span::none(),
+                waiting: None,
+                acquired: None,
+            };
+        }
+    }
+}
+
 impl GraphPersistenceCoordinator {
     fn gate(&self, graph_id: &str) -> Result<Arc<GraphGate>, String> {
         let mut gates = self
@@ -435,6 +455,7 @@ impl GraphPersistenceCoordinator {
             dirty: DirtyLeaseState::new(graph_id, origin),
             _shared: shared,
             _trace: trace,
+            hot_write_released: false,
         })
     }
 
@@ -577,6 +598,7 @@ impl GraphPersistenceCoordinator {
             dirty: DirtyLeaseState::new(graph_id, origin),
             _shared: shared,
             _trace: trace,
+            hot_write_released: false,
         })
     }
 
@@ -855,7 +877,9 @@ impl Drop for HotWriteLease {
         // false-DIRTY (an extra backup) is fine, a false-CLEAN silently loses
         // data.
         self.dirty.mark_if_needed();
-        release_hot_write(&self.gate);
+        if !self.hot_write_released {
+            release_hot_write(&self.gate);
+        }
         // `_shared` drops after this body, preserving hot-write-before-shared
         // release order.
     }
