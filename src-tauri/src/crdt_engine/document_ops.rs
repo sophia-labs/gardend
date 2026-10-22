@@ -467,6 +467,16 @@ pub(crate) async fn document_write_classified(
                 .and_then(|json| json.get("content"))
                 .and_then(Value::as_array)
                 .map(|nodes| minimal_edit::model::desired_from_tiptap_nodes(nodes, &policy)),
+            // Vera 10-21: a person's edit wins over every agent write, not only one that names its
+            // revision. Without expectedRevision the saved record stands in for what the agent read
+            // (it is what read_document serves), so an edit the room holds and the record does not yet
+            // (typed after the read, before this write) is kept, or reported as a conflict.
+            (None, Some(record)) => record
+                .tiptap_json
+                .as_ref()
+                .and_then(|json| json.get("content"))
+                .and_then(Value::as_array)
+                .map(|nodes| minimal_edit::model::desired_from_tiptap_nodes(nodes, &policy)),
             _ => None,
         }
     } else {
@@ -483,7 +493,6 @@ pub(crate) async fn document_write_classified(
                 let read_started = std::time::Instant::now();
                 let current = minimal_edit::model::read_fragment(&*txn, &fragment, &policy);
                 let read_ms = elapsed_ms(read_started);
-                let desired = keep_trailing_empty_paragraph(&current, desired, &policy);
 
                 let plan_started = std::time::Instant::now();
                 let (desired, live_edits) = match rebase_base.as_ref() {
@@ -492,6 +501,9 @@ pub(crate) async fn document_write_classified(
                     }
                     None => (desired, LiveEdits::default()),
                 };
+                // After the rebase: an unsaved trailing paragraph is already kept there as a live edit, and adding
+                // one before it would make two.
+                let desired = keep_trailing_empty_paragraph(&current, desired, &policy);
                 let plan = minimal_edit::plan::plan_fragment(&current, &desired, &policy);
                 let plan_ms = elapsed_ms(plan_started);
 
