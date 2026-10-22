@@ -544,10 +544,19 @@ fn refresh_whiteboard_body(graph_dir: &Path, document_id: &str, bytes: &[u8]) ->
     let scene =
         crate::whiteboard::ops::scene_from_update_bytes(bytes).map_err(AppError::internal)?;
     record.body = crate::whiteboard::outline::outline_markdown(&record.title, &scene);
+    record.blocks = crate::whiteboard::blocks::blocks_of(&scene);
     record.ydoc_update_base64 = String::new();
     write_json(&manifest_path, &record).map_err(AppError::storage)?;
     let store = open_graph_store(graph_dir).map_err(AppError::rdf)?;
     materialize_document_record(&store, &record).map_err(AppError::rdf)?;
+    crate::whiteboard::lane::reconcile_scene(
+        &store,
+        &record.graph_id,
+        &record.document_id,
+        &record.title,
+        &scene,
+    )
+    .map_err(AppError::rdf)?;
     Ok(())
 }
 

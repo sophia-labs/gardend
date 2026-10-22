@@ -184,6 +184,7 @@ WHERE {{
         .execute()
         .map_err(|error| format!("delete document RDF: {error}"))?;
     crate::pdf_source::remove_document(&store, graph_id, document_id)?;
+    crate::whiteboard::lane::remove_document(&store, graph_id, document_id)?;
     touch_graph_content_revision(graph_dir)?;
     let quad_count = store
         .len()

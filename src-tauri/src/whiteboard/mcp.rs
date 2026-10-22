@@ -215,6 +215,9 @@ pub(crate) async fn mcp_local_whiteboard_apply(
         }
     }
 
+    // The typed objects a link or card move names (G5 fills this with `emporium_describe`).
+    let objects: BTreeMap<String, super::scene::ObjectInfo> = BTreeMap::new();
+
     let _serial = APPLY_SERIAL.lock().await;
     let actor = actor_name();
     let now = now_ms();
@@ -228,7 +231,10 @@ pub(crate) async fn mcp_local_whiteboard_apply(
                 now,
                 rng: Rng(seed),
                 graph_id: &graph_id,
+                document_id: &document_id,
                 titles: &titles,
+                objects: &objects,
+                wires: Vec::new(),
             };
             apply_moves(&mut scene, moves, &mut ctx).map(|created| (scene, created))
         })
@@ -256,7 +262,10 @@ pub(crate) async fn mcp_local_whiteboard_apply(
                     now,
                     rng: Rng(seed),
                     graph_id: &graph_id,
+                    document_id: &document_id,
                     titles: &titles,
+                    objects: &objects,
+                    wires: Vec::new(),
                 };
                 Ok(apply_moves(&mut live, moves, &mut ctx).map(|made| {
                     ops::write_dirty(txn, &live);

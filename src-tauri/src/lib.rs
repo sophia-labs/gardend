@@ -230,6 +230,7 @@ mod loopback_semantic_routes;
 mod loopback_server;
 mod loopback_service_routes;
 mod loopback_state;
+mod loopback_backlinks_routes;
 mod loopback_system_scopes;
 mod loopback_time_travel_routes;
 mod loopback_token_grants;
@@ -263,6 +264,9 @@ mod memory_semantic_recall_service;
 mod model_setup_paths;
 mod multipart_pending_upload;
 mod service_mcp;
+mod backlinks_service;
+#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
+mod backlinks_store_tests;
 // First-launch onboarding (welcome-graph seed). Desktop-only: the seed command
 // is wired through the native invoke-handler and the bundled archive
 // (`include_bytes!` of onboarding-v2.tar.gz) has no role in a headless cell,
@@ -361,6 +365,7 @@ mod salience_value_scoring;
 mod salience_value_store;
 mod salience_wire_context;
 mod scan_text_service;
+mod scene_wire;
 mod search_lexical_projection;
 mod search_projection_service;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
@@ -417,6 +422,12 @@ mod web_fetch;
 mod workflow_plan_tests;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod write_placement_store_tests;
+#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
+mod whiteboard_blocks_store_tests;
+#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
+mod whiteboard_lane_store_tests;
+#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
+mod wire_iri_store_tests;
 // Native title-bar appearance (macOS overlay/frameless modes). GUI-only: pulls
 // Tauri webview/window APIs (WebviewWindowBuilder, ns_window, objc2), so it is
 // excluded from the headless cell build.

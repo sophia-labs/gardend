@@ -2,6 +2,11 @@
 //! the app and by agents through `whiteboard_create`, `whiteboard_read` and
 //! `whiteboard_apply`. The shared Y.Doc format is in `FORMAT.md`.
 
+pub(crate) mod blocks;
+pub(crate) mod lane;
+#[cfg(test)]
+mod lane_tests;
+pub(crate) mod links;
 pub(crate) mod mcp;
 pub(crate) mod ops;
 pub(crate) mod outline;

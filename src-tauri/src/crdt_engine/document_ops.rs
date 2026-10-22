@@ -1353,6 +1353,8 @@ pub(crate) async fn rebuild_room_document_projection(
     // (no-op for every other kind). Unit G3.
     crate::flow_board_reconcile::reconcile_flow_board_record(&store, &graph_dir, &record)?;
     crate::pdf_source::reconcile(&store, &record)?;
+    // Whiteboards: the `:projection:whiteboard` lane, from the same verified record (no-op for every other kind).
+    crate::whiteboard::lane::reconcile_record(&store, &graph_dir, &record)?;
     room.mark_projection_persisted(materialized.projection_epoch);
     Ok(true)
 }

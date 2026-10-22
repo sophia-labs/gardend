@@ -8,6 +8,7 @@
 //! `chars x fontSize x 0.6`, and the browser re-measures (`restoreElements` with
 //! `refreshDimensions`) when it renders.
 
+use crate::scene_wire::{SceneWireDraft, SceneWireEnd};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -385,8 +386,38 @@ pub(crate) struct Ctx<'a> {
     pub now: u64,
     pub rng: Rng,
     pub graph_id: &'a str,
-    /// Titles of the documents a `link` move may name (resolved by the caller).
+    /// The board's document id (a `wire` move needs it for the endpoint rule and the scene provenance).
+    pub document_id: &'a str,
+    /// Titles of the documents a `link` or `card` move may name (resolved by the caller).
     pub titles: &'a BTreeMap<String, String>,
+    /// The typed objects a `link` or `card` move may name, by IRI (resolved by the caller with `emporium_describe`).
+    pub objects: &'a BTreeMap<String, ObjectInfo>,
+    /// OUTPUT: the wires the `wire` moves of this call decided on, in move order. The caller stores them with
+    /// `scene_wire::create_scene_wires` after the scene is written. The pure core never touches the store.
+    pub wires: Vec<SceneWireDraft>,
+}
+
+/// What the caller learned about a typed object before the pure core runs: the snapshot a link or card keeps.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ObjectInfo {
+    pub label: String,
+    pub class_label: String,
+    /// The graph the object lives in.
+    pub graph_id: String,
+}
+
+/// The endpoint rule (SPRINT D9) for one end of an arrow, `element_id` being the shape the arrow is bound to (bound
+/// text counts as its container). A shape whose `link` is a `mnemosyne://document` link of this graph is that
+/// document; a card or a shape whose link is a `mnemosyne://object` link is the object's IRI (`label` from
+/// `customData.mnemosyne`); any other shape is itself, a block of the board (`document_id` = the board,
+/// `block_id` = the element id). Errors name the element when it is deleted, missing, or an arrow.
+pub(crate) fn resolve_wire_end(
+    scene: &Scene,
+    ctx: &Ctx,
+    element_id: &str,
+) -> Result<SceneWireEnd, String> {
+    let _ = (scene, ctx, element_id);
+    unimplemented!("G5")
 }
 
 impl Ctx<'_> {
@@ -767,6 +798,22 @@ enum Move {
         ids: Vec<String>,
         frame: Option<String>,
     },
+    /// A typed object (`iri`) or a document (`documentId`) as a live card: an `embeddable` element (SPRINT D7).
+    Card {
+        r#ref: Option<String>,
+        iri: Option<String>,
+        #[serde(rename = "documentId")]
+        document_id: Option<String>,
+        at: Option<Pt>,
+        near: Option<Near>,
+        size: Option<Sz>,
+    },
+    /// Promote the arrow `arrow` to a wire named `predicate` (SPRINT D9). The arrow is marked
+    /// `customData.mnemosyneWire {wireId, predicate}`; the wire itself is a `SceneWireDraft` pushed to `Ctx::wires`.
+    Wire {
+        arrow: String,
+        predicate: String,
+    },
 }
 
 struct Refs(BTreeMap<String, String>);
@@ -1059,6 +1106,8 @@ fn run_move(
                 }
             }
         }
+        Move::Card { .. } => unimplemented!("G5"),
+        Move::Wire { .. } => unimplemented!("G5"),
     }
     Ok(())
 }

@@ -101,6 +101,8 @@ pub(crate) fn ensure_document_persistence_tail_with_tombstone_fence(
     // tail replays it under the same revision. Unit G3.
     crate::flow_board_reconcile::reconcile_flow_board_record(&store, graph_dir, document)?;
     crate::pdf_source::reconcile(&store, document)?;
+    // Whiteboards additionally reconcile the graph's `:projection:whiteboard` lane (a no-op for every other kind).
+    crate::whiteboard::lane::reconcile_record(&store, graph_dir, document)?;
     let snapshot = if let Some(expected_deletion_id) = expected_deletion_id {
         ensure_document_snapshot_for_revision_with_tombstone_fence(
             graph_dir,

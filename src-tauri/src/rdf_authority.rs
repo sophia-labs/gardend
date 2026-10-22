@@ -135,6 +135,14 @@ pub(crate) fn flow_projection_graph_iri(graph_id: &str) -> String {
     format!("{}:projection:flow", graph_subject(graph_id))
 }
 
+/// The reserved, materializer-only whiteboard lane for a graph_id —
+/// `urn:mnemosyne:local:graph:{id}:projection:whiteboard`. Every board's shapes, cards, connections and clusters
+/// reconcile here DIRECT-ON-STORE (`whiteboard::lane`, span keyed by `wb:documentId`). Reserved via the
+/// `:projection:` prefix, so a user `sparql_update`/`rdf_load` targeting it is refused with no authority-gate edits.
+pub(crate) fn whiteboard_projection_graph_iri(graph_id: &str) -> String {
+    format!("{}:projection:whiteboard", graph_subject(graph_id))
+}
+
 /// The per-OBSERVER salience projection graph — the Valuation analog of
 /// [`song_projection_graph_iri_for`] / [`memory_projection_graph_iri_for`]. Salience
 /// is the ONE faculty that was NOT witness-scoped: every observer's valuations

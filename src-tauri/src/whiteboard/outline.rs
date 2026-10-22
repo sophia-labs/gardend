@@ -24,6 +24,28 @@ pub(crate) struct Shape {
     pub link: Option<String>,
     pub link_title: Option<String>,
     pub by: Option<String>,
+    /// Set for a card (an `embeddable` with a `mnemosyne://` document or object link). G5 fills it; U0 leaves `None`.
+    pub card: Option<CardRead>,
+}
+
+/// What a card says about its target, from `customData.mnemosyne` (the snapshot) and the link.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct CardRead {
+    /// The object's IRI, for an object card.
+    pub iri: Option<String>,
+    /// The document id, for a document card.
+    pub document_id: Option<String>,
+    /// The title or label the snapshot keeps.
+    pub label: String,
+    /// The class label (`DreamReport`); empty for a document card.
+    pub class_label: String,
+}
+
+/// An arrow promoted to a wire, from `customData.mnemosyneWire`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct WireRead {
+    pub wire_id: String,
+    pub predicate: String,
 }
 
 pub(crate) struct ArrowRead {
@@ -35,6 +57,8 @@ pub(crate) struct ArrowRead {
     pub label: Option<String>,
     pub style: String,
     pub head: bool,
+    /// Set when the arrow was promoted. G5 fills it; U0 leaves `None`.
+    pub wire: Option<WireRead>,
 }
 
 fn flat(text: &str) -> String {
@@ -104,6 +128,7 @@ pub(crate) fn shapes(scene: &Scene) -> Vec<Shape> {
                 link: s(el, "link").map(str::to_string),
                 link_title: link_title_of(el),
                 by: by_of(el),
+                card: None,
             }
         })
         .collect();
@@ -163,6 +188,7 @@ pub(crate) fn arrows(scene: &Scene) -> Vec<ArrowRead> {
                     .filter(|l| !l.is_empty()),
                 style: s(el, "strokeStyle").unwrap_or("solid").to_string(),
                 head: !el.get("endArrowhead").map(Value::is_null).unwrap_or(true),
+                wire: None,
             }
         })
         .collect();

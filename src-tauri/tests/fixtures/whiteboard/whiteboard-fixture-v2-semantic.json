@@ -1,0 +1,657 @@
+{
+  "schema": "sophia.whiteboard/1",
+  "meta": {
+    "schema": "sophia.whiteboard/1",
+    "viewBackgroundColor": "#ffffff"
+  },
+  "elements": [
+    {
+      "id": "box0000000000000000001",
+      "type": "rectangle",
+      "x": 100,
+      "y": 100,
+      "width": 300,
+      "height": 80,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "index": "a0",
+      "roundness": {
+        "type": 3
+      },
+      "seed": 1001,
+      "version": 3,
+      "versionNonce": 111,
+      "isDeleted": false,
+      "boundElements": [
+        {
+          "type": "text",
+          "id": "txt0000000000000000001"
+        },
+        {
+          "type": "arrow",
+          "id": "arw0000000000000000001"
+        },
+        {
+          "type": "arrow",
+          "id": "arw0000000000000000003"
+        }
+      ],
+      "updated": 1760000000000,
+      "link": null,
+      "locked": false,
+      "customData": {
+        "sophia": {
+          "by": "person",
+          "at": 1760000000000
+        }
+      }
+    },
+    {
+      "id": "txt0000000000000000001",
+      "type": "text",
+      "x": 124,
+      "y": 127.5,
+      "width": 252,
+      "height": 25,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "index": "a1",
+      "roundness": null,
+      "seed": 1002,
+      "version": 2,
+      "versionNonce": 112,
+      "isDeleted": false,
+      "boundElements": null,
+      "updated": 1760000000000,
+      "link": null,
+      "locked": false,
+      "text": "Freud: the dream-work",
+      "fontSize": 20,
+      "fontFamily": 5,
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "box0000000000000000001",
+      "originalText": "Freud: the dream-work",
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "note000000000000000001",
+      "type": "rectangle",
+      "x": 500,
+      "y": 100,
+      "width": 160,
+      "height": 80,
+      "angle": 0,
+      "strokeColor": "#f08c00",
+      "backgroundColor": "#ffec99",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "index": "a2",
+      "roundness": {
+        "type": 3
+      },
+      "seed": 1003,
+      "version": 2,
+      "versionNonce": 113,
+      "isDeleted": false,
+      "boundElements": [
+        {
+          "type": "text",
+          "id": "txt0000000000000000002"
+        },
+        {
+          "type": "arrow",
+          "id": "arw0000000000000000001"
+        }
+      ],
+      "updated": 1760000000000,
+      "link": null,
+      "locked": false,
+      "customData": {
+        "sophia": {
+          "by": "owner",
+          "at": 1760000000000
+        }
+      }
+    },
+    {
+      "id": "txt0000000000000000002",
+      "type": "text",
+      "x": 508,
+      "y": 127.5,
+      "width": 144,
+      "height": 25,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "index": "a3",
+      "roundness": null,
+      "seed": 1004,
+      "version": 2,
+      "versionNonce": 114,
+      "isDeleted": false,
+      "boundElements": null,
+      "updated": 1760000000000,
+      "link": null,
+      "locked": false,
+      "text": "condensation",
+      "fontSize": 20,
+      "fontFamily": 5,
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "note000000000000000001",
+      "originalText": "condensation",
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "arw0000000000000000001",
+      "type": "arrow",
+      "x": 406,
+      "y": 140,
+      "width": 88,
+      "height": 0,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "index": "a4",
+      "roundness": {
+        "type": 2
+      },
+      "seed": 1005,
+      "version": 2,
+      "versionNonce": 115,
+      "isDeleted": false,
+      "boundElements": [
+        {
+          "type": "text",
+          "id": "txt0000000000000000003"
+        }
+      ],
+      "updated": 1760000000000,
+      "link": null,
+      "locked": false,
+      "customData": {
+        "sophia": {
+          "by": "owner",
+          "at": 1760000000000
+        }
+      },
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          88,
+          0
+        ]
+      ],
+      "lastCommittedPoint": null,
+      "startBinding": {
+        "elementId": "box0000000000000000001",
+        "fixedPoint": [
+          0.5,
+          0.5
+        ],
+        "mode": "orbit"
+      },
+      "endBinding": {
+        "elementId": "note000000000000000001",
+        "fixedPoint": [
+          0.5,
+          0.5
+        ],
+        "mode": "orbit"
+      },
+      "startArrowhead": null,
+      "endArrowhead": "arrow",
+      "elbowed": false
+    },
+    {
+      "id": "txt0000000000000000003",
+      "type": "text",
+      "x": 396,
+      "y": 127.5,
+      "width": 108,
+      "height": 25,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "index": "a5",
+      "roundness": null,
+      "seed": 1006,
+      "version": 2,
+      "versionNonce": 116,
+      "isDeleted": false,
+      "boundElements": null,
+      "updated": 1760000000000,
+      "link": null,
+      "locked": false,
+      "text": "condenses",
+      "fontSize": 20,
+      "fontFamily": 5,
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "arw0000000000000000001",
+      "originalText": "condenses",
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "del0000000000000000001",
+      "type": "rectangle",
+      "x": 100,
+      "y": 300,
+      "width": 120,
+      "height": 60,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "index": "a6",
+      "roundness": {
+        "type": 3
+      },
+      "seed": 1007,
+      "version": 5,
+      "versionNonce": 117,
+      "isDeleted": true,
+      "boundElements": [],
+      "updated": 1760000000500,
+      "link": null,
+      "locked": false,
+      "customData": {
+        "sophia": {
+          "by": "person",
+          "at": 1760000000500
+        }
+      }
+    },
+    {
+      "id": "frm0000000000000000001",
+      "type": "frame",
+      "x": 60,
+      "y": 240,
+      "width": 640,
+      "height": 260,
+      "angle": 0,
+      "strokeColor": "#1d1c19",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "index": "a7",
+      "roundness": null,
+      "seed": 2001,
+      "version": 2,
+      "versionNonce": 2011,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1760000000000,
+      "link": null,
+      "locked": false,
+      "customData": {
+        "sophia": {
+          "by": "person",
+          "at": 1760000000000
+        }
+      },
+      "name": "Dream-work"
+    },
+    {
+      "id": "lnk0000000000000000001",
+      "type": "rectangle",
+      "x": 100,
+      "y": 300,
+      "width": 220,
+      "height": 80,
+      "angle": 0,
+      "strokeColor": "#1d1c19",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": "frm0000000000000000001",
+      "index": "a8",
+      "roundness": null,
+      "seed": 2002,
+      "version": 2,
+      "versionNonce": 2012,
+      "isDeleted": false,
+      "boundElements": [
+        {
+          "type": "text",
+          "id": "txt0000000000000000004"
+        },
+        {
+          "type": "arrow",
+          "id": "arw0000000000000000002"
+        }
+      ],
+      "updated": 1760000001000,
+      "link": "mnemosyne://document/wb-graph/doc-traumdeutung",
+      "locked": false,
+      "customData": {
+        "sophia": {
+          "by": "person",
+          "at": 1760000001000
+        },
+        "mnemosyne": {
+          "kind": "document",
+          "graphId": "wb-graph",
+          "id": "doc-traumdeutung",
+          "title": "The Interpretation of Dreams"
+        }
+      }
+    },
+    {
+      "id": "txt0000000000000000004",
+      "type": "text",
+      "x": 108,
+      "y": 327.5,
+      "width": 204,
+      "height": 25,
+      "angle": 0,
+      "strokeColor": "#1d1c19",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": "frm0000000000000000001",
+      "index": "a9",
+      "roundness": null,
+      "seed": 2003,
+      "version": 2,
+      "versionNonce": 2013,
+      "isDeleted": false,
+      "boundElements": null,
+      "updated": 1760000001000,
+      "link": null,
+      "locked": false,
+      "text": "The Interpretation of Dreams",
+      "fontSize": 20,
+      "fontFamily": 6,
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "lnk0000000000000000001",
+      "originalText": "The Interpretation of Dreams",
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "crd0000000000000000001",
+      "type": "embeddable",
+      "x": 420,
+      "y": 290,
+      "width": 260,
+      "height": 160,
+      "angle": 0,
+      "strokeColor": "#1d1c19",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": "frm0000000000000000001",
+      "index": "aA",
+      "roundness": null,
+      "seed": 2004,
+      "version": 2,
+      "versionNonce": 2014,
+      "isDeleted": false,
+      "boundElements": [
+        {
+          "type": "arrow",
+          "id": "arw0000000000000000002"
+        }
+      ],
+      "updated": 1760000002000,
+      "link": "mnemosyne://object/wb-graph/urn%3Amnemosyne%3Alocal%3Agraph%3Awb-graph%3Adream%3Awolf-man",
+      "locked": false,
+      "customData": {
+        "sophia": {
+          "by": "demi-1",
+          "at": 1760000002000
+        },
+        "mnemosyne": {
+          "kind": "object",
+          "graphId": "wb-graph",
+          "iri": "urn:mnemosyne:local:graph:wb-graph:dream:wolf-man",
+          "label": "The Wolf Man dream",
+          "classLabel": "DreamReport"
+        }
+      }
+    },
+    {
+      "id": "arw0000000000000000002",
+      "type": "arrow",
+      "x": 326,
+      "y": 340,
+      "width": 88,
+      "height": 0,
+      "angle": 0,
+      "strokeColor": "#326f4c",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "index": "aB",
+      "roundness": null,
+      "seed": 2005,
+      "version": 2,
+      "versionNonce": 2015,
+      "isDeleted": false,
+      "boundElements": [
+        {
+          "type": "text",
+          "id": "txt0000000000000000005"
+        }
+      ],
+      "updated": 1760000001000,
+      "link": null,
+      "locked": false,
+      "customData": {
+        "sophia": {
+          "by": "person",
+          "at": 1760000001000
+        },
+        "mnemosyneWire": {
+          "wireId": "wire-wb-0001",
+          "predicate": "supports",
+          "strokeWas": "#1d1c19",
+          "labelFromPredicate": true
+        }
+      },
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          88,
+          0
+        ]
+      ],
+      "lastCommittedPoint": null,
+      "startBinding": {
+        "elementId": "lnk0000000000000000001",
+        "fixedPoint": [
+          0.5,
+          0.5
+        ],
+        "mode": "orbit"
+      },
+      "endBinding": {
+        "elementId": "crd0000000000000000001",
+        "fixedPoint": [
+          0.5,
+          0.5
+        ],
+        "mode": "orbit"
+      },
+      "startArrowhead": null,
+      "endArrowhead": "arrow",
+      "elbowed": false
+    },
+    {
+      "id": "txt0000000000000000005",
+      "type": "text",
+      "x": 336,
+      "y": 327.5,
+      "width": 68,
+      "height": 25,
+      "angle": 0,
+      "strokeColor": "#1d1c19",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "index": "aC",
+      "roundness": null,
+      "seed": 2006,
+      "version": 2,
+      "versionNonce": 2016,
+      "isDeleted": false,
+      "boundElements": null,
+      "updated": 1760000001000,
+      "link": null,
+      "locked": false,
+      "text": "supports",
+      "fontSize": 20,
+      "fontFamily": 6,
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "arw0000000000000000002",
+      "originalText": "supports",
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "arw0000000000000000003",
+      "type": "arrow",
+      "x": 406,
+      "y": 180,
+      "width": 0,
+      "height": 60,
+      "angle": 0,
+      "strokeColor": "#1d1c19",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 1,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "index": "aD",
+      "roundness": null,
+      "seed": 2007,
+      "version": 2,
+      "versionNonce": 2017,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1760000000000,
+      "link": null,
+      "locked": false,
+      "customData": {
+        "sophia": {
+          "by": "person",
+          "at": 1760000000000
+        }
+      },
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          60
+        ]
+      ],
+      "lastCommittedPoint": null,
+      "startBinding": {
+        "elementId": "box0000000000000000001",
+        "fixedPoint": [
+          0.5,
+          1
+        ],
+        "mode": "orbit"
+      },
+      "endBinding": null,
+      "startArrowhead": null,
+      "endArrowhead": "arrow",
+      "elbowed": false
+    }
+  ]
+}

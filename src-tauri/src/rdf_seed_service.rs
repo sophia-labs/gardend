@@ -24,8 +24,9 @@ static SOURCE_REPLAY_STORES: OnceLock<Mutex<BTreeSet<PathBuf>>> = OnceLock::new(
 
 fn seed_projection_version() -> String {
     format!(
-        "document-faces-v1+{}",
-        crate::pdf_source::PROJECTION_VERSION
+        "document-faces-v1+{}+{}",
+        crate::pdf_source::PROJECTION_VERSION,
+        crate::whiteboard::lane::PROJECTION_VERSION
     )
 }
 
@@ -391,6 +392,8 @@ fn ensure_graph_store_seeded_inner(
             // Document faces, including the ten bare metadata predicates.
             crate::document_meaningful_object::reconcile_document_record(&store, &document)?;
             crate::pdf_source::reconcile(&store, &document)?;
+            // Whiteboards: the lane reads the Y.Doc sidecar (the cold record carries no inline payload).
+            crate::whiteboard::lane::reconcile_record(&store, graph_dir, &document)?;
             require_seed_not_cancelled(cancellation, "materializing a document projection")?;
             materialized_documents += 1;
         }
