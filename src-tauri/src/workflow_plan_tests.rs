@@ -2144,3 +2144,97 @@ fn a_run_record_about_anything_else_is_refused_and_writes_nothing() {
         assert!(graph_rows(ctx, "urn:sophia:wf:plain:run:r1").is_empty());
     });
 }
+
+#[test]
+fn recording_the_cast_registers_its_beings_before_any_memory_write() {
+    with_graph(|ctx| {
+        let (id, _) = create(ctx, "Cast");
+        ok(
+            ctx,
+            "workflow_plan_compose",
+            json!({ "documentId": id, "rationale": "the plan", "moves": freud_moves() }),
+        );
+        let workflow = format!("urn:sophia:wf:{id}");
+        let registry = format!("{workflow}:agents");
+        let cast = [
+            ("reader", "agent-1d072513be2e9ecf", "the Reader"),
+            (
+                "clerk",
+                "agent-61b7d77530663be2",
+                "the Experimenter's Clerk",
+            ),
+            ("censor", "agent-33d7d389c5bbafe5", "the Censor"),
+        ];
+        let mut turtle = run_turtle(&workflow, "cast", &[], false);
+        for (n, (step, agent, _)) in cast.iter().enumerate() {
+            turtle.push_str(&format!(
+                "\n<{workflow}:run:cast#step-{n}> a wf:StepRun ; wf:step <{workflow}#{step}> ; \
+                 wf:castAgent <urn:sophia:agent:{agent}> ."
+            ));
+        }
+        // A foreign post and a malformed agent claim never create registrations.
+        turtle.push_str(&format!(
+            "\n<{workflow}:run:cast#foreign> a wf:StepRun ; wf:step <urn:other#reader> ; \
+             wf:castAgent <urn:sophia:agent:agent-0000000000000000> .\n\
+             <{workflow}:run:cast#bad> a wf:StepRun ; wf:step <{workflow}#reader> ; \
+             wf:castAgent <urn:other:someone> ."
+        ));
+        let record = || {
+            ok(
+                ctx,
+                "workflow_run_record",
+                json!({ "documentId": id, "runId": "cast", "turtle": turtle }),
+            )
+        };
+        assert!(graph_rows(ctx, &registry).is_empty());
+        record();
+        let registered = graph_rows(ctx, &registry);
+        assert_eq!(registered.len(), 15, "{registered:?}");
+        for (post, agent, label) in cast {
+            let subject = format!("<urn:sophia:agent:{agent}>");
+            for (predicate, object) in [
+                (
+                    "http://www.w3.org/1999/02/22-rdf-syntax-ns#type".to_string(),
+                    "<http://mnemosyne.dev/agent#Agent>".to_string(),
+                ),
+                (
+                    "http://mnemosyne.dev/agent#agentId".to_string(),
+                    serde_json::to_string(agent).unwrap(),
+                ),
+                (
+                    "http://www.w3.org/2000/01/rdf-schema#label".to_string(),
+                    serde_json::to_string(label).unwrap(),
+                ),
+                (format!("{WF}partOfWorkflow"), format!("<{workflow}>")),
+                (format!("{WF}step"), format!("<{workflow}#{post}>")),
+            ] {
+                assert!(
+                    registered.iter().any(|row| row["s"] == subject
+                        && row["p"] == format!("<{predicate}>")
+                        && row["o"] == object),
+                    "{registered:?}"
+                );
+            }
+        }
+        let first = graph_lines(ctx, &registry);
+        let run = graph_lines(ctx, &format!("{workflow}:run:cast"));
+        record();
+        assert_eq!(
+            graph_lines(ctx, &registry),
+            first,
+            "recording twice adds nothing"
+        );
+        assert_eq!(graph_lines(ctx, &format!("{workflow}:run:cast")), run);
+        // Refusing a malformed record changes neither the run nor the registry.
+        assert!(call(
+            ctx,
+            "workflow_run_record",
+            json!({
+                "documentId": id, "runId": "cast", "turtle": "not Turtle"
+            })
+        )
+        .is_err());
+        assert_eq!(graph_lines(ctx, &registry), first);
+        assert_eq!(graph_lines(ctx, &format!("{workflow}:run:cast")), run);
+    });
+}

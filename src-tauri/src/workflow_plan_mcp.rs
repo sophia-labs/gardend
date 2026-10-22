@@ -44,8 +44,9 @@
 //!
 //! The fence: every tool refuses a document whose kind is not `"workflow"`,
 //! and writes only that document's own graphs: `:draft` and `:authoring`, and
-//! (`workflow_run_record`) one `:run:<runId>` graph, only triples whose
-//! subject is in that run's namespace.
+//! (`workflow_run_record`) one `:run:<runId>` graph, only input triples whose
+//! subject is in that run's namespace, plus host-derived cast registrations in
+//! the document's `:agents` graph.
 use crate::{
     app_error::{AppError, AppResult},
     app_runtime::AppHandle,
@@ -804,9 +805,11 @@ pub(super) async fn mcp_local_workflow_plan_publish(
 /// `workflow_run_record`: a runner records a finished run's results in the
 /// workflow document's own run graph, replacing what was there (clear, then
 /// insert, in one SPARQL update and so one store transaction), so recording
-/// the same run again is idempotent. Every triple must be about that run;
-/// one that is not, or Turtle that does not parse, refuses the whole call
-/// before anything is written.
+/// the same run again is idempotent. Every input triple must be about that
+/// run; one that is not, or Turtle that does not parse, refuses the whole
+/// call before anything is written. Cast beings are registered in the
+/// document's `:agents` graph in the same transaction, using the draft's
+/// post labels.
 pub(super) async fn mcp_local_workflow_run_record(
     app: AppHandle,
     arguments: &Value,
@@ -852,6 +855,18 @@ pub(super) async fn mcp_local_workflow_run_record(
         update.push_str(" ;\n");
         update.push_str(&insert_data(&run_graph, &triples));
     }
+    let registrations = cast_registration_triples(&names, &draft, &triples);
+    if !registrations.is_empty() {
+        let agents_graph = format!("{}:agents", names.workflow);
+        let beings: BTreeSet<_> = registrations.iter().filter_map(subject_iri).collect();
+        for being in beings {
+            update.push_str(&format!(
+                " ;\nDELETE WHERE {{ GRAPH <{agents_graph}> {{ <{being}> ?p ?o }} }}"
+            ));
+        }
+        update.push_str(" ;\n");
+        update.push_str(&insert_data(&agents_graph, &registrations));
+    }
     run_update(&app, &graph_id, update).await?;
     let mut result = json!({ "graph": run_graph, "triples": triples.len() });
     if let Some((typed, unfit)) = typing {
@@ -859,6 +874,62 @@ pub(super) async fn mcp_local_workflow_run_record(
         result["unfit"] = json!(unfit);
     }
     Ok(result)
+}
+
+/// Registration is a host-derived fact: only a cast for a post of this
+/// document is registered. Existing workflow predicates name its workflow
+/// and post; rdfs:label carries the post's role in the directory. The terms
+/// already name workflow membership and the step of a sitting; no agent-
+/// specific copies of those predicates are needed.
+fn cast_registration_triples(names: &PlanNames, draft: &[Triple], run: &[Triple]) -> Vec<Triple> {
+    const AGT: &str = "http://mnemosyne.dev/agent#";
+    let plan = Plan::new(draft);
+    let run = Plan::new(run);
+    let posts: BTreeSet<_> = plan.typed("AgentNode").into_iter().collect();
+    let mut triples = Vec::new();
+    for sitting in run.typed("StepRun") {
+        let (Some(step), Some(being)) = (
+            run.iri_of(sitting, &format!("{WF}step")),
+            run.iri_of(sitting, &format!("{WF}castAgent")),
+        ) else {
+            continue;
+        };
+        let Some(agent_id) = being.strip_prefix("urn:sophia:agent:agent-") else {
+            continue;
+        };
+        if !posts.contains(step)
+            || !step.starts_with(&format!("{}#", names.workflow))
+            || agent_id.len() != 16
+            || !agent_id
+                .bytes()
+                .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+        {
+            continue;
+        }
+        let subject = NamedNode::new_unchecked(being);
+        triples.extend([
+            Triple::new(subject.clone(), iri(RDF_TYPE), iri(&format!("{AGT}Agent"))),
+            Triple::new(
+                subject.clone(),
+                iri(&format!("{AGT}agentId")),
+                text(&format!("agent-{agent_id}")),
+            ),
+            Triple::new(
+                subject.clone(),
+                iri(&format!("{WF}partOfWorkflow")),
+                iri(&names.workflow),
+            ),
+            Triple::new(subject.clone(), iri(&format!("{WF}step")), iri(step)),
+        ]);
+        if let Some(label) = plan.literal(step, &format!("{WF}label")) {
+            triples.push(Triple::new(
+                subject,
+                iri("http://www.w3.org/2000/01/rdf-schema#label"),
+                text(label),
+            ));
+        }
+    }
+    triples
 }
 
 /// What typing a run's items adds (D5).
