@@ -709,3 +709,142 @@ fn scene_wire_drafts_are_validated_whole() {
         assert!(write_drafts(env, &[]).unwrap().is_empty());
     });
 }
+
+#[test]
+fn create_wires_refuses_missing_ends_blocks_and_empty_predicates_before_writing() {
+    with_env(|env| {
+        create(env, "doc-a");
+        create(env, "doc-b");
+        let (provider, exporter, dispatch) = crate::telemetry::test_support::capture(true);
+        tracing::dispatcher::with_default(&dispatch, || {
+            let span = tracing::info_span!(target: "gardend_otel", "wire.validation");
+            span.in_scope(|| {
+                for extra in [
+                    json!({"targetDocumentId": "doc-nope-000"}),
+                    json!({"sourceDocumentId": "doc-nope-000"}),
+                    json!({"sourceBlockId": "block-99999999"}),
+                    json!({"targetBlockId": "block-99999999"}),
+                    json!({"targetGraphId": "missing-graph"}),
+                    json!({"predicate": ""}),
+                    json!({"predicate": "   "}),
+                ] {
+                    let mut args =
+                        json!({"sourceDocumentId": "doc-a", "targetDocumentId": "doc-b"});
+                    for (key, value) in extra.as_object().unwrap() {
+                        args[key] = value.clone();
+                    }
+                    let error = env.call("create_wires", args).unwrap_err();
+                    assert!(
+                        error.contains("not found")
+                            || error.contains("does not exist")
+                            || error.contains("predicate must be"),
+                        "{error}"
+                    );
+                }
+            });
+        });
+        provider.force_flush().unwrap();
+        let spans = exporter.get_finished_spans().unwrap();
+        assert!(spans.iter().any(|span| span.name == "wire.validation"));
+        assert_eq!(
+            spans
+                .iter()
+                .flat_map(|span| span.events.events.iter())
+                .filter(|event| event.name == "fsync")
+                .count(),
+            0
+        );
+        assert!(snapshot_wires(env).is_empty());
+    });
+}
+
+#[test]
+fn create_wires_checks_typed_objects_and_allows_vocabulary_self_wires() {
+    with_env(|env| {
+        create(env, "doc-a");
+        let args = json!({"sourceDocumentId": "doc-a", "targetIri": OBJECT});
+        assert!(env
+            .call("create_wires", args.clone())
+            .unwrap_err()
+            .contains("typed object not found"));
+        env.call("sparql_update", json!({"update": format!(
+            "INSERT DATA {{ GRAPH <urn:wire-test:objects> {{ <{OBJECT}> a <urn:wire-test:Dream> }} }}"
+        )})).unwrap();
+        env.call("create_wires", args).unwrap();
+        env.call(
+            "create_wires",
+            json!({"sourceDocumentId": "doc-a", "targetDocumentId": "doc-a"}),
+        )
+        .unwrap();
+        let got = env
+            .call("get_wires", json!({"documentId": "doc-a"}))
+            .unwrap();
+        assert_eq!(got["count"], 2, "{got}");
+        assert_eq!(got["ghostWireCount"], 0, "{got}");
+    });
+}
+
+#[test]
+fn get_wires_counts_historical_ghosts_without_deleting_them() {
+    with_env(|env| {
+        create(env, "doc-a");
+        // The old queue/storage shape still represents dangling wires; the
+        // stricter authoring door must never rewrite that history on a read.
+        run(crate::crdt_queue::enqueue_crdt_operation(env.app.clone(), crate::crdt_queue::EnqueueCrdtOperationInput {
+            kind: "workspace.createWire".into(), graph_id: GRAPH.into(), document_id: Some("doc-a".into()),
+            payload: json!({"wireId": "historical-ghost", "sourceDocumentId": "doc-a", "targetDocumentId": "doc-nope-000"}),
+        })).unwrap();
+        let before = snapshot_wires(env);
+        for _ in 0..2 {
+            let got = env
+                .call("get_wires", json!({"documentId": "doc-a"}))
+                .unwrap();
+            assert_eq!(got["ghostWireCount"], 1, "{got}");
+            assert_eq!(got["count"], 1, "{got}");
+        }
+        assert_eq!(snapshot_wires(env), before);
+    });
+}
+
+#[test]
+fn create_wires_accepts_real_blocks_and_checks_cross_graph_document_membership() {
+    with_env(|env| {
+        create(env, "doc-a");
+        let other = "wire-target-graph";
+        crate::graph_service::create_graph_service(
+            &env.app,
+            crate::graph_service::CreateGraphInput {
+                graph_id: Some(other.into()),
+                title: "Target graph".into(),
+                description: None,
+                operation_id: None,
+            },
+        )
+        .unwrap();
+        for (graph, doc, block) in [
+            (GRAPH, "doc-a", "source-block"),
+            (other, "doc-b", "target-block"),
+        ] {
+            run(crate::crdt_queue::enqueue_crdt_operation(env.app.clone(), crate::crdt_queue::EnqueueCrdtOperationInput {
+                kind: "document.write".into(), graph_id: graph.into(), document_id: Some(doc.into()),
+                payload: json!({"title": doc, "tiptapJson": {"type": "doc", "content": [{
+                    "type": "paragraph", "attrs": {"data-block-id": block}, "content": [{"type": "text", "text": "Wired text."}]
+                }]}}),
+            })).unwrap();
+        }
+        let args = json!({"sourceDocumentId": "doc-a", "sourceBlockId": "source-block",
+            "targetGraphId": other, "targetDocumentId": "doc-b", "targetBlockId": "target-block"});
+        env.call("create_wires", args.clone()).unwrap();
+        let mut wrong_graph = args.clone();
+        wrong_graph["targetGraphId"] = json!(GRAPH);
+        assert!(env.call("create_wires", wrong_graph).is_err());
+        let mut wrong_block = args;
+        wrong_block["sourceBlockId"] = json!("target-block");
+        assert!(env.call("create_wires", wrong_block).is_err());
+        let got = env
+            .call("get_wires", json!({"documentId": "doc-a"}))
+            .unwrap();
+        assert_eq!(got["count"], 1, "{got}");
+        assert_eq!(got["ghostWireCount"], 0, "{got}");
+    });
+}

@@ -5,11 +5,8 @@ pub(super) fn semantic_search_input_from_mcp_args(
     arguments: &serde_json::Value,
 ) -> SemanticSearchInput {
     SemanticSearchInput {
-        graph_id: arguments
-            .get("graphId")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or_default()
-            .to_string(),
+        graph_id: crate::mcp_utils::mcp_arg_string(arguments, &["graphId", "graph_id"])
+            .unwrap_or_default(),
         query: arguments
             .get("query")
             .and_then(serde_json::Value::as_str)
@@ -59,8 +56,8 @@ pub(super) fn semantic_reason_input_from_mcp_args(
     }
 }
 
-/// Map MCP `memory_semantic_recall` arguments (camelCase, matching the
-/// `semantic_search` convention — no snake_case fallback) into
+/// Map MCP `memory_semantic_recall` arguments (both graph spellings, as
+/// neighbouring tools accept) into
 /// [`MemorySemanticRecallInput`]. Absent/non-matching-type fields default to
 /// `None` (or empty string for `graphId`/`query`); the service layer is
 /// responsible for turning an empty/invalid value into a loud error.
@@ -68,11 +65,8 @@ pub(super) fn memory_semantic_recall_input_from_mcp_args(
     arguments: &serde_json::Value,
 ) -> MemorySemanticRecallInput {
     MemorySemanticRecallInput {
-        graph_id: arguments
-            .get("graphId")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or_default()
-            .to_string(),
+        graph_id: crate::mcp_utils::mcp_arg_string(arguments, &["graphId", "graph_id"])
+            .unwrap_or_default(),
         query: arguments
             .get("query")
             .and_then(serde_json::Value::as_str)
@@ -88,9 +82,11 @@ pub(super) fn memory_semantic_recall_input_from_mcp_args(
             .map(str::to_string),
         include_episodes: arguments
             .get("includeEpisodes")
+            .or_else(|| arguments.get("include_episodes"))
             .and_then(serde_json::Value::as_bool),
         min_score: arguments
             .get("minScore")
+            .or_else(|| arguments.get("min_score"))
             .and_then(serde_json::Value::as_f64)
             .map(|value| value as f32),
         // Read as every Geist tool reads it (`observer_agent_id`, else
@@ -107,13 +103,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn mcp_semantic_search_input_preserves_route_defaults() {
+    fn mcp_semantic_search_input_accepts_snake_graph_and_preserves_other_defaults() {
         let input = semantic_search_input_from_mcp_args(&serde_json::json!({
-            "graph_id": "ignored",
+            "graph_id": "graph-a",
             "limit": "ignored",
         }));
 
-        assert_eq!(input.graph_id, "");
+        assert_eq!(input.graph_id, "graph-a");
         assert_eq!(input.query, "");
         assert_eq!(input.limit, None);
     }
@@ -148,13 +144,13 @@ mod tests {
     }
 
     #[test]
-    fn mcp_memory_semantic_recall_input_preserves_route_defaults() {
+    fn mcp_memory_semantic_recall_input_accepts_snake_graph_and_preserves_other_defaults() {
         let input = memory_semantic_recall_input_from_mcp_args(&serde_json::json!({
-            "graph_id": "ignored",
+            "graph_id": "graph-a",
             "k": "ignored",
         }));
 
-        assert_eq!(input.graph_id, "");
+        assert_eq!(input.graph_id, "graph-a");
         assert_eq!(input.query, "");
         assert_eq!(input.k, None);
         assert_eq!(input.cutoff, None);

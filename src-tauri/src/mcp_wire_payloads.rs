@@ -74,6 +74,14 @@ pub(super) fn wire_create_payload(
     let target_graph_id =
         mcp_arg_string_with_fallback(wire_input, arguments, &["target_graph_id", "targetGraphId"])
             .unwrap_or_else(|| graph_id.to_string());
+    let supplied_predicate = wire_input
+        .get("predicate")
+        .or_else(|| arguments.get("predicate"));
+    if supplied_predicate
+        .is_some_and(|value| value.as_str().map_or(true, |text| text.trim().is_empty()))
+    {
+        return Err("predicate must be a non-empty string (omit it to use isWiredTo)".to_string());
+    }
     let predicate = mcp_arg_string_with_fallback(wire_input, arguments, &["predicate"])
         .unwrap_or_else(|| "isWiredTo".to_string());
     // An IRI end names no block or mark: the stored wire does not carry the carrier.

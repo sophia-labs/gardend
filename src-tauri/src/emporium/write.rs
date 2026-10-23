@@ -783,6 +783,26 @@ fn locate_subject_graphs(store: &Store, subject: &str) -> Result<Vec<String>, St
     Ok(out)
 }
 
+/// Reject a missing retraction target before source-sync records authority.
+/// The direct writer performs the same existence check under its write gate.
+pub(crate) fn require_retraction_target(
+    app: &AppHandle,
+    graph_id: &str,
+    subject: &str,
+) -> Result<(), ObjectError> {
+    validate_sparql_iri("subject", subject).map_err(query_emit_err_to_object_err)?;
+    let graph_dir =
+        crate::paths::existing_graph_dir(app, graph_id).map_err(ObjectError::Internal)?;
+    let store = crate::rdf_service::open_graph_store(&graph_dir).map_err(ObjectError::Internal)?;
+    let graphs = locate_subject_graphs(&store, subject).map_err(ObjectError::Internal)?;
+    if graphs.is_empty() {
+        return Err(ObjectError::NotFound(format!(
+            "no object <{subject}> found in graph '{graph_id}'"
+        )));
+    }
+    Ok(())
+}
+
 fn subject_has_predicate(
     store: &Store,
     graph_iri: &str,

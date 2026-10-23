@@ -168,6 +168,65 @@ pub(super) async fn mcp_local_edit_comment(
     Ok(value)
 }
 
+/// A typed-object endpoint must have a type in its graph's real object store.
+fn require_wire_object(app: &AppHandle, graph_id: &str, iri: &str) -> Result<(), String> {
+    let graph_dir = crate::paths::existing_graph_dir(app, graph_id)?;
+    let store = crate::rdf_service::open_graph_store(&graph_dir)?;
+    let subject = oxigraph::model::NamedNode::new(iri).map_err(|error| error.to_string())?;
+    let rdf_type =
+        oxigraph::model::NamedNode::new("http://www.w3.org/1999/02/22-rdf-syntax-ns#type")
+            .map_err(|error| error.to_string())?;
+    let found = store
+        .quads_for_pattern(
+            Some(subject.as_ref().into()),
+            Some(rdf_type.as_ref()),
+            None,
+            None,
+        )
+        .next()
+        .transpose()
+        .map_err(|error| error.to_string())?
+        .is_some();
+    if !found {
+        return Err(format!("typed object not found in graph {graph_id}: {iri}"));
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_wire_targets(
+    app: &AppHandle,
+    graph_id: &str,
+    wire: &serde_json::Value,
+) -> Result<(), String> {
+    let target_graph = wire
+        .get("targetGraphId")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or(graph_id);
+    for (prefix, end_graph) in [("source", graph_id), ("target", target_graph)] {
+        if let Some(iri) = wire
+            .get(format!("{prefix}Iri"))
+            .and_then(serde_json::Value::as_str)
+        {
+            require_wire_object(app, end_graph, iri)?;
+        } else {
+            let document_id = wire
+                .get(format!("{prefix}DocumentId"))
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| format!("{prefix}DocumentId is required"))?;
+            let block_id = wire
+                .get(format!("{prefix}BlockId"))
+                .and_then(serde_json::Value::as_str);
+            crate::document_mcp_service::require_document_target(
+                app,
+                end_graph,
+                document_id,
+                block_id,
+            )?;
+        }
+    }
+    Ok(())
+}
+
 pub(super) async fn mcp_local_create_wires(
     app: AppHandle,
     arguments: &serde_json::Value,
@@ -186,6 +245,11 @@ pub(super) async fn mcp_local_create_wires(
         .iter()
         .map(|wire_input| wire_create_payload(wire_input, arguments, &graph_id))
         .collect::<Result<Vec<_>, _>>()?;
+    // Keep historical dangling projections readable. Only new MCP writes
+    // require live endpoints; the vocabulary imposes no irreflexivity rule.
+    for (_, payload) in &prepared {
+        validate_wire_targets(&app, &graph_id, payload)?;
+    }
     let mut created = Vec::new();
     for (source_document_id, payload) in prepared {
         let value = enqueue_crdt_operation(

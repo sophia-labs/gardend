@@ -594,6 +594,8 @@
     "write_document": "implemented"
   },
   "localMcpExtensions": {
+    "prepare_semantic_model": "implemented",
+    "refresh_semantic_index": "implemented",
     "backfill_memory_projection": "implemented",
     "cancel_restore_operation": "implemented",
     "create_document": "implemented",

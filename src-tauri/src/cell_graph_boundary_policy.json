@@ -1,7 +1,7 @@
 {
   "restSurfaceSha256": "040f799a01d7bfd486ce208a43ccd1440ed2d57eaebd2cdedb77e472d15396c7",
-  "mcpSurfaceSha256": "f49f7cb1769422e94f18da1f1168ed80738bd34513f30f96ef7987e99243f48a",
-  "effectRegistrySha256": "89769b2ff3b63ff41593e2455cd82482e893c1a1d974bde5bfc523b1b7d3ce76",
+  "mcpSurfaceSha256": "9356e8d49da77ce9999bf92a97997cf5dcd62e78ecedcc2ca4216b05e63d17fe",
+  "effectRegistrySha256": "286223935aca12a3de68e1dcb88072fe49017f34aa2ca6dc7b659eef2713a79a",
   "restGlobal": [
     "GET /api/artifacts/ingestion/approaches",
     "GET /api/artifacts/ingestion/docling/status",
@@ -354,6 +354,8 @@
     "read_document",
     "read_document_at_snapshot",
     "recall",
+    "prepare_semantic_model",
+    "refresh_semantic_index",
     "reindex_graph",
     "remember",
     "remember_batch",

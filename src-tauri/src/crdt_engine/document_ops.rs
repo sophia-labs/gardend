@@ -1356,8 +1356,26 @@ pub(crate) async fn rebuild_room_document_projection(
         ));
     }
     let record = read_document_record(&graph_dir, &manifest)?;
-    let record_value = serde_json::to_value(&record)
+    let mut record_value = serde_json::to_value(&record)
         .map_err(|error| format!("serialize document rebuild record: {error}"))?;
+    // create_document provisions a revision-0 record with no TipTap cache
+    // and the canonical empty Y.Doc. Projecting that same authority produces
+    // an empty doc node. Compare those two initial representations without
+    // rewriting the record, taking a revision, or excusing a changed room.
+    if record.revision == 0
+        && record.tiptap_json.is_none()
+        && record.body.is_empty()
+        && record.ydoc_update_base64 == crate::document_sidecar_store::empty_ydoc_update_base64()
+        && record.document_kind.is_none()
+        && !crate::whiteboard::is_scene_kind(document_kind.as_deref())
+    {
+        record_value["tiptapJson"] = json!({"type": "doc", "content": []});
+        // A new record has no kind cache either. The workspace owns the
+        // declared text kind before the first content save provisions it.
+        if let Some(kind) = &document_kind {
+            record_value["documentKind"] = json!(kind);
+        }
+    }
     if !projection_semantics_match(&record_value, &materialized.candidate)? {
         return Err(format!(
             "document projection rebuild source mismatch: {graph_id}/{document_id}"
@@ -1547,7 +1565,7 @@ pub(super) async fn materialize_room_document(
     tracing::Span::current().record("sophia.document.body_bytes", snapshot.body.len() as u64);
     tracing::Span::current().record("sophia.ydoc.state_bytes", ydoc_state.len() as u64);
     let ydoc_b64 = base64::engine::general_purpose::STANDARD.encode(ydoc_state);
-    let candidate = json!({
+    let mut candidate = json!({
         "graphId": graph_id,
         "documentId": document_id,
         "title": title,
@@ -1560,6 +1578,11 @@ pub(super) async fn materialize_room_document(
         "traceOperationId": operation_id,
         "expectedRevision": expected_revision.cloned(),
     });
+    // Text kinds (workflow, daily-note, etc.) are semantics too. Omitting
+    // them made source replay reject the record saved from this very room.
+    if let Some(kind) = document_kind {
+        candidate["documentKind"] = json!(kind);
+    }
     let save_input: SaveDocumentInput = serde_json::from_value(candidate.clone())
         .map_err(|error| format!("assemble save_document input: {error}"))?;
     Ok(MaterializedRoomDocument {
@@ -2806,31 +2829,33 @@ pub fn edit_comment_in_doc(
     let mut anchor_block_id: Option<String> = None;
     let mut effective_quoted_text = quoted_text;
 
-    if let (Some(block_id), Some(find)) = (&block_id, &find) {
-        // The quote as it was copied (soft wraps, typographic quotes and
-        // dashes, an elided end) in the named block; else in the blocks
-        // after it, then before it. Only a quote no block holds is refused.
-        let named = block_ops::find_block_in_fragment(txn, &fragment, block_id);
-        let in_named = named.as_ref().and_then(|(element, _)| {
-            let ranges = quote_ranges(&read_block_text(txn, element), find, occurrence);
-            (!ranges.is_empty()).then(|| (element.clone(), block_id.clone(), ranges))
-        });
-        let (element, found_in, ranges) = match in_named {
-            Some(found) => found,
-            None => find_quote_in_blocks(
-                txn,
-                &fragment,
-                named.as_ref().map(|(_, index)| *index),
-                find,
-                occurrence,
-            )
-            .ok_or_else(|| match named {
-                Some(_) => format!(
-                    "text not found in block {block_id} or in any other block of the document: {find}"
-                ),
-                None => format!("Block not found: {block_id}"),
-            })?,
+    if let Some(block_id) = &block_id {
+        // An explicit block is a constraint, never a hint. Validate before
+        // writing marks or replacing the stored comment.
+        let (element, _) = block_ops::find_block_in_fragment(txn, &fragment, block_id)
+            .ok_or_else(|| format!("Block not found: {block_id}"))?;
+        let text = read_block_text(txn, &element);
+        let ranges = if let Some(find) = &find {
+            let ranges = quote_ranges(&text, find, occurrence);
+            if ranges.is_empty() {
+                return Err(format!("text not found in block {block_id}: {find}"));
+            }
+            ranges
+        } else {
+            vec![(0, text.encode_utf16().count())]
         };
+        // Re-anchoring an existing comment replaces its marks. Do this only
+        // after validation so a refused move leaves the old anchor intact.
+        let elements = fragment
+            .children(txn)
+            .filter_map(|child| match child {
+                XmlOut::Element(element) => Some(element),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        for element in &elements {
+            clear_comment_marks(txn, element, comment_id);
+        }
         let mark_attrs = json!({ "commentMark": { "commentId": comment_id } })
             .as_object()
             .cloned()
@@ -2838,9 +2863,9 @@ pub fn edit_comment_in_doc(
         for (offset, length) in ranges {
             anchored += format_block_text_range(txn, &element, offset, length, &mark_attrs);
         }
-        anchor_block_id = Some(found_in);
+        anchor_block_id = Some(block_id.clone());
         if effective_quoted_text.is_none() {
-            effective_quoted_text = Some(find.clone());
+            effective_quoted_text = find.clone();
         }
     }
 

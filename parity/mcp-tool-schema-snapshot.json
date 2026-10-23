@@ -108,8 +108,19 @@
       "properties": ["depth", "foldersOnly", "graphId"]
     },
     "read_document": {
-      "required": ["documentId", "graphId"],
-      "properties": ["documentId", "format", "graphId"]
+      "required": [],
+      "properties": [
+        "cursor",
+        "documentId",
+        "document_id",
+        "format",
+        "graphId",
+        "graph_id",
+        "includeComments",
+        "limit",
+        "maxChars",
+        "offset"
+      ]
     },
     "write_document": {
       "required": ["content"],
@@ -305,8 +316,17 @@
       "properties": ["documentId", "graphId"]
     },
     "create_folder": {
-      "required": ["graphId", "name"],
-      "properties": ["folderId", "graphId", "name", "order", "parentId", "section"]
+      "required": [],
+      "properties": [
+        "folderId",
+        "graphId",
+        "graph_id",
+        "name",
+        "order",
+        "parentId",
+        "section",
+        "title"
+      ]
     },
     "move_documents": {
       "required": ["documentIds", "graphId"],
@@ -399,12 +419,33 @@
       "properties": ["format", "graphId", "sourceGraphIri"]
     },
     "semantic_search": {
-      "required": ["graphId", "query"],
-      "properties": ["graphId", "limit", "query"]
+      "required": [
+        "query"
+      ],
+      "properties": [
+        "graphId",
+        "graph_id",
+        "limit",
+        "query"
+      ]
     },
     "memory_semantic_recall": {
-      "required": ["graphId", "query"],
-      "properties": ["graphId", "query", "k", "cutoff", "includeEpisodes", "minScore", "observerAgentId", "observer_agent_id"]
+      "required": [
+        "query"
+      ],
+      "properties": [
+        "cutoff",
+        "graphId",
+        "graph_id",
+        "includeEpisodes",
+        "include_episodes",
+        "k",
+        "minScore",
+        "min_score",
+        "observerAgentId",
+        "observer_agent_id",
+        "query"
+      ]
     },
     "list_restore_points": {
       "required": [],

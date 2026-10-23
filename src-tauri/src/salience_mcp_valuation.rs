@@ -173,6 +173,16 @@ pub(super) fn mcp_local_value(
             }
         }
 
+        if let Err(error) = crate::document_mcp_service::require_document_target(
+            &app,
+            &graph_id,
+            &entry.document_id,
+            Some(&entry.block_id),
+        ) {
+            errors.push(serde_json::json!({ "index": entry.input_index, "error": error }));
+            continue;
+        }
+
         let key = block_value_key(&entry.document_id, &entry.block_id);
         let record = store
             .blocks
@@ -228,6 +238,16 @@ pub(super) fn mcp_local_value(
         }
     }
 
+    // A refused single valuation must not write even an empty store or
+    // touch graph clocks. Batches retain their existing per-entry errors.
+    if single {
+        if let Some(error) = errors.first() {
+            return Err(error["error"]
+                .as_str()
+                .unwrap_or("valuation failed")
+                .to_string());
+        }
+    }
     write_value_store(&graph_dir, &store)?;
     // TODO(MO-delta-routing): route the structured TripleDiff instead of dropping it.
     let _diff = reconcile_value_store(&graph_dir, &store)?;
@@ -235,13 +255,6 @@ pub(super) fn mcp_local_value(
     touch_profile_updated_at(&app)?;
 
     if single {
-        if let Some(error) = errors.first() {
-            return Err(error
-                .get("error")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("valuation failed")
-                .to_string());
-        }
         if !results.is_empty() {
             return Ok(results.remove(0));
         }

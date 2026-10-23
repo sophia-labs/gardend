@@ -4,8 +4,8 @@
 //! quotes and em dashes. Exact `find` missed 21 of 33 verified findings. A
 //! quote now matches after both sides are normalized the way Shrubbery's
 //! reader overlay normalizes them (`source-quote-annotations.ts`), and the
-//! mark covers exactly the original characters; a quote that is not in its
-//! block is looked for in the document's other blocks.
+//! mark covers exactly the original characters. An explicit block confines
+//! matching to that block.
 //!
 //! Real text: four consecutive paragraphs of chapter I of The Interpretation
 //! of Dreams, as gardend imported the EPUB (`tests/fixtures/comment_anchoring`).
@@ -153,26 +153,57 @@ fn typographic_quotes_and_dashes_match_their_plain_forms() {
     );
 }
 
-/// 3. The clerk names its passage's first block; the quote sits in the next.
+/// An explicit block must never silently move a comment to another block.
 #[test]
-fn a_quote_outside_its_named_block_anchors_where_it_is() {
+fn a_quote_outside_its_named_block_is_refused() {
     let doc = book();
-    let result = set(
+    let before = ydoc_to_tiptap_json(&doc);
+    let error = set(
         &doc,
         "c-next",
         Some("block-be1fe535"),
         "There are a great many stimuli of such nature, ranging from those that are unavoidable",
     )
-    .expect("found in the following block");
-    assert_eq!(result["blockId"], "block-bf1fe6c8", "{result}");
-    assert_eq!(stored(&doc, "c-next").unwrap()["blockId"], "block-bf1fe6c8");
-    assert_eq!(
-        marked(&doc, "c-next"),
-        vec![(
-            "block-bf1fe6c8".to_string(),
-            "There are a great many stimuli of such nature, ranging\nfrom those that are unavoidable".to_string()
-        )]
+    .expect_err("the quote belongs to another block");
+    assert!(
+        error.contains("text not found in block block-be1fe535"),
+        "{error}"
     );
+    assert!(stored(&doc, "c-next").is_none());
+    assert_eq!(ydoc_to_tiptap_json(&doc), before);
+}
+
+#[test]
+fn a_block_without_find_anchors_the_whole_block_and_missing_blocks_are_refused() {
+    for key in ["blockId", "block_id"] {
+        let doc = book();
+        let mut payload = Map::new();
+        payload.insert("text".into(), json!("whole block"));
+        payload.insert(key.into(), json!("block-be1fe535"));
+        let result = {
+            let mut txn = doc.transact_mut();
+            edit_comment_in_doc(&mut txn, &payload, "set", "c-block", 1.0).unwrap()
+        };
+        assert_eq!(result["blockId"], "block-be1fe535");
+        assert!(result["anchored"].as_u64().unwrap() > 0);
+        assert_eq!(
+            marked(&doc, "c-block"),
+            vec![("block-be1fe535".into(), block_text(&doc, "block-be1fe535"))]
+        );
+        payload.insert(key.into(), json!("missing"));
+        let before = ydoc_to_tiptap_json(&doc);
+        let error = {
+            let mut txn = doc.transact_mut();
+            edit_comment_in_doc(&mut txn, &payload, "set", "c-missing", 1.0).unwrap_err()
+        };
+        assert!(error.contains("Block not found"), "{error}");
+        assert!(stored(&doc, "c-missing").is_none());
+        assert_eq!(ydoc_to_tiptap_json(&doc), before);
+    }
+    let doc = book();
+    assert!(set(&doc, "c-missing", Some("missing"), "Strümpell")
+        .unwrap_err()
+        .contains("Block not found"));
 }
 
 /// 4. A quote the book does not hold: reported, nothing written.
@@ -257,4 +288,41 @@ fn added_outer_quotation_marks_are_forgiven() {
     assert!(text.contains(&original) && !text.contains(&quote));
     set(&doc, "c-item-9", Some(&block_id), &quote).expect("item 9 anchors");
     assert_eq!(marked(&doc, "c-item-9"), vec![(block_id, original)]);
+}
+
+#[test]
+fn moving_a_comment_replaces_marks_only_after_the_new_anchor_is_valid() {
+    let doc = book();
+    set(
+        &doc,
+        "c-move",
+        Some("block-be1fe535"),
+        "Strümpell’s experiment",
+    )
+    .unwrap();
+    let before = marked(&doc, "c-move");
+    assert!(set(
+        &doc,
+        "c-move",
+        Some("block-c01fe85b"),
+        "Strümpell’s experiment"
+    )
+    .is_err());
+    assert_eq!(marked(&doc, "c-move"), before);
+    assert_eq!(stored(&doc, "c-move").unwrap()["blockId"], "block-be1fe535");
+    set(
+        &doc,
+        "c-move",
+        Some("block-c01fe85b"),
+        "Every indistinctly perceived noise",
+    )
+    .unwrap();
+    assert_eq!(
+        marked(&doc, "c-move"),
+        vec![(
+            "block-c01fe85b".into(),
+            "Every indistinctly perceived noise".into()
+        )]
+    );
+    assert_eq!(stored(&doc, "c-move").unwrap()["blockId"], "block-c01fe85b");
 }

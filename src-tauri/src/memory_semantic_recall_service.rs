@@ -774,6 +774,20 @@ mod observer_tests {
     /// nothing else: a witness with none has no candidates, though the commons
     /// and another witness have some (and the embedder is never asked).
     #[test]
+    fn semantic_recall_accepts_both_graph_spellings_against_a_real_store() {
+        with_lab(|app| {
+            let camel = mcp_local_memory_semantic_recall(app.clone(), &serde_json::json!({
+                "graphId": GRAPH, "query": "an empty projection", "includeEpisodes": true, "minScore": 0.2
+            })).unwrap();
+            let snake = mcp_local_memory_semantic_recall(app.clone(), &serde_json::json!({
+                "graph_id": GRAPH, "query": "an empty projection", "include_episodes": true, "min_score": 0.2
+            })).unwrap();
+            assert_eq!(snake, camel);
+            assert_eq!(snake["candidateCount"], 0);
+        });
+    }
+
+    #[test]
     fn semantic_recall_searches_only_its_observers_memories() {
         with_lab(|app| {
             remember(&app, None, "the commons keeps a recipe");

@@ -1,5 +1,43 @@
 {
   "tools": [
+    {
+      "name": "prepare_semantic_model",
+      "description": "Prepare the configured embedding model as a background job for this graph. May download model weights. Poll get_job_status and get_job_result; cancel_job cancels the job. After success run refresh_semantic_index. Requires graphId or graph_id.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "graph_id": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "refresh_semantic_index",
+      "description": "Build the graph semantic index as a background job. Run prepare_semantic_model first if the model is not prepared. Poll get_job_status and get_job_result; cancel_job cancels the job. Requires graphId or graph_id.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "graph_id": {
+            "type": "string"
+          },
+          "flushBoundary": {
+            "type": "string",
+            "enum": [
+              "bestEffort",
+              "required"
+            ],
+            "default": "bestEffort"
+          }
+        }
+      }
+    },
     {"name":"agent_status","description":"Read the authorized graph's Emporium Agent identities and bounded latest body reports. Recent reports are editable testimony, never independent process liveness. Read server asOf and age expiresAt locally. No reports and unavailable are different; no cross-graph directory or conversation binding.","inputSchema":{"type":"object","properties":{"graph_id":{"type":"string"},"graphId":{"type":"string"}},"additionalProperties":false}},
     {"name":"agent_self_image","description":"Make and keep an image of YOURSELF as an agent (never another agent's). action=generate: describe how you see yourself in `prompt`; the image is saved as a Garden artifact revision and recorded as agt:SelfImage (prompt, generator, model, time) linked by agt:selfImage from your agt:Agent, which must already exist in this graph. action=mode_variant: derive how you look under an agt:Mode (modeIri, default = your agt:defaultMode) from the mode's agt:imageTransform applied to your base image; cached until your base or the transform changes (force=true regenerates). action=current (includeImage=true returns bytes) / describe: read your image, provenance and variant freshness. generator=openrouter (default; needs the cell's OpenRouter key, model google/gemini-2.5-flash-image) or local-sigil (deterministic SVG, no provider). agentId is a claim at the cell; Choreograph pins it to your own session agent.","inputSchema":{"type":"object","properties":{"graph_id":{"type":"string"},"graphId":{"type":"string"},"action":{"type":"string","enum":["generate","mode_variant","current","describe"],"default":"current"},"agentId":{"type":"string","pattern":"^agent-[a-f0-9]{16}$"},"prompt":{"type":"string","maxLength":2000},"modeIri":{"type":"string"},"generator":{"type":"string","enum":["openrouter","local-sigil"],"default":"openrouter"},"includeImage":{"type":"boolean","default":false},"force":{"type":"boolean","default":false}},"required":["agentId"],"additionalProperties":false}},
     {"name":"status","description":"Optionally report concise current work for an EXISTING Emporium Agent and one body. Requires exact graph incarnation. Server timestamps expire after 30–600 seconds. Supplied agent/seat/session/run coordinates are claims, not authenticated identities or navigation grants. Captured hosted ingress principal is attribution in editable graph RDF. No launch, message or ACK effects.","inputSchema":{"type":"object","properties":{"graph_id":{"type":"string"},"graphId":{"type":"string"},"graphIncarnation":{"type":"string"},"agentId":{"type":"string","pattern":"^agent-[a-f0-9]{16}$"},"bodyId":{"type":"string"},"activity":{"type":"string","maxLength":2048},"ttlSeconds":{"type":"integer","minimum":30,"maximum":600},"origin":{"type":"string","enum":["self-reported","operator-reported"]},"sessionId":{"type":["string","null"]},"runId":{"type":["string","null"]},"seatLabel":{"type":["string","null"]}},"required":["graphIncarnation","agentId","bodyId","activity","ttlSeconds","origin"],"additionalProperties":false}},
@@ -1222,10 +1260,7 @@
       "description": "Read a bounded character page from a local document projection. Use offset/nextOffset for continuation or read_blocks for structural pagination. When the document has comments (people's notes and highlights, yours too), the result carries them as `comments` (id, text, quotedText, author, claimedAuthor, blockId, resolved, kind, color, anchor, createdAt) with `commentCount`; pass includeComments:false to leave them out. A comment of kind \"highlight\" is a mark the reader made, usually with no note.",
       "inputSchema": {
         "type": "object",
-        "required": [
-          "graphId",
-          "documentId"
-        ],
+        "required": [],
         "properties": {
           "graphId": {
             "type": "string"
@@ -1257,7 +1292,10 @@
             "description": "Include the document's comments (notes and highlights) in the result. Default true; omitted when the document has none."
           },
           "cursor": {
-            "type": ["string", "integer"],
+            "type": [
+              "string",
+              "integer"
+            ],
             "description": "Block offset used only by ids_only format."
           },
           "limit": {
@@ -1265,6 +1303,12 @@
             "minimum": 1,
             "maximum": 1000,
             "description": "Block ID page size used only by ids_only format."
+          },
+          "graph_id": {
+            "type": "string"
+          },
+          "document_id": {
+            "type": "string"
           }
         }
       }
@@ -1857,7 +1901,7 @@
     },
     {
       "name": "edit_comment",
-      "description": "Create, resolve, or delete a comment in a local document Y.Doc comments map, optionally anchoring it to matching block text with a commentMark. Accepts the Reader's keys, stored verbatim and nothing else of their kind: kind (comment | highlight; a highlight may have empty text), color (yellow | green | blue | pink), anchor ({page?: integer >= 1, chapter?: integer >= 0, prefix?: string <= 200 chars, suffix?: string <= 200 chars}) and madeIn (reader). Other values are refused. Keys already on a stored comment survive later edits.",
+      "description": "Create, resolve, or delete a comment in a local document Y.Doc comments map, optionally anchoring it to matching block text with a commentMark. Accepts the Reader's keys, stored verbatim and nothing else of their kind: kind (comment | highlight; a highlight may have empty text), color (yellow | green | blue | pink), anchor ({page?: integer >= 1, chapter?: integer >= 0, prefix?: string <= 200 chars, suffix?: string <= 200 chars}) and madeIn (reader). Other values are refused. Keys already on a stored comment survive later edits. blockId/block_id constrains the anchor to that block: the whole block without find, or matching text within it. Missing blocks and text outside the named block are errors.",
       "inputSchema": {
         "type": "object",
         "required": [
@@ -1921,26 +1965,48 @@
           },
           "kind": {
             "type": "string",
-            "enum": ["comment", "highlight"],
+            "enum": [
+              "comment",
+              "highlight"
+            ],
             "description": "A highlight is a mark with no note; its text may be empty."
           },
           "color": {
             "type": "string",
-            "enum": ["yellow", "green", "blue", "pink"]
+            "enum": [
+              "yellow",
+              "green",
+              "blue",
+              "pink"
+            ]
           },
           "anchor": {
             "type": "object",
             "additionalProperties": false,
             "properties": {
-              "page": { "type": "integer", "minimum": 1 },
-              "chapter": { "type": "integer", "minimum": 0 },
-              "prefix": { "type": "string", "maxLength": 200 },
-              "suffix": { "type": "string", "maxLength": 200 }
+              "page": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "chapter": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "prefix": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "suffix": {
+                "type": "string",
+                "maxLength": 200
+              }
             }
           },
           "madeIn": {
             "type": "string",
-            "enum": ["reader"]
+            "enum": [
+              "reader"
+            ]
           }
         }
       }
@@ -2100,12 +2166,22 @@
     },
     {
       "name": "create_wires",
-      "description": "Create one or more local semantic wires through the workspace CRDT surface. An end is a document (sourceDocumentId, targetDocumentId, optionally with a block) or a typed object (sourceIri, targetIri), never both. The scene* fields record the whiteboard arrow a wire was drawn from.",
+      "description": "Create one or more local semantic wires through the workspace CRDT surface. An end is a document (sourceDocumentId, targetDocumentId, optionally with a block) or a typed object (sourceIri, targetIri), never both. The scene* fields record the whiteboard arrow a wire was drawn from. New endpoints must exist in their graphs/documents; an explicit empty predicate is an error. Self-wires are allowed by the vocabulary.",
       "inputSchema": {
         "type": "object",
         "properties": {
-          "graphIncarnation": { "type": "string", "minLength": 1, "maxLength": 256, "description": "Optional expected source workspace lifetime, carried to every child queue admission/effect. Not a target-graph or batch transaction. Discover source_pull.mutationCapabilities.expectedGraphIncarnation version 1 first." },
-          "graph_incarnation": { "type": "string", "minLength": 1, "maxLength": 256, "description": "Alias of graphIncarnation; aliases and any wire-item carrier must agree." },
+          "graphIncarnation": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "description": "Optional expected source workspace lifetime, carried to every child queue admission/effect. Not a target-graph or batch transaction. Discover source_pull.mutationCapabilities.expectedGraphIncarnation version 1 first."
+          },
+          "graph_incarnation": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "description": "Alias of graphIncarnation; aliases and any wire-item carrier must agree."
+          },
           "graph_id": {
             "type": "string"
           },
@@ -2190,27 +2266,67 @@
           "wireId": {
             "type": "string"
           },
-          "sourceIri": { "type": "string", "description": "The wire starts at this object (an absolute IRI) instead of a document. Needs sceneDocumentId: the board the wire is drawn on." },
-          "targetIri": { "type": "string", "description": "The wire ends at this object (an absolute IRI) instead of a document; no target document id then." },
-          "sceneGraphId": { "type": "string", "description": "Scene provenance: the graph of the board the wire was drawn on." },
-          "sceneDocumentId": { "type": "string", "description": "Scene provenance: the board (whiteboard document) the wire was drawn on." },
-          "sceneElementId": { "type": "string", "description": "Scene provenance: the arrow's element id on the board." },
-          "sceneSourceElementId": { "type": "string", "description": "Scene provenance: the shape the arrow leaves." },
-          "sceneTargetElementId": { "type": "string", "description": "Scene provenance: the shape the arrow reaches." },
-          "sceneStableKey": { "type": "string", "description": "Scene provenance: a stable key for the arrow, wb:{boardId}:{elementId}." },
+          "sourceIri": {
+            "type": "string",
+            "description": "The wire starts at this object (an absolute IRI) instead of a document. Needs sceneDocumentId: the board the wire is drawn on."
+          },
+          "targetIri": {
+            "type": "string",
+            "description": "The wire ends at this object (an absolute IRI) instead of a document; no target document id then."
+          },
+          "sceneGraphId": {
+            "type": "string",
+            "description": "Scene provenance: the graph of the board the wire was drawn on."
+          },
+          "sceneDocumentId": {
+            "type": "string",
+            "description": "Scene provenance: the board (whiteboard document) the wire was drawn on."
+          },
+          "sceneElementId": {
+            "type": "string",
+            "description": "Scene provenance: the arrow's element id on the board."
+          },
+          "sceneSourceElementId": {
+            "type": "string",
+            "description": "Scene provenance: the shape the arrow leaves."
+          },
+          "sceneTargetElementId": {
+            "type": "string",
+            "description": "Scene provenance: the shape the arrow reaches."
+          },
+          "sceneStableKey": {
+            "type": "string",
+            "description": "Scene provenance: a stable key for the arrow, wb:{boardId}:{elementId}."
+          },
           "wires": {
             "type": "array",
             "items": {
               "type": "object",
               "properties": {
-                "sourceIri": { "type": "string" },
-                "targetIri": { "type": "string" },
-                "sceneGraphId": { "type": "string" },
-                "sceneDocumentId": { "type": "string" },
-                "sceneElementId": { "type": "string" },
-                "sceneSourceElementId": { "type": "string" },
-                "sceneTargetElementId": { "type": "string" },
-                "sceneStableKey": { "type": "string" }
+                "sourceIri": {
+                  "type": "string"
+                },
+                "targetIri": {
+                  "type": "string"
+                },
+                "sceneGraphId": {
+                  "type": "string"
+                },
+                "sceneDocumentId": {
+                  "type": "string"
+                },
+                "sceneElementId": {
+                  "type": "string"
+                },
+                "sceneSourceElementId": {
+                  "type": "string"
+                },
+                "sceneTargetElementId": {
+                  "type": "string"
+                },
+                "sceneStableKey": {
+                  "type": "string"
+                }
               }
             }
           }
@@ -2360,13 +2476,10 @@
     },
     {
       "name": "create_folder",
-      "description": "Create a local sidebar folder through the workspace CRDT surface.",
+      "description": "Create a local sidebar folder through the workspace CRDT surface. Accepts name or title (name takes precedence); omitted names default to Untitled Folder.",
       "inputSchema": {
         "type": "object",
-        "required": [
-          "graphId",
-          "name"
-        ],
+        "required": [],
         "properties": {
           "graphId": {
             "type": "string"
@@ -2392,6 +2505,12 @@
           },
           "order": {
             "type": "number"
+          },
+          "graph_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
           }
         }
       }
@@ -4303,7 +4422,6 @@
       "inputSchema": {
         "type": "object",
         "required": [
-          "graphId",
           "query"
         ],
         "properties": {
@@ -4317,6 +4435,9 @@
             "type": "integer",
             "minimum": 1,
             "maximum": 50
+          },
+          "graph_id": {
+            "type": "string"
           }
         }
       }
@@ -4393,7 +4514,6 @@
       "inputSchema": {
         "type": "object",
         "required": [
-          "graphId",
           "query"
         ],
         "properties": {
@@ -4424,6 +4544,15 @@
           },
           "observerAgentId": {
             "type": "string"
+          },
+          "graph_id": {
+            "type": "string"
+          },
+          "include_episodes": {
+            "type": "boolean"
+          },
+          "min_score": {
+            "type": "number"
           }
         }
       }

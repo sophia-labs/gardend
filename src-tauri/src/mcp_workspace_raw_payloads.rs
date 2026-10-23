@@ -62,7 +62,8 @@ pub(super) fn create_document_payload(arguments: &serde_json::Value) -> serde_js
 pub(super) fn create_folder_payload(arguments: &serde_json::Value) -> serde_json::Value {
     serde_json::json!({
         "folderId": arguments.get("folderId").cloned().unwrap_or(serde_json::Value::Null),
-        "name": arguments.get("name").cloned().unwrap_or_else(|| serde_json::json!("Untitled Folder")),
+        "name": crate::mcp_utils::mcp_arg_string(arguments, &["name", "title"])
+            .unwrap_or_else(|| "Untitled Folder".to_string()),
         "parentId": arguments.get("parentId").cloned().unwrap_or(serde_json::Value::Null),
         "section": arguments.get("section").cloned().unwrap_or_else(|| serde_json::json!("documents")),
         "order": arguments.get("order").cloned().unwrap_or(serde_json::Value::Null),

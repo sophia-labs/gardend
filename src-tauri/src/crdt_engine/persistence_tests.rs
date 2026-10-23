@@ -4273,3 +4273,77 @@ fn projection_retried_write_naming_its_marks_in_another_order_is_an_idempotent_r
         });
     });
 }
+
+/// The exact stress-run mismatch: a freshly provisioned revision-0 record
+/// has a null TipTap cache, while its empty Y.Doc projects an empty doc node.
+#[test]
+fn projection_rebuild_accepts_an_untouched_document_but_refuses_unsaved_content() {
+    with_profile("garden-initial-record-rebuild", || {
+        crate::app_runtime::async_runtime::block_on(async {
+            let app = crate::tauri_runtime::build_mock_app_for_tests(true);
+            let graph_id = "initial-record-rebuild";
+            let document_id = "empty-document";
+            create_graph_service(
+                &app,
+                CreateGraphInput {
+                    graph_id: Some(graph_id.into()),
+                    title: "Empty authority".into(),
+                    description: None,
+                    operation_id: None,
+                },
+            )
+            .unwrap();
+            crate::document_service::create_document(
+                app.clone(),
+                crate::document_service::CreateDocumentInput {
+                    graph_id: graph_id.into(),
+                    document_id: Some(document_id.into()),
+                    title: "Untitled".into(),
+                },
+            )
+            .unwrap();
+            let graph_dir = existing_graph_dir(&app, graph_id).unwrap();
+            let manifest = document_dir(&graph_dir, document_id)
+                .unwrap()
+                .join("document.json");
+            let before = std::fs::read(&manifest).unwrap();
+            let record = read_document_record(&graph_dir, &manifest).unwrap();
+            assert_eq!(record.revision, 0);
+            assert!(record.tiptap_json.is_none());
+            let registry = RoomRegistry::default();
+            let room = registry
+                .get_or_create(
+                    &format!("doc:{graph_id}:{document_id}"),
+                    document_ydoc_state_path(&graph_dir, document_id),
+                )
+                .await
+                .unwrap();
+            room.force_projection_rebuild();
+            assert!(rebuild_room_document_projection(
+                &app,
+                graph_id,
+                document_id,
+                "Untitled",
+                &room,
+                "initial-rebuild"
+            )
+            .await
+            .unwrap());
+            assert_eq!(std::fs::read(&manifest).unwrap(), before);
+            replace_room_text(&room, "new-block", "Unsaved content must still be refused.").await;
+            room.force_projection_rebuild();
+            let error = rebuild_room_document_projection(
+                &app,
+                graph_id,
+                document_id,
+                "Untitled",
+                &room,
+                "changed-rebuild",
+            )
+            .await
+            .unwrap_err();
+            assert!(error.contains("source mismatch"), "{error}");
+            assert_eq!(std::fs::read(&manifest).unwrap(), before);
+        });
+    });
+}

@@ -88,6 +88,39 @@ fn mcp_graph_id_argument(arguments: &serde_json::Value) -> String {
         .to_string()
 }
 
+/// Validate authored references against the document's actual block inventory.
+/// Shared by convenience writers so a missing target never becomes authority.
+pub(crate) fn require_document_target(
+    app: &AppHandle,
+    graph_id: &str,
+    document_id: &str,
+    block_id: Option<&str>,
+) -> Result<(), String> {
+    // Reference validation is a read-only admission check. Do not use the
+    // authoring read, which may provision a missing workspace ghost's body.
+    let graph_dir = existing_graph_dir(app, graph_id)?;
+    crate::document_tombstone_store::require_document_not_tombstoned(&graph_dir, document_id)?;
+    let manifest =
+        crate::document_paths::document_dir(&graph_dir, document_id)?.join("document.json");
+    if !manifest.is_file() {
+        return Err(format!(
+            "document not found in graph {graph_id}: {document_id}"
+        ));
+    }
+    let document = crate::document_record_store::read_document_record_cold(&graph_dir, &manifest)?;
+    if let Some(block_id) = block_id {
+        if !document_blocks_for_read(&document)
+            .iter()
+            .any(|block| block.id == block_id)
+        {
+            return Err(format!(
+                "block not found in {graph_id}/{document_id}: {block_id}"
+            ));
+        }
+    }
+    Ok(())
+}
+
 pub(super) fn mcp_local_read_document(
     app: AppHandle,
     arguments: &serde_json::Value,

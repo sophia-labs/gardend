@@ -18,6 +18,16 @@ pub(super) fn submit_prepare_semantic_model_job(
     app: AppHandle,
     jobs: Arc<LocalJobRegistry>,
 ) -> AppResult<LocalJobSubmitResponse> {
+    submit_prepare_semantic_model_job_for_graph(app, jobs, None)
+}
+
+/// MCP jobs carry the admitted graph so the existing graph-bound job readers
+/// can authorize polling and cancellation. UI preparation remains unbound.
+pub(crate) fn submit_prepare_semantic_model_job_for_graph(
+    app: AppHandle,
+    jobs: Arc<LocalJobRegistry>,
+    graph_id: Option<String>,
+) -> AppResult<LocalJobSubmitResponse> {
     let config = read_semantic_model_config(&app).map_err(AppError::storage)?;
     let spec =
         semantic_model_spec_by_id(&config.selected_model_id).map_err(AppError::validation)?;
@@ -30,7 +40,7 @@ pub(super) fn submit_prepare_semantic_model_job(
         "displayName": spec.display_name,
         "dimensions": spec.dimensions,
     });
-    let record = jobs.insert_queued(SEMANTIC_MODEL_PREPARE_JOB_TYPE, None, detail)?;
+    let record = jobs.insert_queued(SEMANTIC_MODEL_PREPARE_JOB_TYPE, graph_id, detail)?;
     let job_id = record.job_id.clone();
     let queued_progress = LocalJobProgress {
         phase: "queued".to_string(),

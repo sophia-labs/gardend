@@ -1001,3 +1001,110 @@ fn read_document_hands_an_agent_the_notes() {
         });
     });
 }
+
+#[test]
+fn edit_comment_block_aliases_anchor_without_find_and_refuse_wrong_blocks() {
+    with_gardend("comment-block-constraint", |state| {
+        crate::app_runtime::async_runtime::block_on(async {
+            let block = book(&state).await;
+            for key in ["block_id", "blockId"] {
+                let mut args =
+                    reader_args(json!({"commentId": key, "text": "The whole paragraph"}));
+                args[key] = json!(block);
+                let set = tool(&state, MASTER, "edit_comment", args).await.unwrap();
+                assert_eq!(set["blockId"], block, "{set}");
+                assert!(set["anchored"].as_u64().unwrap() > 0, "{set}");
+                assert_eq!(stored_comments(&state, "book").await[key]["blockId"], block);
+            }
+            for find in [Value::Null, json!("royal road")] {
+                let error = tool(&state, MASTER, "edit_comment", reader_args(json!({
+                    "commentId": "missing-block", "text": "absent", "block_id": "block-nope", "find": find
+                }))).await.unwrap_err();
+                assert!(error.contains("Block not found"), "{error}");
+            }
+            tool(&state, MASTER, "insert_blocks", json!({
+                "graphId": GRAPH, "documentId": "book", "content": "Another paragraph with unique words.", "format": "markdown"
+            })).await.unwrap();
+            let error = tool(&state, MASTER, "edit_comment", reader_args(json!({
+                "commentId": "wrong-block", "text": "absent here", "blockId": block, "find": "unique words"
+            }))).await.unwrap_err();
+            assert!(error.contains("text not found in block"), "{error}");
+            let comments = stored_comments(&state, "book").await;
+            assert!(comments.get("missing-block").is_none());
+            assert!(comments.get("wrong-block").is_none());
+        });
+    });
+}
+
+#[test]
+fn read_document_accepts_both_id_spellings_from_the_real_store() {
+    with_gardend("read-document-aliases", |state| {
+        crate::app_runtime::async_runtime::block_on(async {
+            book(&state).await;
+            let camel = tool(
+                &state,
+                MASTER,
+                "read_document",
+                json!({
+                    "graphId": GRAPH, "documentId": "book", "format": "ids_only"
+                }),
+            )
+            .await
+            .unwrap();
+            let snake = tool(
+                &state,
+                MASTER,
+                "read_document",
+                json!({
+                    "graph_id": GRAPH, "document_id": "book", "format": "ids_only"
+                }),
+            )
+            .await
+            .unwrap();
+            assert_eq!(snake, camel);
+        });
+    });
+}
+
+#[test]
+fn create_folder_uses_title_or_name_consistently_in_the_workspace() {
+    with_gardend("folder-title-alias", |state| {
+        crate::app_runtime::async_runtime::block_on(async {
+            for (id, extra, expected) in [
+                ("by-title", json!({"title": "By title"}), "By title"),
+                ("by-name", json!({"name": "By name"}), "By name"),
+                (
+                    "both",
+                    json!({"name": "Name wins", "title": "Ignored title"}),
+                    "Name wins",
+                ),
+            ] {
+                let mut args = json!({"graphId": GRAPH, "folderId": id});
+                for (key, value) in extra.as_object().unwrap() {
+                    args[key] = value.clone();
+                }
+                let created = tool(&state, MASTER, "create_folder", args).await.unwrap();
+                assert_eq!(created["name"], expected, "{created}");
+            }
+            for key in ["name", "title"] {
+                let mut args = json!({"graphId": GRAPH});
+                args[key] = json!("   ");
+                let error = tool(&state, MASTER, "create_folder", args)
+                    .await
+                    .unwrap_err();
+                assert!(
+                    error.contains("name or title must be a non-empty string"),
+                    "{error}"
+                );
+            }
+            let workspace =
+                crate::document_service::read_workspace_record(&graph_dir(&state), GRAPH).unwrap();
+            let folders = workspace.snapshot.as_ref().unwrap()["folders"]
+                .as_array()
+                .unwrap();
+            assert!(folders
+                .iter()
+                .any(|folder| folder["id"] == "by-title" && folder["name"] == "By title"));
+        });
+    });
+}

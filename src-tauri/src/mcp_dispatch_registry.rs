@@ -448,6 +448,38 @@ fn tramp_reindex_graph<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandl
     Box::pin(async move { mcp_local_reindex_graph(app, jobs, args).map_err(AppError::internal) })
 }
 
+fn tramp_prepare_semantic_model<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
+    let app = ctx.app.clone();
+    let jobs = ctx.jobs.clone();
+    Box::pin(async move {
+        let graph_id =
+            crate::mcp_utils::mcp_required_graph_id(args).map_err(AppError::validation)?;
+        crate::paths::existing_graph_dir(&app, &graph_id).map_err(AppError::storage)?;
+        crate::profile_service::ensure_profile(&app).map_err(AppError::storage)?;
+        let response =
+            crate::semantic_model_prepare_jobs::submit_prepare_semantic_model_job_for_graph(
+                app,
+                jobs,
+                Some(graph_id),
+            )?;
+        serde_json::to_value(response).map_err(|error| AppError::serialization(error.to_string()))
+    })
+}
+
+fn tramp_refresh_semantic_index<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
+    let app = ctx.app.clone();
+    let jobs = ctx.jobs.clone();
+    Box::pin(async move {
+        let input = serde_json::from_value::<crate::semantic_service::RefreshSemanticIndexInput>(
+            args.clone(),
+        )
+        .map_err(|error| AppError::validation(error.to_string()))?;
+        let response = crate::semantic_service::submit_semantic_index_refresh_job(app, jobs, input)
+            .map_err(AppError::internal)?;
+        serde_json::to_value(response).map_err(|error| AppError::serialization(error.to_string()))
+    })
+}
+
 fn tramp_list_documents<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
     let app = ctx.app.clone();
     Box::pin(async move { mcp_local_list_documents(app, args).map_err(AppError::internal) })
@@ -1212,6 +1244,14 @@ const REGISTRY: &[McpToolEntry] = &[
     McpToolEntry {
         name: "cancel_job",
         handler: tramp_cancel_job,
+    },
+    McpToolEntry {
+        name: "prepare_semantic_model",
+        handler: tramp_prepare_semantic_model,
+    },
+    McpToolEntry {
+        name: "refresh_semantic_index",
+        handler: tramp_refresh_semantic_index,
     },
     McpToolEntry {
         name: "reindex_graph",

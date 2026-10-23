@@ -147,30 +147,39 @@ mod tests {
                 },
             )
             .expect("create graph");
-            crate::app_runtime::async_runtime::block_on(enqueue_crdt_operation(
-                app.clone(),
-                EnqueueCrdtOperationInput {
-                    kind: "document.write".to_string(),
-                    graph_id: GRAPH.to_string(),
-                    document_id: Some("kept".to_string()),
-                    payload: json!({
-                        "documentId": "kept",
-                        "content": "Kept paragraph.",
-                        "format": "markdown",
-                        "title": "Kept",
-                    }),
-                },
-            ))
-            .expect("write kept document");
+            for (document_id, count) in [("kept", 3), ("gone", 6)] {
+                crate::app_runtime::async_runtime::block_on(enqueue_crdt_operation(
+                    app.clone(),
+                    EnqueueCrdtOperationInput {
+                        kind: "document.write".to_string(),
+                        graph_id: GRAPH.to_string(),
+                        document_id: Some(document_id.to_string()),
+                        payload: json!({
+                            "title": document_id,
+                            "tiptapJson": {"type": "doc", "content": (0..count).map(|index| json!({
+                                "type": "paragraph", "attrs": {"data-block-id": format!("{document_id}-{index}")},
+                                "content": [{"type": "text", "text": "A valued paragraph."}]
+                            })).collect::<Vec<_>>()},
+                        }),
+                    },
+                ))
+                .expect("write valuation targets");
+            }
 
-            // Values outlive documents: these blocks outrank the kept ones
-            // but their document does not exist.
+            // Value real blocks first, then remove the higher-scored document:
+            // its historical scores must not crowd the surviving document out.
             for index in 0..6 {
                 value_block(&app, "gone", &format!("gone-{index}"), 5);
             }
             for index in 0..3 {
                 value_block(&app, "kept", &format!("kept-{index}"), 1);
             }
+
+            // Keep the historical values while removing their document.
+            // New valuations cannot manufacture nonexistent targets anymore.
+            let graph_dir = crate::paths::existing_graph_dir(&app, GRAPH).unwrap();
+            let gone = crate::document_paths::document_dir(&graph_dir, "gone").unwrap();
+            std::fs::remove_dir_all(gone).unwrap();
 
             let response = mcp_local_get_important_blocks(
                 app.clone(),

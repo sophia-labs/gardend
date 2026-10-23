@@ -1778,6 +1778,8 @@
         "jobs.cancel"
       ]
     },
+    {"name": "prepare_semantic_model", "status": "implemented-async-job", "scopes": ["semantic.models.write"]},
+    {"name": "refresh_semantic_index", "status": "implemented-async-job", "scopes": ["semantic.index.write"]},
     {
       "name": "reindex_graph",
       "status": "implemented-async-job-if-model-prepared",

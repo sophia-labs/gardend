@@ -114,7 +114,12 @@ pub(super) async fn mcp_local_create_folder(
     app: AppHandle,
     arguments: &serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    let graph_id = mcp_raw_graph_id_argument(arguments);
+    let graph_id = mcp_required_graph_id(arguments)?;
+    if (arguments.get("name").is_some() || arguments.get("title").is_some())
+        && mcp_arg_string(arguments, &["name", "title"]).is_none()
+    {
+        return Err("name or title must be a non-empty string".to_string());
+    }
     let value = enqueue_crdt_operation(
         app.clone(),
         EnqueueCrdtOperationInput {

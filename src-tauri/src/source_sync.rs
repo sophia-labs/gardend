@@ -4062,6 +4062,15 @@ pub(crate) async fn mcp_authoritative_value(app: AppHandle, arguments: &Value) -
             errors.push(json!({ "index": entry.input_index, "error": error }));
             continue;
         }
+        if let Err(error) = crate::document_mcp_service::require_document_target(
+            &app,
+            &graph_id,
+            &entry.document_id,
+            Some(&entry.block_id),
+        ) {
+            errors.push(json!({ "index": entry.input_index, "error": error }));
+            continue;
+        }
         let raw = raw_batch.and_then(|batch| batch.get(entry.input_index));
         let operation_id = raw
             .and_then(|value| {
@@ -4208,6 +4217,8 @@ pub(crate) async fn mcp_source_emporium_retract(
     let event_id = source_argument_string(arguments, &["retractionEventId", "retraction_event_id"])
         .unwrap_or_else(|| operation_id.clone());
     let at_ms = source_now_ms(arguments)?;
+    crate::emporium::write::require_retraction_target(&app, &graph_id, &subject)
+        .map_err(|error| AppError::validation(error.message().to_string()))?;
     let (_, graph_incarnation) = active_graph_identity(&app, &graph_id, None)?;
     let push = mcp_local_source_push(
         app,

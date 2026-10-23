@@ -281,7 +281,8 @@ mod tests {
         // (read_scan_text, scan_text_layer) = 122, + workflow_run_record = 123,
         // + emporium_describe (typed objects) = 124, + the three whiteboard
         // tools (whiteboard_create/read/apply) = 127, + get_backlinks = 128.
-        assert_eq!(tools.len(), 128);
+        // + prepare_semantic_model and refresh_semantic_index = 130.
+        assert_eq!(tools.len(), 130);
 
         let known_scopes = loopback_scope_keys()
             .into_iter()
@@ -361,6 +362,8 @@ mod tests {
         assert!(names.contains("create_document_once"));
         assert!(names.contains("semantic_search"));
         assert!(names.contains("memory_semantic_recall"));
+        assert!(names.contains("prepare_semantic_model"));
+        assert!(names.contains("refresh_semantic_index"));
         assert!(names.contains("semantic_reason"));
         assert!(names.contains("graph_intuition"));
         assert!(names.contains("workflow_book_open"));
@@ -399,8 +402,8 @@ mod tests {
         .expect("desktop tools list serializes");
         let tools = result["tools"].as_array().expect("tools");
 
-        // 128 registered tools minus the two explicitly optional CSS schemas.
-        assert_eq!(tools.len(), 126);
+        // 130 registered tools minus the two explicitly optional CSS schemas.
+        assert_eq!(tools.len(), 128);
         assert!(tools.iter().any(|tool| tool["name"] == "read_document"));
         assert!(tools.iter().any(|tool| tool["name"] == "write_document"));
         assert!(tools
@@ -439,8 +442,8 @@ mod tests {
         // + workflow_run_record (graph-scoped) = 111, + emporium_describe
         // (graph-scoped; emporium_vocab moved from global to graph-scoped and
         // stays visible) = 112, + the three whiteboard tools (graph-scoped) = 115,
-        // + get_backlinks (graph-scoped) = 116.
-        assert_eq!(names.len(), 116);
+        // + get_backlinks (graph-scoped) = 116, + the two semantic job tools = 118.
+        assert_eq!(names.len(), 118);
         for added in ["custom_css", "agent_status", "agent_self_image", "status"] {
             assert!(names.contains(added), "missing default tool {added}");
         }
@@ -662,7 +665,7 @@ mod tests {
             tools.len()
         }
 
-        assert_eq!(audit("catalog", &mcp_tools_list_result()), 128);
+        assert_eq!(audit("catalog", &mcp_tools_list_result()), 130);
         let desktop = crate::cell_graph_boundary::CellGraphBoundary::for_test(None);
         let cell = crate::cell_graph_boundary::CellGraphBoundary::for_test(Some("graph-a"));
         for role in [

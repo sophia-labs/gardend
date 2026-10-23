@@ -86,6 +86,21 @@ pub(super) fn mcp_local_get_wires(
     let snapshot = workspace.snapshot.as_ref();
     let documents = workspace_documents(snapshot);
     let wires = workspace_wires(snapshot);
+    // Count the whole graph, regardless of the requested end or filter.
+    // Historical ghosts stay visible and are never removed by this audit.
+    let ghost_wire_count = wires
+        .iter()
+        .filter(|wire| {
+            wire_is_active(wire)
+                && !json_string(wire.get("id"))
+                    .unwrap_or_default()
+                    .ends_with("-inv")
+                && crate::mcp_workspace_mutation_service::validate_wire_targets(
+                    &app, &graph_id, wire,
+                )
+                .is_err()
+        })
+        .count();
     let mut results = Vec::new();
 
     for wire in wires {
@@ -114,6 +129,7 @@ pub(super) fn mcp_local_get_wires(
     let mut response = serde_json::json!({
         "graph_id": graph_id,
         "direction": direction,
+        "ghostWireCount": ghost_wire_count,
         "wires": results,
         "count": results.len(),
     });

@@ -181,6 +181,23 @@ where
                     },
                 )
                 .unwrap();
+                // Valuations now require real targets. These fixtures used to
+                // manufacture scores for nonexistent documents and blocks.
+                for (document_id, blocks) in [
+                    ("doc-direct", vec!["block-sparql", "block-load", "block-revaluate", "block-salience-renew", "block-salience", "block-renew", "block-user", "block-det"]),
+                    ("doc-i", vec!["block-i"]),
+                    ("doc-u", vec!["block-u"]),
+                    ("doc-zero", vec!["block-zero"]),
+                ] {
+                    crate::crdt_queue::enqueue_crdt_operation(app.clone(), crate::crdt_queue::EnqueueCrdtOperationInput {
+                        kind: "document.write".into(), graph_id: GRAPH.into(),
+                        document_id: Some(document_id.into()),
+                        payload: json!({"title": document_id, "tiptapJson": {"type": "doc", "content":
+                            blocks.iter().map(|id| json!({"type": "paragraph", "attrs": {"data-block-id": id},
+                                "content": [{"type": "text", "text": "A real valuation target."}]})).collect::<Vec<_>>()
+                        }}),
+                    }).await.unwrap();
+                }
                 drop(app);
                 case(case_profile).await;
             })
@@ -1211,5 +1228,141 @@ fn zero_operation_ledger_records_nothing_and_keeps_direct_writes() {
             .len(),
             241
         );
+    });
+}
+
+/// A text kind must survive materialization and source replay, so unrelated
+/// ledger writes cannot strand a successfully authored object.
+#[test]
+fn typed_text_documents_do_not_break_value_write_or_retract_source_sync() {
+    with_profile("sa-text-kind", |profile| async move {
+        let state = state_for(&profile);
+        // Leave this one untouched: it reproduces the revision-0 documents
+        // named in both stress reports while the other receives valuations.
+        mcp(
+            &state,
+            "create_document",
+            json!({"graphId": GRAPH, "documentId": "untouched"}),
+        )
+        .await
+        .unwrap();
+        mcp(
+            &state,
+            "create_document",
+            json!({
+                "graphId": GRAPH, "documentId": "untouched-kind", "documentKind": "daily-note"
+            }),
+        )
+        .await
+        .unwrap();
+        mcp(
+            &state,
+            "create_document",
+            json!({
+                "graphId": GRAPH, "documentId": "typed-text", "title": "Typed text",
+                "documentKind": "workflow"
+            }),
+        )
+        .await
+        .unwrap();
+        mcp(&state, "insert_blocks", json!({
+            "graphId": GRAPH, "documentId": "typed-text", "content": "A real target.", "format": "markdown"
+        })).await.unwrap();
+        let ids = mcp(
+            &state,
+            "read_document",
+            json!({
+                "graphId": GRAPH, "documentId": "typed-text", "format": "ids_only"
+            }),
+        )
+        .await
+        .unwrap();
+        let block = ids["block_ids"][0].as_str().unwrap();
+        activate(&state).await;
+        let record_before = crate::document_service::read_document(
+            state.app.clone(),
+            GRAPH.into(),
+            "typed-text".into(),
+        )
+        .unwrap();
+        assert_eq!(record_before.document_kind.as_deref(), Some("workflow"));
+        let valued = mcp(
+            &state,
+            "value",
+            json!({
+                "graphId": GRAPH, "document_id": "typed-text", "block_id": block, "importance": 3
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(valued["sourceSync"]["ok"], true, "{valued}");
+        let written = mcp(&state, "emporium_write", json!({
+            "graphId": GRAPH, "vocab": "emporium-bookmark", "records": [{
+                "kind": "Bookmark", "localId": "read-back", "url": "https://example.test/read-back", "title": "Read back"
+            }]
+        })).await.unwrap();
+        assert_eq!(written["sourceSync"]["ok"], true, "{written}");
+        let read = mcp(&state, "emporium_read", json!({
+            "graphId": GRAPH, "vocab": "emporium-bookmark", "class": "Bookmark", "address": "read-back"
+        })).await.unwrap();
+        assert!(
+            read.to_string().contains("https://example.test/read-back"),
+            "{read}"
+        );
+        let subject = written["results"][0]["subject"].as_str().unwrap();
+        let retracted = mcp(
+            &state,
+            "emporium_retract",
+            json!({
+                "graphId": GRAPH, "subject": subject, "rationale": "finished"
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(retracted["sourceSync"]["ok"], true, "{retracted}");
+        let record_after = crate::document_service::read_document(
+            state.app.clone(),
+            GRAPH.into(),
+            "typed-text".into(),
+        )
+        .unwrap();
+        assert_eq!(record_after.revision, record_before.revision);
+        assert_eq!(record_after.document_kind, record_before.document_kind);
+    });
+}
+
+#[test]
+fn missing_value_and_retraction_targets_never_enter_source_authority() {
+    with_profile("sa-missing-targets", |profile| async move {
+        let state = state_for(&profile);
+        // Both the direct path and the activated source path reject absence.
+        for active in [false, true] {
+            if active {
+                activate(&state).await;
+            }
+            let before = if active {
+                Some(ledger_text(&state))
+            } else {
+                None
+            };
+            for args in [
+                json!({"graphId": GRAPH, "document_id": "doc-missing", "block_id": "block-nope", "importance": 3}),
+                json!({"graphId": GRAPH, "document_id": "doc-direct", "block_id": "block-nope", "importance": 3}),
+            ] {
+                assert!(mcp(&state, "value", args).await.is_err());
+            }
+            assert!(mcp(
+                &state,
+                "emporium_retract",
+                json!({
+                    "graphId": GRAPH, "subject": "urn:missing:object", "rationale": "absent"
+                })
+            )
+            .await
+            .is_err());
+            if let Some(before) = before {
+                assert_eq!(ledger_text(&state), before);
+            }
+        }
     });
 }
