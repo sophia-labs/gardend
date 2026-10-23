@@ -4,12 +4,11 @@
 //! frontend/src/crdt/block-mutations.ts and operation-ledger.ts.
 //!
 //! Mutations flow through the room registry (live collaborators see them as
-//! normal sync updates), then the full document is materialized and persisted
-//! via the same save_document path the desktop frontend uses. The TS runtime
-//! defers materialization to the editor channel's debounced save; headless
-//! cells have no channel, so we materialize eagerly after each mutation.
+//! normal sync updates). Insert, update and text-edit acknowledge the durable
+//! room and replay ledger, then join its debounced projection. Delete retains
+//! its synchronous projection tail.
 //!
-//! Replay safety: block.insert and block.editText are guarded by the
+//! Replay safety: insert, update and text-edit are guarded by the
 //! per-document operation ledger stored *inside* the Y.Doc (Y.Map
 //! `_operationLog`), co-written transactionally with the mutation — a port of
 //! frontend/src/crdt/operation-ledger.ts including its FNV-1a-over-UTF-16
@@ -63,7 +62,7 @@ pub(super) async fn apply_with_lease(
 ) -> ApplyOperationResult<Value> {
     match operation.kind.as_str() {
         "block.insert" => block_insert(app, operation, lease).await,
-        "block.update" => block_update(app, operation).await,
+        "block.update" => block_update(app, operation, lease).await,
         "block.editText" => block_edit_text(app, operation, lease).await,
         "block.delete" => block_delete(app, operation).await,
         other => Err(ApplyOperationError::terminal(format!(
@@ -1505,35 +1504,28 @@ fn warn_on_hash_mismatch(kind: &str, operation_id: &str, hit: &LedgerHit, payloa
     }
 }
 
-/// Assemble {success, replayed, ...envelope} responses. A ledger replay does
-/// not repeat the hot mutation, but it still repairs a dirty cold-projection
-/// tail left by a crash/failure after the mutation+ledger sidecar was durable.
+/// Assemble the receipt after mutation and replay ledger are durable together.
+/// A replay schedules the same dirty tail without applying its mutation twice.
 async fn finish_ledger_guarded(
     app: &AppHandle,
     ctx: &DocContext,
-    operation: &CrdtOperation,
+    _operation: &CrdtOperation,
     outcome: TxnOutcome,
     lease: Option<&mut super::persistence_coordinator::HotWriteLease>,
 ) -> ApplyOperationResult<Value> {
-    // update_doc has persisted the mutation and its replay ledger together.
-    // Await the serialized projection for read-after-write, with only the
-    // lifecycle fence held; projection writes never replace that sidecar.
+    ctx.room
+        .configure_projection_flush(ctx.graph_id.clone(), Some(ctx.document_id.clone()))?;
+    ctx.room.schedule_projection_flush(app.clone());
     if let Some(lease) = lease {
         lease.release_for_projection();
     }
+    #[cfg(feature = "frontend-crdt")]
+    persist_document(app, ctx, _operation)
+        .await
+        .map_err(ApplyOperationError::retryable_after_hot_commit)?;
     let (replayed, envelope) = match outcome {
-        TxnOutcome::Replayed(cached) => {
-            persist_document(app, ctx, operation)
-                .await
-                .map_err(ApplyOperationError::retryable_after_hot_commit)?;
-            (true, cached.unwrap_or_else(|| json!({})))
-        }
-        TxnOutcome::Fresh(envelope) => {
-            persist_document(app, ctx, operation)
-                .await
-                .map_err(ApplyOperationError::retryable_after_hot_commit)?;
-            (false, envelope)
-        }
+        TxnOutcome::Replayed(cached) => (true, cached.unwrap_or_else(|| json!({}))),
+        TxnOutcome::Fresh(envelope) => (false, envelope),
     };
     let mut response = Map::new();
     response.insert("success".to_string(), json!(true));
@@ -1668,7 +1660,11 @@ async fn block_insert(
 }
 
 /// Port of applyBlockUpdate.
-async fn block_update(app: &AppHandle, operation: &CrdtOperation) -> ApplyOperationResult<Value> {
+async fn block_update(
+    app: &AppHandle,
+    operation: &CrdtOperation,
+    lease: Option<&mut super::persistence_coordinator::HotWriteLease>,
+) -> ApplyOperationResult<Value> {
     let document_id = require_document_id(operation, "block.update")?;
     let payload = obj(&operation.payload);
     let edits = block_edits_from_payload(&payload);
@@ -1679,9 +1675,16 @@ async fn block_update(app: &AppHandle, operation: &CrdtOperation) -> ApplyOperat
     }
 
     let ctx = document_context(app, operation, &document_id).await?;
-    let updated = ctx
+    let operation_id = operation.operation_id.clone();
+    let enqueue_timestamp = operation.enqueue_timestamp.clone();
+    let payload_value = Value::Object(payload);
+    let outcome = ctx
         .room
         .update_doc_classified(move |_doc, txn| {
+            if let Some(hit) = read_ledger_entry(txn, &operation_id) {
+                warn_on_hash_mismatch("block.update", &operation_id, &hit, &payload_value);
+                return Ok(TxnOutcome::Replayed(hit.result));
+            }
             let fragment = content_fragment(txn);
             let block_index = index_blocks_in_fragment(txn, &fragment);
             let mut updated: Vec<String> = Vec::new();
@@ -1738,17 +1741,24 @@ async fn block_update(app: &AppHandle, operation: &CrdtOperation) -> ApplyOperat
                         .collect(),
                 )
             };
-            Ok((updated, missing, previews, warnings))
+            let envelope = json!({
+                "updated": updated, "blocks": previews, "missing": missing, "warnings": warnings,
+            });
+            write_ledger_entry(
+                txn,
+                &operation_id,
+                LedgerWriteFields {
+                    op: "block.update",
+                    completed_at: &enqueue_timestamp,
+                    payload_hash: Some(canonical_payload_hash(&payload_value)),
+                    result: Some(&envelope),
+                },
+            );
+            prune_ledger(txn, epoch_ms_now());
+            Ok(TxnOutcome::Fresh(envelope))
         })
         .await?;
-    let (updated, missing, previews, warnings) = (updated.0, updated.1, updated.2, updated.3);
-
-    persist_document(app, &ctx, operation)
-        .await
-        .map_err(ApplyOperationError::retryable_after_hot_commit)?;
-    Ok(
-        json!({ "success": true, "updated": updated, "blocks": previews, "missing": missing, "warnings": warnings }),
-    )
+    finish_ledger_guarded(app, &ctx, operation, outcome, lease).await
 }
 
 /// Port of applyBlockEditText.

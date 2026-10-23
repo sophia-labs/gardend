@@ -363,9 +363,29 @@ fn tramp_surface<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<
     Box::pin(async move { mcp_local_surface(app, args).map_err(AppError::internal) })
 }
 
+/// These read surfaces consume records, RDF or history. Fence their whole
+/// projection tail before dispatch, including reads whose active-doc fallback
+/// would otherwise silently serve an old record. History remains readable
+/// after deletion; the barrier skips tombstones and leaves that policy to it.
+async fn await_read_projection(app: &AppHandle, args: &Value, graph_wide: bool) -> AppResult<()> {
+    let graph_id =
+        crate::mcp_utils::mcp_graph_id_or_default(app, args).map_err(AppError::internal)?;
+    let document_id = if graph_wide {
+        None
+    } else {
+        Some(crate::mcp_utils::mcp_required_document_id(args).map_err(AppError::internal)?)
+    };
+    crate::crdt_engine::flush_ops::await_document_projections(app.clone(), graph_id, document_id)
+        .await
+        .map_err(AppError::internal)
+}
+
 fn tramp_get_document_history<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
     let app = ctx.app.clone();
-    Box::pin(async move { mcp_local_get_document_history(app, args).map_err(AppError::internal) })
+    Box::pin(async move {
+        await_read_projection(&app, args, false).await?;
+        mcp_local_get_document_history(app, args).map_err(AppError::internal)
+    })
 }
 
 fn tramp_read_document_at_snapshot<'a>(
@@ -496,7 +516,10 @@ fn tramp_get_workspace<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandl
 
 fn tramp_read_document<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
     let app = ctx.app.clone();
-    Box::pin(async move { mcp_local_read_document(app, args).map_err(AppError::internal) })
+    Box::pin(async move {
+        await_read_projection(&app, args, false).await?;
+        mcp_local_read_document(app, args).map_err(AppError::internal)
+    })
 }
 
 fn tramp_write_document<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
@@ -520,6 +543,7 @@ fn tramp_create_document_once<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> M
 fn tramp_read_blocks<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
     let app = ctx.app.clone();
     Box::pin(async move {
+        await_read_projection(&app, args, false).await?;
         mcp_local_read_blocks(app, args)
             .await
             .map_err(AppError::internal)
@@ -529,6 +553,7 @@ fn tramp_read_blocks<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandler
 fn tramp_document_digest<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
     let app = ctx.app.clone();
     Box::pin(async move {
+        await_read_projection(&app, args, false).await?;
         mcp_local_document_digest(app, args)
             .await
             .map_err(AppError::internal)
@@ -572,6 +597,7 @@ fn tramp_get_important_blocks<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> M
 fn tramp_get_block<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
     let app = ctx.app.clone();
     Box::pin(async move {
+        await_read_projection(&app, args, false).await?;
         mcp_local_get_block(app, args)
             .await
             .map_err(AppError::internal)
@@ -581,6 +607,7 @@ fn tramp_get_block<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFu
 fn tramp_query_blocks<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
     let app = ctx.app.clone();
     Box::pin(async move {
+        await_read_projection(&app, args, false).await?;
         mcp_local_query_blocks(app, args)
             .await
             .map_err(AppError::internal)
@@ -594,7 +621,10 @@ fn tramp_search_documents<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHa
 
 fn tramp_search_blocks<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
     let app = ctx.app.clone();
-    Box::pin(async move { mcp_local_search_blocks(app, args).map_err(AppError::internal) })
+    Box::pin(async move {
+        await_read_projection(&app, args, true).await?;
+        mcp_local_search_blocks(app, args).map_err(AppError::internal)
+    })
 }
 
 fn tramp_list_wire_predicates<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
@@ -871,7 +901,10 @@ fn tramp_delete_blocks<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandl
 
 fn tramp_sparql_query<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
     let app = ctx.app.clone();
-    Box::pin(async move { mcp_local_sparql_query(app, args).await })
+    Box::pin(async move {
+        await_read_projection(&app, args, true).await?;
+        mcp_local_sparql_query(app, args).await
+    })
 }
 
 fn tramp_sparql_update<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
