@@ -34,16 +34,19 @@ impl Drop for TelemetryGuard {
 pub fn init() -> Result<TelemetryGuard, String> {
     let otlp = std::env::var("GARDEN_OTEL").is_ok_and(|value| value == "1");
     let file = std::env::var_os("GARDEN_OTEL_FILE").filter(|path| !path.is_empty());
+    if !otlp && file.is_none() {
+        // tracing's `log` feature is on through a dependency, and it turns every span into a `log` record while no
+        // subscriber is set: on the hot path, and past env_logger's target filter. The process's no-op subscriber
+        // keeps spans inert. Only here, the process entry point: a global default set inside tests would change span
+        // interest for every other test in the binary.
+        let _ =
+            tracing::subscriber::set_global_default(tracing::subscriber::NoSubscriber::default());
+    }
     init_options(otlp, file)
 }
 
 fn init_options(otlp: bool, file: Option<std::ffi::OsString>) -> Result<TelemetryGuard, String> {
     if !otlp && file.is_none() {
-        // tracing's `log` feature is on through a dependency, and it turns every span into a `log` record while no
-        // subscriber is set: on the hot path, and past env_logger's target filter. The no-op subscriber keeps spans
-        // inert (never interested, nothing formatted).
-        let _ =
-            tracing::subscriber::set_global_default(tracing::subscriber::NoSubscriber::default());
         return Ok(TelemetryGuard(None));
     }
     let file = file
@@ -454,8 +457,9 @@ mod tests {
         assert!(init_options(false, None).unwrap().0.is_none());
         let (provider, exporter, dispatch) = test_support::capture(false);
         tracing::dispatcher::with_default(&dispatch, || {
-            let span = tracing::info_span!(target: "gardend_otel", "disabled");
-            assert!(span.is_disabled());
+            // What matters is that nothing is recorded (asserted below). `is_disabled()` reads tracing's process-wide
+            // callsite interest, which another test's enabled dispatcher running beside this one can flip.
+            let _span = tracing::info_span!(target: "gardend_otel", "disabled");
             assert!(TraceContext::capture().span_context().is_none());
             let lease =
                 crate::crdt_engine::persistence_coordinator::GraphPersistenceCoordinator::default()
