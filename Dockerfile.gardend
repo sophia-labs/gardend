@@ -42,6 +42,9 @@ RUN cargo chef cook --release -j "$CARGO_JOBS" \
 FROM dependency-cache AS builder
 COPY src-tauri/ /build/src-tauri/
 COPY parity/local-loopback-surface.json parity/local-openapi.json /build/parity/
+# The minimal-edits oracle tests include the shared tree-edit corpus at compile
+# time (oracle_tests.rs), so the lib test build needs it beside src-tauri/.
+COPY prototypes/ontology-to-lean/differential/corpus/ /build/prototypes/ontology-to-lean/differential/corpus/
 # -j4: heavy crates (candle, oxigraph/rocksdb) at full parallelism have
 # OOM-frozen the Docker Desktop VM; bounded jobs keep peak memory sane.
 # Remove the chef placeholder output before compiling real source, then make
