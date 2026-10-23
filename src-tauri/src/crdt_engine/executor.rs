@@ -129,7 +129,7 @@ fn retry_ceiling_applies(_kind: &str) -> bool {
 
 /// Retry ceiling, overridable with `GARDEN_CRDT_MAX_RETRIES` (a positive
 /// integer; other values use the default).
-fn max_retryable_attempts() -> u32 {
+pub(super) fn max_retryable_attempts() -> u32 {
     retry_ceiling_from(std::env::var("GARDEN_CRDT_MAX_RETRIES").ok().as_deref())
 }
 
@@ -1265,6 +1265,13 @@ mod post_hot_recovery_tests {
                         "fresh executor drains every recovered operation"
                     );
 
+                    crate::crdt_engine::flush_ops::await_document_projections(
+                        app.clone(),
+                        EDIT_GRAPH.to_string(),
+                        Some("edit-doc".to_string()),
+                    )
+                    .await
+                    .expect("recovered comment projection");
                     let edit = document(&app, EDIT_GRAPH, "edit-doc");
                     assert_eq!(edit.revision, 2, "comment replay increments only once");
                     let bytes = base64::engine::general_purpose::STANDARD
@@ -2033,8 +2040,15 @@ mod post_hot_recovery_tests {
             current_runtime().block_on(async {
                 tokio::time::pause();
                 let app = crate::tauri_runtime::build_mock_app_for_tests(true);
-                let edit =
+                let mut edit =
                     comment_for_retry_test(&app, "bounded-comment", "op-bounded-comment").await;
+                // Single comments now acknowledge authority and defer their
+                // projection. Bulk comments still own a synchronous tail, so
+                // they continue to exercise the non-flush retry ceiling.
+                edit.kind = "document.editComments".to_string();
+                edit.payload["comments"] = json!([{
+                    "commentId": "comment", "text": "Hot comment", "find": "Seed",
+                }]);
                 // A real cold-tail write keeps failing until the filesystem
                 // obstruction is removed; the room/record commits still run.
                 let graph_dir =

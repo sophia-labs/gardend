@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{instrument::WithSubscriber, Instrument};
-use yrs::{Doc, ReadTxn, StateVector, Transact, WriteTxn};
+use yrs::{Doc, ReadTxn, StateVector, Transact, WriteTxn, XmlFragment};
 
 const GRAPH: &str = "otel-graph";
 const MARKER: &str = "OTEL_PRIVATE_DOCUMENT_MARKER_72d18a";
@@ -37,7 +37,7 @@ impl Profile {
         }
     }
 
-    fn app(&self) -> crate::app_runtime::AppHandle {
+    fn reopen(&self) -> crate::app_runtime::AppHandle {
         let app = crate::app_runtime::App::new();
         let handle = app.handle().clone();
         handle.manage(GraphPersistenceCoordinator::default());
@@ -46,6 +46,11 @@ impl Profile {
         handle.manage(crate::active_documents::ActiveDocumentRegistry::default());
         handle.manage(Arc::new(crate::cell_lifecycle::CellLifecycle::new()));
         handle.manage(Arc::new(crate::restore_guard::RestoreGuardState::default()));
+        handle
+    }
+
+    fn app(&self) -> crate::app_runtime::AppHandle {
+        let handle = self.reopen();
         crate::graph_service::create_graph_service(
             &handle,
             crate::graph_service::CreateGraphInput {
@@ -392,10 +397,13 @@ fn document_projection_releases_hot_write_but_keeps_the_deletion_fence() {
                 }).await.unwrap();
             };
             update_other.instrument(other_write).await;
-            assert!(
-                !writer.is_finished(),
-                "projection is still fenced by its room gate"
-            );
+            tokio::time::timeout(Duration::from_secs(2), writer)
+                .await
+                .expect("write replies while its projection is fenced")
+                .unwrap()
+                .unwrap();
+            // The background projector has its own lifecycle fence.
+            tokio::time::sleep(Duration::from_millis(700)).await;
             assert!(
                 tokio::time::timeout(
                     Duration::from_millis(25),
@@ -408,10 +416,13 @@ fn document_projection_releases_hot_write_but_keeps_the_deletion_fence() {
             // Leave an observable gap between the hot commit and projection.
             tokio::time::sleep(Duration::from_millis(100)).await;
             drop(projection_guard);
-            writer
-                .await
-                .unwrap()
-                .expect("projection and queued operation complete");
+            super::flush_ops::await_document_projections(
+                app.clone(),
+                GRAPH.to_string(),
+                Some("large".to_string()),
+            )
+            .await
+            .unwrap();
             assert!(!room.needs_projection_flush());
             assert_eq!(
                 std::fs::read(&state_path).unwrap(),
@@ -438,10 +449,7 @@ fn document_projection_releases_hot_write_but_keeps_the_deletion_fence() {
             .unwrap();
         let materialize = spans
             .iter()
-            .find(|span| {
-                span.name == "document.materialize"
-                    && span.parent_span_id == apply.span_context.span_id()
-            })
+            .find(|span| span.name == "document.materialize")
             .unwrap();
         // Lease span durations include acquisition; held_ms is the actual hold.
         let released_at = hot.start_time
@@ -454,6 +462,7 @@ fn document_projection_releases_hot_write_but_keeps_the_deletion_fence() {
             released_at + Duration::from_millis(50) < materialize.start_time,
             "{kind} held the hot lease into projection"
         );
+        assert!(apply.end_time < materialize.start_time);
         let other = spans
             .iter()
             .find(|span| span.name == "test.other_document")
@@ -484,82 +493,99 @@ fn document_projection_releases_hot_write_but_keeps_the_deletion_fence() {
     }
 }
 
-#[test]
-fn insert_success_is_visible_to_both_mcp_reads_and_rdf() {
-    let profile = Profile::new();
-    let app = profile.app();
-    create_document(&app, "read-after-insert");
-    let (provider, exporter, dispatch) = test_support::capture(true);
-    let work = async {
-        crate::mcp_block_mutation_service::mcp_local_insert_blocks(
-            app.clone(),
-            &json!({
-                "graph_id": GRAPH, "document_id": "read-after-insert",
-                "blocks": [{"id": "new-block", "content": "immediate block"}],
-            }),
-        )
-        .await
-        .unwrap();
-        let args = json!({"graph_id": GRAPH, "document_id": "read-after-insert", "format": "xml"});
-        let read_app = app.clone();
-        let read_args = args.clone();
-        let read_document =
-            crate::app_runtime::async_runtime::spawn_blocking(crate::telemetry::blocking(
-                move || crate::document_mcp_service::mcp_local_read_document(read_app, &read_args),
-            ));
-        let (document, blocks) = tokio::join!(
-            read_document,
-            crate::document_mcp_blocks::mcp_local_read_blocks(app.clone(), &args),
-        );
-        assert!(document.unwrap().unwrap()["content"]
-            .as_str()
-            .unwrap()
-            .contains("immediate block"));
-        let blocks = blocks.unwrap();
-        assert_eq!(blocks["blocks"][0]["block_id"], "new-block");
-        assert!(blocks["blocks"][0]["content"]
-            .as_str()
-            .unwrap()
-            .contains("immediate block"));
-        app.state::<crate::active_documents::ActiveDocumentRegistry>()
-            .replace(vec![(GRAPH.to_string(), "read-after-insert".to_string())])
-            .unwrap();
-        let live = crate::document_mcp_blocks::mcp_local_read_blocks(app.clone(), &args)
-            .await
-            .unwrap();
-        assert_eq!(live["blocks"][0]["block_id"], "new-block");
-        let graph_dir = crate::graph_paths::existing_graph_dir(&app, GRAPH).unwrap();
-        let store = crate::rdf_service::open_graph_store(&graph_dir).unwrap();
-        let graph = crate::rdf_authority::document_projection_graph_iri(GRAPH, "read-after-insert");
-        let query = format!(
-            "ASK WHERE {{ GRAPH <{graph}> {{ ?s ?p ?o FILTER(CONTAINS(STR(?o), \"immediate block\")) }} }}"
-        );
-        let result = oxigraph::sparql::SparqlEvaluator::new()
-            .parse_query(&query)
-            .unwrap()
-            .on_store(&store)
-            .execute()
-            .unwrap();
-        assert!(matches!(
-            result,
-            oxigraph::sparql::QueryResults::Boolean(true)
-        ));
+async fn call_mcp(
+    app: &crate::app_runtime::AppHandle,
+    name: &str,
+    args: serde_json::Value,
+) -> serde_json::Value {
+    let jobs_path = PathBuf::from(std::env::var_os("GARDEN_PROFILE_DIR").unwrap()).join("jobs");
+    let jobs = Arc::new(crate::local_jobs::LocalJobRegistry::new(jobs_path).unwrap());
+    let ctx = crate::mcp_dispatch_registry::McpCallCtx {
+        app: app.clone(),
+        jobs: &jobs,
     };
-    tracing::dispatcher::with_default(&dispatch, || runtime().block_on(work));
-    provider.force_flush().unwrap();
-    let spans = exporter.get_finished_spans().unwrap();
-    assert!(spans
-        .iter()
-        .any(|span| span.name == "document.history.snapshot"));
+    (crate::mcp_dispatch_registry::lookup(name).unwrap().handler)(&ctx, &args)
+        .await
+        .unwrap()
 }
 
 #[test]
-fn quick_edits_project_in_queue_order() {
+fn each_mcp_read_fences_its_acknowledged_write() {
+    let profile = Profile::new();
+    let app = profile.app();
+    runtime().block_on(async {
+        for tool in [
+            "read_document", "read_blocks", "get_block", "query_blocks",
+            "search_blocks", "document_digest", "sparql_query", "get_document_history",
+        ] {
+            create_document(&app, tool);
+            let graph_dir = crate::graph_paths::existing_graph_dir(&app, GRAPH).unwrap();
+            let room = app.state::<RoomRegistry>().get_or_create(
+                &format!("doc:{GRAPH}:{tool}"),
+                crate::ydoc_paths::document_ydoc_state_path(&graph_dir, tool),
+            ).await.unwrap();
+            let projection_guard = room.lock_projection_flush().await;
+            crate::mcp_block_mutation_service::mcp_local_insert_blocks(
+                app.clone(),
+                &json!({
+                    "graph_id": GRAPH, "document_id": tool,
+                    "blocks": [{"id": "new-block", "content": "immediate block"}],
+                }),
+            ).await.unwrap();
+            let graph = crate::rdf_authority::document_projection_graph_iri(GRAPH, tool);
+            let mut args = json!({
+                "graph_id": GRAPH, "graphId": GRAPH, "document_id": tool,
+                "block_id": "new-block", "format": "xml", "topValued": 0,
+                "text_contains": "immediate block", "mode": "lexical",
+                "queries": ["immediate"],
+                "query": format!("ASK WHERE {{ GRAPH <{graph}> {{ ?s ?p ?o FILTER(CONTAINS(STR(?o), \"immediate block\")) }} }}"),
+            });
+            if tool == "query_blocks" {
+                args.as_object_mut().unwrap().remove("queries");
+            }
+            let read_app = app.clone();
+            let mut read = tokio::spawn(async move { call_mcp(&read_app, tool, args).await });
+            assert!(tokio::time::timeout(Duration::from_millis(50), &mut read).await.is_err(),
+                "{tool} must not return the stale projection");
+            let coordinator = app.state::<GraphPersistenceCoordinator>();
+            let hot = tokio::time::timeout(Duration::from_secs(1), coordinator.acquire_hot_write(GRAPH))
+                .await.expect("read barrier does not hold the hot-write lease").unwrap();
+            hot.declare_rdf_read_only();
+            drop(hot);
+            drop(projection_guard);
+            let result = read.await.unwrap();
+            match tool {
+                "read_document" => assert!(result["content"].as_str().unwrap().contains("immediate block")),
+                "read_blocks" => assert_eq!(result["blocks"][0]["block_id"], "new-block"),
+                "get_block" => assert_eq!(result["block"]["block_id"], "new-block"),
+                "query_blocks" => assert_eq!(result["total_matches"], 1),
+                "document_digest" => assert_eq!(result["size"]["block_count"], 1),
+                "get_document_history" => assert_eq!(result["snapshot_count"], 2),
+                "sparql_query" => assert_eq!(result["boolean"], true),
+                "search_blocks" => assert!(result.to_string().contains("immediate block")),
+                _ => unreachable!(),
+            }
+        }
+    });
+}
+
+#[test]
+fn quick_edits_coalesce_without_changing_queue_order() {
     let profile = Profile::new();
     let app = profile.app();
     create_document(&app, "ordered");
     let (provider, exporter, dispatch) = test_support::capture(true);
     let work = async {
+        let graph_dir = crate::graph_paths::existing_graph_dir(&app, GRAPH).unwrap();
+        let room = app
+            .state::<RoomRegistry>()
+            .get_or_create(
+                "doc:otel-graph:ordered",
+                crate::ydoc_paths::document_ydoc_state_path(&graph_dir, "ordered"),
+            )
+            .await
+            .unwrap();
+        let projection_guard = room.lock_projection_flush().await;
         crate::mcp_block_mutation_service::mcp_local_insert_blocks(
             app.clone(),
             &json!({
@@ -581,6 +607,14 @@ fn quick_edits_project_in_queue_order() {
         );
         first.unwrap();
         second.unwrap();
+        drop(projection_guard);
+        super::flush_ops::await_document_projections(
+            app.clone(),
+            GRAPH.to_string(),
+            Some("ordered".to_string()),
+        )
+        .await
+        .unwrap();
         let document = crate::document_service::read_document(
             app.clone(),
             GRAPH.to_string(),
@@ -588,7 +622,7 @@ fn quick_edits_project_in_queue_order() {
         )
         .unwrap();
         assert_eq!(document.body, "second first base");
-        assert_eq!(document.revision, 3);
+        assert_eq!(document.revision, 1);
         let graph_dir = crate::graph_paths::existing_graph_dir(&app, GRAPH).unwrap();
         assert_eq!(
             crate::document_history_file_store::read_document_history_store(
@@ -596,7 +630,7 @@ fn quick_edits_project_in_queue_order() {
             )
             .unwrap()
             .total_count,
-            4
+            2
         );
     };
     tracing::dispatcher::with_default(&dispatch, || runtime().block_on(work));
@@ -607,7 +641,7 @@ fn quick_edits_project_in_queue_order() {
         .filter(|span| span.name == "document.record.write")
         .collect();
     records.sort_by_key(|span| span.start_time);
-    assert_eq!(records.len(), 3);
+    assert_eq!(records.len(), 1);
     for (index, record) in records.iter().enumerate() {
         assert_eq!(
             attribute(record, "sophia.document.revision")
@@ -619,6 +653,250 @@ fn quick_edits_project_in_queue_order() {
     assert!(records
         .windows(2)
         .all(|pair| pair[0].end_time <= pair[1].start_time));
+}
+
+#[test]
+fn ten_inserts_reply_on_durable_authority_and_share_one_projection() {
+    let profile = Profile::new();
+    let app = profile.app();
+    create_document(&app, "burst");
+    let (provider, exporter, dispatch) = test_support::capture(true);
+    tracing::dispatcher::with_default(&dispatch, || {
+        runtime().block_on(async {
+        let graph_dir = crate::graph_paths::existing_graph_dir(&app, GRAPH).unwrap();
+        let state_path = crate::ydoc_paths::document_ydoc_state_path(&graph_dir, "burst");
+        let room = app.state::<RoomRegistry>().get_or_create(
+            "doc:otel-graph:burst", state_path.clone(),
+        ).await.unwrap();
+        let projection_guard = room.lock_projection_flush().await;
+        for index in 0..10 {
+            let outcome = tokio::time::timeout(Duration::from_secs(2),
+                crate::crdt_queue::enqueue_crdt_operation_outcome(app.clone(), EnqueueCrdtOperationInput {
+                    kind: "block.insert".to_string(), graph_id: GRAPH.to_string(),
+                    document_id: Some("burst".to_string()),
+                    payload: json!({"blocks": [{"id": format!("burst-{index}"), "content": format!("burst text {index}")}]}),
+                }),
+            ).await.expect("each caller replies while projection is blocked").unwrap();
+            // Decode the actual persisted authority after EACH reply. Its
+            // replay receipt and the new block must already be on disk.
+            let reopened = RoomRegistry::default().get_or_create("durable", state_path.clone()).await.unwrap();
+            reopened.with_doc(|doc| {
+                let mut txn = doc.transact_mut();
+                assert!(super::block_ops::read_ledger_entry(&txn, &outcome.operation_id).is_some());
+                assert_eq!(txn.get_or_insert_xml_fragment("content").len(&txn), index + 1);
+            }).await;
+        }
+        assert!(crate::crdt_operation_journal::recover_pending_crdt_operations(&app).unwrap().is_empty());
+        assert!(crate::document_service::read_document(app.clone(), GRAPH.into(), "burst".into()).unwrap().blocks.is_empty());
+        let generation = app.state::<GraphPersistenceCoordinator>().generation(GRAPH).unwrap();
+        let flush_app = app.clone();
+        let flush_room = room.clone();
+        let flush = tokio::spawn(async move {
+            super::rooms::run_projection_flush_for_test(flush_room, flush_app, generation, Duration::from_millis(20)).await;
+        }.with_current_subscriber());
+        // Make the projection span observably longer than the authority work.
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        drop(projection_guard);
+        flush.await.unwrap();
+        super::flush_ops::await_document_projections(app.clone(), GRAPH.into(), Some("burst".into())).await.unwrap();
+        let record = crate::document_service::read_document(app.clone(), GRAPH.into(), "burst".into()).unwrap();
+        assert_eq!(record.blocks.len(), 10);
+        for index in 0..10 {
+            assert!(record.body.contains(&format!("burst text {index}")));
+        }
+        let graph = crate::rdf_authority::document_projection_graph_iri(GRAPH, "burst");
+        let store = crate::rdf_service::open_graph_store(&graph_dir).unwrap();
+        let result = oxigraph::sparql::SparqlEvaluator::new().parse_query(&format!(
+            "SELECT ?text WHERE {{ GRAPH <{graph}> {{ ?s <http://mnemosyne.dev/doc#textContent> ?text }} }}",
+        )).unwrap().on_store(&store).execute().unwrap();
+        let oxigraph::sparql::QueryResults::Solutions(rows) = result else { panic!("solutions") };
+        assert_eq!(rows.map(Result::unwrap).count(), 10);
+    })
+    });
+    provider.force_flush().unwrap();
+    let spans = exporter.get_finished_spans().unwrap();
+    let writes: Vec<_> = spans
+        .iter()
+        .filter(|span| span.name == "crdt.op.apply")
+        .collect();
+    assert_eq!(writes.len(), 10);
+    let projection = spans
+        .iter()
+        .find(|span| span.name == "projection.flush")
+        .unwrap();
+    for write in writes {
+        assert!(
+            write.end_time.duration_since(write.start_time).unwrap() * 4
+                < projection
+                    .end_time
+                    .duration_since(projection.start_time)
+                    .unwrap()
+        );
+        assert!(
+            spans.iter().any(|span| span.name == "ydoc.state.write"
+                && span.start_time >= write.start_time
+                && span.end_time <= write.end_time
+                && fsync_kinds(span).iter().any(|kind| kind == "atomic.file")),
+            "each apply includes its authority fsync"
+        );
+    }
+    assert_eq!(
+        spans
+            .iter()
+            .filter(|span| span.name == "document.save")
+            .count(),
+        1
+    );
+    assert_eq!(
+        spans
+            .iter()
+            .filter(|span| span.name == "document.history.snapshot")
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn update_and_comment_replay_receipts_preserve_later_writes() {
+    let profile = Profile::new();
+    let app = profile.app();
+    runtime().block_on(async {
+        for (kind, first, second) in [
+            (
+                "block.update",
+                json!({"blockId": "base", "attrs": {"customFlag": "first"}}),
+                json!({"blockId": "base", "attrs": {"customFlag": "second"}}),
+            ),
+            (
+                "document.editComment",
+                json!({"action": "set", "commentId": "note", "text": "first", "updatedAt": 1}),
+                json!({"action": "set", "commentId": "note", "text": "second", "updatedAt": 2}),
+            ),
+        ] {
+            let document_id = if kind == "block.update" {
+                "update-replay"
+            } else {
+                "comment-replay"
+            };
+            create_document(&app, document_id);
+            let graph_dir = crate::graph_paths::existing_graph_dir(&app, GRAPH).unwrap();
+            let state_path = crate::ydoc_paths::document_ydoc_state_path(&graph_dir, document_id);
+            let room = app
+                .state::<RoomRegistry>()
+                .get_or_create(&format!("doc:{GRAPH}:{document_id}"), state_path.clone())
+                .await
+                .unwrap();
+            let guard = room.lock_projection_flush().await;
+            crate::mcp_block_mutation_service::mcp_local_insert_blocks(
+                app.clone(),
+                &json!({
+                    "graph_id": GRAPH, "document_id": document_id,
+                    "blocks": [{"id": "base", "content": "base"}],
+                }),
+            )
+            .await
+            .unwrap();
+            let input = |payload| EnqueueCrdtOperationInput {
+                kind: kind.into(),
+                graph_id: GRAPH.into(),
+                document_id: Some(document_id.into()),
+                payload,
+            };
+            let receipt = crate::crdt_queue::enqueue_crdt_operation_outcome(
+                app.clone(),
+                input(first.clone()),
+            )
+            .await
+            .unwrap();
+            crate::crdt_queue::enqueue_crdt_operation(app.clone(), input(second))
+                .await
+                .unwrap();
+            let committed = std::fs::read(&state_path).unwrap();
+            let replay = CrdtOperation {
+                operation_id: receipt.operation_id.clone(),
+                kind: kind.into(),
+                graph_id: GRAPH.into(),
+                document_id: Some(document_id.into()),
+                payload: first,
+                enqueue_timestamp: crate::clock::timestamp(),
+                trace_context: Default::default(),
+            };
+            super::executor::apply_operation(&app, &replay)
+                .await
+                .unwrap();
+            assert_eq!(
+                std::fs::read(&state_path).unwrap(),
+                committed,
+                "replaying {kind} must not overwrite the later edit"
+            );
+            let reopened = RoomRegistry::default()
+                .get_or_create("receipt", state_path)
+                .await
+                .unwrap();
+            reopened
+                .with_doc(|doc| {
+                    assert!(super::block_ops::read_ledger_entry(
+                        &doc.transact_mut(),
+                        &receipt.operation_id
+                    )
+                    .is_some());
+                })
+                .await;
+            drop(guard);
+            super::flush_ops::await_document_projections(
+                app.clone(),
+                GRAPH.into(),
+                Some(document_id.into()),
+            )
+            .await
+            .unwrap();
+        }
+    });
+}
+
+#[test]
+fn replied_write_with_dropped_projection_is_repaired_on_reopen() {
+    let profile = Profile::new();
+    let app = profile.app();
+    create_document(&app, "interrupted");
+    runtime().block_on(async {
+        let graph_dir = crate::graph_paths::existing_graph_dir(&app, GRAPH).unwrap();
+        let room = app.state::<RoomRegistry>().get_or_create(
+            "doc:otel-graph:interrupted",
+            crate::ydoc_paths::document_ydoc_state_path(&graph_dir, "interrupted"),
+        ).await.unwrap();
+        let projection_guard = room.lock_projection_flush().await;
+        crate::mcp_block_mutation_service::mcp_local_insert_blocks(app.clone(), &json!({
+            "graph_id": GRAPH, "document_id": "interrupted",
+            "blocks": [{"id": "survivor", "content": "acknowledged before crash"}],
+        })).await.unwrap();
+        let registry = app.state::<RoomRegistry>();
+        let room = registry.peek("doc:otel-graph:interrupted").await.unwrap();
+        // Drop the projection after snapshot capture, before its record/RDF/
+        // history writes. Eviction also cancels the pending debounce.
+        let candidate = super::document_ops::materialize_room_document(
+            GRAPH, "interrupted", "interrupted", &room, "interrupted-projection", None, None,
+        ).await.unwrap();
+        drop(candidate);
+        registry.evict_room("doc:otel-graph:interrupted");
+        drop(projection_guard);
+        assert!(crate::crdt_operation_journal::recover_pending_crdt_operations(&app).unwrap().is_empty());
+        assert!(crate::document_service::read_document(app.clone(), GRAPH.into(), "interrupted".into()).unwrap().blocks.is_empty());
+        // No pending operation is needed: hydration marks authority dirty and
+        // the read barrier uses the same projection repair as connect-time flush.
+        let reopened = profile.reopen();
+        let result = call_mcp(&reopened, "read_document", json!({
+            "graph_id": GRAPH, "document_id": "interrupted",
+        })).await;
+        assert!(result["content"].as_str().unwrap().contains("acknowledged before crash"));
+        let graph_dir = crate::graph_paths::existing_graph_dir(&reopened, GRAPH).unwrap();
+        let store = crate::rdf_service::open_graph_store(&graph_dir).unwrap();
+        let graph = crate::rdf_authority::document_projection_graph_iri(GRAPH, "interrupted");
+        let result = oxigraph::sparql::SparqlEvaluator::new().parse_query(&format!(
+            "ASK WHERE {{ GRAPH <{graph}> {{ ?s <http://mnemosyne.dev/doc#textContent> \"acknowledged before crash\" }} }}",
+        )).unwrap().on_store(&store).execute().unwrap();
+        assert!(matches!(result, oxigraph::sparql::QueryResults::Boolean(true)));
+    });
 }
 
 #[test]

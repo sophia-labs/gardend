@@ -13,6 +13,144 @@ use tauri::Manager;
 
 pub(crate) const HYDRATE_PERSISTED_SIDECARS_PAYLOAD_KEY: &str = "hydratePersistedSidecars";
 
+/// Run the disposable document tail outside the CRDT FIFO and the hot-write
+/// lease. The blocking task owns its lifecycle fence and projection gate even
+/// if a bounded read stops observing it. Different rooms may project together.
+pub(crate) async fn flush_document_background(
+    app: AppHandle,
+    graph_id: String,
+    document_id: String,
+    room: Arc<Room>,
+    graph_generation: u64,
+) -> Result<(), PersistenceError> {
+    crate::app_runtime::async_runtime::spawn_blocking(crate::telemetry::blocking(move || {
+        crate::app_runtime::async_runtime::block_on(async {
+            let coordinator =
+                app.state::<super::persistence_coordinator::GraphPersistenceCoordinator>();
+            let _lifecycle = coordinator.acquire_lifecycle_shared(&graph_id).await?;
+            coordinator.require_generation(&graph_id, graph_generation)?;
+            flush_document_under_lifecycle(&app, &graph_id, &document_id, &room).await
+        })
+    }))
+    .await
+    .map_err(|error| PersistenceError::from(format!("document projection join: {error}")))?
+}
+
+async fn flush_document_under_lifecycle(
+    app: &AppHandle,
+    graph_id: &str,
+    document_id: &str,
+    room: &Room,
+) -> Result<(), PersistenceError> {
+    if room.is_evicted() {
+        return Err(PersistenceError::permanent("room was evicted"));
+    }
+    let graph_dir = crate::graph_paths::existing_graph_dir(app, graph_id)?;
+    crate::document_tombstone_store::require_document_not_tombstoned(&graph_dir, document_id)?;
+    let registry = app.state::<RoomRegistry>();
+    let title = live_workspace_title(&registry, graph_id, document_id)
+        .await
+        .or_else(|| stored_document_title(&graph_dir, document_id))
+        .unwrap_or_else(|| "Untitled".to_string());
+    let operation_id = format!("projection-{}", uuid::Uuid::new_v4());
+    super::document_ops::flush_room_document_if_dirty(
+        app,
+        graph_id,
+        document_id,
+        &title,
+        room,
+        &operation_id,
+    )
+    .await?;
+    Ok(())
+}
+
+/// MCP consistency boundary. Capture the committed room epoch at read entry
+/// and bring the entire projection tail through it, with a bounded observer
+/// and no hot-write lease. A cold reopen hydrates the authority and starts
+/// dirty, so a completed write needs no pending journal entry to be repaired.
+/// A graph-wide read fences every document (SPARQL cannot infer a doc scope).
+pub(crate) async fn await_document_projections(
+    app: AppHandle,
+    graph_id: String,
+    document_id: Option<String>,
+) -> Result<(), String> {
+    #[cfg(feature = "frontend-crdt")]
+    {
+        let _ = (app, graph_id, document_id);
+        return Ok(());
+    }
+    #[cfg(not(feature = "frontend-crdt"))]
+    {
+        let projection = crate::app_runtime::async_runtime::spawn_blocking(
+            crate::telemetry::blocking(move || {
+                crate::app_runtime::async_runtime::block_on(async {
+                    let coordinator =
+                        app.state::<super::persistence_coordinator::GraphPersistenceCoordinator>();
+                    let _lifecycle = coordinator.acquire_lifecycle_shared(&graph_id).await?;
+                    let graph_dir = crate::graph_paths::existing_graph_dir(&app, &graph_id)?;
+                    let registry = app.state::<RoomRegistry>();
+                    let documents = match document_id {
+                        Some(id) => vec![id],
+                        None => {
+                            let mut ids: std::collections::BTreeSet<String> =
+                                persisted_document_sidecars(&graph_id, &graph_dir)?
+                                    .into_iter()
+                                    .map(|(id, _)| id)
+                                    .collect();
+                            ids.extend(
+                                document_rooms(&registry, &format!("doc:{graph_id}:"), None)
+                                    .await
+                                    .into_iter()
+                                    .map(|(id, _)| id),
+                            );
+                            ids.into_iter().collect()
+                        }
+                    };
+                    for id in documents {
+                        if crate::document_tombstone_store::document_is_tombstoned(&graph_dir, &id)?
+                        {
+                            continue;
+                        }
+                        let key = format!("doc:{graph_id}:{id}");
+                        let (room, hydrated) = match registry.peek(&key).await {
+                            Some(room) => (room, false),
+                            None => {
+                                let path = crate::ydoc_paths::checked_document_ydoc_state_path(
+                                    &graph_dir, &id,
+                                )?;
+                                if !path.is_file() {
+                                    continue;
+                                }
+                                (registry.get_or_create(&key, path).await?, true)
+                            }
+                        };
+                        let (epoch, ()) = room.with_doc_version(|_| ()).await;
+                        if !room.projection_reaches(epoch) {
+                            flush_document_under_lifecycle(&app, &graph_id, &id, &room)
+                                .await
+                                .map_err(String::from)?;
+                        }
+                        if hydrated {
+                            registry.evict_repaired_idle_room(&key, &room);
+                        }
+                        if !room.projection_reaches(epoch) {
+                            return Err(format!(
+                                "document projection behind authority: {graph_id}/{id}"
+                            ));
+                        }
+                    }
+                    Ok::<(), String>(())
+                })
+            }),
+        );
+        tokio::time::timeout(std::time::Duration::from_secs(30), projection)
+            .await
+            .map_err(|_| "document projection read timed out after 30s".to_string())?
+            .map_err(|error| format!("document projection read join: {error}"))?
+    }
+}
+
 #[cfg(test)]
 #[derive(Default)]
 struct FlushFailureInjection {
@@ -71,7 +209,7 @@ pub(crate) async fn apply(app: &AppHandle, operation: &CrdtOperation) -> Result<
         .map_err(ApplyOperationError::into_message)
 }
 
-fn classify_flush_error(error: impl Into<PersistenceError>) -> ApplyOperationError {
+pub(super) fn classify_flush_error(error: impl Into<PersistenceError>) -> ApplyOperationError {
     let error = match error.into() {
         PersistenceError::Permanent(error) => return ApplyOperationError::terminal(error),
         PersistenceError::Transient(error) => error,

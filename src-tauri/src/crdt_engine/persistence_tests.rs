@@ -204,6 +204,14 @@ fn older_document_materialization_cannot_clear_newer_projection() {
                 persist_materialized_room_document(&app, graph_id, document_id, &room, old)
                     .expect("persist old snapshot");
             assert_eq!(old_value["revision"], 1);
+            let replay =
+                reconcile_matching_document_projection(&app, graph_id, document_id, &old_value)
+                    .expect("repair the captured record while authority is ahead")
+                    .unwrap();
+            assert_eq!(
+                replay["ydocUpdateBase64"], old_value["ydocUpdateBase64"],
+                "a record's history tail must not borrow a newer authority snapshot"
+            );
             assert_eq!(
                 std::fs::read(document_ydoc_state_path(&graph_dir, document_id)).unwrap(),
                 new_authority,
@@ -850,6 +858,13 @@ fn comments_only_edits_advance_manifest_revision_and_history() {
             )
             .await
             .expect("persist unanchored comment");
+            super::flush_ops::await_document_projections(
+                app.clone(),
+                graph_id.to_string(),
+                Some(document_id.to_string()),
+            )
+            .await
+            .expect("project comment before inspecting the cold record");
             let after_set: crate::document_types::DocumentRecord =
                 crate::storage::read_json(&manifest).expect("raw manifest after comment set");
             assert_eq!(after_set.revision, 2);
@@ -876,6 +891,13 @@ fn comments_only_edits_advance_manifest_revision_and_history() {
             )
             .await
             .expect("persist comment resolution");
+            super::flush_ops::await_document_projections(
+                app.clone(),
+                graph_id.to_string(),
+                Some(document_id.to_string()),
+            )
+            .await
+            .expect("project comment before inspecting the cold record");
             let after_resolve: crate::document_types::DocumentRecord =
                 crate::storage::read_json(&manifest).expect("raw manifest after resolve");
             assert_eq!(after_resolve.revision, 3);
@@ -900,7 +922,7 @@ fn comments_only_edits_advance_manifest_revision_and_history() {
 }
 
 #[test]
-fn automatic_flush_waits_past_enqueue_timeout_without_losing_dirty_state() {
+fn automatic_document_flush_waits_for_lifecycle_without_losing_dirty_state() {
     with_profile("garden-projection-enqueue-liveness", || {
         crate::app_runtime::async_runtime::block_on(async {
             let app = crate::tauri_runtime::build_mock_app_for_tests(true);
@@ -943,7 +965,7 @@ fn automatic_flush_waits_past_enqueue_timeout_without_losing_dirty_state() {
                 app.state::<super::persistence_coordinator::GraphPersistenceCoordinator>();
             let generation = coordinator.generation(graph_id).expect("graph generation");
             let lease = coordinator
-                .acquire_hot_write(graph_id)
+                .acquire_lifecycle_exclusive(graph_id)
                 .await
                 .expect("hold graph lease");
             let app_for_flush = app.clone();
@@ -958,15 +980,15 @@ fn automatic_flush_waits_past_enqueue_timeout_without_losing_dirty_state() {
                 .await;
             });
 
-            // Hold the lease across several shortened enqueue chunks. None may
-            // consume the completed-error retry budget or abandon the room.
+            // A lifecycle boundary still fences a background projection;
+            // no mutation-queue entry is needed while it waits.
             tokio::time::sleep(std::time::Duration::from_millis(90)).await;
             assert_eq!(
                 app.state::<crate::crdt_queue::CrdtOperationQueue>()
                     .counts_for_test()
                     .expect("queue counts while blocked"),
                 (0, 0),
-                "a timed-out pre-enqueue future must not insert an operation"
+                "background projection never inserts a mutation operation"
             );
             assert!(room.needs_projection_flush());
 
@@ -975,9 +997,7 @@ fn automatic_flush_waits_past_enqueue_timeout_without_losing_dirty_state() {
                 .await
                 .expect("flush made progress after lease release")
                 .expect("flush task");
-            // Pre-enqueue timeout chunks may retry, but after durable queue
-            // insertion the scheduler retains and observes that exact marked
-            // future. Returning therefore means the executor outcome is known.
+            // Returning means the complete projection tail is known.
             assert!(!room.needs_projection_flush());
             let record = crate::document_service::read_document(
                 app.clone(),
@@ -992,14 +1012,16 @@ fn automatic_flush_waits_past_enqueue_timeout_without_losing_dirty_state() {
                 .state::<crate::crdt_queue::CrdtOperationQueue>()
                 .recent_traces(Some(20), false, Some("crdt.flush"), Some(document_id), None)
                 .expect("flush traces");
-            assert_eq!(traces.len(), 1, "one dirty epoch queues exactly one flush");
-            assert_eq!(traces[0]["ok"], true);
+            assert!(
+                traces.is_empty(),
+                "document projection stays outside the FIFO"
+            );
         });
     });
 }
 
 #[test]
-fn queued_automatic_flush_keeps_observing_outcome_past_attempt_timeout() {
+fn automatic_document_flush_runs_while_the_mutation_drainer_is_blocked() {
     with_profile("garden-projection-queued-watcher", || {
         crate::app_runtime::async_runtime::block_on(async {
             let app = crate::tauri_runtime::build_mock_app_for_tests(true);
@@ -1056,25 +1078,12 @@ fn queued_automatic_flush_keeps_observing_outcome_past_attempt_timeout() {
                 .await;
             });
 
-            tokio::time::timeout(std::time::Duration::from_secs(2), async {
-                while queue.counts_for_test().expect("queue counts") != (1, 0) {
-                    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-                }
-            })
-            .await
-            .expect("flush reached durable queue insertion");
-            assert!(
-                tokio::time::timeout(std::time::Duration::from_millis(80), &mut flush)
-                    .await
-                    .is_err(),
-                "scheduler stopped observing an operation that was queued but not complete"
-            );
-
-            drop(drain_guard);
-            tokio::time::timeout(std::time::Duration::from_secs(5), flush)
+            tokio::time::timeout(std::time::Duration::from_secs(5), &mut flush)
                 .await
-                .expect("queued flush completed after drainer release")
-                .expect("flush task");
+                .expect("projection completes without the mutation drainer")
+                .expect("projection task");
+            assert_eq!(queue.counts_for_test().unwrap(), (0, 0));
+            drop(drain_guard);
             assert!(!room.needs_projection_flush());
             let record = crate::document_service::read_document(
                 app.clone(),
@@ -1086,8 +1095,7 @@ fn queued_automatic_flush_keeps_observing_outcome_past_attempt_timeout() {
             let traces = queue
                 .recent_traces(Some(20), false, Some("crdt.flush"), Some(document_id), None)
                 .expect("queued flush traces");
-            assert_eq!(traces.len(), 1);
-            assert_eq!(traces[0]["ok"], true);
+            assert!(traces.is_empty());
         });
     });
 }
@@ -1621,7 +1629,7 @@ fn corrupt_existing_manifest_fails_expected_revision_before_hot_mutation() {
 }
 
 #[test]
-fn recovered_block_ledger_hit_repairs_unfinished_cold_projection_tail() {
+fn completed_block_authority_repairs_unfinished_projection_without_pending_journal() {
     with_profile("garden-block-ledger-cold-tail", || {
         crate::app_runtime::async_runtime::block_on(async {
             let app = crate::tauri_runtime::build_mock_app_for_tests(true);
@@ -1668,15 +1676,16 @@ fn recovered_block_ledger_hit_repairs_unfinished_cold_projection_tail() {
                 .enqueue_detached(operation.clone())
                 .expect("enqueue block operation");
             super::executor::drain_queue(app.clone()).await;
-            let pending = crate::crdt_operation_journal::recover_pending_crdt_operations(&app)
-                .expect("block operation remains pending");
-            assert_eq!(pending.len(), 1);
-            assert_eq!(pending[0].operation_id, operation.operation_id);
+            assert!(
+                crate::crdt_operation_journal::recover_pending_crdt_operations(&app)
+                    .expect("authority write is completed")
+                    .is_empty()
+            );
             assert_eq!(
                 app.state::<crate::crdt_queue::CrdtOperationQueue>()
                     .counts_for_test()
-                    .expect("parked queue counts"),
-                (1, 0)
+                    .unwrap(),
+                (0, 0)
             );
             let registry = app.state::<RoomRegistry>();
             let room_key = format!("doc:{graph_id}:{document_id}");
@@ -1689,16 +1698,23 @@ fn recovered_block_ledger_hit_repairs_unfinished_cold_projection_tail() {
             )
             .is_err());
 
-            // Model process recovery: a new queue and registry hydrate the
-            // original mutation+ledger from its authoritative sidecar.
+            // Cancel the pending debounce to model process exit. A new
+            // registry repairs solely from the mutation+ledger sidecar.
+            registry.evict_room(&room_key);
             std::fs::remove_dir_all(&blocked_manifest).expect("unblock cold manifest write");
             let restarted = crate::tauri_runtime::build_mock_app_for_tests(true);
             assert_eq!(
                 crate::crdt_queue::recover_crdt_operations(restarted.clone())
                     .expect("recover original block operation"),
-                1
+                0
             );
-            super::executor::drain_queue(restarted.clone()).await;
+            super::flush_ops::await_document_projections(
+                restarted.clone(),
+                graph_id.to_string(),
+                Some(document_id.to_string()),
+            )
+            .await
+            .expect("repair completed authority on reopen");
             assert!(
                 crate::crdt_operation_journal::recover_pending_crdt_operations(&restarted)
                     .expect("completed block journal")

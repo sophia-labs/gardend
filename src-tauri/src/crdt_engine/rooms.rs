@@ -689,6 +689,22 @@ impl RoomRegistry {
         }
     }
 
+    /// A graph read repairs cold sidecars one at a time. Drop a room it alone
+    /// opened, but retain any concurrent reader/writer/socket or newer dirt.
+    pub(crate) fn evict_repaired_idle_room(&self, key: &str, expected: &Arc<Room>) {
+        if let Ok(mut rooms) = self.rooms.lock() {
+            if rooms.get(key).is_some_and(|room| {
+                Arc::ptr_eq(room, expected)
+                    && Arc::strong_count(room) == 2
+                    && !room.needs_projection_flush()
+            }) {
+                if let Some(room) = rooms.remove(key) {
+                    room.evict();
+                }
+            }
+        }
+    }
+
     /// Snapshot hosted rooms whose keys start with `prefix`. Sorting makes a
     /// graph-wide flush deterministic and avoids holding the registry lock
     /// while filesystem/RDF persistence runs.
@@ -1352,6 +1368,12 @@ impl Room {
             > self.persisted_projection_epoch.load(Ordering::SeqCst)
     }
 
+    /// Completion covers the record, RDF and history tail, not merely the
+    /// record rename. Epochs are local to this room; reopening starts dirty.
+    pub(crate) fn projection_reaches(&self, epoch: u64) -> bool {
+        self.persisted_projection_epoch.load(Ordering::SeqCst) >= epoch
+    }
+
     /// Force one cold-projection pass without changing the authoritative
     /// Y.Doc. Source-sync rebuilds use this after deliberately wiping derived
     /// RDF: an equal Y.Doc update is correctly a CRDT no-op, but its faces
@@ -1597,7 +1619,7 @@ async fn run_projection_flush_inner(
         let Some(room_ref) = room.upgrade() else {
             return;
         };
-        if room_ref.is_evicted() {
+        if room_ref.is_evicted() || !room_ref.needs_projection_flush() {
             return;
         }
         drop(room_ref);
@@ -1613,6 +1635,42 @@ async fn run_projection_flush_inner(
         let graph_id = target_ref.graph_id.clone();
         let document_id = target_ref.document_id.clone();
         drop(target_ref);
+
+        if let Some(document_id) = document_id.as_deref() {
+            let Some(room_ref) = room.upgrade() else {
+                return;
+            };
+            // Document projections must not re-enter the mutation FIFO: a
+            // slow RDF reconcile would otherwise stall subsequent hot writes.
+            let outcome = super::flush_ops::flush_document_background(
+                app.clone(),
+                graph_id.clone(),
+                document_id.to_string(),
+                room_ref,
+                graph_generation,
+            )
+            .await;
+            attempt += 1;
+            tracing::Span::current().record("sophia.projection.attempts", attempt);
+            match outcome {
+                Ok(()) => return,
+                Err(error) => {
+                    let error = super::flush_ops::classify_flush_error(error);
+                    if matches!(&error, super::executor::ApplyOperationError::Terminal(_))
+                        || attempt > u64::from(super::executor::max_retryable_attempts())
+                    {
+                        log::warn!("automatic document projection stopped for {graph_id}/{document_id}: {error}");
+                        return;
+                    }
+                    log::warn!("automatic document projection failed for {graph_id}/{document_id} (attempt {attempt}): {error}");
+                    if wait_for_room_delay(&room, retry_delay).await {
+                        return;
+                    }
+                    retry_delay = retry_delay.saturating_mul(2).min(PROJECTION_RETRY_MAX);
+                    continue;
+                }
+            }
+        }
 
         let queued = Arc::new(AtomicBool::new(false));
         let flush = async {

@@ -1914,7 +1914,17 @@ pub(super) fn reconcile_matching_document_projection(
         return Ok(None);
     }
     let raw_record: DocumentRecord = crate::storage::read_json(&manifest)?;
-    let record = read_document_record_classified(&graph_dir, &manifest)?;
+    let mut record = read_document_record_classified(&graph_dir, &manifest)?;
+    // Hydrating readers prefer the live authority sidecar, which may already
+    // contain a later acknowledged edit. A replay repairs THIS record's
+    // history/RDF tail using its captured state, never that later authority.
+    if !raw_record.ydoc_update_base64.is_empty() {
+        record
+            .ydoc_update_base64
+            .clone_from(&raw_record.ydoc_update_base64);
+    } else if let Some(snapshot) = candidate.get("ydocUpdateBase64").and_then(Value::as_str) {
+        snapshot.clone_into(&mut record.ydoc_update_base64);
+    }
     let raw_record_value = serde_json::to_value(&raw_record)
         .map_err(|error| format!("serialize raw document record: {error}"))?;
     let record_value = serde_json::to_value(&record)
@@ -2996,10 +3006,30 @@ pub(super) async fn edit_comment_with_lease(
         )
         .await
         .map_err(ApplyOperationError::retryable_after_hot_commit)?;
+    let operation_id = operation.operation_id.clone();
+    let enqueue_timestamp = operation.enqueue_timestamp.clone();
     let result = {
         let comment_id = comment_id.clone();
         room.update_doc_classified(move |_doc, txn| {
-            edit_comment_in_doc(txn, &payload, action, &comment_id, now)
+            use super::block_ops::{read_ledger_entry, write_ledger_entry, LedgerWriteFields};
+            if let Some(hit) = read_ledger_entry(txn, &operation_id) {
+                return Ok(hit.result.unwrap_or_else(|| json!({"success": true})));
+            }
+            let result = edit_comment_in_doc(txn, &payload, action, &comment_id, now)?;
+            write_ledger_entry(
+                txn,
+                &operation_id,
+                LedgerWriteFields {
+                    op: "document.editComment",
+                    completed_at: &enqueue_timestamp,
+                    payload_hash: Some(super::block_ops::canonical_payload_hash(&Value::Object(
+                        payload,
+                    ))),
+                    result: Some(&result),
+                },
+            );
+            super::block_ops::prune_ledger(txn, crate::clock::epoch_millis() as f64);
+            Ok(result)
         })
         .await
     }
@@ -3007,18 +3037,20 @@ pub(super) async fn edit_comment_with_lease(
     #[cfg(test)]
     maybe_fail_edit_comment_after_hot_for_test(&operation.operation_id, &graph_dir, &document_id)?;
 
-    // The room sidecar is durable. Keep only the lifecycle fence while the
-    // per-room projection gate orders record/RDF/history work. Still await
-    // that work before success: read_document consumes the cold record.
+    // The sidecar includes the replay receipt. Publish the projection before
+    // returning so the process lifecycle sees the pending debounce as work.
+    crate::document_tombstone_store::require_document_not_tombstoned(&graph_dir, &document_id)?;
+    room.configure_projection_flush(graph_id.clone(), Some(document_id.clone()))?;
+    room.schedule_projection_flush(app.clone());
     if let Some(lease) = lease {
         lease.release_for_projection();
     }
-    let title = existing_record_title(&graph_dir, &document_id);
+    #[cfg(feature = "frontend-crdt")]
     persist_room_document(
         app,
         &graph_id,
         &document_id,
-        &title,
+        &existing_record_title(&graph_dir, &document_id),
         &room,
         &operation.operation_id,
     )
