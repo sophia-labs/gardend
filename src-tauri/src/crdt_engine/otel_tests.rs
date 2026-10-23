@@ -513,6 +513,9 @@ async fn call_mcp(
 fn each_mcp_read_fences_its_acknowledged_write() {
     let profile = Profile::new();
     let app = profile.app();
+    // sparql_query admits through the process's SPARQL admission, which the
+    // production runtime installs at startup (tauri_runtime.rs).
+    app.manage(crate::sparql_admission::SparqlAdmission::from_env());
     runtime().block_on(async {
         for tool in [
             "read_document", "read_blocks", "get_block", "query_blocks",
@@ -1008,7 +1011,8 @@ fn room_updates_debounce_into_a_linked_flush_without_content() {
         "ydoc.state.persist",
         "ydoc.state.encode",
         "ydoc.state.write",
-        "crdt.op.apply",
+        // Since Stage 0.5 the debounced flush projects in place, under the room's projection gate, not as a
+        // queued crdt.flush operation, so no crdt.op.apply span belongs to this flow.
         "document.materialize",
         "document.save",
         "document.record.write",
