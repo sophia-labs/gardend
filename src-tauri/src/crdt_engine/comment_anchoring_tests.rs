@@ -4,13 +4,13 @@
 //! quotes and em dashes. Exact `find` missed 21 of 33 verified findings. A
 //! quote now matches after both sides are normalized the way Shrubbery's
 //! reader overlay normalizes them (`source-quote-annotations.ts`), and the
-//! mark covers exactly the original characters. An explicit block confines
-//! matching to that block.
+//! mark covers exactly the original characters. MCP confines matching to an
+//! explicit block; workflow publishing prefers it and falls back to the book.
 //!
 //! Real text: four consecutive paragraphs of chapter I of The Interpretation
 //! of Dreams, as gardend imported the EPUB (`tests/fixtures/comment_anchoring`).
 use super::builder::ydoc_from_tiptap_json;
-use super::document_ops::edit_comment_in_doc;
+use super::document_ops::{edit_comment_in_doc, CommentAnchorPolicy};
 use super::projection::ydoc_to_tiptap_json;
 use serde_json::{json, Map, Value};
 use yrs::{Doc, Transact};
@@ -26,6 +26,22 @@ fn book() -> Doc {
 }
 
 fn set(doc: &Doc, comment_id: &str, block_id: Option<&str>, find: &str) -> Result<Value, String> {
+    set_with_policy(
+        doc,
+        comment_id,
+        block_id,
+        find,
+        CommentAnchorPolicy::StrictBlock,
+    )
+}
+
+fn set_with_policy(
+    doc: &Doc,
+    comment_id: &str,
+    block_id: Option<&str>,
+    find: &str,
+    policy: CommentAnchorPolicy,
+) -> Result<Value, String> {
     let mut payload = Map::new();
     payload.insert("text".into(), json!("a note"));
     payload.insert("find".into(), json!(find));
@@ -33,7 +49,14 @@ fn set(doc: &Doc, comment_id: &str, block_id: Option<&str>, find: &str) -> Resul
         payload.insert("blockId".into(), json!(block_id));
     }
     let mut txn = doc.transact_mut();
-    edit_comment_in_doc(&mut txn, &payload, "set", comment_id, 1_792_000_000_000.0)
+    edit_comment_in_doc(
+        &mut txn,
+        &payload,
+        "set",
+        comment_id,
+        1_792_000_000_000.0,
+        policy,
+    )
 }
 
 /// `(block id, the exact text the comment's mark covers)`, in document order.
@@ -174,6 +197,60 @@ fn a_quote_outside_its_named_block_is_refused() {
 }
 
 #[test]
+fn model_quotes_prefer_the_cited_block_and_record_where_they_land() {
+    let quote =
+        "There are a great many stimuli of such nature, ranging from those that are unavoidable";
+    let doc = book();
+    let expected_block = "block-bf1fe6c8";
+    let original =
+        "There are a great many stimuli of such nature, ranging\nfrom those that are unavoidable";
+    for cited in [
+        Some("block-be1fe535"),
+        Some("block-c01fe85b"),
+        Some("missing"),
+        None,
+    ] {
+        let result = set_with_policy(
+            &doc,
+            "c-model",
+            cited,
+            quote,
+            CommentAnchorPolicy::PreferBlock,
+        )
+        .unwrap();
+        assert_eq!(result["blockId"], expected_block);
+        assert_eq!(stored(&doc, "c-model").unwrap()["blockId"], expected_block);
+        assert_eq!(
+            marked(&doc, "c-model"),
+            vec![(expected_block.to_string(), original.to_string())]
+        );
+    }
+    // This word occurs in several blocks; the cited one wins.
+    let result = set_with_policy(
+        &doc,
+        "c-model",
+        Some("block-c01fe85b"),
+        "the",
+        CommentAnchorPolicy::PreferBlock,
+    )
+    .unwrap();
+    assert_eq!(result["blockId"], "block-c01fe85b");
+    let before = marked(&doc, "c-model");
+    let comment = stored(&doc, "c-model");
+    let error = set_with_policy(
+        &doc,
+        "c-model",
+        Some("block-be1fe535"),
+        "The dreamer counts the sheep twice and wakes in Lisbon.",
+        CommentAnchorPolicy::PreferBlock,
+    )
+    .unwrap_err();
+    assert!(error.contains("text not found in the document"), "{error}");
+    assert_eq!(marked(&doc, "c-model"), before);
+    assert_eq!(stored(&doc, "c-model"), comment);
+}
+
+#[test]
 fn a_block_without_find_anchors_the_whole_block_and_missing_blocks_are_refused() {
     for key in ["blockId", "block_id"] {
         let doc = book();
@@ -182,7 +259,15 @@ fn a_block_without_find_anchors_the_whole_block_and_missing_blocks_are_refused()
         payload.insert(key.into(), json!("block-be1fe535"));
         let result = {
             let mut txn = doc.transact_mut();
-            edit_comment_in_doc(&mut txn, &payload, "set", "c-block", 1.0).unwrap()
+            edit_comment_in_doc(
+                &mut txn,
+                &payload,
+                "set",
+                "c-block",
+                1.0,
+                CommentAnchorPolicy::StrictBlock,
+            )
+            .unwrap()
         };
         assert_eq!(result["blockId"], "block-be1fe535");
         assert!(result["anchored"].as_u64().unwrap() > 0);
@@ -194,7 +279,15 @@ fn a_block_without_find_anchors_the_whole_block_and_missing_blocks_are_refused()
         let before = ydoc_to_tiptap_json(&doc);
         let error = {
             let mut txn = doc.transact_mut();
-            edit_comment_in_doc(&mut txn, &payload, "set", "c-missing", 1.0).unwrap_err()
+            edit_comment_in_doc(
+                &mut txn,
+                &payload,
+                "set",
+                "c-missing",
+                1.0,
+                CommentAnchorPolicy::StrictBlock,
+            )
+            .unwrap_err()
         };
         assert!(error.contains("Block not found"), "{error}");
         assert!(stored(&doc, "c-missing").is_none());

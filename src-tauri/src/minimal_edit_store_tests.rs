@@ -864,11 +864,17 @@ fn comment_marks_survive_markdown_rewrite() {
             walk(doc, &mut out);
             out
         };
-        assert_eq!(
-            commented(&stored(env, "marks")),
-            "world",
-            "the comment landed"
-        );
+        let room = room_of(env, "marks");
+        assert_eq!(commented(&room_json(&room)), "world", "the comment landed");
+        // edit_comment durably commits the room before its debounced cold
+        // projection. Fence that projection before reading the saved record.
+        run(crate::crdt_engine::flush_ops::await_document_projections(
+            env.app.clone(),
+            GRAPH.to_string(),
+            Some("marks".to_string()),
+        ))
+        .unwrap();
+        assert_eq!(commented(&stored(env, "marks")), "world");
 
         // An edit after the commented word.
         let markdown = read_markdown(env, "marks");
@@ -902,7 +908,6 @@ fn comment_marks_survive_markdown_rewrite() {
         );
 
         // The comment's entry in the document's comments map survived too.
-        let room = room_of(env, "marks");
         let has_entry = run(room.with_doc(|doc| {
             let txn = doc.transact();
             let found = match txn.get_map("comments") {

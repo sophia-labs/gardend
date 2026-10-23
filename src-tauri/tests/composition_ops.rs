@@ -34,7 +34,7 @@ mod ydoc_paths {
 use garden_lib::crdt_engine::builder::ydoc_from_tiptap_json;
 use garden_lib::crdt_engine::document_ops::{
     edit_comment_in_doc, encode_uri_component, filename_stem_title, normalize_comment_data,
-    occurrence_offsets,
+    occurrence_offsets, CommentAnchorPolicy,
 };
 use garden_lib::crdt_engine::projection::ydoc_to_tiptap_json;
 use garden_lib::crdt_engine::rooms::RoomRegistry;
@@ -233,7 +233,15 @@ fn edit_comment_set_anchors_resolves_and_deletes() {
     }));
     let result = {
         let mut txn = doc.transact_mut();
-        edit_comment_in_doc(&mut txn, &set_payload, "set", "c-1", now).expect("set comment")
+        edit_comment_in_doc(
+            &mut txn,
+            &set_payload,
+            "set",
+            "c-1",
+            now,
+            CommentAnchorPolicy::StrictBlock,
+        )
+        .expect("set comment")
     };
     assert_eq!(result["success"], true);
     assert_eq!(result["action"], "set");
@@ -263,6 +271,7 @@ fn edit_comment_set_anchors_resolves_and_deletes() {
             "resolve",
             "c-1",
             now + 1000.0,
+            CommentAnchorPolicy::StrictBlock,
         )
         .expect("resolve comment")
     };
@@ -283,6 +292,7 @@ fn edit_comment_set_anchors_resolves_and_deletes() {
             "resolve",
             "c-1",
             now + 2000.0,
+            CommentAnchorPolicy::StrictBlock,
         )
         .expect("unresolve comment")
     };
@@ -291,8 +301,15 @@ fn edit_comment_set_anchors_resolves_and_deletes() {
     // delete: removes the map entry and clears the mark formatting.
     let result = {
         let mut txn = doc.transact_mut();
-        edit_comment_in_doc(&mut txn, &payload(json!({})), "delete", "c-1", now + 3000.0)
-            .expect("delete comment")
+        edit_comment_in_doc(
+            &mut txn,
+            &payload(json!({})),
+            "delete",
+            "c-1",
+            now + 3000.0,
+            CommentAnchorPolicy::StrictBlock,
+        )
+        .expect("delete comment")
     };
     assert_eq!(result["deleted"], true);
     assert_eq!(result["cleared"], 1);
@@ -304,8 +321,15 @@ fn edit_comment_set_anchors_resolves_and_deletes() {
     // deleting again: deleted=false, nothing cleared.
     let result = {
         let mut txn = doc.transact_mut();
-        edit_comment_in_doc(&mut txn, &payload(json!({})), "delete", "c-1", now + 4000.0)
-            .expect("re-delete comment")
+        edit_comment_in_doc(
+            &mut txn,
+            &payload(json!({})),
+            "delete",
+            "c-1",
+            now + 4000.0,
+            CommentAnchorPolicy::StrictBlock,
+        )
+        .expect("re-delete comment")
     };
     assert_eq!(result["deleted"], false);
     assert_eq!(result["cleared"], 0);
@@ -321,6 +345,7 @@ fn edit_comment_set_error_strings_are_verbatim() {
         "set",
         "c-9",
         1.0,
+        CommentAnchorPolicy::StrictBlock,
     )
     .unwrap_err();
     assert_eq!(error, "Block not found: nope");
@@ -331,11 +356,20 @@ fn edit_comment_set_error_strings_are_verbatim() {
         "set",
         "c-9",
         1.0,
+        CommentAnchorPolicy::StrictBlock,
     )
     .unwrap_err();
     assert_eq!(error, "text not found in block b1: zzz");
 
-    let error = edit_comment_in_doc(&mut txn, &payload(json!({})), "set", "c-9", 1.0).unwrap_err();
+    let error = edit_comment_in_doc(
+        &mut txn,
+        &payload(json!({})),
+        "set",
+        "c-9",
+        1.0,
+        CommentAnchorPolicy::StrictBlock,
+    )
+    .unwrap_err();
     assert_eq!(
         error,
         "document.editComment: text is required for action=set"
@@ -361,6 +395,7 @@ fn edit_comment_set_occurrence_zero_anchors_every_match() {
             "set",
             "c-2",
             2.0,
+            CommentAnchorPolicy::StrictBlock,
         )
         .expect("set comment")
     };

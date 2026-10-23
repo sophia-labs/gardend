@@ -2756,6 +2756,15 @@ pub(crate) fn clear_comment_marks(
     cleared
 }
 
+/// Whether a cited block constrains an anchor or is a model's best guess.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum CommentAnchorPolicy {
+    /// An explicit block must hold the quote; without one, leave it unanchored.
+    StrictBlock,
+    /// Try the cited block first, then search the rest of the document.
+    PreferBlock,
+}
+
 /// In-transaction body of document.editComment (the transactDocument
 /// callback in the TS handler).
 pub fn edit_comment_in_doc(
@@ -2764,6 +2773,7 @@ pub fn edit_comment_in_doc(
     action: &'static str,
     comment_id: &str,
     now: f64,
+    anchor_policy: CommentAnchorPolicy,
 ) -> Result<Value, String> {
     let fragment = txn.get_or_insert_xml_fragment("content");
     let comments_map = txn.get_or_insert_map("comments");
@@ -2839,21 +2849,43 @@ pub fn edit_comment_in_doc(
     let mut anchor_block_id: Option<String> = None;
     let mut effective_quoted_text = quoted_text;
 
+    // Locate and validate the anchor before changing marks or stored data.
+    let mut anchor = None;
+    let mut after = None;
     if let Some(block_id) = &block_id {
-        // An explicit block is a constraint, never a hint. Validate before
-        // writing marks or replacing the stored comment.
-        let (element, _) = block_ops::find_block_in_fragment(txn, &fragment, block_id)
-            .ok_or_else(|| format!("Block not found: {block_id}"))?;
-        let text = read_block_text(txn, &element);
-        let ranges = if let Some(find) = &find {
-            let ranges = quote_ranges(&text, find, occurrence);
-            if ranges.is_empty() {
-                return Err(format!("text not found in block {block_id}: {find}"));
+        match block_ops::find_block_in_fragment(txn, &fragment, block_id) {
+            Some((element, index)) => {
+                let text = read_block_text(txn, &element);
+                let ranges = if let Some(find) = &find {
+                    let ranges = quote_ranges(&text, find, occurrence);
+                    if ranges.is_empty() && anchor_policy == CommentAnchorPolicy::StrictBlock {
+                        return Err(format!("text not found in block {block_id}: {find}"));
+                    }
+                    ranges
+                } else {
+                    vec![(0, text.encode_utf16().count())]
+                };
+                if !ranges.is_empty() {
+                    anchor = Some((element, block_id.clone(), ranges));
+                }
+                after = Some(index);
             }
-            ranges
-        } else {
-            vec![(0, text.encode_utf16().count())]
-        };
+            None if anchor_policy == CommentAnchorPolicy::StrictBlock || find.is_none() => {
+                return Err(format!("Block not found: {block_id}"));
+            }
+            None => {}
+        }
+    }
+    if anchor.is_none() && anchor_policy == CommentAnchorPolicy::PreferBlock {
+        let find = find
+            .as_deref()
+            .ok_or_else(|| "nothing to find".to_string())?;
+        anchor = Some(
+            find_quote_in_blocks(txn, &fragment, after, find, occurrence)
+                .ok_or_else(|| format!("text not found in the document: {find}"))?,
+        );
+    }
+    if let Some((element, block_id, ranges)) = anchor {
         // Re-anchoring an existing comment replaces its marks. Do this only
         // after validation so a refused move leaves the old anchor intact.
         let elements = fragment
@@ -2873,7 +2905,7 @@ pub fn edit_comment_in_doc(
         for (offset, length) in ranges {
             anchored += format_block_text_range(txn, &element, offset, length, &mark_attrs);
         }
-        anchor_block_id = Some(block_id.clone());
+        anchor_block_id = Some(block_id);
         if effective_quoted_text.is_none() {
             effective_quoted_text = find.clone();
         }
@@ -3040,7 +3072,14 @@ pub(super) async fn edit_comment_with_lease(
             if let Some(hit) = read_ledger_entry(txn, &operation_id) {
                 return Ok(hit.result.unwrap_or_else(|| json!({"success": true})));
             }
-            let result = edit_comment_in_doc(txn, &payload, action, &comment_id, now)?;
+            let result = edit_comment_in_doc(
+                txn,
+                &payload,
+                action,
+                &comment_id,
+                now,
+                CommentAnchorPolicy::StrictBlock,
+            )?;
             write_ledger_entry(
                 txn,
                 &operation_id,
@@ -3097,10 +3136,10 @@ pub(super) async fn edit_comment_with_lease(
 // document.editComments: several `set` comments on one document in ONE Y.Doc
 // transaction and ONE persist (workflow_plan_publish). A document.editComment
 // per comment re-projects the whole document each time; on a 209k-word book
-// that was 6-20 s a comment. Each comment anchors exactly as
-// document.editComment does (blockId + find + occurrence); one that names no
-// blockId anchors at the first block whose text holds its find. A comment
-// that cannot anchor is reported and written nowhere.
+// that was 6-20 s a comment. Model output's blockId is a preference: the same
+// anchoring function tries it first, then searches the document. The stored
+// blockId records where the quote landed. A comment that cannot anchor is
+// reported and written nowhere.
 // ---------------------------------------------------------------------------
 
 pub(crate) async fn edit_comments_classified(
@@ -3171,7 +3210,6 @@ pub(crate) async fn edit_comments_classified(
     shared.remove("comments");
     let outcome = room
         .update_doc_classified(move |_doc, txn| {
-            let fragment = txn.get_or_insert_xml_fragment("content");
             let mut placed = Vec::new();
             let mut not_found = Vec::new();
             for comment in comments {
@@ -3183,30 +3221,14 @@ pub(crate) async fn edit_comments_classified(
                     not_found.push(json!({ "reason": "a comment has no commentId" }));
                     continue;
                 };
-                let has_block =
-                    js_string_value(coalesce(&fields, &["blockId", "block_id"])).is_some();
-                if !has_block {
-                    let Some(find) = js_string_value(fields.get("find")) else {
-                        not_found
-                            .push(json!({ "commentId": comment_id, "reason": "nothing to find" }));
-                        continue;
-                    };
-                    let holder = find_quote_in_blocks(txn, &fragment, None, &find, 1.0)
-                        .map(|(_, block_id, _)| block_id);
-                    match holder {
-                        Some(block_id) => {
-                            fields.insert("blockId".to_string(), json!(block_id));
-                        }
-                        None => {
-                            not_found.push(json!({
-                                "commentId": comment_id,
-                                "reason": format!("text not found in the document: {find}"),
-                            }));
-                            continue;
-                        }
-                    }
-                }
-                match edit_comment_in_doc(txn, &fields, "set", &comment_id, now) {
+                match edit_comment_in_doc(
+                    txn,
+                    &fields,
+                    "set",
+                    &comment_id,
+                    now,
+                    CommentAnchorPolicy::PreferBlock,
+                ) {
                     Ok(result) => placed.push(result),
                     Err(error) => {
                         not_found.push(json!({ "commentId": comment_id, "reason": error }))
