@@ -71,6 +71,24 @@ fn seed_graph(app: &AppHandle, graph_id: &str) {
         },
     )
     .expect("create graph");
+    crate::app_runtime::async_runtime::block_on(
+        crate::document_mutation_service::mcp_local_write_document(
+            app.clone(),
+            &serde_json::json!({
+                "graph_id": graph_id,
+                "document_id": "doc-shell",
+                "tiptapJson": {
+                    "type": "doc",
+                    "content": [{
+                        "type": "paragraph",
+                        "attrs": {"data-block-id": "abc"},
+                        "content": [{"type": "text", "text": "A memory source."}]
+                    }]
+                }
+            }),
+        ),
+    )
+    .expect("write memory source document");
 }
 
 /// Run a SELECT over the real per-graph store and return the rows (each a

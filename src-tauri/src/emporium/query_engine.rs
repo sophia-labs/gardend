@@ -588,6 +588,37 @@ mod headless_tests {
         std::env::temp_dir().join(format!("garden-query-engine-{name}-{nanos}"))
     }
 
+    fn seed_graph(app: &crate::app_runtime::AppHandle, graph_id: &str, title: &str) {
+        create_graph_service(
+            app,
+            CreateGraphInput {
+                graph_id: Some(graph_id.to_string()),
+                title: title.to_string(),
+                description: None,
+                operation_id: None,
+            },
+        )
+        .expect("create graph");
+        crate::app_runtime::async_runtime::block_on(
+            crate::document_mutation_service::mcp_local_write_document(
+                app.clone(),
+                &serde_json::json!({
+                    "graph_id": graph_id,
+                    "document_id": "doc-shell",
+                    "tiptapJson": {
+                        "type": "doc",
+                        "content": [{
+                            "type": "paragraph",
+                            "attrs": {"data-block-id": "abc"},
+                            "content": [{"type": "text", "text": "A memory source."}]
+                        }]
+                    }
+                }),
+            ),
+        )
+        .expect("write memory source document");
+    }
+
     fn record(client_ref: &str, content: &str, supersedes: Option<String>) -> MemoryRecordIn {
         MemoryRecordIn {
             client_ref: Some(client_ref.to_string()),
@@ -665,16 +696,7 @@ mod headless_tests {
         run_isolated("byid", || {
             let app = crate::tauri_runtime::build_mock_app_for_tests(true);
             let graph_id = "query-engine-byid";
-            create_graph_service(
-                &app,
-                CreateGraphInput {
-                    graph_id: Some(graph_id.to_string()),
-                    title: "Query Engine ByID".to_string(),
-                    description: None,
-                    operation_id: None,
-                },
-            )
-            .expect("create graph");
+            seed_graph(&app, graph_id, "Query Engine ByID");
 
             crate::app_runtime::async_runtime::block_on(crate::emporium::objects::create_objects(
                 &app,
@@ -753,16 +775,7 @@ mod headless_tests {
         run_isolated("byid-injection", || {
             let app = crate::tauri_runtime::build_mock_app_for_tests(true);
             let graph_id = "query-engine-byid-injection";
-            create_graph_service(
-                &app,
-                CreateGraphInput {
-                    graph_id: Some(graph_id.to_string()),
-                    title: "Query Engine ByID Injection".to_string(),
-                    description: None,
-                    operation_id: None,
-                },
-            )
-            .expect("create graph");
+            seed_graph(&app, graph_id, "Query Engine ByID Injection");
 
             let injected_subject =
                 "urn:sophia:x> } UNION { GRAPH <urn:mnemosyne:local:graph:query-engine-byid-injection:projection:memory:agent:secret> { ?s ?p ?o";
@@ -797,16 +810,7 @@ mod headless_tests {
         run_isolated("countby", || {
             let app = crate::tauri_runtime::build_mock_app_for_tests(true);
             let graph_id = "query-engine-countby";
-            create_graph_service(
-                &app,
-                CreateGraphInput {
-                    graph_id: Some(graph_id.to_string()),
-                    title: "Query Engine CountBy".to_string(),
-                    description: None,
-                    operation_id: None,
-                },
-            )
-            .expect("create graph");
+            seed_graph(&app, graph_id, "Query Engine CountBy");
 
             for (id, title) in [("b1", "Alpha"), ("b2", "Beta")] {
                 crate::app_runtime::async_runtime::block_on(
@@ -862,16 +866,7 @@ mod headless_tests {
         run_isolated("heads", || {
             let app = crate::tauri_runtime::build_mock_app_for_tests(true);
             let graph_id = "query-engine-heads";
-            create_graph_service(
-                &app,
-                CreateGraphInput {
-                    graph_id: Some(graph_id.to_string()),
-                    title: "Query Engine Heads".to_string(),
-                    description: None,
-                    operation_id: None,
-                },
-            )
-            .expect("create graph");
+            seed_graph(&app, graph_id, "Query Engine Heads");
 
             let h = record("qe-h", "vera prefers fish CLI", None);
             let h_subject = memory_record_subject(graph_id, &h);
@@ -929,16 +924,7 @@ mod headless_tests {
         run_isolated("asof", || {
             let app = crate::tauri_runtime::build_mock_app_for_tests(true);
             let graph_id = "query-engine-asof";
-            create_graph_service(
-                &app,
-                CreateGraphInput {
-                    graph_id: Some(graph_id.to_string()),
-                    title: "Query Engine AsOf".to_string(),
-                    description: None,
-                    operation_id: None,
-                },
-            )
-            .expect("create graph");
+            seed_graph(&app, graph_id, "Query Engine AsOf");
 
             let t0 = 1_718_700_000_000i64;
             let t1 = t0 + 3_600_000; // an hour later
@@ -1015,16 +1001,7 @@ mod headless_tests {
         run_isolated("asof-cross-graph", || {
             let app = crate::tauri_runtime::build_mock_app_for_tests(true);
             let graph_id = "query-engine-asof-cross-graph";
-            create_graph_service(
-                &app,
-                CreateGraphInput {
-                    graph_id: Some(graph_id.to_string()),
-                    title: "Query Engine AsOf Cross Graph".to_string(),
-                    description: None,
-                    operation_id: None,
-                },
-            )
-            .expect("create graph");
+            seed_graph(&app, graph_id, "Query Engine AsOf Cross Graph");
 
             let t0 = 1_718_700_000_000i64;
             let t1 = t0 + 3_600_000; // an hour later
@@ -1088,16 +1065,7 @@ mod headless_tests {
         run_isolated("asof-retract", || {
             let app = crate::tauri_runtime::build_mock_app_for_tests(true);
             let graph_id = "query-engine-asof-retract";
-            create_graph_service(
-                &app,
-                CreateGraphInput {
-                    graph_id: Some(graph_id.to_string()),
-                    title: "Query Engine AsOf Retract".to_string(),
-                    description: None,
-                    operation_id: None,
-                },
-            )
-            .expect("create graph");
+            seed_graph(&app, graph_id, "Query Engine AsOf Retract");
 
             // Filed long in the past — "now" (the retraction's real
             // wall-clock timestamp, below) is guaranteed to be later.
@@ -1190,16 +1158,7 @@ mod headless_tests {
         run_isolated("observer", || {
             let app = crate::tauri_runtime::build_mock_app_for_tests(true);
             let graph_id = "query-engine-observer";
-            create_graph_service(
-                &app,
-                CreateGraphInput {
-                    graph_id: Some(graph_id.to_string()),
-                    title: "Query Engine Observer".to_string(),
-                    description: None,
-                    operation_id: None,
-                },
-            )
-            .expect("create graph");
+            seed_graph(&app, graph_id, "Query Engine Observer");
 
             let commons = record("qe-obs-commons", "commons memory: vera likes tea", None);
             let commons_outcome = crate::app_runtime::async_runtime::block_on(
