@@ -39,6 +39,11 @@ pub fn init() -> Result<TelemetryGuard, String> {
 
 fn init_options(otlp: bool, file: Option<std::ffi::OsString>) -> Result<TelemetryGuard, String> {
     if !otlp && file.is_none() {
+        // tracing's `log` feature is on through a dependency, and it turns every span into a `log` record while no
+        // subscriber is set: on the hot path, and past env_logger's target filter. The no-op subscriber keeps spans
+        // inert (never interested, nothing formatted).
+        let _ =
+            tracing::subscriber::set_global_default(tracing::subscriber::NoSubscriber::default());
         return Ok(TelemetryGuard(None));
     }
     let file = file
