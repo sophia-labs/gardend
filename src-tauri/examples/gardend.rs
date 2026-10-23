@@ -216,9 +216,13 @@ fn serve(selfhost: Option<garden_lib::selfhost::ServePlan>) {
 
     // fd 1 is reserved for canonical CaptureEvent NDJSON. Every ordinary
     // diagnostic, including env_logger output, stays on fd 2.
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
-        .target(env_logger::Target::Stderr)
-        .init();
+    // `gardend_otel` is the spans' target. A dependency turns on tracing's `log` feature, so with telemetry off every
+    // span would also become a log line, formatted on the hot path (each WebSocket frame). RUST_LOG still overrides.
+    env_logger::Builder::from_env(
+        env_logger::Env::default().default_filter_or("info,gardend_otel=off"),
+    )
+    .target(env_logger::Target::Stderr)
+    .init();
     let telemetry = match garden_lib::headless::init_telemetry() {
         Ok(guard) => Some(guard),
         Err(error) => {
