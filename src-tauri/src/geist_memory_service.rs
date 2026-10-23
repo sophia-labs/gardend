@@ -287,6 +287,24 @@ async fn ingest_memory_batch(
     // The LOUD shape gate (I1 + enum membership) — a 400 BEFORE any plan/apply.
     request.validate()?;
 
+    if let IngestPayload::Memory { records } = &request.payload {
+        for record in records {
+            for source in &record.source_refs {
+                if source.source_kind == "DocumentBlock" {
+                    if let Some(document_id) = source.document_id.as_deref() {
+                        crate::document_mcp_service::require_document_target(
+                            app,
+                            graph_id,
+                            document_id,
+                            source.block_id.as_deref(),
+                        )
+                        .await?;
+                    }
+                }
+            }
+        }
+    }
+
     // Per-graph write gate: survey → plan → apply → queue-append is one
     // read-modify-write; holding the gate across ALL of it serializes
     // concurrent supersessions of the same head and keeps the legacy queue
@@ -752,6 +770,18 @@ mod headless_tests {
     fn a_witnessed_memory_never_reaches_the_commons() {
         let graph = "witness-lab";
         with_lab("witnessed", graph, |app| {
+            crate::app_runtime::async_runtime::block_on(
+                crate::document_mutation_service::mcp_local_write_document(
+                    app.clone(),
+                    &serde_json::json!({"graph_id": graph, "document_id": "d1", "tiptapJson": {
+                        "type": "doc", "content": (["b1", "b2"].iter().map(|id| serde_json::json!({
+                            "type": "paragraph", "attrs": {"data-block-id": id},
+                            "content": [{"type": "text", "text": "A witnessed source."}]
+                        })).collect::<Vec<_>>())
+                    }}),
+                ),
+            )
+            .expect("write memory targets");
             let stored = remember(
                 &app,
                 serde_json::json!({

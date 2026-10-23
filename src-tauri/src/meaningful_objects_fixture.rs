@@ -800,7 +800,7 @@ fn cartographers_notebook_meaningful_object_pipeline() {
 
         // (1) API CALL — the real local-value MCP fn. Mutates the on-disk
         //     LocalValueStore then materializes the salience class span.
-        mcp_local_value(
+        crate::app_runtime::async_runtime::block_on(mcp_local_value(
             app.clone(),
             &json!({
                 "graph_id": graph_id,
@@ -810,7 +810,7 @@ fn cartographers_notebook_meaningful_object_pipeline() {
                 "valence": 2,
                 "tags": ["keystone"]
             }),
-        )
+        ))
         .expect("value the keystone block");
 
         // (2) SOURCE — the LocalValueStore now carries exactly one valued block.

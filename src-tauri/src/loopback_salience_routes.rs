@@ -122,7 +122,7 @@ pub(super) async fn loopback_hosted_apply_valuations(
     // checkpoints either before this write or after it.
     let gate = crate::source_sync::acquire_source_gate(&graph_id).await;
     if !crate::source_sync::source_authority_active(&state.app, &graph_id).unwrap_or(false) {
-        let response = loopback_result(mcp_local_value(state.app.clone(), &arguments));
+        let response = loopback_result(mcp_local_value(state.app.clone(), &arguments).await);
         drop(gate);
         return response;
     }

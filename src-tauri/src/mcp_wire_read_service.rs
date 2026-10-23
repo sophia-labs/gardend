@@ -64,7 +64,7 @@ fn wire_summary(
     value
 }
 
-pub(super) fn mcp_local_get_wires(
+pub(super) async fn mcp_local_get_wires(
     app: AppHandle,
     arguments: &serde_json::Value,
 ) -> Result<serde_json::Value, String> {
@@ -88,19 +88,19 @@ pub(super) fn mcp_local_get_wires(
     let wires = workspace_wires(snapshot);
     // Count the whole graph, regardless of the requested end or filter.
     // Historical ghosts stay visible and are never removed by this audit.
-    let ghost_wire_count = wires
-        .iter()
-        .filter(|wire| {
-            wire_is_active(wire)
-                && !json_string(wire.get("id"))
-                    .unwrap_or_default()
-                    .ends_with("-inv")
-                && crate::mcp_workspace_mutation_service::validate_wire_targets(
-                    &app, &graph_id, wire,
-                )
+    let mut ghost_wire_count = 0;
+    for wire in &wires {
+        if wire_is_active(wire)
+            && !json_string(wire.get("id"))
+                .unwrap_or_default()
+                .ends_with("-inv")
+            && crate::mcp_workspace_mutation_service::validate_wire_targets(&app, &graph_id, wire)
+                .await
                 .is_err()
-        })
-        .count();
+        {
+            ghost_wire_count += 1;
+        }
+    }
     let mut results = Vec::new();
 
     for wire in wires {

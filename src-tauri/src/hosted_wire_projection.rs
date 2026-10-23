@@ -92,7 +92,7 @@ fn hosted_wire_summary_from_local(
     summary
 }
 
-pub(super) fn hosted_wires_for_document(
+pub(super) async fn hosted_wires_for_document(
     app: AppHandle,
     graph_id: &str,
     document_id: &str,
@@ -105,7 +105,8 @@ pub(super) fn hosted_wires_for_document(
             "documentId": document_id,
             "direction": direction,
         }),
-    )?;
+    )
+    .await?;
     Ok(serde_json::Value::Array(
         local
             .get("wires")
@@ -142,13 +143,15 @@ pub(super) fn hosted_wired_blocks(
     Ok(block_ids.into_iter().collect())
 }
 
-pub(super) fn hosted_wire_bundle(
+pub(super) async fn hosted_wire_bundle(
     app: AppHandle,
     graph_id: &str,
     document_id: &str,
 ) -> Result<serde_json::Value, String> {
-    let outgoing = hosted_wires_for_document(app.clone(), graph_id, document_id, "outgoing")?;
-    let incoming = hosted_wires_for_document(app.clone(), graph_id, document_id, "incoming")?;
+    let outgoing =
+        hosted_wires_for_document(app.clone(), graph_id, document_id, "outgoing").await?;
+    let incoming =
+        hosted_wires_for_document(app.clone(), graph_id, document_id, "incoming").await?;
     let wired_block_ids = hosted_wired_blocks(&app, graph_id, document_id)?;
     Ok(serde_json::json!({
         "outgoing_wires": outgoing.as_array().cloned().unwrap_or_default(),

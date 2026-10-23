@@ -168,8 +168,19 @@ pub(super) async fn mcp_local_edit_comment(
     Ok(value)
 }
 
-/// A typed-object endpoint must have a type in its graph's real object store.
-fn require_wire_object(app: &AppHandle, graph_id: &str, iri: &str) -> Result<(), String> {
+/// Local object ends must exist; external IRIs have no authority in this store.
+async fn require_wire_object(app: &AppHandle, graph_id: &str, iri: &str) -> Result<(), String> {
+    if !iri.starts_with(&format!("urn:mnemosyne:local:graph:{graph_id}:"))
+        && !iri.starts_with(&format!("urn:sophia:type:{graph_id}:"))
+    {
+        return Ok(());
+    }
+    crate::crdt_engine::flush_ops::await_document_projections(
+        app.clone(),
+        graph_id.to_string(),
+        None,
+    )
+    .await?;
     let graph_dir = crate::paths::existing_graph_dir(app, graph_id)?;
     let store = crate::rdf_service::open_graph_store(&graph_dir)?;
     let subject = oxigraph::model::NamedNode::new(iri).map_err(|error| error.to_string())?;
@@ -193,7 +204,7 @@ fn require_wire_object(app: &AppHandle, graph_id: &str, iri: &str) -> Result<(),
     Ok(())
 }
 
-pub(crate) fn validate_wire_targets(
+pub(crate) async fn validate_wire_targets(
     app: &AppHandle,
     graph_id: &str,
     wire: &serde_json::Value,
@@ -207,7 +218,7 @@ pub(crate) fn validate_wire_targets(
             .get(format!("{prefix}Iri"))
             .and_then(serde_json::Value::as_str)
         {
-            require_wire_object(app, end_graph, iri)?;
+            require_wire_object(app, end_graph, iri).await?;
         } else {
             let document_id = wire
                 .get(format!("{prefix}DocumentId"))
@@ -221,7 +232,8 @@ pub(crate) fn validate_wire_targets(
                 end_graph,
                 document_id,
                 block_id,
-            )?;
+            )
+            .await?;
         }
     }
     Ok(())
@@ -248,7 +260,7 @@ pub(super) async fn mcp_local_create_wires(
     // Keep historical dangling projections readable. Only new MCP writes
     // require live endpoints; the vocabulary imposes no irreflexivity rule.
     for (_, payload) in &prepared {
-        validate_wire_targets(&app, &graph_id, payload)?;
+        validate_wire_targets(&app, &graph_id, payload).await?;
     }
     let mut created = Vec::new();
     for (source_document_id, payload) in prepared {

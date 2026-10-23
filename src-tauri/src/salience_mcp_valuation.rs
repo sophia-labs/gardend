@@ -114,7 +114,7 @@ pub(crate) fn rebuild_value_store_from_source_events(
     }))
 }
 
-pub(super) fn mcp_local_value(
+pub(super) async fn mcp_local_value(
     app: AppHandle,
     arguments: &serde_json::Value,
 ) -> Result<serde_json::Value, String> {
@@ -178,7 +178,9 @@ pub(super) fn mcp_local_value(
             &graph_id,
             &entry.document_id,
             Some(&entry.block_id),
-        ) {
+        )
+        .await
+        {
             errors.push(serde_json::json!({ "index": entry.input_index, "error": error }));
             continue;
         }

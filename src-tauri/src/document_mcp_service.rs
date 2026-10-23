@@ -5,6 +5,8 @@ use crate::{
     mcp_utils::{mcp_arg_string, mcp_arg_usize, mcp_required_document_id, mcp_required_graph_id},
     paths::existing_graph_dir,
 };
+#[cfg(feature = "desktop")]
+use tauri::Manager;
 
 const DEFAULT_LIST_LIMIT: usize = 100;
 const MAX_LIST_LIMIT: usize = 500;
@@ -90,7 +92,7 @@ fn mcp_graph_id_argument(arguments: &serde_json::Value) -> String {
 
 /// Validate authored references against the document's actual block inventory.
 /// Shared by convenience writers so a missing target never becomes authority.
-pub(crate) fn require_document_target(
+pub(crate) async fn require_document_target(
     app: &AppHandle,
     graph_id: &str,
     document_id: &str,
@@ -102,17 +104,63 @@ pub(crate) fn require_document_target(
     crate::document_tombstone_store::require_document_not_tombstoned(&graph_dir, document_id)?;
     let manifest =
         crate::document_paths::document_dir(&graph_dir, document_id)?.join("document.json");
-    if !manifest.is_file() {
+    let workspace = crate::crdt_engine::workspace_ops::workspace_room(app, graph_id, &graph_dir)
+        .await
+        .map_err(String::from)?;
+    let exists = workspace
+        .with_doc(|doc| {
+            crate::crdt_engine::workspace_ops::document_exists_in_workspace(doc, document_id)
+        })
+        .await;
+    // File-authored legacy documents may predate workspace membership.
+    if !exists && !manifest.is_file() {
         return Err(format!(
             "document not found in graph {graph_id}: {document_id}"
         ));
     }
-    let document = crate::document_record_store::read_document_record_cold(&graph_dir, &manifest)?;
     if let Some(block_id) = block_id {
-        if !document_blocks_for_read(&document)
-            .iter()
-            .any(|block| block.id == block_id)
-        {
+        let registry = app.state::<crate::crdt_engine::rooms::RoomRegistry>();
+        let key = format!("doc:{graph_id}:{document_id}");
+        let state_path =
+            crate::ydoc_paths::checked_document_ydoc_state_path(&graph_dir, document_id)?;
+        let room = match registry.peek(&key).await {
+            Some(room) => Some(room),
+            None if state_path.is_file() => Some(registry.get_or_create(&key, state_path).await?),
+            None => None,
+        };
+        let authority = if let Some(room) = room {
+            // Acknowledgement commits the room, not its debounced record.
+            let (epoch, found) = room
+                .with_doc_version(|doc| {
+                    crate::crdt_engine::projection::materialize_ydoc(doc, document_id)
+                        .blocks_json
+                        .as_array()
+                        .is_some_and(|blocks| blocks.iter().any(|block| block["id"] == block_id))
+                })
+                .await;
+            // An untouched canonical-empty sidecar carries no block authority;
+            // it must not hide a legacy file-authored body's inventory.
+            (epoch > 0).then_some(found)
+        } else {
+            None
+        };
+        let found = if let Some(found) = authority {
+            found
+        } else {
+            // Legacy file-authored documents may have no room authority yet.
+            crate::crdt_engine::flush_ops::await_document_projections(
+                app.clone(),
+                graph_id.to_string(),
+                Some(document_id.to_string()),
+            )
+            .await?;
+            let document =
+                crate::document_record_store::read_document_record_cold(&graph_dir, &manifest)?;
+            document_blocks_for_read(&document)
+                .iter()
+                .any(|block| block.id == block_id)
+        };
+        if !found {
             return Err(format!(
                 "block not found in {graph_id}/{document_id}: {block_id}"
             ));

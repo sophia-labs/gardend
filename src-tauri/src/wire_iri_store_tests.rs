@@ -382,11 +382,13 @@ fn wire_to_an_object_iri_round_trips() {
         assert_eq!(objects_of(&triples, "sceneDocumentId"), vec![BOARD]);
 
         // The REST summary (the bundle the app reads) shows the object end.
-        let outgoing = crate::hosted_wire_projection::hosted_wires_for_document(
-            env.app.clone(),
-            GRAPH,
-            "doc-traumdeutung",
-            "outgoing",
+        let outgoing = crate::app_runtime::async_runtime::block_on(
+            crate::hosted_wire_projection::hosted_wires_for_document(
+                env.app.clone(),
+                GRAPH,
+                "doc-traumdeutung",
+                "outgoing",
+            ),
         )
         .unwrap();
         let entry = &outgoing[0];
@@ -421,11 +423,13 @@ fn wire_to_an_object_iri_round_trips() {
         let triples = wire_triples(env, "wire-wb-0002");
         assert_eq!(objects_of(&triples, "sourceResource"), vec![OBJECT]);
         assert!(objects_of(&triples, "sourceDocument").is_empty());
-        let incoming = crate::hosted_wire_projection::hosted_wires_for_document(
-            env.app.clone(),
-            GRAPH,
-            "doc-traumdeutung",
-            "incoming",
+        let incoming = crate::app_runtime::async_runtime::block_on(
+            crate::hosted_wire_projection::hosted_wires_for_document(
+                env.app.clone(),
+                GRAPH,
+                "doc-traumdeutung",
+                "incoming",
+            ),
         )
         .unwrap();
         let entry = incoming
@@ -773,14 +777,90 @@ fn create_wires_checks_typed_objects_and_allows_vocabulary_self_wires() {
         env.call("create_wires", args).unwrap();
         env.call(
             "create_wires",
+            json!({"sourceDocumentId": "doc-a", "targetIri": "https://example.org/objects/rat-man"}),
+        )
+        .unwrap();
+        env.call(
+            "create_wires",
             json!({"sourceDocumentId": "doc-a", "targetDocumentId": "doc-a"}),
         )
         .unwrap();
         let got = env
             .call("get_wires", json!({"documentId": "doc-a"}))
             .unwrap();
-        assert_eq!(got["count"], 2, "{got}");
+        assert_eq!(got["count"], 3, "{got}");
         assert_eq!(got["ghostWireCount"], 0, "{got}");
+    });
+}
+
+#[test]
+fn document_target_validation_sees_acknowledged_blocks_before_projection() {
+    with_env(|env| {
+        create(env, "doc-a");
+        run(async {
+            let graph_dir = crate::paths::existing_graph_dir(&env.app, GRAPH).unwrap();
+            let registry = env.app.state::<crate::crdt_engine::rooms::RoomRegistry>();
+            let room = registry
+                .get_or_create(
+                    &format!("doc:{GRAPH}:doc-a"),
+                    crate::ydoc_paths::document_ydoc_state_path(&graph_dir, "doc-a"),
+                )
+                .await
+                .unwrap();
+            let projection_guard = room.lock_projection_flush().await;
+            tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                crate::crdt_queue::enqueue_crdt_operation(
+                    env.app.clone(),
+                    crate::crdt_queue::EnqueueCrdtOperationInput {
+                        kind: "block.insert".into(),
+                        graph_id: GRAPH.into(),
+                        document_id: Some("doc-a".into()),
+                        payload: json!({"blocks": [{"id": "new-block", "content": "Acknowledged."}]}),
+                    },
+                ),
+            )
+            .await
+            .expect("block write must reply while projection is held")
+            .unwrap();
+            // Deliberately observe the old record to establish the race.
+            let record = crate::document_service::read_document(
+                env.app.clone(),
+                GRAPH.into(),
+                "doc-a".into(),
+            )
+            .unwrap();
+            assert!(record.blocks.iter().all(|block| block.id != "new-block"));
+            tokio::time::timeout(
+                std::time::Duration::from_secs(2),
+                crate::document_mcp_service::require_document_target(
+                    &env.app,
+                    GRAPH,
+                    "doc-a",
+                    Some("new-block"),
+                ),
+            )
+            .await
+            .expect("target validation must read authority without waiting for projection")
+            .unwrap();
+            assert!(crate::document_mcp_service::require_document_target(
+                &env.app,
+                GRAPH,
+                "doc-a",
+                Some("missing-block"),
+            )
+            .await
+            .unwrap_err()
+            .contains("block not found"));
+            drop(projection_guard);
+            crate::crdt_engine::flush_ops::await_document_projections(
+                env.app.clone(),
+                GRAPH.into(),
+                Some("doc-a".into()),
+            )
+            .await
+            .unwrap();
+        });
     });
 }
 

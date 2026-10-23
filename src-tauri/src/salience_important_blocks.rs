@@ -112,7 +112,7 @@ mod tests {
     const GRAPH: &str = "important-blocks-limit";
 
     fn value_block(app: &AppHandle, document_id: &str, block_id: &str, importance: i64) {
-        mcp_local_value(
+        crate::app_runtime::async_runtime::block_on(mcp_local_value(
             app.clone(),
             &json!({
                 "graph_id": GRAPH,
@@ -120,7 +120,7 @@ mod tests {
                 "block_id": block_id,
                 "importance": importance,
             }),
-        )
+        ))
         .expect("value block");
     }
 

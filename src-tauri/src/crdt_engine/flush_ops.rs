@@ -1195,14 +1195,26 @@ mod tests {
 
     #[test]
     fn automatic_flush_coalesces_client_burst_and_explicit_flush_stays_idempotent() {
+        use tracing::instrument::WithSubscriber;
+
         let _serial = crate::tauri_runtime::profile_env_serial()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let profile = temp_profile();
         std::env::set_var("GARDEN_PROFILE_DIR", &profile);
 
-        let result = std::panic::catch_unwind(|| {
-            crate::app_runtime::async_runtime::block_on(async {
+        let (provider, exporter, dispatch) = crate::telemetry::test_support::capture(true);
+        let projection_count = || {
+            provider.force_flush().unwrap();
+            exporter
+                .get_finished_spans()
+                .unwrap()
+                .iter()
+                .filter(|span| span.name == "document.materialize")
+                .count()
+        };
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let work = async {
                 let app = crate::tauri_runtime::build_mock_app_for_tests(true);
                 let graph_id = "fid004-auto-debounce";
                 let document_id = "daily-note-auto";
@@ -1250,7 +1262,7 @@ mod tests {
 
                 // Three independent sync clients land inside one 600ms window.
                 // Their Yjs structs merge, but only the last debounce generation
-                // may enqueue the document cold flush.
+                // may project the document.
                 for index in 1..=3 {
                     assert!(document_room
                         .apply_client_update(&document_update(
@@ -1274,12 +1286,14 @@ mod tests {
 
                 let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(4);
                 let record = loop {
-                    if let Ok(record) = crate::document_service::read_document(
-                        app.clone(),
-                        graph_id.to_string(),
-                        document_id.to_string(),
-                    ) {
-                        break record;
+                    if !document_room.needs_projection_flush() {
+                        if let Ok(record) = crate::document_service::read_document(
+                            app.clone(),
+                            graph_id.to_string(),
+                            document_id.to_string(),
+                        ) {
+                            break record;
+                        }
                     }
                     assert!(
                         tokio::time::Instant::now() < deadline,
@@ -1309,30 +1323,24 @@ mod tests {
                 .expect("search automatic projection");
                 assert_eq!(search["total"], 3);
 
-                let queue = app.state::<CrdtOperationQueue>();
-                let trace_deadline =
-                    tokio::time::Instant::now() + std::time::Duration::from_secs(2);
-                loop {
-                    let traces = queue
-                        .recent_traces(Some(20), false, Some("crdt.flush"), Some(document_id), None)
-                        .expect("document flush traces");
-                    if traces.len() == 1 {
-                        break;
-                    }
-                    assert!(
-                        traces.is_empty() && tokio::time::Instant::now() < trace_deadline,
-                        "burst must enqueue exactly one document flush; traces={traces:?}"
-                    );
-                    tokio::time::sleep(std::time::Duration::from_millis(25)).await;
-                }
+                assert_eq!(
+                    projection_count(),
+                    1,
+                    "burst must coalesce into one projection"
+                );
+                assert!(
+                    !document_room.needs_projection_flush(),
+                    "projection tail completed"
+                );
 
                 // Stay past a second full debounce window: no trailing task
-                // may enqueue another document flush or bump the cold revision.
+                // may project again or bump the cold revision.
                 tokio::time::sleep(std::time::Duration::from_millis(750)).await;
-                let traces = queue
-                    .recent_traces(Some(20), false, Some("crdt.flush"), Some(document_id), None)
-                    .expect("settled document flush traces");
-                assert_eq!(traces.len(), 1, "burst left a redundant flush task");
+                assert_eq!(
+                    projection_count(),
+                    1,
+                    "burst left a redundant projection task"
+                );
                 let settled = crate::document_service::read_document(
                     app.clone(),
                     graph_id.to_string(),
@@ -1355,8 +1363,14 @@ mod tests {
                 )
                 .expect("projection after explicit flush");
                 assert_eq!(explicit.revision, 1, "explicit clean flush is idempotent");
-            });
-        });
+                assert_eq!(
+                    projection_count(),
+                    1,
+                    "explicit clean flush must not project again"
+                );
+            };
+            crate::app_runtime::async_runtime::block_on(work.with_subscriber(dispatch.clone()));
+        }));
 
         std::env::remove_var("GARDEN_PROFILE_DIR");
         let _ = std::fs::remove_dir_all(&profile);

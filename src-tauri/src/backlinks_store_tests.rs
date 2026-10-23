@@ -107,6 +107,12 @@ fn create_wire(env: &Env, wire: Value) {
     env.call("create_wires", json!({"wires": [wire]})).unwrap();
 }
 
+fn create_object(env: &Env) {
+    env.call("sparql_update", json!({"update": format!(
+        "INSERT DATA {{ GRAPH <urn:backlinks-test:objects> {{ <{OBJECT}> a <urn:backlinks-test:Dream> }} }}"
+    )})).unwrap();
+}
+
 fn doc_subject(document_id: &str) -> String {
     format!("urn:mnemosyne:local:document:{document_id}")
 }
@@ -235,6 +241,17 @@ fn backlinks_find_an_incoming_wire() {
     with_env(|env| {
         create(env, "doc-a");
         create(env, "doc-b");
+        // Wire endpoints must name blocks authored through the real write path.
+        for (document_id, block_id) in [("doc-a", "p1"), ("doc-b", "p9")] {
+            write_tiptap(
+                env,
+                document_id,
+                vec![
+                    json!({"type": "paragraph", "attrs": {"data-block-id": block_id},
+                    "content": [{"type": "text", "text": "Wire endpoint."}]}),
+                ],
+            );
+        }
         create_wire(
             env,
             json!({"wireId": "wire-ab", "sourceDocumentId": "doc-a", "sourceBlockId": "p1",
@@ -427,6 +444,7 @@ fn backlinks_find_a_board_link_and_card() {
 #[test]
 fn backlinks_for_an_object_iri() {
     with_env(|env| {
+        create_object(env);
         create(env, "doc-traumdeutung");
         create(env, "doc-notes");
         let board = create_board(env, "Dream-work board");
@@ -468,6 +486,7 @@ fn backlinks_for_an_object_iri() {
 #[test]
 fn backlinks_for_an_object_source_scene_wire() {
     with_env(|env| {
+        create_object(env);
         create(env, "doc-target");
         let board = create_board(env, "Board");
         create_wire(

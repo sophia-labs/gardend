@@ -113,12 +113,9 @@ pub(super) async fn loopback_hosted_outgoing_wires(
     if let Err(response) = require_loopback_scope(&headers, &state, "wires.read") {
         return response;
     }
-    loopback_result(hosted_wires_for_document(
-        state.app.clone(),
-        &graph_id,
-        &document_id,
-        "outgoing",
-    ))
+    loopback_result(
+        hosted_wires_for_document(state.app.clone(), &graph_id, &document_id, "outgoing").await,
+    )
 }
 
 pub(super) async fn loopback_hosted_incoming_wires(
@@ -129,12 +126,9 @@ pub(super) async fn loopback_hosted_incoming_wires(
     if let Err(response) = require_loopback_scope(&headers, &state, "wires.read") {
         return response;
     }
-    loopback_result(hosted_wires_for_document(
-        state.app.clone(),
-        &graph_id,
-        &document_id,
-        "incoming",
-    ))
+    loopback_result(
+        hosted_wires_for_document(state.app.clone(), &graph_id, &document_id, "incoming").await,
+    )
 }
 
 pub(super) async fn loopback_hosted_wire_bundle(
@@ -145,11 +139,7 @@ pub(super) async fn loopback_hosted_wire_bundle(
     if let Err(response) = require_loopback_scope(&headers, &state, "wires.read") {
         return response;
     }
-    loopback_result(hosted_wire_bundle(
-        state.app.clone(),
-        &graph_id,
-        &document_id,
-    ))
+    loopback_result(hosted_wire_bundle(state.app.clone(), &graph_id, &document_id).await)
 }
 
 pub(super) async fn loopback_hosted_wired_blocks(
@@ -176,6 +166,7 @@ pub(super) async fn loopback_hosted_has_incoming_wires(
     }
     loopback_result(
         hosted_wires_for_document(state.app.clone(), &graph_id, &document_id, "incoming")
+            .await
             .map(|wires| !wires.as_array().map(Vec::is_empty).unwrap_or(true)),
     )
 }

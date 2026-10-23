@@ -634,7 +634,11 @@ fn tramp_list_wire_predicates<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> M
 
 fn tramp_get_wires<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
     let app = ctx.app.clone();
-    Box::pin(async move { mcp_local_get_wires(app, args).map_err(AppError::internal) })
+    Box::pin(async move {
+        mcp_local_get_wires(app, args)
+            .await
+            .map_err(AppError::internal)
+    })
 }
 
 fn tramp_get_backlinks<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {

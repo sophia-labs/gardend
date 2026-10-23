@@ -4010,6 +4010,7 @@ pub(crate) async fn mcp_authoritative_value(app: AppHandle, arguments: &Value) -
     let gate = acquire_source_gate(&graph_id).await;
     if !source_authority_active(&app, &graph_id)? {
         let result = crate::salience_mcp_valuation::mcp_local_value(app, arguments)
+            .await
             .map_err(AppError::validation);
         drop(gate);
         return result;
@@ -4067,7 +4068,9 @@ pub(crate) async fn mcp_authoritative_value(app: AppHandle, arguments: &Value) -
             &graph_id,
             &entry.document_id,
             Some(&entry.block_id),
-        ) {
+        )
+        .await
+        {
             errors.push(json!({ "index": entry.input_index, "error": error }));
             continue;
         }
@@ -4218,6 +4221,7 @@ pub(crate) async fn mcp_source_emporium_retract(
         .unwrap_or_else(|| operation_id.clone());
     let at_ms = source_now_ms(arguments)?;
     crate::emporium::write::require_retraction_target(&app, &graph_id, &subject)
+        .await
         .map_err(|error| AppError::validation(error.message().to_string()))?;
     let (_, graph_incarnation) = active_graph_identity(&app, &graph_id, None)?;
     let push = mcp_local_source_push(

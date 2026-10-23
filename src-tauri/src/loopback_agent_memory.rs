@@ -415,6 +415,17 @@ mod local_service_host_agent_memory_tests {
             .token;
 
             crate::app_runtime::async_runtime::block_on(async {
+                // Valuations need a real document/block, even when testing the grant.
+                crate::document_mutation_service::mcp_local_write_document(
+                    state.app.clone(),
+                    &json!({"graph_id": GRAPH, "document_id": "d1", "tiptapJson": {
+                        "type": "doc", "content": [{"type": "paragraph", "attrs": {
+                            "data-block-id": "b1"
+                        }, "content": [{"type": "text", "text": "A witnessed source."}]}]
+                    }}),
+                )
+                .await
+                .unwrap();
                 // Remembering for a being: allowed, and only for one named the
                 // way gardend names witness graphs (agent- and 16 hex digits).
                 let stored = call(

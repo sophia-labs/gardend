@@ -130,7 +130,19 @@ fn node_text(node: &Value) -> String {
         .collect()
 }
 
-fn stored(app: &crate::app_runtime::AppHandle, document_id: &str) -> Value {
+/// Match the MCP read fence before observing a disposable record or RDF.
+async fn await_projection(app: &crate::app_runtime::AppHandle, document_id: Option<&str>) {
+    crate::crdt_engine::flush_ops::await_document_projections(
+        app.clone(),
+        GRAPH.to_string(),
+        document_id.map(str::to_string),
+    )
+    .await
+    .unwrap();
+}
+
+async fn stored(app: &crate::app_runtime::AppHandle, document_id: &str) -> Value {
+    await_projection(app, Some(document_id)).await;
     let read = crate::document_mcp_service::mcp_local_read_document(
         app.clone(),
         &json!({"graph_id": GRAPH, "document_id": document_id, "format": "json", "maxChars": 1_000_000}),
@@ -140,7 +152,8 @@ fn stored(app: &crate::app_runtime::AppHandle, document_id: &str) -> Value {
     parsed["tiptapJson"].clone()
 }
 
-fn markdown(app: &crate::app_runtime::AppHandle, document_id: &str) -> String {
+async fn markdown(app: &crate::app_runtime::AppHandle, document_id: &str) -> String {
+    await_projection(app, Some(document_id)).await;
     crate::document_mcp_service::mcp_local_read_document(
         app.clone(),
         &json!({"graph_id": GRAPH, "document_id": document_id, "format": "markdown", "maxChars": 1_000_000}),
@@ -391,7 +404,7 @@ fn write_document_tiptap_json_is_normalised_with_receipts() {
         crate::app_runtime::async_runtime::block_on(async {
             create(&app, "doc-write").await;
             let result = write_tiptap(&app, "doc-write", specimen()).await;
-            let doc = stored(&app, "doc-write");
+            let doc = stored(&app, "doc-write").await;
             assert_specimen_canonical(&doc, &result, "write_document.tiptapJson");
 
             // Idempotent: writing the stored canonical content back rewrites
@@ -413,13 +426,13 @@ fn write_document_tiptap_json_is_normalised_with_receipts() {
                 "canonical content was rewritten: {rewrites:?}"
             );
             assert_eq!(
-                semantic(&stored(&app, "doc-write")),
+                semantic(&stored(&app, "doc-write").await),
                 semantic(&doc),
                 "re-normalising canonical content changed it"
             );
 
             // The markdown face never drops the opaque object.
-            let md = markdown(&app, "doc-write");
+            let md = markdown(&app, "doc-write").await;
             assert!(
                 md.contains("```json"),
                 "opaque renders as a fenced JSON block:\n{md}"
@@ -459,7 +472,7 @@ fn write_document_blocks_array_of_tiptap_nodes_is_normalised() {
             .unwrap();
             // The TipTap-shaped entries (content is an array) go through the
             // contract instead of collapsing to empty paragraphs.
-            let doc = stored(&app, "doc-blocks");
+            let doc = stored(&app, "doc-blocks").await;
             assert_specimen_canonical_in(&doc, &result, "document.write.blocks", "blocks");
         });
     });
@@ -477,7 +490,7 @@ fn insert_blocks_tiptap_json_is_normalised_with_receipts() {
             )
             .await
             .unwrap();
-            let doc = stored(&app, "doc-insert");
+            let doc = stored(&app, "doc-insert").await;
             assert_specimen_canonical(&doc, &result, "insert_blocks.tiptapJson");
         });
     });
@@ -494,7 +507,7 @@ fn insert_blocks_blocks_array_of_tiptap_nodes_is_normalised() {
             )
             .await
             .unwrap();
-            let doc = stored(&app, "doc-insert-blocks");
+            let doc = stored(&app, "doc-insert-blocks").await;
             assert_specimen_canonical_in(&doc, &result, "insert_blocks.blocks", "blocks");
         });
     });
@@ -513,7 +526,7 @@ fn create_document_once_is_normalised_with_receipts() {
             )
             .await
             .unwrap();
-            let doc = stored(&app, "doc-once");
+            let doc = stored(&app, "doc-once").await;
             assert_specimen_canonical(&doc, &result, "create_document_once");
         });
     });
@@ -588,7 +601,7 @@ fn canonical_content_is_stored_verbatim_without_receipts() {
                 "canonical content drew receipts: {result}"
             );
             assert_eq!(
-                semantic(&stored(&app, "doc-canonical")["content"]),
+                semantic(&stored(&app, "doc-canonical").await["content"]),
                 semantic(&Value::Array(canonical)),
             );
         });
@@ -601,6 +614,7 @@ fn opaque_block_projects_as_rdf_with_its_original_type() {
         crate::app_runtime::async_runtime::block_on(async {
             create(&app, "doc-rdf").await;
             write_tiptap(&app, "doc-rdf", vec![para("lead"), callout()]).await;
+            await_projection(&app, Some("doc-rdf")).await;
             let rows = crate::rdf_service::mcp_local_sparql_query(
                 app.clone(),
                 &json!({"graphId": GRAPH, "query":
@@ -684,7 +698,7 @@ fn list_loss_battery_through_every_tiptap_json_path() {
                             continue;
                         }
                     };
-                    let doc = stored(&app, &doc_id);
+                    let doc = stored(&app, &doc_id).await;
                     let flat = serde_json::to_string(&doc).unwrap();
                     let lost: Vec<&String> = texts
                         .iter()
@@ -745,6 +759,7 @@ fn embed(id: Option<&str>, iri: &str, label: &str) -> Value {
 }
 
 async fn select(app: &crate::app_runtime::AppHandle, query: &str) -> Vec<Value> {
+    await_projection(app, None).await;
     let result = crate::rdf_service::mcp_local_sparql_query(
         app.clone(),
         &json!({"graphId": GRAPH, "query": format!(
@@ -791,6 +806,7 @@ fn embed_line(label: &str, iri: &str) -> String {
 }
 
 async fn read_blocks(app: &crate::app_runtime::AppHandle, document_id: &str) -> Vec<Value> {
+    await_projection(app, Some(document_id)).await;
     crate::document_mcp_blocks::mcp_local_read_blocks(
         app.clone(),
         &json!({"graph_id": GRAPH, "document_id": document_id}),
@@ -807,6 +823,7 @@ async fn get_block(
     document_id: &str,
     block_id: &str,
 ) -> Value {
+    await_projection(app, Some(document_id)).await;
     crate::document_mcp_blocks::mcp_local_get_block(
         app.clone(),
         &json!({"graph_id": GRAPH, "document_id": document_id, "blockId": block_id, "format": "markdown"}),
@@ -825,7 +842,7 @@ async fn assert_embed_reads(
     iri: &str,
     label: &str,
 ) {
-    let doc = stored(app, document_id);
+    let doc = stored(app, document_id).await;
     let node = doc["content"]
         .as_array()
         .unwrap()
@@ -837,7 +854,7 @@ async fn assert_embed_reads(
     assert_eq!(node["attrs"]["label"], label, "{document_id}");
     assert!(node.get("content").is_none(), "{document_id}: an atom");
 
-    let md = markdown(app, document_id);
+    let md = markdown(app, document_id).await;
     assert!(
         md.lines().any(|line| line == embed_line(label, iri)),
         "{document_id}: read_document markdown must show the embed:\n{md}"
@@ -882,7 +899,7 @@ fn object_embed_through_write_document_is_stored_canonical_and_read_by_every_fac
                 "a canonical embed draws no receipt: {result}"
             );
             assert_eq!(
-                semantic(&stored(&app, "doc-embed-write")["content"]),
+                semantic(&stored(&app, "doc-embed-write").await["content"]),
                 semantic(&Value::Array(content.clone())),
                 "stored verbatim"
             );
@@ -895,7 +912,7 @@ fn object_embed_through_write_document_is_stored_canonical_and_read_by_every_fac
             )
             .await;
             // The markdown face keeps the prose around it, in order.
-            let md = markdown(&app, "doc-embed-write");
+            let md = markdown(&app, "doc-embed-write").await;
             let (lead, line, after) = (
                 md.find("Meier's dream, below.").unwrap(),
                 md.find("> ⧉ Dream report").unwrap(),
@@ -921,7 +938,7 @@ fn object_embed_through_write_document_is_stored_canonical_and_read_by_every_fac
             let again = write_tiptap(
                 &app,
                 "doc-embed-write",
-                stored(&app, "doc-embed-write")["content"]
+                stored(&app, "doc-embed-write").await["content"]
                     .as_array()
                     .unwrap()
                     .clone(),
@@ -962,7 +979,7 @@ fn object_embed_through_insert_blocks_takes_the_agents_exact_json() {
                 "Meier: straw between the toes",
             )
             .await;
-            let top = stored(&app, "doc-embed-insert")["content"]
+            let top = stored(&app, "doc-embed-insert").await["content"]
                 .as_array()
                 .unwrap()
                 .clone();
@@ -1044,7 +1061,7 @@ fn update_blocks_of_iri_and_label_moves_the_edge_and_the_markdown() {
             )
             .await;
             assert!(edges.is_empty(), "no edge for a relative iri: {edges:?}");
-            let md = markdown(&app, "doc-embed-update");
+            let md = markdown(&app, "doc-embed-update").await;
             assert!(
                 md.contains("> ⧉ Dream report — The rat man `rat-man`"),
                 "still never dropped from markdown:\n{md}"
@@ -1077,7 +1094,7 @@ fn object_embed_without_an_absolute_iri_is_stored_opaque_with_a_receipt() {
                 receipts[1].starts_with("block-contract unknown content[2]: objectEmbed has an iri that is not absolute (\"dream-report-7\")"),
                 "{receipts:?}"
             );
-            let top = stored(&app, "doc-embed-bad")["content"]
+            let top = stored(&app, "doc-embed-bad").await["content"]
                 .as_array()
                 .unwrap()
                 .clone();
@@ -1095,7 +1112,9 @@ fn object_embed_without_an_absolute_iri_is_stored_opaque_with_a_receipt() {
                     Some(crate::crdt_engine::block_contract::CONTRACT_VERSION as f64)
                 );
             }
-            assert!(markdown(&app, "doc-embed-bad").contains("dream-report-7"));
+            assert!(markdown(&app, "doc-embed-bad")
+                .await
+                .contains("dream-report-7"));
             assert!(
                 select(
                     &app,
@@ -1121,6 +1140,7 @@ fn object_embed_round_trips_through_the_stored_tiptap_xml() {
                 embed(Some("emb"), DREAM, "\"Straw\" <between> & the toes"),
             ];
             write_tiptap(&app, "doc-embed-xml", content.clone()).await;
+            await_projection(&app, Some("doc-embed-xml")).await;
             let xml = crate::document_mcp_service::mcp_local_read_document(
                 app.clone(),
                 &json!({"graph_id": GRAPH, "document_id": "doc-embed-xml", "format": "xml", "maxChars": 1_000_000}),
@@ -1141,7 +1161,7 @@ fn object_embed_round_trips_through_the_stored_tiptap_xml() {
             .unwrap();
             assert!(warnings(&result).iter().all(|w| !is_rewrite(w)), "{result}");
             assert_eq!(
-                semantic(&stored(&app, "doc-embed-xml-back")["content"]),
+                semantic(&stored(&app, "doc-embed-xml-back").await["content"]),
                 semantic(&Value::Array(content)),
                 "tiptapXml -> store keeps the embed exactly"
             );
@@ -1209,7 +1229,7 @@ fn a_browser_written_object_embed_gets_its_edge_from_the_projection() {
             .unwrap();
 
             // Stored as the browser wrote it: no normaliser on this path.
-            let top = stored(&app, document_id)["content"]
+            let top = stored(&app, document_id).await["content"]
                 .as_array()
                 .unwrap()
                 .clone();
@@ -1244,7 +1264,7 @@ fn a_browser_written_object_embed_gets_its_edge_from_the_projection() {
                 1,
                 "only the embed with an IRI has an edge: {edges:?}"
             );
-            assert!(markdown(&app, document_id).contains("> ⧉ (no iri)"));
+            assert!(markdown(&app, document_id).await.contains("> ⧉ (no iri)"));
         });
     });
 }

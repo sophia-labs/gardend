@@ -785,12 +785,19 @@ fn locate_subject_graphs(store: &Store, subject: &str) -> Result<Vec<String>, St
 
 /// Reject a missing retraction target before source-sync records authority.
 /// The direct writer performs the same existence check under its write gate.
-pub(crate) fn require_retraction_target(
+pub(crate) async fn require_retraction_target(
     app: &AppHandle,
     graph_id: &str,
     subject: &str,
 ) -> Result<(), ObjectError> {
     validate_sparql_iri("subject", subject).map_err(query_emit_err_to_object_err)?;
+    crate::crdt_engine::flush_ops::await_document_projections(
+        app.clone(),
+        graph_id.to_string(),
+        None,
+    )
+    .await
+    .map_err(ObjectError::Internal)?;
     let graph_dir =
         crate::paths::existing_graph_dir(app, graph_id).map_err(ObjectError::Internal)?;
     let store = crate::rdf_service::open_graph_store(&graph_dir).map_err(ObjectError::Internal)?;
@@ -874,6 +881,7 @@ pub(crate) async fn emporium_retract_with_identity(
         )));
     }
 
+    require_retraction_target(app, graph_id, subject).await?;
     let _gate = acquire_write_gate(graph_id).await;
     let store = open_memory_store(app, graph_id).map_err(ObjectError::Internal)?;
 
