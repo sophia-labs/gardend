@@ -1,7 +1,7 @@
 {
   "restSurfaceSha256": "040f799a01d7bfd486ce208a43ccd1440ed2d57eaebd2cdedb77e472d15396c7",
-  "mcpSurfaceSha256": "9356e8d49da77ce9999bf92a97997cf5dcd62e78ecedcc2ca4216b05e63d17fe",
-  "effectRegistrySha256": "286223935aca12a3de68e1dcb88072fe49017f34aa2ca6dc7b659eef2713a79a",
+  "mcpSurfaceSha256": "a7a8cdd05bbf83defc50f998cbaf3ee8b282f32f184d7d9a1ca51dbd34bb0ae3",
+  "effectRegistrySha256": "8789203ea7276878284eacd209d5bc47eb8eedd7adeb12c26b3f40f578542301",
   "restGlobal": [
     "GET /api/artifacts/ingestion/approaches",
     "GET /api/artifacts/ingestion/docling/status",
@@ -277,6 +277,12 @@
     "graph_intuition",
     "list_graphs",
     "manage_graph",
+    "swarm_load",
+    "swarm_query",
+    "swarm_query_named",
+    "swarm_save_query",
+    "swarm_semantic_search",
+    "swarm_traverse",
     "upload_artifact",
     "workflow_authoring_session",
     "workflow_run_monitor",

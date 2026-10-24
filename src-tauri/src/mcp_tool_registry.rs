@@ -282,7 +282,8 @@ mod tests {
         // + emporium_describe (typed objects) = 124, + the three whiteboard
         // tools (whiteboard_create/read/apply) = 127, + get_backlinks = 128.
         // + prepare_semantic_model and refresh_semantic_index = 130.
-        assert_eq!(tools.len(), 130);
+        // + the six swarm read tools (swarm_load/query/save_query/query_named/semantic_search/traverse) = 136.
+        assert_eq!(tools.len(), 136);
 
         let known_scopes = loopback_scope_keys()
             .into_iter()
@@ -402,8 +403,8 @@ mod tests {
         .expect("desktop tools list serializes");
         let tools = result["tools"].as_array().expect("tools");
 
-        // 130 registered tools minus the two explicitly optional CSS schemas.
-        assert_eq!(tools.len(), 128);
+        // 136 registered tools minus the two explicitly optional CSS schemas.
+        assert_eq!(tools.len(), 134);
         assert!(tools.iter().any(|tool| tool["name"] == "read_document"));
         assert!(tools.iter().any(|tool| tool["name"] == "write_document"));
         assert!(tools
@@ -443,6 +444,8 @@ mod tests {
         // (graph-scoped; emporium_vocab moved from global to graph-scoped and
         // stays visible) = 112, + the three whiteboard tools (graph-scoped) = 115,
         // + get_backlinks (graph-scoped) = 116, + the two semantic job tools = 118.
+        // The six swarm tools are local-profile only: swarm_load reads host paths, and on a shared box
+        // that would reach other graphs' files, so all six are denied in cell mode.
         assert_eq!(names.len(), 118);
         for added in ["custom_css", "agent_status", "agent_self_image", "status"] {
             assert!(names.contains(added), "missing default tool {added}");
@@ -463,6 +466,12 @@ mod tests {
             "workflow_authoring_session",
             "workflow_run_monitor",
             "workflow_run_start",
+            "swarm_load",
+            "swarm_query",
+            "swarm_save_query",
+            "swarm_query_named",
+            "swarm_semantic_search",
+            "swarm_traverse",
         ] {
             assert!(!names.contains(denied));
         }
@@ -665,7 +674,7 @@ mod tests {
             tools.len()
         }
 
-        assert_eq!(audit("catalog", &mcp_tools_list_result()), 130);
+        assert_eq!(audit("catalog", &mcp_tools_list_result()), 136);
         let desktop = crate::cell_graph_boundary::CellGraphBoundary::for_test(None);
         let cell = crate::cell_graph_boundary::CellGraphBoundary::for_test(Some("graph-a"));
         for role in [

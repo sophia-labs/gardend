@@ -514,6 +514,12 @@
     "whiteboard_apply": {
       "required": ["documentId", "graphId", "moves"],
       "properties": ["documentId", "graphId", "graph_id", "moves", "rationale"]
-    }
+    },
+    "swarm_load": {"required": ["embeddings_manifest_path", "rdf_path"], "properties": ["embeddings_manifest_path", "graphId", "graph_id", "rdf_path"]},
+    "swarm_query": {"required": ["query"], "properties": ["exclude_graphs", "graphId", "graph_id", "max_rows", "query"]},
+    "swarm_save_query": {"required": ["name", "query"], "properties": ["graphId", "graph_id", "name", "query"]},
+    "swarm_query_named": {"required": ["name"], "properties": ["exclude_graphs", "graphId", "graph_id", "max_rows", "name", "parameters"]},
+    "swarm_semantic_search": {"required": ["vector"], "properties": ["allowed_ids", "exclude_graphs", "graphId", "graph_id", "k", "kind", "vector"]},
+    "swarm_traverse": {"required": ["start"], "properties": ["depth", "exclude_graphs", "graphId", "graph_id", "limit", "predicate", "start"]}
   }
 }

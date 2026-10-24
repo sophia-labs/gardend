@@ -2439,6 +2439,12 @@
       "scopes": [
         "documents.write.crdt"
       ]
-    }
+    },
+    {"name": "swarm_load", "status": "implemented", "scopes": ["rdf.load", "semantic.index.write"]},
+    {"name": "swarm_query", "status": "implemented", "scopes": ["rdf.query"]},
+    {"name": "swarm_save_query", "status": "implemented", "scopes": ["rdf.update"]},
+    {"name": "swarm_query_named", "status": "implemented", "scopes": ["rdf.query"]},
+    {"name": "swarm_semantic_search", "status": "implemented", "scopes": ["search.semantic.read"]},
+    {"name": "swarm_traverse", "status": "implemented", "scopes": ["rdf.query"]}
   ]
 }

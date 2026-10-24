@@ -1922,6 +1922,12 @@ fn validate_and_classify_mcp_catalog(
                     .to_string(),
             );
         }
+        if name == "swarm_load" && !policy.mcp_profile_denied.contains(name) {
+            return Err(
+                "MCP swarm_load reads arbitrary host paths and must be denied in cell mode"
+                    .to_string(),
+            );
+        }
         if effect.scopes.iter().any(|scope| scope == "graphs.delete")
             && !policy.mcp_operation_guarded.contains(name)
             && !policy.mcp_profile_denied.contains(name)

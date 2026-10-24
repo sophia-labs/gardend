@@ -294,6 +294,39 @@ fn tramp_datasheet_facts<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHan
     Box::pin(async move { mcp_local_datasheet_facts(app, args) })
 }
 
+fn dispatch_swarm<'a>(
+    ctx: &'a McpCallCtx<'a>,
+    args: &'a Value,
+    operation: &'static str,
+) -> McpHandlerFut<'a> {
+    let app = ctx.app.clone();
+    let args = args.clone();
+    Box::pin(async move {
+        tokio::task::spawn_blocking(move || crate::swarm_mcp::call(app, &args, operation))
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?
+            .map_err(AppError::internal)
+    })
+}
+fn tramp_swarm_load<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
+    dispatch_swarm(ctx, args, "swarm_load")
+}
+fn tramp_swarm_query<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
+    dispatch_swarm(ctx, args, "swarm_query")
+}
+fn tramp_swarm_save_query<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
+    dispatch_swarm(ctx, args, "swarm_save_query")
+}
+fn tramp_swarm_query_named<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
+    dispatch_swarm(ctx, args, "swarm_query_named")
+}
+fn tramp_swarm_semantic_search<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
+    dispatch_swarm(ctx, args, "swarm_semantic_search")
+}
+fn tramp_swarm_traverse<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
+    dispatch_swarm(ctx, args, "swarm_traverse")
+}
+
 fn tramp_sparql_query_named<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
     let app = ctx.app.clone();
     Box::pin(async move { mcp_local_sparql_query_named(app, args) })
@@ -1513,6 +1546,30 @@ const REGISTRY: &[McpToolEntry] = &[
     McpToolEntry {
         name: "sparql_query_named",
         handler: tramp_sparql_query_named,
+    },
+    McpToolEntry {
+        name: "swarm_load",
+        handler: tramp_swarm_load,
+    },
+    McpToolEntry {
+        name: "swarm_query",
+        handler: tramp_swarm_query,
+    },
+    McpToolEntry {
+        name: "swarm_save_query",
+        handler: tramp_swarm_save_query,
+    },
+    McpToolEntry {
+        name: "swarm_query_named",
+        handler: tramp_swarm_query_named,
+    },
+    McpToolEntry {
+        name: "swarm_semantic_search",
+        handler: tramp_swarm_semantic_search,
+    },
+    McpToolEntry {
+        name: "swarm_traverse",
+        handler: tramp_swarm_traverse,
     },
     McpToolEntry {
         name: "sparql_update",

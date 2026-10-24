@@ -268,6 +268,11 @@ mod memory_semantic_recall_service;
 mod model_setup_paths;
 mod multipart_pending_upload;
 mod service_mcp;
+mod swarm_mcp;
+mod swarm_read;
+mod swarm_store;
+#[cfg(test)]
+mod swarm_store_tests;
 // First-launch onboarding (welcome-graph seed). Desktop-only: the seed command
 // is wired through the native invoke-handler and the bundled archive
 // (`include_bytes!` of onboarding-v2.tar.gz) has no role in a headless cell,
