@@ -43,6 +43,7 @@ async function runBenchInner(o) {
   let gard = null, bin = null, binInfo = null, fixture = null, manifest = null, spanFiles = [], pids = [], client, G, url, cpuU = 0, cpuS = 0, rssPeak = 0, rssStart = 0, rssEnd = 0, sampler = null
   const clone = path.join(CACHE_ROOT, 'runs', runId, 'profile')
 
+  let failure = null
   const fp0 = fingerprint([])
   let startN = 0
   const startGardend = async () => {
@@ -140,6 +141,8 @@ async function runBenchInner(o) {
     }
     if (sampler) { clearInterval(sampler); sampleRss() }
     if (gard?.child && gard.child.exitCode === null) { const c = gard.cpu(); cpuU += c.user; cpuS += c.sys }
+  } catch (e) {
+    failure = (client?.redact ? client.redact(String(e.stack ?? e.message)) : String(e.message)).slice(0, 2000); log('RUN FAILED:', e.message)
   } finally {
     if (sampler) clearInterval(sampler)
     if (gard && gard.child && gard.child.exitCode === null) { log('stopping our gardend (SIGINT, final flush)'); await gard.stop(); if (gard.stopMs) notes.push(`final flush on SIGINT took ${Math.round(gard.stopMs)} ms`) }
@@ -179,7 +182,7 @@ async function runBenchInner(o) {
     fixture: { ...manifest.counts, seedMs: manifest.seedMs },
     cases: results,
     process: { rssStartMB: Math.round(rssStart / 1024), rssPeakMB: Math.round(rssPeak / 1024), rssEndMB: Math.round(rssEnd / 1024), cpuUserS: Math.round(cpuU * 10) / 10, cpuSysS: Math.round(cpuS * 10) / 10 },
-    spanJoin, notes: [...notes, ...(fp0.loadBefore[0] > 6 ? [`machine was busy at start: load1 ${fp0.loadBefore[0]}`] : [])],
+    ...(failure ? { failed: true, error: failure } : {}), spanJoin, notes: [...notes, ...(fp0.loadBefore[0] > 6 ? [`machine was busy at start: load1 ${fp0.loadBefore[0]}`] : [])],
   }
   if (fp0.otherGardends.length) run.notes.push(`foreign gardend process(es) present, not ours: ${fp0.otherGardends.map((g) => `pid ${g.pid} port ${g.port}`).join('; ')}`)
   writeFileSync(path.join(runDir, 'run.json'), JSON.stringify(run, null, 1)); rmSync(path.join(runDir, 'run.partial.json'), { force: true })
