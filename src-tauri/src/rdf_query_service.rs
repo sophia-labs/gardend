@@ -24,7 +24,12 @@ pub(super) struct SparqlQueryResult {
     pub(super) rows: Vec<BTreeMap<String, String>>,
     pub(super) boolean: Option<bool>,
     pub(super) graph: Option<String>,
-    pub(super) quad_count: usize,
+    /// The store's quad count when it is known without a scan (a cached graph
+    /// store whose count is remembered, or a count the answer had to take for
+    /// its warning); `null` otherwise. `Store::len` is a full scan, so it is no
+    /// longer paid before every query. No caller reads this field for a
+    /// decision (Shrubbery documents it as unreliable and ignores it).
+    pub(super) quad_count: Option<usize>,
     /// ADDITIVE, best-effort nudges about the result shape. Absent (field
     /// omitted from the JSON entirely) when there is nothing to say, so
     /// existing consumers that don't know this key exists are unaffected.
@@ -208,7 +213,10 @@ fn execute_sparql_query_inner_hiding(
     cancellation: Option<CancellationToken>,
     hidden_graphs: &[String],
 ) -> Result<SparqlQueryResult, String> {
-    let quad_count = crate::rdf_store_service::graph_store_quad_count(store)?;
+    // No `Store::len` scan up front: it is O(quads) and was paid before every
+    // query after any write. Only the remembered count is read here; the
+    // scan happens in the empty-result branch, where the answer needs it.
+    let mut quad_count = crate::rdf_store_service::graph_store_cached_quad_count(store);
     let mut evaluator = SparqlEvaluator::new();
     if let Some(cancellation) = cancellation.as_ref() {
         evaluator = evaluator.with_cancellation_token(cancellation.clone());
@@ -256,14 +264,21 @@ fn execute_sparql_query_inner_hiding(
                 }
                 rows.push(row);
             }
-            let mut warnings =
-                silent_zero_warnings(query, rows.is_empty(), quad_count).unwrap_or_default();
+            let mut warnings = if rows.is_empty() && !query_mentions_graph_keyword(query) {
+                // The silent-zero warning needs the real count.
+                let count = crate::rdf_store_service::graph_store_quad_count(store)?;
+                quad_count = Some(count);
+                silent_zero_warnings(query, true, count).unwrap_or_default()
+            } else {
+                Vec::new()
+            };
             if truncated {
                 let cap = max_rows.unwrap_or_default();
                 log::warn!(
                     "sparql query result truncated at {cap} rows \
-                     (store holds {quad_count} quads); raise {SPARQL_MAX_ROWS_ENV} or add \
-                     LIMIT/OFFSET paging"
+                     (store holds {} quads); raise {SPARQL_MAX_ROWS_ENV} or add \
+                     LIMIT/OFFSET paging",
+                    quad_count_label(quad_count)
                 );
                 warnings.push(if offset.is_some() {
                     format!(
@@ -328,8 +343,9 @@ fn execute_sparql_query_inner_hiding(
                 let cap = max_rows.unwrap_or_default();
                 log::warn!(
                     "sparql CONSTRUCT/DESCRIBE result truncated at {cap} triples \
-                     (store holds {quad_count} quads); raise {SPARQL_MAX_ROWS_ENV} or narrow \
-                     the pattern"
+                     (store holds {} quads); raise {SPARQL_MAX_ROWS_ENV} or narrow \
+                     the pattern",
+                    quad_count_label(quad_count)
                 );
                 vec![format!(
                     "graph result truncated at {cap} triples ({SPARQL_MAX_ROWS_ENV}); \
@@ -350,6 +366,10 @@ fn execute_sparql_query_inner_hiding(
             })
         }
     }
+}
+
+fn quad_count_label(count: Option<usize>) -> String {
+    count.map_or_else(|| "an unscanned number of".to_string(), |n| n.to_string())
 }
 
 /// The "silent zero": gardend stores are named-graph-partitioned (every
@@ -1011,7 +1031,15 @@ mod tests {
             select.rows[0].get("o").map(String::as_str),
             Some("\"value\"")
         );
-        assert_eq!(select.quad_count, 1);
+        assert_eq!(
+            select.quad_count, None,
+            "a non-empty answer on an uncached store does not scan it"
+        );
+        assert_eq!(
+            serde_json::to_value(&select).unwrap()["quadCount"],
+            serde_json::Value::Null,
+            "the key stays in the envelope, null when the count is unknown"
+        );
         assert!(select.warnings.is_none(), "rows are nonempty; no warning");
 
         let ask = execute_sparql_query(&store, r#"ASK { <urn:s> <urn:p> "value" }"#).unwrap();
@@ -1477,7 +1505,7 @@ SELECT ?o WHERE {
             .expect("bare query executes");
 
         assert!(result.rows.is_empty());
-        assert_eq!(result.quad_count, 1);
+        assert_eq!(result.quad_count, Some(1), "the warning path counts");
         let warnings = result.warnings.expect("silent zero should be flagged");
         assert_eq!(warnings.len(), 1);
         assert!(warnings[0].contains("named-graph-partitioned"));
@@ -1495,7 +1523,7 @@ SELECT ?o WHERE {
             .expect("bare query executes against an empty store");
 
         assert!(result.rows.is_empty());
-        assert_eq!(result.quad_count, 0);
+        assert_eq!(result.quad_count, Some(0), "the empty answer counts");
         assert!(result.warnings.is_none());
     }
 

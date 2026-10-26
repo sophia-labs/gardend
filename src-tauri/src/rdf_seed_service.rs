@@ -322,7 +322,10 @@ fn ensure_graph_store_seeded_inner(
     // teardown's transient cost scales with the triples ALREADY IN the
     // document's projection graph, not with the manifest on disk).
     let walk_started = std::time::Instant::now();
-    let store_quads = store.len().unwrap_or(0);
+    // The count is logged only when it is remembered: `Store::len` is a full
+    // scan and this walk runs after every document save.
+    let store_quads = crate::rdf_store_service::graph_store_cached_quad_count(&store)
+        .map_or_else(|| "unscanned".to_string(), |n| n.to_string());
     log::info!(
         "rdf-seed[{}]: walk starting — previous_marker={previous_key:?} seed_key={seed_key} \
          store_quads={store_quads}",
