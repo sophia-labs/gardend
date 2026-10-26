@@ -290,6 +290,9 @@ fn write_document_record_inner(
     crate::document_body_availability::require_available(graph_dir, &document.document_id)
         .map_err(PersistenceError::permanent)?;
     let _durability_guard = crate::cell_durability::write_guard();
+    // The manifest title is about to change or be confirmed: the workspace title
+    // sweep must look at this document again.
+    crate::crdt_engine::workspace_ops::forget_reconciled_title(graph_dir, &document.document_id);
     let (document_dir, _) = ensure_document_dirs(graph_dir, &document.document_id)?;
     if write_authority {
         write_document_state_files(graph_dir, document)?;
