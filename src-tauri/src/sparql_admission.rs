@@ -9,8 +9,10 @@
 //! - queries receive a server-clamped deadline and materialization ceiling;
 //! - Oxigraph's real `CancellationToken` is fired on deadline or future drop;
 //! - blocking evaluation runs on Tokio's blocking executor;
-//! - a graph persistence lease spans seed/open/evaluate/collect, fencing graph
-//!   deletion, restore/swap, and persistence teardown.
+//! - a graph lease spans seed/open/evaluate/collect, fencing graph deletion,
+//!   restore/swap, and persistence teardown. A query takes the shared
+//!   lifecycle lease (it does not queue behind CRDT writers); only a seed walk,
+//!   which writes the store, escalates to the hot-write lease.
 //!
 //! Update execution deliberately has no advertised deadline yet. Oxigraph
 //! 0.5.9 propagates its cancellation token through query-pattern updates, but
@@ -22,11 +24,13 @@
 use crate::app_runtime::AppHandle;
 use crate::{
     app_error::{AppError, AppResult},
-    crdt_engine::persistence_coordinator::GraphPersistenceCoordinator,
+    crdt_engine::persistence_coordinator::{
+        GraphPersistenceCoordinator, HotWriteLease, SharedLease,
+    },
     rdf_query_service::SparqlQueryResult,
     rdf_service::{
-        run_sparql_query_service_controlled, run_sparql_update_service, MutationResult,
-        SparqlInput, SparqlUpdateInput,
+        run_sparql_query_service_controlled, run_sparql_query_service_shared,
+        run_sparql_update_service, MutationResult, SparqlInput, SparqlUpdateInput,
     },
 };
 use oxigraph::sparql::CancellationToken;
@@ -188,64 +192,150 @@ pub(crate) async fn run_external_sparql_query(
     let page_offset = page.as_ref().map(|page| page.offset);
     let started = Instant::now();
     let deadline = tokio::time::Instant::now() + limits.timeout;
-    let permit = admission.acquire_before(deadline).await?;
-    let graph_lease = acquire_graph_lease_before(&app, &input.graph_id, deadline).await?;
-    let cancellation = CancellationToken::new();
-    let mut cancel_on_drop = CancelOnDrop::new(cancellation.clone());
-    let worker_cancellation = cancellation.clone();
-    let worker_app = app.clone();
+    // A query only reads, so it takes the SHARED lifecycle lease: it still
+    // fences graph deletion, restore and swap, but it neither waits for nor
+    // blocks the hot-write holder (every CRDT apply). The seed walk writes the
+    // store, so when the seed markers are stale (a document was saved since
+    // the last query) the shared attempt reports it before writing anything,
+    // and the query retakes the hot-write lease and walks, as before.
+    let mut escalate = false;
+    loop {
+        let permit = admission.acquire_before(deadline).await?;
+        let lease_started = crate::telemetry::timer();
+        let lease = acquire_query_lease(&app, &graph_id, deadline, escalate).await?;
+        record_query_lease(escalate, lease_started);
+        let cancellation = CancellationToken::new();
+        let mut cancel_on_drop = CancelOnDrop::new(cancellation.clone());
+        let worker_cancellation = cancellation.clone();
+        let worker_app = app.clone();
+        let worker_input = SparqlInput {
+            graph_id: input.graph_id.clone(),
+            query: input.query.clone(),
+        };
+        let worker_page = page.clone();
+        let worker_hidden = hidden_graphs.clone();
+        let max_rows = limits.max_rows;
 
-    let mut worker = tokio::task::spawn_blocking(crate::telemetry::blocking(move || {
-        let _permit = permit;
-        let result = run_sparql_query_service_controlled(
-            worker_app,
-            input,
-            limits.max_rows,
-            page,
-            worker_cancellation,
-            &hidden_graphs,
-        );
-        if result.is_ok() {
-            if let Some(graph_lease) = graph_lease.as_ref() {
-                graph_lease.declare_rdf_writes_self_tracked();
-            }
-        }
-        let _graph_lease = graph_lease;
-        result
-    }));
-
-    match tokio::time::timeout_at(deadline, &mut worker).await {
-        Ok(joined) => {
-            cancel_on_drop.disarm();
-            let (mut result, revision) = joined.map_err(join_error)??;
-            let offset = page_offset.unwrap_or(0);
-            result.offset = page_offset;
-            if result.truncated && result.result_type == "solutions" {
-                if let Some(revision) = revision.as_deref() {
-                    result.next = Some(crate::sparql_cursor::mint(
-                        &graph_id,
-                        &fingerprint,
-                        offset + result.rows.len(),
-                        limits.max_rows,
-                        revision,
-                    ));
+        let mut worker = tokio::task::spawn_blocking(crate::telemetry::blocking(move || {
+            let _permit = permit;
+            match lease {
+                QueryLease::Shared(shared) => {
+                    let _shared = shared;
+                    run_sparql_query_service_shared(
+                        worker_app,
+                        worker_input,
+                        max_rows,
+                        worker_page,
+                        worker_cancellation,
+                        &worker_hidden,
+                    )
+                }
+                QueryLease::HotWrite(graph_lease) => {
+                    let result = run_sparql_query_service_controlled(
+                        worker_app,
+                        worker_input,
+                        max_rows,
+                        worker_page,
+                        worker_cancellation,
+                        &worker_hidden,
+                    );
+                    if result.is_ok() {
+                        if let Some(graph_lease) = graph_lease.as_ref() {
+                            graph_lease.declare_rdf_writes_self_tracked();
+                        }
+                    }
+                    let _graph_lease = graph_lease;
+                    result.map(Some)
                 }
             }
-            Ok(result)
+        }));
+
+        match tokio::time::timeout_at(deadline, &mut worker).await {
+            Ok(joined) => {
+                cancel_on_drop.disarm();
+                let Some((mut result, revision)) = joined.map_err(join_error)?? else {
+                    // The shared attempt found the seed stale and wrote
+                    // nothing; its permit and lease are released.
+                    escalate = true;
+                    continue;
+                };
+                let offset = page_offset.unwrap_or(0);
+                result.offset = page_offset;
+                if result.truncated && result.result_type == "solutions" {
+                    if let Some(revision) = revision.as_deref() {
+                        result.next = Some(crate::sparql_cursor::mint(
+                            &graph_id,
+                            &fingerprint,
+                            offset + result.rows.len(),
+                            limits.max_rows,
+                            revision,
+                        ));
+                    }
+                }
+                return Ok(result);
+            }
+            Err(_) => {
+                cancellation.cancel();
+                // Do not detach a still-running engine and call that a timeout.
+                // The permit + graph lease remain inside the worker until actual
+                // Oxigraph cancellation has unwound the iterator.
+                let _ = worker.await.map_err(join_error)?;
+                cancel_on_drop.disarm();
+                return Err(AppError::deadline(format!(
+                    "SPARQL query exceeded the server deadline of {} ms (elapsed {} ms) and was cancelled",
+                    limits.timeout.as_millis(),
+                    started.elapsed().as_millis()
+                )));
+            }
         }
-        Err(_) => {
-            cancellation.cancel();
-            // Do not detach a still-running engine and call that a timeout.
-            // The permit + graph lease remain inside the worker until actual
-            // Oxigraph cancellation has unwound the iterator.
-            let _ = worker.await.map_err(join_error)?;
-            cancel_on_drop.disarm();
-            Err(AppError::deadline(format!(
-                "SPARQL query exceeded the server deadline of {} ms (elapsed {} ms) and was cancelled",
-                limits.timeout.as_millis(),
-                started.elapsed().as_millis()
-            )))
+    }
+}
+
+/// The graph lease a query runs under.
+enum QueryLease {
+    /// Shared lifecycle lease: reads only, never walks the seed.
+    Shared(Option<SharedLease>),
+    /// Hot-write lease: the seed walk may write the store.
+    HotWrite(Option<HotWriteLease>),
+}
+
+async fn acquire_query_lease(
+    app: &AppHandle,
+    graph_id: &str,
+    deadline: tokio::time::Instant,
+    hot_write: bool,
+) -> AppResult<QueryLease> {
+    if hot_write {
+        return acquire_graph_lease_before(app, graph_id, deadline)
+            .await
+            .map(QueryLease::HotWrite);
+    }
+    match app.try_state::<GraphPersistenceCoordinator>() {
+        Some(coordinator) => {
+            match tokio::time::timeout_at(deadline, coordinator.acquire_lifecycle_shared(graph_id))
+                .await
+            {
+                Ok(lease) => lease
+                    .map(|lease| QueryLease::Shared(Some(lease)))
+                    .map_err(AppError::storage),
+                Err(_) => Err(AppError::capacity(format!(
+                    "SPARQL admission deadline elapsed waiting for graph lifecycle lease {graph_id}"
+                ))),
+            }
         }
+        None => Ok(QueryLease::Shared(None)),
+    }
+}
+
+/// Telemetry only: which lease a query took and how long it waited. Costs a
+/// branch when telemetry is off (`timer()` is `None`); records no query text.
+fn record_query_lease(hot_write: bool, started: Option<Instant>) {
+    if started.is_some() {
+        let kind = if hot_write { "hot_write" } else { "shared" };
+        let span = tracing::info_span!(target: "gardend_otel", "sparql.lease",
+            sophia.sparql.lease.kind = kind,
+            sophia.sparql.lease.wait_ms = crate::telemetry::elapsed_ms(started));
+        drop(span);
     }
 }
 

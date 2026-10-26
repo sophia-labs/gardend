@@ -406,6 +406,8 @@ mod source_pull_budget;
 mod source_pull_tree_tests;
 mod source_sync;
 mod sparql_admission;
+#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
+mod sparql_lease_tests;
 mod sparql_cursor;
 mod storage;
 mod storage_atomic;

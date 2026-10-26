@@ -260,11 +260,35 @@ pub(super) fn ensure_graph_store_seeded_with_cancellation(
     ensure_graph_store_seeded_inner(graph_dir, Some(cancellation), None)
 }
 
+/// Like [`ensure_graph_store_seeded_with_cancellation`], but never walks:
+/// `Ok(false)` means the markers are stale and the caller must come back
+/// holding the hot-write lease (a pure read of an unchanged graph takes only
+/// the shared lifecycle lease).
+pub(super) fn ensure_graph_store_seeded_without_walk(
+    graph_dir: &Path,
+    cancellation: &CancellationToken,
+) -> Result<bool, String> {
+    ensure_graph_store_seeded_core(graph_dir, Some(cancellation), None, false)
+}
+
 fn ensure_graph_store_seeded_inner(
     graph_dir: &Path,
     cancellation: Option<&CancellationToken>,
     replay_owner: Option<&SeedReplayGuard>,
 ) -> Result<(), String> {
+    ensure_graph_store_seeded_core(graph_dir, cancellation, replay_owner, true).map(|_| ())
+}
+
+/// The seed check, optionally refusing to walk. `Ok(true)`: the store is
+/// seeded (a fast path matched, or the walk ran). `Ok(false)`: only possible
+/// with `allow_walk == false`: the markers are stale, so a walk (which writes
+/// the store) is needed, and nothing has been written.
+fn ensure_graph_store_seeded_core(
+    graph_dir: &Path,
+    cancellation: Option<&CancellationToken>,
+    replay_owner: Option<&SeedReplayGuard>,
+    allow_walk: bool,
+) -> Result<bool, String> {
     require_seed_not_cancelled(cancellation, "before seed inspection")?;
     let store_path = graph_dir.join("store.oxigraph");
     require_seed_replay_owner(&store_path, replay_owner)?;
@@ -273,7 +297,7 @@ fn ensure_graph_store_seeded_inner(
 
     // Fast path 1 — process-local marker (no store open, no lock contention).
     if process_seed_marker_matches(&store_path, &seed_key)? {
-        return Ok(());
+        return Ok(true);
     }
 
     // Single-flight: exactly one walk per store at a time. Losers of the race
@@ -285,7 +309,7 @@ fn ensure_graph_store_seeded_inner(
     require_seed_not_cancelled(cancellation, "waiting for the seed single-flight lock")?;
     require_seed_replay_owner(&store_path, replay_owner)?;
     if process_seed_marker_matches(&store_path, &seed_key)? {
-        return Ok(());
+        return Ok(true);
     }
 
     let store = open_graph_store(graph_dir)?;
@@ -306,7 +330,15 @@ fn ensure_graph_store_seeded_inner(
             graph.graph_id
         );
         remember_process_seed_marker(store_path, seed_key)?;
-        return Ok(());
+        return Ok(true);
+    }
+
+    if !allow_walk {
+        // A reader holding only the shared lifecycle lease must not run the
+        // walk: it writes the store, and the writers that hold the hot-write
+        // lease would race it. Report, and let the caller take the hot-write
+        // lease and come back.
+        return Ok(false);
     }
 
     #[cfg(test)]
@@ -434,7 +466,7 @@ fn ensure_graph_store_seeded_inner(
 
     remember_process_seed_marker(store_path, seed_key)?;
 
-    Ok(())
+    Ok(true)
 }
 
 fn require_seed_not_cancelled(
