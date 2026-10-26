@@ -70,7 +70,7 @@ async function recordStream({ outDir, usecase, mixes, warmup, seed, label }) {
   try {
     await exec('docker', ['run', '--rm', '-v', `${outDir}:/out`, '--entrypoint', 'bash', GEN_IMAGE, '-c',
       `cd /opt/bsbm && ./testdriver -idir /out/td_data -ucf usecases/${usecase}/sparql.txt -runs ${mixes} -w ${warmup} -seed ${seed} -o /tmp/r.xml ` +
-      `-u http://host.docker.internal:${port}/update -udataset /out/dataset_update.nt http://host.docker.internal:${port}/sparql`], { stdio: ['ignore', 'pipe', 'pipe'] })
+      `${usecase === 'explore' ? '' : `-u http://host.docker.internal:${port}/update -udataset /out/dataset_update.nt `}http://host.docker.internal:${port}/sparql`], { stdio: ['ignore', 'pipe', 'pipe'] })
   } finally { srv.close() }
   return reqs
 }
@@ -96,7 +96,7 @@ export async function buildBsbmStreams(outDir, o) {
   mkdirp(path.join(outDir, 'streams'))
   const result = {}
   for (const [name, usecase] of [['explore', 'explore'], ['explore-update', 'exploreAndUpdate']]) {
-    const reqs = await recordStream({ outDir, usecase, mixes, warmup, seed })
+    const reqs = await recordStream({ outDir: name === 'explore' ? outDir : path.join(outDir, 'upd'), usecase, mixes, warmup, seed })
     // the official driver issues the update queries only in measured mixes; warm-up mixes are explore-only
     const exploreOnly = exploreIds.map((n) => ['q', n]), full = name === 'explore' ? exploreOnly : [...updIds.map((n) => ['u', n]), ...exploreOnly]
     const total = warmup * exploreOnly.length + mixes * full.length
@@ -154,14 +154,14 @@ export async function dataCmd(pos, o) {
       const qs = parseWatdivQueries(path.join(dir, 'queries'))
       writeJson(path.join(dir, 'queries.json'), qs); manifest.templates = Object.fromEntries(Object.entries(qs).map(([k, v]) => [k, v.length]))
     }
-    let nt = path.join(dir, 'dataset.nt')
-    if (statSync(nt).size > 512 * 2 ** 20 && !o['no-gzip']) nt = await gzipFile(nt)
+    for (const nt of [path.join(dir, 'dataset.nt'), ...(bench === 'bsbm' ? [path.join(dir, 'upd', 'dataset.nt')] : [])]) if (statSync(nt).size > 512 * 2 ** 20 && !o['no-gzip']) await gzipFile(nt)
     manifest.files = []
-    for (const f of readdirSync(dir)) {
+    for (const f of [...readdirSync(dir), ...(bench === 'bsbm' ? readdirSync(path.join(dir, 'upd')).map((x) => path.join('upd', x)) : [])]) {
       const p = path.join(dir, f), st = statSync(p)
-      if (st.isFile() && /^dataset/.test(f)) manifest.files.push({ name: f, bytes: st.size, sha256: await sha256File(p), ...(f.startsWith('dataset.nt') ? { triples: await lines(p) } : {}) })
+      if (st.isFile() && /^(upd\/)?dataset/.test(f)) manifest.files.push({ name: f, bytes: st.size, sha256: await sha256File(p), ...(/^(upd\/)?dataset\.nt/.test(f) ? { triples: await lines(p) } : {}) })
     }
     manifest.dataset = manifest.files.find((x) => x.name.startsWith('dataset.nt'))
+    manifest.datasetUpdateMix = manifest.files.find((x) => x.name.startsWith('upd/dataset.nt')) ?? null // load THIS one before bsbm-explore-update (official -ud split)
     manifest.genSeconds = Math.round((Date.now() - t0) / 1000)
     writeJson(man, manifest); console.log(JSON.stringify(manifest, null, 1))
   }, { docker: true })

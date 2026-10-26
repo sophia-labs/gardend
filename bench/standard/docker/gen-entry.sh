@@ -6,7 +6,10 @@ kind=$1; shift
 case $kind in
   bsbm)
     pc=$1; cd /opt/bsbm
-    ./generate -fc -pc "$pc" -s nt -fn /out/dataset -ud -ufn /out/dataset_update -dir /out/td_data
+    # explore dataset: everything in the base file (no -ud). explore-update dataset: official -ud split, kept under /out/upd
+    ./generate -fc -pc "$pc" -s nt -fn /out/dataset -dir /out/td_data
+    mkdir -p /out/upd
+    ./generate -fc -pc "$pc" -s nt -fn /out/upd/dataset -ud -ufn /out/upd/dataset_update -dir /out/upd/td_data
     ;;
   sp2b)
     t=$1; cd /opt/sp2b/bin

@@ -40,7 +40,7 @@ export async function loadCmd(pos, o) {
   const dir = o.data ?? dataDir(bench, scale)
   const manifest = readJson(path.join(dir, 'manifest.json'))
   if (!manifest) throw new Error(`no manifest.json in ${dir}; run \`standard data\` first`)
-  const file = path.join(dir, manifest.dataset.name)
+  const ds = o.variant === 'upd' ? manifest.datasetUpdateMix : manifest.dataset, file = path.join(dir, ds.name)
   const headers = authHeader(o)
   const ep = new Endpoint({ query: o.endpoint, headers })
   return withMachine(`load-${path.basename(dir)}`, async ({ awake } = {}) => {
@@ -51,10 +51,10 @@ export async function loadCmd(pos, o) {
       return gspLoad({ gsp: o.gsp, headers, file, chunk: Number(o.chunk ?? 250000) })
     }, { awake })
     const secs = (Date.now() - t0) / 1000
-    const expected = manifest.dataset.triples
+    const expected = ds.triples
     let stored = null
     try { stored = await countTriples(ep) } catch (e) { stored = `count failed: ${e.message}` }
-    const out = { dataset: path.basename(dir), file: manifest.dataset.name, sha256: manifest.dataset.sha256, expectedTriples: expected, storedTriples: stored, seconds: Math.round(secs * 10) / 10, triplesPerSec: Math.round(expected / secs), ...result, machine, finishedAt: new Date().toISOString() }
+    const out = { dataset: path.basename(dir), file: ds.name, sha256: ds.sha256, expectedTriples: expected, storedTriples: stored, seconds: Math.round(secs * 10) / 10, triplesPerSec: Math.round(expected / secs), ...result, machine, finishedAt: new Date().toISOString() }
     const outFile = o.out ?? (o.store ? path.join(path.dirname(stateFile(o.store)), `${o.store}.load-${path.basename(dir)}.json`) : null)
     if (outFile) writeJson(outFile, out)
     console.log(JSON.stringify({ ...out, machine: machine.health }, null, 1))

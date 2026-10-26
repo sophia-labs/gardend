@@ -4,7 +4,7 @@ import { takeMeasure } from '../../lib/lock.mjs'
 import { holdAwake, powerNow, powerDuring, foreignCpuSampler, roundHealth } from '../../lib/power.mjs'
 import { exec, sleep, log } from './common.mjs'
 
-export async function dockerUp() { return (await exec('docker', ['info', '--format', '{{.ServerVersion}}'], { allowFail: true })).code === 0 }
+export async function dockerUp() { const r = await exec('docker', ['version', '--format', '{{.Server.Version}}'], { allowFail: true }); return r.code === 0 && /^\d/.test(r.out.trim()) }
 
 export async function ensureDocker() {
   if (await dockerUp()) return false
