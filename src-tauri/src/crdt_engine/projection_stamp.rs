@@ -166,6 +166,12 @@ pub(crate) fn write_stamp(graph_dir: &Path, document_id: &str, witness: &Sidecar
     );
 }
 
+/// Test hook: forget a document's stamp, as a graph that predates stamps has none.
+#[cfg(test)]
+pub(crate) fn forget_stamp_for_test(graph_dir: &Path, document_id: &str) {
+    let _ = std::fs::remove_file(stamp_path(graph_dir, document_id));
+}
+
 /// True when the document's cold projection provably reflects its current
 /// sidecar, decided from a small file and two stats (plus one read and hash
 /// for a stamp taken inside the racy window). Never decodes the Y.Doc.
