@@ -3,7 +3,7 @@ use crate::{
     clock::timestamp,
     crdt_operation_types::{CompleteCrdtOperationInput, CrdtOperation},
     profile_paths::profile_dir,
-    storage::{append_secret_line, display_path},
+    storage::{append_secret_line, append_secret_line_unsynced, display_path},
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -72,8 +72,31 @@ pub(crate) fn record_crdt_operation_completion(
     app: &AppHandle,
     input: &CompleteCrdtOperationInput,
 ) -> Result<(), String> {
-    append_journal_event(
+    record_crdt_operation_completion_with(app, input, true)
+}
+
+/// [`record_crdt_operation_completion`] without forcing the line to disk. Only for
+/// a SUCCESSFUL completion of an operation kind whose replay is answered by the
+/// replay ledger written in the same transaction as its effect (see
+/// `executor::completion_replay_is_deduped`): if power loss takes the line, the
+/// operation is replayed at the next start and finds its ledger entry. Never for a
+/// failure (a lost failure line would let a call the caller was told failed run
+/// after a restart), and never for a kind without that ledger.
+pub(crate) fn record_crdt_operation_completion_unforced(
+    app: &AppHandle,
+    input: &CompleteCrdtOperationInput,
+) -> Result<(), String> {
+    record_crdt_operation_completion_with(app, input, false)
+}
+
+fn record_crdt_operation_completion_with(
+    app: &AppHandle,
+    input: &CompleteCrdtOperationInput,
+    forced: bool,
+) -> Result<(), String> {
+    append_journal_event_with(
         &crdt_operation_journal_path(app)?,
+        forced,
         CrdtOperationJournalEvent {
             schema_version: CRDT_OPERATION_JOURNAL_SCHEMA_VERSION,
             event_id: journal_event_id(),
@@ -119,11 +142,23 @@ fn journal_event_id() -> String {
 }
 
 fn append_journal_event(path: &Path, event: CrdtOperationJournalEvent) -> Result<(), String> {
+    append_journal_event_with(path, true, event)
+}
+
+fn append_journal_event_with(
+    path: &Path,
+    forced: bool,
+    event: CrdtOperationJournalEvent,
+) -> Result<(), String> {
     let _durability_guard = crate::cell_durability::write_guard();
     let line = serde_json::to_string(&event)
         .map_err(|error| format!("serialize CRDT operation journal event: {error}"))?;
     let _jsonl_guard = crate::jsonl_mutation_lock::acquire_jsonl_mutation_lock(path)?;
-    append_secret_line(path, &line).map_err(Into::into)
+    if forced {
+        append_secret_line(path, &line).map_err(Into::into)
+    } else {
+        append_secret_line_unsynced(path, &line).map_err(Into::into)
+    }
 }
 
 fn pending_crdt_operations_from_journal(path: &Path) -> Result<Vec<CrdtOperation>, String> {
@@ -319,6 +354,63 @@ mod tests {
             enqueue_timestamp: "0".to_string(),
             trace_context: Default::default(),
         }
+    }
+
+    /// W3: an unforced `done` line is a complete, parseable event that settles its
+    /// operation exactly like a forced one, and costs no sync; the queued line and a
+    /// forced completion still sync. A LOST done line leaves the operation pending.
+    #[test]
+    fn unforced_done_line_settles_the_operation_without_a_sync() {
+        let path = temp_journal_path("unforced-done");
+        let op = operation("op-unforced");
+        let before = crate::storage_atomic::thread_sync_count("file");
+        write_queued(&path, &op, "q1", "1");
+        assert_eq!(
+            crate::storage_atomic::thread_sync_count("file"),
+            before + 1,
+            "the queued line is forced"
+        );
+        assert_eq!(
+            pending_crdt_operations_from_journal(&path)
+                .expect("pending")
+                .len(),
+            1
+        );
+        append_journal_event_with(
+            &path,
+            false,
+            CrdtOperationJournalEvent {
+                schema_version: CRDT_OPERATION_JOURNAL_SCHEMA_VERSION,
+                event_id: "d1".to_string(),
+                timestamp: "2".to_string(),
+                operation_id: op.operation_id.clone(),
+                status: CrdtOperationJournalStatus::Succeeded,
+                operation: None,
+                error: None,
+            },
+        )
+        .expect("unforced done");
+        assert_eq!(
+            crate::storage_atomic::thread_sync_count("file"),
+            before + 1,
+            "the done line added no sync"
+        );
+        assert!(pending_crdt_operations_from_journal(&path)
+            .expect("pending")
+            .is_empty());
+
+        // Losing that line (the page cache after a power loss) puts the operation back.
+        let raw = fs::read_to_string(&path).expect("read");
+        let queued_only: String = raw
+            .lines()
+            .filter(|line| !line.contains("\"succeeded\""))
+            .map(|line| format!("{line}\n"))
+            .collect();
+        fs::write(&path, queued_only).expect("drop the done line");
+        let pending = pending_crdt_operations_from_journal(&path).expect("pending");
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].operation_id, "op-unforced");
+        let _ = fs::remove_dir_all(path.parent().expect("journal parent"));
     }
 
     #[test]

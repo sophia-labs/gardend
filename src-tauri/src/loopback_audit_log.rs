@@ -80,6 +80,22 @@ pub(crate) fn append_loopback_audit_event(
     append_loopback_audit_event_to_path(&path, event)
 }
 
+/// The CRDT operation audit row: telemetry about an operation whose effect is
+/// already durable elsewhere (the room state, the journal). Written to the page
+/// cache and not forced, so it costs no fsync on the acknowledgement path; a power
+/// loss may lose the last few rows, a process crash loses none.
+pub(crate) fn append_loopback_audit_event_unsynced(
+    app: &AppHandle,
+    event: &LoopbackAuditEvent,
+) -> Result<(), String> {
+    let path = loopback_audit_log_path(app)?;
+    let line = event.to_json_line();
+    if line.is_empty() {
+        return Err("serialize audit event failed".to_string());
+    }
+    crate::storage::append_secret_line_unsynced(&path, &line).map_err(Into::into)
+}
+
 fn read_loopback_audit_events(
     app: &AppHandle,
     limit: usize,

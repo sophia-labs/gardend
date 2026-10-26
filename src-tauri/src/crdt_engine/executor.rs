@@ -12,7 +12,9 @@
 use super::persistence_coordinator::HotWriteLease;
 use crate::app_error::PersistenceError;
 use crate::app_runtime::AppHandle;
-use crate::crdt_operation_journal::record_crdt_operation_completion;
+use crate::crdt_operation_journal::{
+    record_crdt_operation_completion, record_crdt_operation_completion_unforced,
+};
 use crate::crdt_operation_queue::RetrySchedule;
 use crate::crdt_queue::{CompleteCrdtOperationInput, CrdtOperation, CrdtOperationQueue};
 use serde_json::Value;
@@ -296,6 +298,29 @@ fn spawn_scheduled_retry(app: AppHandle, schedule: RetrySchedule) -> tokio::task
     )
 }
 
+/// Kinds whose replay, after a lost journal `done` line, cannot repeat their effect.
+///
+/// The proof, for each of these four: the handler's first act inside its Y.Doc
+/// transaction is `read_ledger_entry(txn, operation_id)`, and a hit returns the
+/// cached result without touching the document (`TxnOutcome::Replayed`, or the
+/// early return of `edit_comment_with_lease`); on a miss it applies the mutation
+/// and `write_ledger_entry`s the receipt IN THE SAME TRANSACTION. The room then
+/// persists the whole state (mutation and receipt together) with a file and a
+/// directory sync BEFORE the handler returns, and `complete_terminal` runs only after
+/// the handler returned, so any `done` line exists only for an operation whose receipt
+/// is already durable. Losing the line therefore leaves an operation that replays into
+/// a ledger hit. Pinned by `lost_done_line_replays_as_a_ledger_hit_without_duplicating`.
+///
+/// Every other kind keeps the forced line: `block.delete`, `document.write`, the
+/// workspace ops and the imports have no such receipt (some tolerate a replay by
+/// their own `recovered` branches, which is not the same as a proof).
+fn completion_replay_is_deduped(kind: &str) -> bool {
+    matches!(
+        kind,
+        "block.insert" | "block.update" | "block.editText" | "document.editComment"
+    )
+}
+
 fn complete_terminal(app: &AppHandle, operation: &CrdtOperation, outcome: Result<Value, String>) {
     let input = match &outcome {
         Ok(value) => CompleteCrdtOperationInput {
@@ -313,7 +338,14 @@ fn complete_terminal(app: &AppHandle, operation: &CrdtOperation, outcome: Result
             timing: None,
         },
     };
-    if let Err(error) = record_crdt_operation_completion(app, &input) {
+    // The journal's `done` line is forced to disk unless a lost line is provably
+    // harmless: a successful completion of a kind that replays as a no-op.
+    let recorded = if input.ok && completion_replay_is_deduped(&operation.kind) {
+        record_crdt_operation_completion_unforced(app, &input)
+    } else {
+        record_crdt_operation_completion(app, &input)
+    };
+    if let Err(error) = recorded {
         log::error!(
             "executor: journal completion failed for {}: {error}",
             operation.operation_id
@@ -1043,6 +1075,169 @@ mod post_hot_recovery_tests {
             document_id.to_string(),
         )
         .expect("read recovered document")
+    }
+
+    /// W3: the journal's `done` line is unforced for the kinds a replay ledger covers,
+    /// so the line can be lost with the page cache. This is the proof by crash:
+    /// apply a block insert and a comment through the production queue, drop their
+    /// `done` lines (what a power loss that kept the room state and lost the cache
+    /// leaves), restart on the durable profile, recover and drain. Both operations
+    /// replay (the journal calls them pending) and neither repeats its effect.
+    #[test]
+    fn lost_done_line_replays_as_a_ledger_hit_without_duplicating() {
+        use crate::crdt_operation_types::EnqueueCrdtOperationInput;
+        const GRAPH: &str = "lost-done-line";
+        const DOC: &str = "lost-doc";
+        let _serial = crate::tauri_runtime::profile_env_serial()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let profile = temp_profile();
+        std::env::set_var("GARDEN_PROFILE_DIR", &profile);
+
+        let result = std::panic::catch_unwind(|| {
+            let (before_body, before_blocks) = {
+                let runtime = current_runtime();
+                runtime.block_on(async {
+                    let app = crate::tauri_runtime::build_mock_app_for_tests(true);
+                    let incarnation = create_graph(&app, GRAPH);
+                    let seed = ordinary_operation(
+                        "seed-lost-done",
+                        "document.write",
+                        GRAPH,
+                        Some(DOC),
+                        &incarnation,
+                        json!({
+                            "documentId": DOC,
+                            "title": "Lost done",
+                            "content": "Seed paragraph",
+                            "format": "markdown"
+                        }),
+                    );
+                    super::apply_operation_classified(&app, &seed)
+                        .await
+                        .expect("seed document");
+
+                    let inserted = crate::crdt_queue::enqueue_crdt_operation(
+                        app.clone(),
+                        EnqueueCrdtOperationInput {
+                            kind: "block.insert".to_string(),
+                            graph_id: GRAPH.to_string(),
+                            document_id: Some(DOC.to_string()),
+                            payload: json!({
+                                "content": "Inserted exactly once",
+                                "format": "markdown"
+                            }),
+                        },
+                    )
+                    .await
+                    .expect("block.insert through the production queue");
+                    assert_ne!(inserted["replayed"], json!(true));
+                    crate::crdt_queue::enqueue_crdt_operation(
+                        app.clone(),
+                        EnqueueCrdtOperationInput {
+                            kind: "document.editComment".to_string(),
+                            graph_id: GRAPH.to_string(),
+                            document_id: Some(DOC.to_string()),
+                            payload: json!({
+                                "action": "set",
+                                "commentId": "comment-once",
+                                "text": "Said once",
+                                "updatedAt": 1720000000000_u64
+                            }),
+                        },
+                    )
+                    .await
+                    .expect("document.editComment through the production queue");
+                    crate::crdt_engine::flush_ops::await_document_projections(
+                        app.clone(),
+                        GRAPH.to_string(),
+                        Some(DOC.to_string()),
+                    )
+                    .await
+                    .expect("settle the projection");
+                    let before = document(&app, GRAPH, DOC);
+                    assert_eq!(before.body.matches("Inserted exactly once").count(), 1);
+
+                    // The lost lines: every `succeeded` event of the journal.
+                    let journal = crate::crdt_operation_journal::crdt_operation_journal_path(&app)
+                        .expect("journal path");
+                    let raw = std::fs::read_to_string(&journal).expect("read journal");
+                    let mut kept = Vec::new();
+                    let mut dropped = 0;
+                    for line in raw.lines().filter(|line| !line.trim().is_empty()) {
+                        let event: Value = serde_json::from_str(line).expect("journal line");
+                        if event["status"] == json!("succeeded") {
+                            dropped += 1;
+                        } else {
+                            kept.push(line.to_string());
+                        }
+                    }
+                    assert_eq!(dropped, 2, "one done line per journaled operation");
+                    std::fs::write(&journal, format!("{}\n", kept.join("\n")))
+                        .expect("rewrite journal without the done lines");
+                    assert_eq!(
+                        crate::crdt_operation_journal::recover_pending_crdt_operations(&app)
+                            .expect("recover")
+                            .len(),
+                        2
+                    );
+                    (before.body.clone(), before.blocks.len())
+                })
+            };
+
+            // Restart: a fresh app, registry and queue over the durable profile.
+            {
+                let runtime = current_runtime();
+                runtime.block_on(async {
+                    let app = crate::tauri_runtime::build_mock_app_for_tests(true);
+                    assert_eq!(
+                        crate::crdt_queue::recover_crdt_operations(app.clone())
+                            .expect("recover into a fresh queue"),
+                        2,
+                        "both operations whose done line was lost are replayed"
+                    );
+                    drain_queue(app.clone()).await;
+                    assert!(
+                        crate::crdt_operation_journal::recover_pending_crdt_operations(&app)
+                            .expect("read journal after replay")
+                            .is_empty()
+                    );
+                    crate::crdt_engine::flush_ops::await_document_projections(
+                        app.clone(),
+                        GRAPH.to_string(),
+                        Some(DOC.to_string()),
+                    )
+                    .await
+                    .expect("settle the replayed projection");
+                    let after = document(&app, GRAPH, DOC);
+                    assert_eq!(
+                        after.body.matches("Inserted exactly once").count(),
+                        1,
+                        "the insert was not applied a second time"
+                    );
+                    assert_eq!(after.body, before_body);
+                    assert_eq!(after.blocks.len(), before_blocks, "no duplicated block");
+                    let bytes = base64::engine::general_purpose::STANDARD
+                        .decode(&after.ydoc_update_base64)
+                        .expect("decode Y.Doc");
+                    let doc = Doc::new();
+                    {
+                        let mut txn = doc.transact_mut();
+                        txn.apply_update(Update::decode_v1(&bytes).expect("decode update"))
+                            .expect("apply update");
+                    }
+                    let txn = doc.transact();
+                    let comments = txn.get_map("comments").expect("comments map");
+                    assert_eq!(comments.len(&txn), 1, "one comment, not two");
+                });
+            }
+        });
+
+        std::env::remove_var("GARDEN_PROFILE_DIR");
+        let _ = std::fs::remove_dir_all(&profile);
+        if let Err(payload) = result {
+            std::panic::resume_unwind(payload);
+        }
     }
 
     #[test]
