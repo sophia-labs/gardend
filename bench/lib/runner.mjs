@@ -4,6 +4,7 @@ import { pipeline } from 'node:stream/promises'
 import { createReadStream } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import path from 'node:path'
+import os from 'node:os'
 import { randomBytes } from 'node:crypto'
 import { Client, readKey, newTrace } from './mcp.mjs'
 import { Gardend, freePort, binaryInfo, fingerprint, loadavg, sleep, DEFAULT_BIN } from './proc.mjs'
@@ -73,10 +74,21 @@ async function runBenchInner(o) {
       binInfo = { binary: null, binarySha256: null, version: (await client.json('GET', '/health')).json?.status ? 'attached instance' : 'unknown', gitRev: 'unknown' }
     } else {
       bin = o.bin ?? DEFAULT_BIN; binInfo = binaryInfo(bin)
-      fixture = await ensureFixture({ bin: o.fixtureBin ?? bin, tier, seed, log }) // ab: both sides use the fixture keyed by A's gitRev
-      manifest = fixture.manifest; G = manifest.graphId
-      log(`cloning fixture ${fixture.dir}`)
-      cloneProfile(fixture.profile, clone)
+      if (o['real-profile']) {
+        // Real data: clone a BACKUP profile (never the live ~/sophia) and read one of its graphs. Per round, so every round
+        // starts from the same bytes. Only the `real` suite's cases run (they need nothing but the graph id).
+        const src = path.resolve(o['real-profile'])
+        if (src === path.join(os.homedir(), 'sophia') || !existsSync(path.join(src, 'graphs'))) throw new Error('--real-profile must be a backup profile directory (with graphs/), never ~/sophia')
+        if (!o.graph) throw new Error('--real-profile needs --graph <id>')
+        G = o.graph; manifest = { graphId: G, counts: {}, real: true, seedMs: null }
+        log(`cloning real profile ${path.basename(src)} (graph ${G})`); cloneProfile(src, clone)
+        notes.push(`real data: an APFS clone of ${path.basename(src)}, graph ${G}`)
+      } else {
+        fixture = await ensureFixture({ bin: o.fixtureBin ?? bin, tier, seed, log }) // ab: both sides use the fixture keyed by A's gitRev
+        manifest = fixture.manifest; G = manifest.graphId
+        log(`cloning fixture ${fixture.dir}`)
+        cloneProfile(fixture.profile, clone)
+      }
     }
     const lex = lexicon(seed)
     const base = { mode: attach ? 'attach' : 'spawn', graphId: G, tag, lex, fixture: manifest, runDir, shared: {}, rng: mulberry32(seed ^ 0xabcdef), log: (o) => log(JSON.stringify(o)),
@@ -117,7 +129,7 @@ async function runBenchInner(o) {
         if (def.run) {
           const out = await def.run(ctx)
           if (out.skipped) { notes.push(`skipped ${def.id}: ${out.skipped}`); log(`  skip ${def.id}: ${out.skipped}`); continue }
-          calls.push(...out.calls); if (out.extra) extra.extra = out.extra
+          calls.push(...out.calls); if (out.extra) extra.extra = out.extra; if (out.slope) extra.slope = out.slope
         } else {
           const conc = params.concurrency ?? 1, signal = { stop: false }
           const one = async (i, k, warm) => {

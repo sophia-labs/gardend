@@ -18,6 +18,8 @@ export function compareRuns(A, B, { resamples = 10000, seed = 20261025 } = {}) {
     const row = { caseId: cb.caseId, nA: ca.n, nB: cb.n, p50A: ca.ms.p50, p50B: cb.ms.p50, median: { ...m, verdict: verdict(m) }, p95: { ...p, verdict: verdict(p) } }
     const fa = ca.server?.fsyncsPerOp?.p50, fb = cb.server?.fsyncsPerOp?.p50
     if (fa != null && fb != null) row.fsyncsPerOpP50 = { a: fa, b: fb, verdict: fa === fb ? 'same' : fb < fa ? 'faster' : 'slower' }
+    const xa = ca.server?.fullFsyncsPerOp?.p50 ?? fa, xb = cb.server?.fullFsyncsPerOp?.p50 ?? fb
+    if (xa != null && xb != null && (xa !== fa || xb !== fb)) row.fullFsyncsPerOpP50 = { a: xa, b: xb }
     const ha = ca.server?.leaseHoldMs?.p95, hb = cb.server?.leaseHoldMs?.p95
     if (ha != null && hb != null) row.leaseHoldP95 = { a: ha, b: hb, ratio: ha ? hb / ha : NaN, verdict: ha && Math.abs(hb / ha - 1) >= 0.05 && hb > 1 ? (hb < ha ? 'faster' : 'slower') : 'same' }
     rows.push(row)
@@ -43,7 +45,7 @@ export function compareMd(A, B, rows, judge = judgeOf(A, B)) {
     `| case | p50 A | p50 B | ratio p50 | CI | verdict |${pairs ? ' per round |' : ''} ratio p95 | p95 verdict | fsyncs/op A→B | lease hold p95 A→B |`, `|---|---:|---:|---:|---|---|${pairs ? '---|' : ''}---:|---|---|---|`)
   for (const r of rows) {
     if (r.skipped) { L.push(`| ${r.caseId} | | | | | skipped: ${r.skipped} |${pairs ? ' |' : ''} | | | |`); continue }
-    L.push(`| ${r.caseId} | ${f(r.p50A, 1)} | ${f(r.p50B, 1)} | ${f(r.median.ratio)} | ${f(r.median.lo)}–${f(r.median.hi)} | **${r.median.verdict}** |${pairs ? ` ${(r.pairs ?? []).map((x) => f(x)).join(' / ')} |` : ''} ${f(r.p95.ratio)} | ${r.p95.verdict} | ${r.fsyncsPerOpP50 ? `${r.fsyncsPerOpP50.a}→${r.fsyncsPerOpP50.b} (${r.fsyncsPerOpP50.verdict})` : '-'} | ${r.leaseHoldP95 ? `${f(r.leaseHoldP95.a, 1)}→${f(r.leaseHoldP95.b, 1)} (${r.leaseHoldP95.verdict})` : '-'} |`)
+    L.push(`| ${r.caseId} | ${f(r.p50A, 1)} | ${f(r.p50B, 1)} | ${f(r.median.ratio)} | ${f(r.median.lo)}–${f(r.median.hi)} | **${r.median.verdict}** |${pairs ? ` ${(r.pairs ?? []).map((x) => f(x)).join(' / ')} |` : ''} ${f(r.p95.ratio)} | ${r.p95.verdict} | ${r.fsyncsPerOpP50 ? `${r.fsyncsPerOpP50.a}→${r.fsyncsPerOpP50.b} (${r.fsyncsPerOpP50.verdict})${r.fullFsyncsPerOpP50 ? `; full ${r.fullFsyncsPerOpP50.a}→${r.fullFsyncsPerOpP50.b}` : ''}` : '-'} | ${r.leaseHoldP95 ? `${f(r.leaseHoldP95.a, 1)}→${f(r.leaseHoldP95.b, 1)} (${r.leaseHoldP95.verdict})` : '-'} |`)
   }
   const ok = rows.filter((r) => !r.skipped), ratios = ok.map((r) => r.median.ratio).sort((a, b) => a - b)
   const q = (p) => ratios[Math.min(ratios.length - 1, Math.floor(p * ratios.length))]
@@ -69,9 +71,9 @@ export function pool(runs, runId) {
     const parts = runs.map((r) => r.cases.find((x) => x.caseId === c.caseId && x.caseVersion === c.caseVersion)).filter(Boolean)
     const samples = parts.flatMap((p) => p.samples), s = [...samples].sort((a, b) => a - b), q = (p) => { const pos = (s.length - 1) * p, lo = Math.floor(pos), hi = Math.ceil(pos); return s[lo] + (s[hi] - s[lo]) * (pos - lo) }
     const ms = s.length ? { mean: r2(s.reduce((a, b) => a + b, 0) / s.length), p50: r2(q(0.5)), p95: r2(q(0.95)), p99: r2(q(0.99)), max: r2(s.at(-1)), min: r2(s[0]), mad: 0 } : c.ms
-    const fp = parts.map((p) => p.server?.fsyncsPerOp?.p50).filter((v) => v != null), lh = parts.map((p) => p.server?.leaseHoldMs?.p95).filter((v) => v != null)
+    const fp = parts.map((p) => p.server?.fsyncsPerOp?.p50).filter((v) => v != null), lh = parts.map((p) => p.server?.leaseHoldMs?.p95).filter((v) => v != null), ff = parts.map((p) => p.server?.fullFsyncsPerOp?.p50).filter((v) => v != null)
     return { ...c, samples, n: samples.length, errors: parts.reduce((a, p) => a + p.errors, 0), ms, traceIds: undefined, params: { ...c.params, pooledRounds: parts.length },
-      server: fp.length ? { ...parts[0].server, fsyncsPerOp: { ...parts[0].server.fsyncsPerOp, p50: median(fp) }, leaseHoldMs: { ...parts[0].server.leaseHoldMs, p95: median(lh) } } : null }
+      server: fp.length ? { ...parts[0].server, fsyncsPerOp: { ...parts[0].server.fsyncsPerOp, p50: median(fp) }, ...(ff.length ? { fullFsyncsPerOp: { ...parts[0].server.fullFsyncsPerOp, p50: median(ff) } } : {}), leaseHoldMs: { ...parts[0].server.leaseHoldMs, p95: median(lh) } } : null }
   })
   return { ...base, runId, cases }
 }

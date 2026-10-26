@@ -22,6 +22,7 @@ const USAGE = `gbench <cmd>
   fixture --tier s|m|l --seed N [--bin <gardend>] [--force]
   run --bin <gardend> --suite smoke|standard --tier s|m|l --label <l> --out <dir> [--seed N] [--cases <regex>] [--measured]
   run --attach <url> --key-file <path> [--suite ..] [--tier s] [--label ..] [--out ..]      (never against an instance you care about without reading PROTOCOL.md)
+  run|ab ... --real-profile <backup profile dir> --graph <id> --suite real   (reads on an APFS clone of real data; never ~/sophia)
   compare <runDirA> <runDirB> [--out <dir>]
   ab --a <bin> --b <bin> --rounds R [--suite ..] [--tier ..] [--label ..] [--out <dir>]
   publish <runDir> --url <url> --key-file <path> [--baseline]

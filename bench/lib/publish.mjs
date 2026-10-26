@@ -39,6 +39,7 @@ export function runTriples(run, { baseline = false } = {}) {
     add(crIri, B + 'meanMs', dec(c.ms.mean)); add(crIri, B + 'p50Ms', dec(c.ms.p50)); add(crIri, B + 'p95Ms', dec(c.ms.p95)); add(crIri, B + 'p99Ms', dec(c.ms.p99)); add(crIri, B + 'maxMs', dec(c.ms.max))
     if (c.server) {
       add(crIri, B + 'fsyncsPerOpP50', dec(c.server.fsyncsPerOp.p50)); add(crIri, B + 'leaseWaitP95Ms', dec(c.server.leaseWaitMs.p95))
+      if (c.server.fullFsyncsPerOp) add(crIri, B + 'fullFsyncsPerOpP50', dec(c.server.fullFsyncsPerOp.p50))
       add(crIri, B + 'leaseHoldP95Ms', dec(c.server.leaseHoldMs.p95)); add(crIri, B + 'queueWaitP95Ms', dec(c.server.queueWaitMs.p95))
     }
     if (c.extra?.slope) add(crIri, B + 'slopeMsPer100', dec(c.extra.slope.msPerHundredDocs))

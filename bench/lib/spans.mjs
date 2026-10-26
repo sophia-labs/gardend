@@ -26,15 +26,17 @@ export async function loadSpans(files, wanted) {
 }
 
 const fsyncEvents = (s) => (s.events ?? []).filter((e) => e.name === 'fsync')
+// A full flush drains the drive cache (macOS F_FULLFSYNC). Engines before the durability window label none, and all theirs are full.
+const isFull = (e) => { const k = e.attributes?.['sophia.fsync.kind']; return k == null || k === 'full' }
 
 // Per-call server facts from the spans of one trace.
 export function analyzeTrace(spans) {
   const kids = new Map()
   for (const s of spans) { const a = kids.get(s.parent_span_id) ?? []; a.push(s); kids.set(s.parent_span_id, a) }
-  let fsyncs = 0, fsyncMs = 0, leaseWait = 0, leaseHold = 0, queueWait = 0, recovered = 0
+  let fsyncs = 0, fullFsyncs = 0, fsyncMs = 0, leaseWait = 0, leaseHold = 0, queueWait = 0, recovered = 0
   const self = new Map()
   for (const s of spans) {
-    const ev = fsyncEvents(s); fsyncs += ev.length; for (const e of ev) fsyncMs += Number(e.attributes?.['sophia.fsync.ms'] ?? 0)
+    const ev = fsyncEvents(s); fsyncs += ev.length; fullFsyncs += ev.filter(isFull).length; for (const e of ev) fsyncMs += Number(e.attributes?.['sophia.fsync.ms'] ?? 0)
     const a = s.attributes ?? {}
     if (s.name.startsWith('graph.lease.')) { leaseWait += Number(a['sophia.lease.wait_ms'] ?? 0); leaseHold = Math.max(leaseHold, Number(a['sophia.lease.held_ms'] ?? 0)) }
     // attribute values may arrive as strings: always Number() (string += concatenates). Recovered ops (replayed at boot) are counted, not timed.
@@ -48,7 +50,7 @@ export function analyzeTrace(spans) {
     const selfMs = Math.max(0, (s.end_unix_nanos - s.start_unix_nanos - covered) / 1e6)
     const e = self.get(s.name) ?? { selfMsTotal: 0, n: 0 }; e.selfMsTotal += selfMs; e.n++; self.set(s.name, e)
   }
-  return { fsyncs, fsyncMs, leaseWait, leaseHold, queueWait, recovered, self, nSpans: spans.length }
+  return { fsyncs, fullFsyncs, fsyncMs, leaseWait, leaseHold, queueWait, recovered, self, nSpans: spans.length }
 }
 
 const KEEP = /^(sophia\.|otel\.|http\.|rpc\.|db\.)/
@@ -78,6 +80,7 @@ export function serverFacts(calls, loaded) {
   const dist3 = (xs) => ({ p50: rd(pq(xs, 0.5)), p95: rd(pq(xs, 0.95)), max: rd(Math.max(...xs)) })
   const server = {
     fsyncsPerOp: { p50: pq(col((a) => a.fsyncs), 0.5), max: Math.max(...col((a) => a.fsyncs)) },
+    fullFsyncsPerOp: { p50: pq(col((a) => a.fullFsyncs), 0.5), max: Math.max(...col((a) => a.fullFsyncs)) },
     fsyncMsPerOp: { p50: rd(pq(col((a) => a.fsyncMs), 0.5)) },
     leaseWaitMs: dist3(col((a) => a.leaseWait)), leaseHoldMs: dist3(col((a) => a.leaseHold)), queueWaitMs: dist3(col((a) => a.queueWait)),
     recoveredOps: per.reduce((n, p) => n + p.a.recovered, 0),
