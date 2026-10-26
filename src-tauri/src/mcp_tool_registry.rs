@@ -159,6 +159,72 @@ pub(super) fn annotate_callable(listed: &mut McpToolsListResult, token_scopes: &
     }
 }
 
+/// One cached unfiltered-by-lender `tools/list` result.
+struct CachedToolsList {
+    /// A `Weak` (not an address): while it exists the boundary's allocation
+    /// cannot be reused, so pointer identity is sound, and a boundary that has
+    /// been dropped invalidates its entries.
+    boundary: std::sync::Weak<crate::cell_graph_boundary::CellGraphBoundary>,
+    role: crate::cell_graph_boundary::CellRole,
+    optional: bool,
+    bound: bool,
+    scopes: Vec<String>,
+    result: std::sync::Arc<serde_json::Value>,
+}
+
+const TOOLS_LIST_CACHE_ENTRIES: usize = 32;
+
+/// The `tools/list` result of the non-public path (tools, `callable` marks and
+/// the `optionalCapabilities` meta), built once per catalogue state: the
+/// embedded catalog and scope tables are constants, and the boundary is
+/// immutable, so the state is (boundary, role, optional capabilities, bound or
+/// not, the token's scopes). Tools lent by services and the bound-graph meta
+/// are added by the caller, per call, outside the cache.
+pub(super) fn cached_tools_list_result(
+    boundary: &std::sync::Arc<crate::cell_graph_boundary::CellGraphBoundary>,
+    role: crate::cell_graph_boundary::CellRole,
+    optional: bool,
+    bound: bool,
+    token_scopes: &[String],
+) -> std::sync::Arc<serde_json::Value> {
+    static CACHE: std::sync::Mutex<Vec<CachedToolsList>> = std::sync::Mutex::new(Vec::new());
+    {
+        let mut cache = CACHE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        cache.retain(|entry| entry.boundary.strong_count() > 0);
+        if let Some(entry) = cache.iter().find(|entry| {
+            std::ptr::eq(entry.boundary.as_ptr(), std::sync::Arc::as_ptr(boundary))
+                && entry.role == role
+                && entry.optional == optional
+                && entry.bound == bound
+                && entry.scopes == token_scopes
+        }) {
+            return entry.result.clone();
+        }
+    }
+    let mut listed = if bound {
+        mcp_tools_list_result_for_bound_graph(boundary, token_scopes, optional)
+    } else {
+        mcp_tools_list_result_with_optional(boundary, role, optional)
+    };
+    annotate_callable(&mut listed, token_scopes);
+    let mut result = serde_json::to_value(listed).expect("McpToolsListResult always serializes");
+    result["_meta"] = serde_json::json!({"sophia.optionalCapabilities":[{"id":"custom-css","description":"Explicit graph stylesheet read/guide and guarded write/reset; local application requires user consent","request":{"optionalCapabilities":["custom-css"]}}]});
+    let result = std::sync::Arc::new(result);
+    let mut cache = CACHE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if cache.len() >= TOOLS_LIST_CACHE_ENTRIES {
+        cache.remove(0);
+    }
+    cache.push(CachedToolsList {
+        boundary: std::sync::Arc::downgrade(boundary),
+        role,
+        optional,
+        bound,
+        scopes: token_scopes.to_vec(),
+        result: result.clone(),
+    });
+    result
+}
+
 /// Take the graph argument out of a JSON schema: its properties, its
 /// `required` lists, and the `anyOf`/`oneOf`/`allOf` branches that only asked
 /// for it (`write_document` requires `graph_id` or `graphId` through one).
@@ -700,5 +766,34 @@ mod tests {
             let listed = mcp_tools_list_result_for_bound_graph(&desktop, &scopes, true);
             assert!(audit(grant, &listed) > 0, "{grant}");
         }
+    }
+
+    #[test]
+    fn tools_list_is_built_once_per_catalogue_state() {
+        use crate::cell_graph_boundary::{CellGraphBoundary, CellRole};
+        use std::sync::Arc;
+        let boundary = Arc::new(CellGraphBoundary::for_test(None));
+        let scopes = vec!["mcp.tools.read".to_string()];
+        let first = cached_tools_list_result(&boundary, CellRole::Owner, false, false, &scopes);
+        let again = cached_tools_list_result(&boundary, CellRole::Owner, false, false, &scopes);
+        assert!(Arc::ptr_eq(&first, &again), "same state: same built list");
+        let other_scopes = vec!["mcp.tools.read".to_string(), "documents.read".to_string()];
+        let other = cached_tools_list_result(&boundary, CellRole::Owner, false, false, &other_scopes);
+        assert!(!Arc::ptr_eq(&first, &other), "scopes are part of the state");
+        let with_optional =
+            cached_tools_list_result(&boundary, CellRole::Owner, true, false, &scopes);
+        assert!(!Arc::ptr_eq(&first, &with_optional));
+        // Equal to what the uncached path builds.
+        let mut listed = mcp_tools_list_result_with_optional(&boundary, CellRole::Owner, false);
+        annotate_callable(&mut listed, &scopes);
+        let mut expected = serde_json::to_value(listed).unwrap();
+        expected["_meta"] = first["_meta"].clone();
+        assert_eq!(*first, expected);
+        assert!(first["_meta"]["sophia.optionalCapabilities"].is_array());
+        // Another boundary never reads this one's entry.
+        let second_boundary = Arc::new(CellGraphBoundary::for_test(None));
+        let theirs =
+            cached_tools_list_result(&second_boundary, CellRole::Owner, false, false, &scopes);
+        assert!(!Arc::ptr_eq(&first, &theirs));
     }
 }
