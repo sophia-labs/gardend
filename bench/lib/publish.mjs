@@ -63,13 +63,13 @@ export async function publish(runDir, { url, keyFile, baseline = false, log = co
   // folder + summary doc + protocol doc
   const fr = await c.call('create_folder', { graphId: 'perf', name: 'Runs', folderId: 'perf-runs' }); if (!fr.ok && !/exist|already/i.test(fr.error ?? '')) log('folder:', fr.error)
   const docId = `perf-run-${run.runId}`
-  const cd = await c.call('create_document', { graphId: 'perf', title: `Run ${run.runId}`, documentId: docId, parentId: 'perf-runs', ifExists: 'return' })
+  const cd = await c.call('create_document', { graphId: 'perf', title: `Run ${run.runId}`, documentId: docId, parentId: 'perf-runs', ifExists: 'keep' })
   if (!cd.ok) throw new Error('create run doc: ' + cd.error)
   const wd = await c.call('write_document', { graphId: 'perf', documentId: docId, content: summaryMd(run), format: 'markdown' })
   if (!wd.ok) throw new Error('write run doc: ' + wd.error)
   const protoFile = new URL('../PROTOCOL.md', import.meta.url).pathname
   if (existsSync(protoFile)) {
-    const pd = await c.call('create_document', { graphId: 'perf', title: 'gbench protocol', documentId: 'perf-gbench-protocol', ifExists: 'return' })
+    const pd = await c.call('create_document', { graphId: 'perf', title: 'gbench protocol', documentId: 'perf-gbench-protocol', ifExists: 'keep' })
     if (pd.ok) await c.call('write_document', { graphId: 'perf', documentId: 'perf-gbench-protocol', content: readFileSync(protoFile, 'utf8'), format: 'markdown' })
   }
   return { triples: loaded, runDoc: docId, baseline }
