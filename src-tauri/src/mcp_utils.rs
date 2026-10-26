@@ -19,6 +19,7 @@ pub(super) fn mcp_graph_id_or_default(
         return Ok(graph_id);
     }
 
+    let _span = tracing::info_span!(target: "gardend_otel", "graph.default_resolve").entered();
     list_graphs(app.clone())?
         .first()
         .map(|graph| graph.graph_id.clone())

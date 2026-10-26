@@ -13,6 +13,8 @@ use std::os::unix::fs::OpenOptionsExt;
 /// count and cost per action are the durability budget the traces need (DESIGN.md, the durability cost model). Each
 /// call is a timed `fsync` event on the span that is open, labelled by what it made durable; nothing about the path.
 pub(crate) fn traced_sync(file: &fs::File, what: &'static str) -> std::io::Result<()> {
+    #[cfg(test)]
+    THREAD_SYNCS.with(|syncs| syncs.borrow_mut().push(what));
     let start = crate::telemetry::timer();
     let result = force(file);
     if start.is_some() {
@@ -20,6 +22,18 @@ pub(crate) fn traced_sync(file: &fs::File, what: &'static str) -> std::io::Resul
         tracing::info!(target: "gardend_otel", { sophia.fsync.what = what, sophia.fsync.ms = ms }, "fsync");
     }
     result
+}
+
+/// Syncs issued by THIS thread, by label: a lib test that calls a writer on its own thread can assert that a
+/// path did, or did not, force the file. Per thread, so parallel tests cannot move each other's counts.
+#[cfg(test)]
+thread_local! {
+    static THREAD_SYNCS: std::cell::RefCell<Vec<&'static str>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+#[cfg(test)]
+pub(crate) fn thread_sync_count(what: &str) -> usize {
+    THREAD_SYNCS.with(|syncs| syncs.borrow().iter().filter(|label| **label == what).count())
 }
 
 /// The flush itself. Lib tests issue a plain `fsync(2)`: it keeps the syscall and its ordering but not the drive drain,

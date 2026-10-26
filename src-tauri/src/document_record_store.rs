@@ -301,13 +301,20 @@ fn write_document_record_inner(
     crate::document_body_availability::require_available(graph_dir, &document.document_id)
         .map_err(PersistenceError::permanent)?;
     let _durability_guard = crate::cell_durability::write_guard();
+    // The manifest title is about to change or be confirmed: the workspace title
+    // sweep must look at this document again.
+    crate::crdt_engine::workspace_ops::forget_reconciled_title(graph_dir, &document.document_id);
     let (document_dir, _) = ensure_document_dirs(graph_dir, &document.document_id)?;
     if write_authority {
         write_document_state_files(graph_dir, document)?;
     } else {
         write_document_projection_files(graph_dir, document)?;
     }
-    write_json(&document_dir.join("document.json"), document).map_err(Into::into)
+    // The manifest is parsed by every reader; compact, and untouched when nothing in
+    // the record changed (an identical re-save keeps the file, and its mtime).
+    crate::storage::write_json_compact_if_changed(&document_dir.join("document.json"), document)
+        .map(|_| ())
+        .map_err(Into::into)
 }
 
 #[cfg(test)]
@@ -718,6 +725,91 @@ mod tests {
         assert_eq!(blocks[0].id, "block-a");
         let manifest = read_json::<DocumentRecord>(&document_dir.join("document.json")).unwrap();
         assert_eq!(manifest.document_id, document_id);
+        fs::remove_dir_all(graph_dir).unwrap();
+    }
+
+    /// W6: a projection rewrite that changes nothing rewrites no file (no new
+    /// inode: an atomic write renames a fresh file into place), one that changes
+    /// the body rewrites document.json and only the sidecars whose content
+    /// changed, and every file stays valid, compact JSON that the readers parse.
+    #[cfg(unix)]
+    #[test]
+    fn unchanged_projection_rewrite_leaves_record_files_alone() {
+        use std::os::unix::fs::MetadataExt;
+
+        let graph_dir = temp_graph_dir("sophia-document-unchanged");
+        let document_id = "doc-a";
+        let mut document = test_document(&graph_dir, document_id);
+        document.tiptap_xml = "<doc><p>Hello</p></doc>".to_string();
+        document.tiptap_json = Some(serde_json::json!({ "type": "doc", "content": [] }));
+        document.ydoc_update_base64 = BASE64_STANDARD.encode(b"ydoc-state");
+        document.tree = Some(DocumentTreeSnapshot {
+            doc_id: document_id.to_string(),
+            root: TreeNodeSnapshot {
+                kind: "element".to_string(),
+                tag_name: Some("doc".to_string()),
+                text_content: None,
+                attributes: TreeNodeAttributes::default(),
+                children: Vec::new(),
+            },
+        });
+        document.blocks = vec![BlockSnapshot {
+            id: "block-a".to_string(),
+            block_type: "paragraph".to_string(),
+            content: "Hello".to_string(),
+            parent_id: None,
+            order: 0.0,
+            level: None,
+            checked: None,
+            language: None,
+            marks: Vec::new(),
+        }];
+
+        write_document_record(&graph_dir, &document).unwrap();
+        let document_dir = documents_dir(&graph_dir).join(document_id);
+        let ydoc_dir = document_ydoc_dir(&graph_dir, document_id);
+        let files = [
+            document_dir.join("document.json"),
+            ydoc_dir.join("tiptap.xml"),
+            ydoc_dir.join("tiptap.json"),
+            ydoc_dir.join("tree.json"),
+            ydoc_dir.join("blocks.json"),
+        ];
+        let inodes = |files: &[PathBuf]| -> Vec<u64> {
+            files
+                .iter()
+                .map(|file| fs::metadata(file).unwrap().ino())
+                .collect()
+        };
+        let first = inodes(&files);
+
+        write_document_projection_record(&graph_dir, &document).unwrap();
+        assert_eq!(inodes(&files), first, "nothing changed, nothing rewritten");
+
+        // Only the body (and with it the manifest) changes.
+        document.body = "A different body".to_string();
+        write_document_projection_record(&graph_dir, &document).unwrap();
+        let second = inodes(&files);
+        assert_ne!(second[0], first[0], "document.json changed, so it was rewritten");
+        assert_eq!(second[1..], first[1..], "the unchanged sidecars were left alone");
+
+        // The blocks change: blocks.json follows, tree.json and tiptap.json do not.
+        document.blocks[0].content = "Hello again".to_string();
+        write_document_projection_record(&graph_dir, &document).unwrap();
+        let third = inodes(&files);
+        assert_ne!(third[4], second[4]);
+        assert_eq!(third[1..4], second[1..4]);
+
+        for file in &files[0..1] {
+            let raw = fs::read_to_string(file).unwrap();
+            assert_eq!(raw.lines().count(), 1, "compact: one line: {file:?}");
+            assert!(raw.ends_with('\n'));
+        }
+        let manifest = read_json::<DocumentRecord>(&document_dir.join("document.json")).unwrap();
+        assert_eq!(manifest.body, "A different body");
+        assert_eq!(manifest.blocks[0].content, "Hello again");
+        let blocks = read_json::<Vec<BlockSnapshot>>(&ydoc_dir.join("blocks.json")).unwrap();
+        assert_eq!(blocks[0].content, "Hello again");
         fs::remove_dir_all(graph_dir).unwrap();
     }
 }

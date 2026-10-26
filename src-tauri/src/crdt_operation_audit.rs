@@ -1,7 +1,7 @@
 use crate::app_runtime::AppHandle;
 use crate::{
     crdt_operation_types::{CrdtOperation, EnqueuedCrdtOutcome},
-    loopback_audit_log::{append_loopback_audit_event, LoopbackAuditEvent},
+    loopback_audit_log::{append_loopback_audit_event_unsynced, LoopbackAuditEvent},
     request_actor::{current_request_actor, RequestActor},
 };
 
@@ -24,7 +24,7 @@ pub(crate) fn audit_crdt_operation(
         error,
         current_request_actor().as_ref(),
     );
-    if let Err(error) = append_loopback_audit_event(app, &event) {
+    if let Err(error) = append_loopback_audit_event_unsynced(app, &event) {
         log::debug!(
             "failed to append CRDT audit event for {}: {error}",
             operation.operation_id

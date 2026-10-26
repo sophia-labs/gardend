@@ -392,8 +392,22 @@ pub(super) async fn apply_classified_with_prior_hot_commit(
                         .unwrap_or_else(|| "isWiredTo".to_string()),
                 }),
             )?;
+            // The snippets come from files on disk. Read them here, before the
+            // workspace room's authority lock is taken, not inside its transaction.
+            let snippets = {
+                let _span = tracing::info_span!(target: "gardend_otel", "wire.endpoint_lookup")
+                    .entered();
+                wire_endpoint_snippets(&graph_dir, &graph_id, &source_id, &value)
+            };
             let data = commit_hot!(update_workspace_doc_checked(&room, |_doc, txn| {
-                    create_workspace_wire_in_doc(txn, &graph_dir, &graph_id, &source_id, &value)
+                    create_workspace_wire_in_doc_with(
+                        txn,
+                        &graph_dir,
+                        &graph_id,
+                        &source_id,
+                        &value,
+                        &snippets,
+                    )
                 }));
             let wire_id = data
                 .get("wireId")
@@ -616,6 +630,106 @@ pub(super) fn persist_materialized_workspace(
     Ok(())
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Incremental title sweep (durability Stage 6)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// The sweep makes every document manifest follow the title the workspace snapshot
+// holds. Parsing every manifest on every workspace write made bulk creation
+// quadratic in manifest bytes. The ledger remembers, per graph directory, the
+// snapshot title each document's manifest was last found (or made) equal to; a
+// document whose snapshot title still matches its ledger entry needs no stat, no
+// tombstone read and no parse.
+//
+// An entry is dropped when anything could have made the manifest diverge:
+//  - the document leaves the snapshot (pruned on the sweep that sees it gone),
+//  - its manifest is written by this process (`forget_reconciled_title`, called
+//    from the one record writer), so a flush or a restore is re-checked once,
+//  - a time-travel restore rewrote the workspace (`forget_reconciled_titles`),
+//  - or it is older than `TITLE_LEDGER_TRUST`: a manifest edited from outside the
+//    process is still corrected by the first sweep after that, as a full pass
+//    would have corrected it at once.
+// A process starts with an empty ledger, so its first sweep is the full pass.
+// Creation, rename and move need nothing special: a new document has no entry, a
+// rename changes the snapshot title, a move changes neither.
+
+const TITLE_LEDGER_TRUST: std::time::Duration = std::time::Duration::from_secs(300);
+
+type TitleLedger = HashMap<std::path::PathBuf, HashMap<String, (String, std::time::Instant)>>;
+
+fn title_ledger() -> std::sync::MutexGuard<'static, TitleLedger> {
+    static LEDGER: std::sync::OnceLock<std::sync::Mutex<TitleLedger>> = std::sync::OnceLock::new();
+    LEDGER
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn title_is_reconciled(graph_dir: &Path, document_id: &str, title: &str) -> bool {
+    title_ledger()
+        .get(graph_dir)
+        .and_then(|documents| documents.get(document_id))
+        .is_some_and(|(known, at)| known == title && at.elapsed() < TITLE_LEDGER_TRUST)
+}
+
+fn record_title_reconciled(graph_dir: &Path, document_id: &str, title: &str) {
+    title_ledger()
+        .entry(graph_dir.to_path_buf())
+        .or_default()
+        .insert(
+            document_id.to_string(),
+            (title.to_string(), std::time::Instant::now()),
+        );
+}
+
+/// A manifest of `document_id` was written: its title is no longer known to
+/// match the workspace snapshot. Called by the manifest writer.
+pub(crate) fn forget_reconciled_title(graph_dir: &Path, document_id: &str) {
+    if let Some(documents) = title_ledger().get_mut(graph_dir) {
+        documents.remove(document_id);
+    }
+}
+
+/// Every title of this graph needs re-checking (a restore rewrote the workspace).
+pub(crate) fn forget_reconciled_titles(graph_dir: &Path) {
+    title_ledger().remove(graph_dir);
+}
+
+/// Keep only the entries of documents the snapshot still lists.
+fn prune_reconciled_titles(graph_dir: &Path, listed: &HashSet<&str>) {
+    if let Some(documents) = title_ledger().get_mut(graph_dir) {
+        documents.retain(|document_id, _| listed.contains(document_id.as_str()));
+    }
+}
+
+/// Manifest parses the sweep made per graph directory: the observable of the
+/// complexity test.
+#[cfg(test)]
+fn title_sweep_parses() -> std::sync::MutexGuard<'static, HashMap<std::path::PathBuf, u64>> {
+    static PARSES: std::sync::OnceLock<std::sync::Mutex<HashMap<std::path::PathBuf, u64>>> =
+        std::sync::OnceLock::new();
+    PARSES
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+#[cfg(test)]
+fn title_sweep_parse_count(graph_dir: &Path) -> u64 {
+    title_sweep_parses().get(graph_dir).copied().unwrap_or(0)
+}
+
+fn note_title_sweep_parse(graph_dir: &Path) {
+    #[cfg(test)]
+    {
+        *title_sweep_parses()
+            .entry(graph_dir.to_path_buf())
+            .or_insert(0) += 1;
+    }
+    #[cfg(not(test))]
+    let _ = graph_dir;
+}
+
 async fn sync_workspace_document_titles(
     app: &AppHandle,
     graph_id: &str,
@@ -629,6 +743,16 @@ async fn sync_workspace_document_titles(
         .and_then(Value::as_array)
         .map(Vec::as_slice)
         .unwrap_or_default();
+    let _span = tracing::info_span!(target: "gardend_otel", "workspace.title_sync",
+        sophia.workspace.docs_scanned = documents.len() as u64)
+    .entered();
+    prune_reconciled_titles(
+        graph_dir,
+        &documents
+            .iter()
+            .filter_map(|document| document.get("id").and_then(Value::as_str))
+            .collect(),
+    );
     for document in documents {
         let Some(document_id) = document.get("id").and_then(Value::as_str) else {
             continue;
@@ -647,6 +771,9 @@ async fn sync_workspace_document_titles(
         else {
             continue;
         };
+        if title_is_reconciled(graph_dir, document_id, title) {
+            continue;
+        }
         let manifest =
             crate::document_paths::document_dir(graph_dir, document_id)?.join("document.json");
         if !manifest.is_file() {
@@ -662,6 +789,7 @@ async fn sync_workspace_document_titles(
         // is durable, so inspect only the freshly-written manifest there and
         // never route through hydration while the marker still exists.
         if tombstoned {
+            note_title_sweep_parse(graph_dir);
             let record_title = crate::storage::read_json::<Value>(&manifest)?
                 .get("title")
                 .and_then(Value::as_str)
@@ -674,10 +802,12 @@ async fn sync_workspace_document_titles(
                 "tombstoned recreation title mismatch for {document_id}"
             )));
         }
+        note_title_sweep_parse(graph_dir);
         let Some(record) = crate::document_record_store::read_document_record_if_title_changed(
             graph_dir, &manifest, title,
         )?
         else {
+            record_title_reconciled(graph_dir, document_id, title);
             continue;
         };
         // Invariant: the workspace snapshot is the title authority, and this
@@ -703,9 +833,11 @@ async fn sync_workspace_document_titles(
                 operation_id,
             )
             .await?;
+            record_title_reconciled(graph_dir, document_id, title);
             continue;
         }
         super::document_ops::sync_cold_document_title(app, &record, title, operation_id)?;
+        record_title_reconciled(graph_dir, document_id, title);
     }
     Ok(())
 }
@@ -1982,12 +2114,64 @@ fn create_hosted_artifact_response(graph_id: &str, artifact_id: &str, data: &Val
 /// Port of createWorkspaceWire (native-local-runtime.ts:2027). Returns the
 /// wire `data` object (camelCase) plus a `wireId` field; the caller builds the
 /// hosted response from it.
+#[cfg(test)]
 fn create_workspace_wire_in_doc(
     txn: &mut TransactionMut<'_>,
     graph_dir: &Path,
     graph_id: &str,
     source_id: &str,
     value: &JsonMap<String, Value>,
+) -> Result<Value, String> {
+    let snippets = wire_endpoint_snippets(graph_dir, graph_id, source_id, value);
+    create_workspace_wire_in_doc_with(txn, graph_dir, graph_id, source_id, value, &snippets)
+}
+
+/// The display snippets of a new wire's two document ends, which are read from
+/// the documents' files and so do not belong inside the workspace transaction.
+struct WireEndpointSnippets {
+    source: Option<String>,
+    target: Option<String>,
+}
+
+/// Resolve [`WireEndpointSnippets`] by the rule `create_workspace_wire_in_doc_with`
+/// applies: a document end is described, an IRI end is not, and a target in
+/// another graph is not.
+fn wire_endpoint_snippets(
+    graph_dir: &Path,
+    graph_id: &str,
+    source_id: &str,
+    value: &JsonMap<String, Value>,
+) -> WireEndpointSnippets {
+    let source_iri = string_value(pick(value, &["sourceIri", "source_iri"]));
+    let target_iri = string_value(pick(value, &["targetIri", "target_iri"]));
+    let named_target = string_value(pick(value, &["targetDocumentId", "target_document_id"]));
+    let target_graph_id = string_value(pick(value, &["targetGraphId", "target_graph_id"]))
+        .unwrap_or_else(|| graph_id.to_string());
+    let source_block_id = string_value(pick(value, &["sourceBlockId", "source_block_id"]))
+        .filter(|_| source_iri.is_none());
+    let target_block_id = string_value(pick(value, &["targetBlockId", "target_block_id"]))
+        .filter(|_| target_iri.is_none());
+    let source = if source_iri.is_none() {
+        document_snippet(graph_dir, source_id, source_block_id.as_deref())
+    } else {
+        None
+    };
+    let target = match (&target_iri, named_target) {
+        (None, Some(target_document_id)) if target_graph_id == graph_id => {
+            document_snippet(graph_dir, &target_document_id, target_block_id.as_deref())
+        }
+        _ => None,
+    };
+    WireEndpointSnippets { source, target }
+}
+
+fn create_workspace_wire_in_doc_with(
+    txn: &mut TransactionMut<'_>,
+    graph_dir: &Path,
+    graph_id: &str,
+    source_id: &str,
+    value: &JsonMap<String, Value>,
+    snippets: &WireEndpointSnippets,
 ) -> Result<Value, String> {
     let source_iri = string_value(pick(value, &["sourceIri", "source_iri"]));
     let target_iri = string_value(pick(value, &["targetIri", "target_iri"]));
@@ -2036,7 +2220,7 @@ fn create_workspace_wire_in_doc(
     } else {
         (
             lookup_document_title(&*txn, graph_dir, source_id),
-            document_snippet(graph_dir, source_id, source_block_id.as_deref()),
+            snippets.source.clone(),
         )
     };
     let (target_title, target_snippet) = match &target_document_id {
@@ -2046,7 +2230,7 @@ fn create_workspace_wire_in_doc(
         ),
         Some(target_document_id) if target_graph_id == graph_id => (
             lookup_document_title(&*txn, graph_dir, target_document_id),
-            document_snippet(graph_dir, target_document_id, target_block_id.as_deref()),
+            snippets.target.clone(),
         ),
         Some(_) => (None, None),
     };
@@ -2299,12 +2483,42 @@ fn lookup_document_title<T: ReadTxn>(
 /// Port of documentSnippet (native-local-runtime.ts:1964), reading the
 /// document.json record (the runtime's in-memory record cache equivalent).
 fn document_snippet(graph_dir: &Path, document_id: &str, block_id: Option<&str>) -> Option<String> {
+    let manifest_path = graph_dir
+        .join("documents")
+        .join(document_id)
+        .join("document.json");
+    if !manifest_path.is_file() {
+        return None;
+    }
+    // The blocks live in a small side file of their own (`blocks.json`, written
+    // beside every record); a snippet almost always comes from them. Only a
+    // document with no block text falls back to the body, and that needs the
+    // whole record.
+    let side_blocks: Option<Vec<Value>> =
+        crate::storage::read_json(
+            &crate::ydoc_paths::document_ydoc_dir(graph_dir, document_id).join("blocks.json"),
+        )
+            .ok();
+    if let Some(snippet) = side_blocks
+        .as_deref()
+        .and_then(|blocks| block_snippet(blocks, block_id))
+    {
+        return Some(snippet);
+    }
     let record = document_record_json(graph_dir, document_id)?;
     let empty: Vec<Value> = Vec::new();
     let blocks = record
         .get("blocks")
         .and_then(Value::as_array)
         .unwrap_or(&empty);
+    block_snippet(blocks, block_id).or_else(|| {
+        string_value(record.get("body")).map(|text| js_slice(&text, 240))
+    })
+}
+
+/// The snippet a document's blocks give: the named block's text, else the first
+/// block with text; `None` when no block has any.
+fn block_snippet(blocks: &[Value], block_id: Option<&str>) -> Option<String> {
     if let Some(block_id) = block_id {
         let block = blocks.iter().map(object_payload).find(|item| {
             string_value(pick(item, &["id", "blockId", "block_id"])).as_deref() == Some(block_id)
@@ -2315,14 +2529,12 @@ fn document_snippet(graph_dir: &Path, document_id: &str, block_id: Option<&str>)
             }
         }
     }
-    let first_block = blocks
+    blocks
         .iter()
         .map(object_payload)
-        .find(|item| string_value(pick(item, &["content", "text"])).is_some());
-    let fallback = first_block
+        .find(|item| string_value(pick(item, &["content", "text"])).is_some())
         .and_then(|block| string_value(pick(&block, &["content", "text"])))
-        .or_else(|| string_value(record.get("body")));
-    fallback.map(|text| js_slice(&text, 240))
+        .map(|text| js_slice(&text, 240))
 }
 
 pub(crate) fn document_record_json(graph_dir: &Path, document_id: &str) -> Option<Value> {
@@ -3496,6 +3708,158 @@ mod tests {
         }
     }
 
+    /// W2 (durability Stage 6): bulk creation sweeps titles in linear TOTAL work.
+    /// Every workspace write used to parse every document manifest, so creating N
+    /// documents parsed N(N+1)/2. The ledger lets a document whose snapshot title
+    /// is already reconciled skip the stat, the tombstone read and the parse.
+    /// Counted through the sweep's own parse hook, not a clock.
+    #[test]
+    fn bulk_document_creation_sweeps_titles_in_linear_total_work() {
+        use crate::crdt_operation_types::EnqueueCrdtOperationInput;
+        let _serial = crate::tauri_runtime::profile_env_serial()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let profile = std::env::temp_dir().join(format!("garden-title-linear-{}", Uuid::new_v4()));
+        let previous_profile = std::env::var_os("GARDEN_PROFILE_DIR");
+        let previous_app_data = std::env::var_os("GARDEN_HEADLESS_APP_DATA_DIR");
+        std::env::set_var("GARDEN_PROFILE_DIR", &profile);
+        std::env::set_var("GARDEN_HEADLESS_APP_DATA_DIR", profile.join("app-data"));
+        let result = std::panic::catch_unwind(|| {
+            crate::app_runtime::async_runtime::block_on(async {
+                const N: usize = 24;
+                let app = crate::tauri_runtime::build_mock_app_for_tests(true);
+                let graph_id = "title-linear";
+                crate::graph_service::create_graph_service(
+                    &app,
+                    crate::graph_service::CreateGraphInput {
+                        title: "Title linear".into(),
+                        graph_id: Some(graph_id.into()),
+                        description: None,
+                        operation_id: None,
+                    },
+                )
+                .unwrap();
+                let graph_dir = crate::graph_paths::existing_graph_dir(&app, graph_id).unwrap();
+                let before = title_sweep_parse_count(&graph_dir);
+                let titles: Vec<(String, String)> = (0..N)
+                    .map(|index| (format!("bulk-{index:03}"), format!("Bulk title {index:03}")))
+                    .collect();
+                for (document_id, title) in &titles {
+                    crate::crdt_queue::enqueue_crdt_operation(
+                        app.clone(),
+                        EnqueueCrdtOperationInput {
+                            kind: "workspace.createDocument".to_string(),
+                            graph_id: graph_id.to_string(),
+                            document_id: Some(document_id.clone()),
+                            payload: json!({ "documentId": document_id, "title": title }),
+                        },
+                    )
+                    .await
+                    .unwrap();
+                }
+                let created = title_sweep_parse_count(&graph_dir) - before;
+                // A document is parsed once when the sweep first finds its manifest
+                // (the next write after its creation, since the manifest is
+                // provisioned after the workspace commit); an interleaved projection
+                // flush of an earlier document may make it parse once more.
+                // Quadratic work would be N(N+1)/2 = 300 here.
+                assert!(
+                    created <= 2 * N as u64,
+                    "bulk creation of {N} documents parsed {created} manifests"
+                );
+
+                // Settled: sweeping the same snapshot again parses (almost) nothing.
+                let snapshot = json!({"documents": titles
+                    .iter()
+                    .map(|(id, title)| json!({"id": id, "title": title}))
+                    .collect::<Vec<_>>()});
+                let settled_before = title_sweep_parse_count(&graph_dir);
+                sync_workspace_document_titles(&app, graph_id, &graph_dir, &snapshot, "settled")
+                    .await
+                    .unwrap();
+                let settled = title_sweep_parse_count(&graph_dir) - settled_before;
+                assert!(
+                    settled <= 2,
+                    "a settled workspace re-parsed {settled} of {N} manifests"
+                );
+
+                // Rename one: exactly that document is read again and follows.
+                let mut renamed = titles.clone();
+                renamed[7].1 = "Renamed seven".to_string();
+                let snapshot = json!({"documents": renamed
+                    .iter()
+                    .map(|(id, title)| json!({"id": id, "title": title}))
+                    .collect::<Vec<_>>()});
+                let rename_before = title_sweep_parse_count(&graph_dir);
+                sync_workspace_document_titles(&app, graph_id, &graph_dir, &snapshot, "rename")
+                    .await
+                    .unwrap();
+                let rename_parses = title_sweep_parse_count(&graph_dir) - rename_before;
+                assert!(
+                    (1..=3).contains(&rename_parses),
+                    "a rename reads its document, not the corpus: {rename_parses}"
+                );
+                let manifest = crate::document_paths::document_dir(&graph_dir, "bulk-007")
+                    .unwrap()
+                    .join("document.json");
+                let record =
+                    crate::document_record_store::read_document_record(&graph_dir, &manifest)
+                        .unwrap();
+                assert_eq!(record.title, "Renamed seven");
+                // Its neighbours kept their titles.
+                let neighbour = crate::document_paths::document_dir(&graph_dir, "bulk-008")
+                    .unwrap()
+                    .join("document.json");
+                assert_eq!(
+                    crate::document_record_store::read_document_record(&graph_dir, &neighbour)
+                        .unwrap()
+                        .title,
+                    "Bulk title 008"
+                );
+
+                // A document that left the snapshot and came back is checked again
+                // (the entry was pruned when it was absent), and a manifest written
+                // meanwhile is not trusted from a stale entry.
+                let absent: Vec<_> = renamed.iter().filter(|(id, _)| id != "bulk-003").collect();
+                let snapshot = json!({"documents": absent
+                    .iter()
+                    .map(|(id, title)| json!({"id": id, "title": title}))
+                    .collect::<Vec<_>>()});
+                sync_workspace_document_titles(&app, graph_id, &graph_dir, &snapshot, "gone")
+                    .await
+                    .unwrap();
+                forget_reconciled_title(&graph_dir, "bulk-005");
+                let back_before = title_sweep_parse_count(&graph_dir);
+                let snapshot = json!({"documents": renamed
+                    .iter()
+                    .map(|(id, title)| json!({"id": id, "title": title}))
+                    .collect::<Vec<_>>()});
+                sync_workspace_document_titles(&app, graph_id, &graph_dir, &snapshot, "back")
+                    .await
+                    .unwrap();
+                let back = title_sweep_parse_count(&graph_dir) - back_before;
+                assert!(
+                    (2..=4).contains(&back),
+                    "the returned and the forgotten document were re-read: {back}"
+                );
+            });
+        });
+        match previous_profile {
+            Some(value) => std::env::set_var("GARDEN_PROFILE_DIR", value),
+            None => std::env::remove_var("GARDEN_PROFILE_DIR"),
+        }
+        match previous_app_data {
+            Some(value) => std::env::set_var("GARDEN_HEADLESS_APP_DATA_DIR", value),
+            None => std::env::remove_var("GARDEN_HEADLESS_APP_DATA_DIR"),
+        }
+        if result.is_ok() {
+            let _ = std::fs::remove_dir_all(&profile);
+        }
+        if let Err(payload) = result {
+            std::panic::resume_unwind(payload);
+        }
+    }
+
     #[test]
     fn cyclic_folder_graph_rejects_snapshot_and_delete_without_mutation() {
         let doc = Doc::new();
@@ -3961,6 +4325,148 @@ mod tests {
         })
         .unwrap_err();
         assert_eq!(error, "artifact not found: artifact-1");
+    }
+
+    fn write_snippet_fixture(
+        graph_dir: &Path,
+        document_id: &str,
+        manifest: &str,
+        blocks: Option<&str>,
+    ) {
+        let manifest_dir = graph_dir.join("documents").join(document_id);
+        std::fs::create_dir_all(&manifest_dir).expect("manifest dir");
+        std::fs::write(manifest_dir.join("document.json"), manifest).expect("manifest");
+        if let Some(blocks) = blocks {
+            let ydoc_dir = crate::ydoc_paths::document_ydoc_dir(graph_dir, document_id);
+            std::fs::create_dir_all(&ydoc_dir).expect("ydoc dir");
+            std::fs::write(ydoc_dir.join("blocks.json"), blocks).expect("blocks.json");
+        }
+    }
+
+    #[test]
+    fn wire_snippets_come_from_the_blocks_side_file_without_parsing_the_manifest() {
+        let dir = std::env::temp_dir().join(format!("sophia-snippet-{}", Uuid::new_v4()));
+        let long = "x".repeat(300);
+        // The manifest is not valid JSON: if the snippet parsed it, it would be None.
+        write_snippet_fixture(
+            &dir,
+            "doc-a",
+            "{ this manifest would not parse",
+            Some(&format!(
+                r#"[{{"id":"b1","content":"first text"}},{{"id":"b2","content":"{long}"}},{{"id":"b3"}}]"#
+            )),
+        );
+        assert_eq!(
+            document_snippet(&dir, "doc-a", None).as_deref(),
+            Some("first text")
+        );
+        assert_eq!(
+            document_snippet(&dir, "doc-a", Some("b2")),
+            Some("x".repeat(240)),
+            "a named block, cut at 240 characters"
+        );
+        assert_eq!(
+            document_snippet(&dir, "doc-a", Some("b3")).as_deref(),
+            Some("first text"),
+            "a named block with no text falls back to the first block with text"
+        );
+        assert_eq!(
+            document_snippet(&dir, "doc-a", Some("nope")).as_deref(),
+            Some("first text")
+        );
+
+        // No block has text: the body of the full record is the snippet.
+        write_snippet_fixture(
+            &dir,
+            "doc-b",
+            r#"{"title":"B","body":"the body text","blocks":[{"id":"b1"}]}"#,
+            Some(r#"[{"id":"b1"}]"#),
+        );
+        assert_eq!(
+            document_snippet(&dir, "doc-b", None).as_deref(),
+            Some("the body text")
+        );
+        // No side file at all (a legacy document): the record's own blocks.
+        write_snippet_fixture(
+            &dir,
+            "doc-c",
+            r#"{"title":"C","body":"ignored","blocks":[{"id":"b1","text":"from the record"}]}"#,
+            None,
+        );
+        assert_eq!(
+            document_snippet(&dir, "doc-c", None).as_deref(),
+            Some("from the record")
+        );
+        // No manifest: no snippet, even with a side file.
+        let ydoc_dir = crate::ydoc_paths::document_ydoc_dir(&dir, "doc-d");
+        std::fs::create_dir_all(&ydoc_dir).expect("ydoc dir");
+        std::fs::write(ydoc_dir.join("blocks.json"), r#"[{"id":"b","content":"x"}]"#)
+            .expect("blocks.json");
+        assert_eq!(document_snippet(&dir, "doc-d", None), None);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn precomputed_endpoint_snippets_equal_the_ones_a_wire_would_take_in_the_transaction() {
+        let dir = std::env::temp_dir().join(format!("sophia-wire-snip-{}", Uuid::new_v4()));
+        write_snippet_fixture(
+            &dir,
+            "doc-src",
+            "{}",
+            Some(r#"[{"id":"s1","content":"source words"}]"#),
+        );
+        write_snippet_fixture(
+            &dir,
+            "doc-target",
+            "{}",
+            Some(r#"[{"id":"t1","content":"target one"},{"id":"t2","content":"target two"}]"#),
+        );
+        let doc = Doc::new();
+        with_doc(&doc, |txn| {
+            write_workspace_document(
+                txn,
+                &json!({ "documentId": "doc-src", "title": "Source", "order": 1, "updatedAt": 1 }),
+            )
+        })
+        .expect("source doc");
+        let payload = object_payload(&json!({
+            "wireId": "w-1",
+            "targetDocumentId": "doc-target",
+            "sourceBlockId": "s1",
+            "targetBlockId": "t2",
+            "updatedAt": 1_700_000_000_000i64,
+        }));
+        let snippets = wire_endpoint_snippets(&dir, "graph-a", "doc-src", &payload);
+        assert_eq!(snippets.source.as_deref(), Some("source words"));
+        assert_eq!(snippets.target.as_deref(), Some("target two"));
+        let data = with_doc(&doc, |txn| {
+            create_workspace_wire_in_doc_with(txn, &dir, "graph-a", "doc-src", &payload, &snippets)
+        })
+        .expect("create wire");
+        assert_eq!(data["sourceSnippet"], "source words");
+        assert_eq!(data["targetSnippet"], "target two");
+
+        // An IRI target and a target in another graph take no snippet.
+        let iri = object_payload(&json!({
+            "wireId": "w-2",
+            "targetIri": "https://example.org/x",
+            "updatedAt": 1_700_000_000_000i64,
+        }));
+        assert_eq!(
+            wire_endpoint_snippets(&dir, "graph-a", "doc-src", &iri).target,
+            None
+        );
+        let elsewhere = object_payload(&json!({
+            "wireId": "w-3",
+            "targetDocumentId": "doc-target",
+            "targetGraphId": "graph-b",
+            "updatedAt": 1_700_000_000_000i64,
+        }));
+        assert_eq!(
+            wire_endpoint_snippets(&dir, "graph-a", "doc-src", &elsewhere).target,
+            None
+        );
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

@@ -546,6 +546,9 @@ fn apply_restore(graph_dir: &Path, manifest: &RestorePointManifest) -> AppResult
         write_json(&workspace_snapshot_path(graph_dir), &workspace_snapshot)
             .map_err(AppError::storage)?;
     }
+    // The restored manifests and the restored workspace may disagree on titles the
+    // incremental title sweep believes settled: let it re-check every document.
+    crate::crdt_engine::workspace_ops::forget_reconciled_titles(graph_dir);
     Ok(())
 }
 
