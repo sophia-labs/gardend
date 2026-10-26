@@ -533,13 +533,7 @@ async fn public_tool_call(
             Ok(entries) => {
                 let graphs = crate::public_mode::public_graph_entries(public, entries);
                 let value = serde_json::json!({ "graphs": graphs, "count": graphs.len() });
-                mcp_success(
-                    id,
-                    serde_json::json!({
-                        "content": [{ "type": "text", "text": serde_json::to_string_pretty(&value).unwrap_or_default() }],
-                        "structuredContent": value,
-                    }),
-                )
+                mcp_success(id, crate::mcp_tool_dispatch::tool_success_result(value))
             }
             Err(error) => mcp_error(id, -32000, error.message()),
         };
