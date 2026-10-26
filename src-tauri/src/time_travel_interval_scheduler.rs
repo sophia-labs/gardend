@@ -124,7 +124,10 @@ fn tick_once(app: &AppHandle) -> Result<TickSummary, String> {
         }
     }
     tick_span.record("sophia.tick.captured", summary.captured as u64);
-    tick_span.record("sophia.tick.skipped_unchanged", summary.skipped_unchanged as u64);
+    tick_span.record(
+        "sophia.tick.skipped_unchanged",
+        summary.skipped_unchanged as u64,
+    );
     Ok(summary)
 }
 
@@ -300,11 +303,14 @@ mod tests {
             // The untouched document is one snapshot in both points; the changed one is not.
             let mut entries = read_index(&graph_dir, graph_id).expect("index").entries;
             entries.sort_by_key(|entry| entry.created_at);
-            let older = crate::time_travel_store::read_manifest(&graph_dir, &entries[0].restore_point_id)
-                .expect("older manifest");
-            let newer = crate::time_travel_store::read_manifest(&graph_dir, &entries[1].restore_point_id)
-                .expect("newer manifest");
-            let snapshot_of = |manifest: &crate::time_travel_types::RestorePointManifest, id: &str| {
+            let older =
+                crate::time_travel_store::read_manifest(&graph_dir, &entries[0].restore_point_id)
+                    .expect("older manifest");
+            let newer =
+                crate::time_travel_store::read_manifest(&graph_dir, &entries[1].restore_point_id)
+                    .expect("newer manifest");
+            let snapshot_of = |manifest: &crate::time_travel_types::RestorePointManifest,
+                               id: &str| {
                 manifest
                     .documents
                     .iter()
@@ -316,10 +322,11 @@ mod tests {
             assert_ne!(snapshot_of(&older, "tick-a"), snapshot_of(&newer, "tick-a"));
 
             // The gate is free once the tick is done: a hot-write lease is granted without waiting.
-            let lease = crate::crdt_engine::persistence_coordinator::acquire_hot_write_blocking_if_managed(
-                &app, graph_id,
-            )
-            .expect("hot-write lease is free after the tick");
+            let lease =
+                crate::crdt_engine::persistence_coordinator::acquire_hot_write_blocking_if_managed(
+                    &app, graph_id,
+                )
+                .expect("hot-write lease is free after the tick");
             drop(lease);
         });
 

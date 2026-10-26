@@ -52,8 +52,10 @@ fn with_env(test: impl FnOnce(&Env)) {
     let profile =
         std::env::temp_dir().join(format!("garden-restore-dedupe-{}", uuid::Uuid::new_v4()));
     std::env::set_var("GARDEN_PROFILE_DIR", &profile);
-    let jobs_dir =
-        std::env::temp_dir().join(format!("garden-restore-dedupe-jobs-{}", uuid::Uuid::new_v4()));
+    let jobs_dir = std::env::temp_dir().join(format!(
+        "garden-restore-dedupe-jobs-{}",
+        uuid::Uuid::new_v4()
+    ));
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let app = crate::tauri_runtime::build_mock_app_for_tests(true);
         crate::graph_service::create_graph_service(
@@ -223,12 +225,9 @@ fn assert_point_matches_oracle(
     assert_eq!(manifest.documents.len(), expected.len());
     for (id, want) in expected {
         let entry = doc_ref(&manifest, id);
-        let bytes = crate::time_travel_store::read_document_bytes(
-            &env.graph_dir(),
-            restore_point_id,
-            id,
-        )
-        .unwrap();
+        let bytes =
+            crate::time_travel_store::read_document_bytes(&env.graph_dir(), restore_point_id, id)
+                .unwrap();
         assert_eq!(bytes, want.ydoc, "{restore_point_id}/{id}: Y.Doc bytes");
         let payload = crate::document_history_file_store::read_document_snapshot_payload(
             &env.graph_dir(),
@@ -267,7 +266,9 @@ fn restore(env: &Env, restore_point_id: &str) {
             .expect("restore status");
         match status["state"].as_str().unwrap_or_default() {
             "succeeded" => return,
-            "failed" | "rolled_back" => panic!("restore of {restore_point_id} did not succeed: {status}"),
+            "failed" | "rolled_back" => {
+                panic!("restore of {restore_point_id} did not succeed: {status}")
+            }
             _ => {}
         }
         assert!(Instant::now() < deadline, "restore timed out: {status}");
@@ -305,17 +306,43 @@ fn points_reuse_unchanged_documents_and_restore_exactly() {
 
         let (ma, mb, mc) = (manifest(env, &a), manifest(env, &b), manifest(env, &c));
         // d1 never changed: one snapshot, one set of bytes, in all three points.
-        assert_eq!(doc_ref(&ma, "d1").snapshot_id, doc_ref(&mb, "d1").snapshot_id);
-        assert_eq!(doc_ref(&mb, "d1").snapshot_id, doc_ref(&mc, "d1").snapshot_id);
+        assert_eq!(
+            doc_ref(&ma, "d1").snapshot_id,
+            doc_ref(&mb, "d1").snapshot_id
+        );
+        assert_eq!(
+            doc_ref(&mb, "d1").snapshot_id,
+            doc_ref(&mc, "d1").snapshot_id
+        );
         // d3 changed between B and C only; d2 changed in both gaps.
-        assert_eq!(doc_ref(&ma, "d3").snapshot_id, doc_ref(&mb, "d3").snapshot_id);
-        assert_ne!(doc_ref(&mb, "d3").snapshot_id, doc_ref(&mc, "d3").snapshot_id);
-        assert_ne!(doc_ref(&ma, "d2").snapshot_id, doc_ref(&mb, "d2").snapshot_id);
-        assert_ne!(doc_ref(&mb, "d2").snapshot_id, doc_ref(&mc, "d2").snapshot_id);
+        assert_eq!(
+            doc_ref(&ma, "d3").snapshot_id,
+            doc_ref(&mb, "d3").snapshot_id
+        );
+        assert_ne!(
+            doc_ref(&mb, "d3").snapshot_id,
+            doc_ref(&mc, "d3").snapshot_id
+        );
+        assert_ne!(
+            doc_ref(&ma, "d2").snapshot_id,
+            doc_ref(&mb, "d2").snapshot_id
+        );
+        assert_ne!(
+            doc_ref(&mb, "d2").snapshot_id,
+            doc_ref(&mc, "d2").snapshot_id
+        );
         #[cfg(unix)]
         {
-            assert_eq!(links(&bytes_path(env, &a, "d1")), 3, "d1 is one inode in A, B, C");
-            assert_eq!(links(&bytes_path(env, &a, "d3")), 2, "d3 is shared by A and B");
+            assert_eq!(
+                links(&bytes_path(env, &a, "d1")),
+                3,
+                "d1 is one inode in A, B, C"
+            );
+            assert_eq!(
+                links(&bytes_path(env, &a, "d3")),
+                2,
+                "d3 is shared by A and B"
+            );
             assert_eq!(links(&bytes_path(env, &c, "d3")), 1);
             assert_eq!(links(&bytes_path(env, &c, "d2")), 1);
         }
@@ -366,14 +393,18 @@ fn diff_counts_only_the_documents_that_changed() {
         assert_eq!(aggregate["docsAdded"], 1, "{diff}");
         assert_eq!(aggregate["docsRemoved"], 0, "{diff}");
         let (ma, mb) = (manifest(env, &a), manifest(env, &b));
-        let expected_delta = doc_ref(&mb, "d2").char_count as i64 - doc_ref(&ma, "d2").char_count as i64
+        let expected_delta = doc_ref(&mb, "d2").char_count as i64
+            - doc_ref(&ma, "d2").char_count as i64
             + doc_ref(&mb, "d4").char_count as i64;
         assert_eq!(aggregate["totalCharDelta"], expected_delta, "{diff}");
         // An unchanged graph diffs clean.
         tick();
         let c = point(env, "C");
         let same = env
-            .call("diff_restore_points", json!({"restorePointId": c, "against": b}))
+            .call(
+                "diff_restore_points",
+                json!({"restorePointId": c, "against": b}),
+            )
             .unwrap();
         assert_eq!(same["aggregate"]["docsModified"], 0, "{same}");
         assert_eq!(same["aggregate"]["totalCharDelta"], 0, "{same}");
@@ -399,14 +430,20 @@ fn deleting_points_never_frees_content_another_point_names() {
         #[cfg(unix)]
         assert_eq!(links(&bytes_path(env, &a, "d1")), 3);
 
-        env.call("delete_restore_point", json!({"restorePointId": a})).unwrap();
+        env.call("delete_restore_point", json!({"restorePointId": a}))
+            .unwrap();
         assert!(!bytes_path(env, &a, "d1").exists());
         #[cfg(unix)]
-        assert_eq!(links(&bytes_path(env, &b, "d1")), 2, "A's name is gone, the content stays");
+        assert_eq!(
+            links(&bytes_path(env, &b, "d1")),
+            2,
+            "A's name is gone, the content stays"
+        );
         assert_point_matches_oracle(env, &b, &want);
         assert_point_matches_oracle(env, &c, &want);
 
-        env.call("delete_restore_point", json!({"restorePointId": b})).unwrap();
+        env.call("delete_restore_point", json!({"restorePointId": b}))
+            .unwrap();
         #[cfg(unix)]
         assert_eq!(links(&bytes_path(env, &c, "d1")), 1);
         assert_point_matches_oracle(env, &c, &want);
@@ -418,11 +455,15 @@ fn deleting_points_never_frees_content_another_point_names() {
         tick();
         let d = point(env, "D");
         let (mc, md) = (manifest(env, &c), manifest(env, &d));
-        assert_eq!(doc_ref(&mc, "d2").snapshot_id, doc_ref(&md, "d2").snapshot_id);
+        assert_eq!(
+            doc_ref(&mc, "d2").snapshot_id,
+            doc_ref(&md, "d2").snapshot_id
+        );
 
         // Deleting the last name frees the content.
         let c_file = bytes_path(env, &c, "d2");
-        env.call("delete_restore_point", json!({"restorePointId": c})).unwrap();
+        env.call("delete_restore_point", json!({"restorePointId": c}))
+            .unwrap();
         assert!(!c_file.exists());
         assert!(bytes_path(env, &d, "d2").is_file(), "D still holds d2");
         assert_point_matches_oracle(env, &d, &oracle(env, &ids));
@@ -449,18 +490,26 @@ fn damaged_or_missing_old_content_is_recaptured_not_reused() {
         bytes[last] ^= 0xff;
         std::fs::write(&damaged, &bytes).unwrap();
         // d2: the old point's snapshot payload is gone.
-        std::fs::remove_file(crate::document_history_store::document_snapshot_payload_path(
-            &env.graph_dir(),
-            "d2",
-            &doc_ref(&ma, "d2").snapshot_id,
-        ))
+        std::fs::remove_file(
+            crate::document_history_store::document_snapshot_payload_path(
+                &env.graph_dir(),
+                "d2",
+                &doc_ref(&ma, "d2").snapshot_id,
+            ),
+        )
         .unwrap();
 
         tick();
         let b = point(env, "B");
         let mb = manifest(env, &b);
-        assert_ne!(doc_ref(&ma, "d1").snapshot_id, doc_ref(&mb, "d1").snapshot_id);
-        assert_ne!(doc_ref(&ma, "d2").snapshot_id, doc_ref(&mb, "d2").snapshot_id);
+        assert_ne!(
+            doc_ref(&ma, "d1").snapshot_id,
+            doc_ref(&mb, "d1").snapshot_id
+        );
+        assert_ne!(
+            doc_ref(&ma, "d2").snapshot_id,
+            doc_ref(&mb, "d2").snapshot_id
+        );
         assert_eq!(
             crate::time_travel_store::read_document_bytes(&env.graph_dir(), &b, "d1").unwrap(),
             sidecar(env, "d1"),
@@ -503,11 +552,17 @@ fn unchanged_graph_capture_costs_a_fixed_number_of_fsyncs() {
                     .map(|kv| kv.value.to_string())
                     .unwrap_or_else(|| panic!("{span} lacks {key}"))
             };
-            let per_document = spans.iter().filter(|s| s.name == "restore_point.document").count();
+            let per_document = spans
+                .iter()
+                .filter(|s| s.name == "restore_point.document")
+                .count();
             (
                 id,
                 fsyncs,
-                attr("restore_point.capture", "sophia.restore_point.documents_reused"),
+                attr(
+                    "restore_point.capture",
+                    "sophia.restore_point.documents_reused",
+                ),
                 attr("restore_point.capture", "sophia.restore_point.documents"),
                 per_document,
             )
@@ -529,15 +584,26 @@ fn unchanged_graph_capture_costs_a_fixed_number_of_fsyncs() {
             second_fsyncs <= 14,
             "an unchanged capture is a fixed handful of fsyncs, not one per document: {second_fsyncs}"
         );
-        assert_point_matches_oracle(env, &first, &oracle(env, &ids.iter().map(String::as_str).collect::<Vec<_>>()));
-        assert_point_matches_oracle(env, &second, &oracle(env, &ids.iter().map(String::as_str).collect::<Vec<_>>()));
+        assert_point_matches_oracle(
+            env,
+            &first,
+            &oracle(env, &ids.iter().map(String::as_str).collect::<Vec<_>>()),
+        );
+        assert_point_matches_oracle(
+            env,
+            &second,
+            &oracle(env, &ids.iter().map(String::as_str).collect::<Vec<_>>()),
+        );
 
         // One changed document: one document's worth more, still independent of the other eleven.
         tick();
         write(env, "doc-03", "changed");
         let (_, third_fsyncs, third_reused, _, _) = fsyncs_and_span("third");
         assert_eq!(third_reused, "11");
-        assert!(third_fsyncs < first_fsyncs, "{third_fsyncs} vs {first_fsyncs}");
+        assert!(
+            third_fsyncs < first_fsyncs,
+            "{third_fsyncs} vs {first_fsyncs}"
+        );
     });
 }
 
@@ -576,7 +642,8 @@ fn points_taken_while_writers_run_are_complete_and_later_points_are_exact() {
         let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let writes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let writer = {
-            let (app, ids, stop, writes) = (env.app.clone(), ids.clone(), stop.clone(), writes.clone());
+            let (app, ids, stop, writes) =
+                (env.app.clone(), ids.clone(), stop.clone(), writes.clone());
             std::thread::spawn(move || {
                 let mut round = 1;
                 while !stop.load(std::sync::atomic::Ordering::Relaxed) {
@@ -603,13 +670,22 @@ fn points_taken_while_writers_run_are_complete_and_later_points_are_exact() {
         }
         stop.store(true, std::sync::atomic::Ordering::Relaxed);
         writer.join().expect("writer thread");
-        assert!(writes.load(std::sync::atomic::Ordering::Relaxed) > 0, "the writer ran");
+        assert!(
+            writes.load(std::sync::atomic::Ordering::Relaxed) > 0,
+            "the writer ran"
+        );
 
         for id in &points {
             let manifest = manifest(env, id);
-            assert_eq!(manifest.documents.len(), ids.len(), "{id} lists every document");
+            assert_eq!(
+                manifest.documents.len(),
+                ids.len(),
+                "{id} lists every document"
+            );
             for doc in &ids {
-                let bytes = crate::time_travel_store::read_document_bytes(&env.graph_dir(), id, doc).unwrap();
+                let bytes =
+                    crate::time_travel_store::read_document_bytes(&env.graph_dir(), id, doc)
+                        .unwrap();
                 assert!(
                     decodes_to_text(&bytes).starts_with(doc.as_str()),
                     "{id}/{doc}: the point holds a whole version of the document"
@@ -626,7 +702,10 @@ fn points_taken_while_writers_run_are_complete_and_later_points_are_exact() {
         let again = point(env, "again");
         assert_point_matches_oracle(env, &again, &want);
         let diff = env
-            .call("diff_restore_points", json!({"restorePointId": again, "against": quiet}))
+            .call(
+                "diff_restore_points",
+                json!({"restorePointId": again, "against": quiet}),
+            )
             .unwrap();
         assert_eq!(diff["aggregate"]["docsModified"], 0, "{diff}");
     });

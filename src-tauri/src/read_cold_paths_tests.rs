@@ -78,9 +78,9 @@ fn make_document(env: &Env, document_id: &str, text: &str) {
     run(crate::document_mutation_service::mcp_local_write_document(
         env.app.clone(),
         &json!({"graph_id": GRAPH, "document_id": document_id,
-                "tiptapJson": {"type": "doc", "content": [
-                    {"type": "paragraph", "content": [{"type": "text", "text": text}]}
-                ]}}),
+        "tiptapJson": {"type": "doc", "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": text}]}
+        ]}}),
     ))
     .unwrap();
 }
@@ -105,11 +105,18 @@ fn orientation_and_block_readers_do_not_hydrate_history() {
         let orient = env.call("quick_orient", json!({})).unwrap();
         assert_eq!(orient["workspace"]["counts"]["documents"], 2, "{orient}");
         env.call("context_bundle", json!({})).unwrap();
-        env.call("read_blocks", json!({"documentId": "alpha"})).unwrap();
-        env.call("get_block", json!({"documentId": "alpha", "blockId": block}))
+        env.call("read_blocks", json!({"documentId": "alpha"}))
             .unwrap();
-        env.call("query_blocks", json!({"documentId": "alpha", "query": "royal"}))
-            .unwrap();
+        env.call(
+            "get_block",
+            json!({"documentId": "alpha", "blockId": block}),
+        )
+        .unwrap();
+        env.call(
+            "query_blocks",
+            json!({"documentId": "alpha", "query": "royal"}),
+        )
+        .unwrap();
         env.call("document_digest", json!({"documentId": "alpha"}))
             .unwrap();
         let (cold, hydrating) = crate::document_record_store::record_read_counts_for_test();

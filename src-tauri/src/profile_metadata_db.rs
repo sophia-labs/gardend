@@ -182,7 +182,10 @@ fn remove_worker(profile_dir: &Path, id: u64) {
         .get_or_init(|| Mutex::new(HashMap::new()))
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if workers.get(profile_dir).is_some_and(|handle| handle.id == id) {
+    if workers
+        .get(profile_dir)
+        .is_some_and(|handle| handle.id == id)
+    {
         workers.remove(profile_dir);
     }
 }

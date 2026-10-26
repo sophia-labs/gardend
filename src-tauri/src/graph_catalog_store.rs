@@ -332,14 +332,21 @@ mod tests {
         let db_file = profile_dir.join("metadata.turso");
         let before = std::fs::metadata(&db_file).unwrap().modified().unwrap();
         let wal = profile_dir.join("metadata.turso-wal");
-        let wal_before = std::fs::metadata(&wal).ok().map(|m| (m.len(), m.modified().ok()));
+        let wal_before = std::fs::metadata(&wal)
+            .ok()
+            .map(|m| (m.len(), m.modified().ok()));
         std::thread::sleep(std::time::Duration::from_millis(30));
         for _ in 0..10 {
             upsert_cached_profile_graph_record(&profile_dir, &record).unwrap();
         }
-        assert_eq!(std::fs::metadata(&db_file).unwrap().modified().unwrap(), before);
         assert_eq!(
-            std::fs::metadata(&wal).ok().map(|m| (m.len(), m.modified().ok())),
+            std::fs::metadata(&db_file).unwrap().modified().unwrap(),
+            before
+        );
+        assert_eq!(
+            std::fs::metadata(&wal)
+                .ok()
+                .map(|m| (m.len(), m.modified().ok())),
             wal_before,
             "an unchanged record writes nothing"
         );

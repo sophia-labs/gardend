@@ -281,10 +281,15 @@ mod swarm_store_tests;
 mod block_contract_store_tests;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod document_kind_store_tests;
+#[cfg(all(
+    test,
+    feature = "headless",
+    not(feature = "desktop"),
+    not(feature = "frontend-crdt")
+))]
+mod fence_tests;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod forward_restore_store_tests;
-#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
-mod restore_point_dedupe_store_tests;
 mod graph_incarnation_admission;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod json_text_face_store_tests;
@@ -305,6 +310,7 @@ mod original_file_manifest_store;
 mod original_file_service;
 mod original_file_storage;
 mod original_file_types;
+mod page_fit;
 mod paths;
 mod pdf_docling_job;
 mod pdf_docling_runtime_manifest;
@@ -354,8 +360,12 @@ mod rdf_workspace_materializer;
 mod rdf_workspace_store_materializer;
 mod rdf_workspace_terms;
 mod rdf_workspace_values;
+#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
+mod read_cold_paths_tests;
 mod request_actor;
 mod restore_guard;
+#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
+mod restore_point_dedupe_store_tests;
 mod runtime_capabilities;
 mod runtime_config;
 mod salience_config_projection;
@@ -408,12 +418,9 @@ mod source_pull_budget;
 mod source_pull_tree_tests;
 mod source_sync;
 mod sparql_admission;
-mod page_fit;
+mod sparql_cursor;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod sparql_lease_tests;
-#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
-mod read_cold_paths_tests;
-mod sparql_cursor;
 mod storage;
 mod storage_atomic;
 mod storage_file_ops;
@@ -435,13 +442,6 @@ mod web_fetch;
 mod whiteboard_blocks_store_tests;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod whiteboard_lane_store_tests;
-#[cfg(all(
-    test,
-    feature = "headless",
-    not(feature = "desktop"),
-    not(feature = "frontend-crdt")
-))]
-mod fence_tests;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod wire_iri_store_tests;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]

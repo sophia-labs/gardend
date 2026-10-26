@@ -97,8 +97,7 @@ pub(super) async fn mcp_local_get_workspace(
     // over how many fit (a page never shrinks when an entry is added), instead
     // of rebuilding the page, with every entry cloned into four places, and
     // serialising it twice per entry.
-    let candidates: Vec<serde_json::Value> =
-        eligible.into_iter().skip(start).take(limit).collect();
+    let candidates: Vec<serde_json::Value> = eligible.into_iter().skip(start).take(limit).collect();
     let sizes = crate::page_fit::row_sizes(&candidates)?;
     let fitted = crate::page_fit::largest_fitting_prefix(&sizes, max_bytes, |count| {
         let candidate_value = workspace_page_value(

@@ -190,16 +190,28 @@ mod tests {
         ];
         let none = |_: &str| None;
         let page1 = comments_for_page(all.clone(), content, first, 0, none);
-        assert_eq!(ids(&page1), ["c1", "loose"], "block b1 and the unanchored one");
+        assert_eq!(
+            ids(&page1),
+            ["c1", "loose"],
+            "block b1 and the unanchored one"
+        );
         let page2 = comments_for_page(all, content, second, split, none);
-        assert_eq!(ids(&page2), ["c2"], "block b3 only; unanchored not repeated");
+        assert_eq!(
+            ids(&page2),
+            ["c2"],
+            "block b3 only; unanchored not repeated"
+        );
     }
 
     #[test]
     fn markdown_pages_locate_a_comment_by_its_blocks_text() {
         let content = "First paragraph here.\n\nSecond paragraph there.";
         let visible = "Second paragraph there.";
-        let all = vec![comment("a", Some("b1")), comment("b", Some("b2")), comment("gone", Some("zz"))];
+        let all = vec![
+            comment("a", Some("b1")),
+            comment("b", Some("b2")),
+            comment("gone", Some("zz")),
+        ];
         let text = |id: &str| match id {
             "b1" => Some("First paragraph here.".to_string()),
             "b2" => Some("Second paragraph there.".to_string()),

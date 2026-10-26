@@ -1,7 +1,9 @@
 use crate::app_runtime::AppHandle;
 use crate::{
     document_rendering::{document_blocks_for_read, document_markdown},
-    document_service::{read_document, read_document_cold, read_graph_documents_cold, DocumentRecord},
+    document_service::{
+        read_document, read_document_cold, read_graph_documents_cold, DocumentRecord,
+    },
     mcp_utils::{mcp_arg_string, mcp_arg_usize, mcp_required_document_id, mcp_required_graph_id},
     paths::existing_graph_dir,
 };
@@ -220,7 +222,9 @@ async fn live_room_comments(
     document_id: &str,
 ) -> Option<Vec<serde_json::Value>> {
     let registry = app.try_state::<crate::crdt_engine::rooms::RoomRegistry>()?;
-    let room = registry.peek(&format!("doc:{graph_id}:{document_id}")).await?;
+    let room = registry
+        .peek(&format!("doc:{graph_id}:{document_id}"))
+        .await?;
     Some(
         room.with_doc(crate::document_comments_read::comments_in_doc)
             .await,
@@ -505,7 +509,11 @@ mod tests {
                     finalize_document_list_bytes(value).map(|(_, bytes)| bytes)
                 })
                 .unwrap();
-                assert_eq!(fitted, scanned.len(), "max_bytes {max_bytes}, start {start}");
+                assert_eq!(
+                    fitted,
+                    scanned.len(),
+                    "max_bytes {max_bytes}, start {start}"
+                );
             }
         }
     }

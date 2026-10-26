@@ -2495,11 +2495,10 @@ fn document_snippet(graph_dir: &Path, document_id: &str, block_id: Option<&str>)
     // beside every record); a snippet almost always comes from them. Only a
     // document with no block text falls back to the body, and that needs the
     // whole record.
-    let side_blocks: Option<Vec<Value>> =
-        crate::storage::read_json(
-            &crate::ydoc_paths::document_ydoc_dir(graph_dir, document_id).join("blocks.json"),
-        )
-            .ok();
+    let side_blocks: Option<Vec<Value>> = crate::storage::read_json(
+        &crate::ydoc_paths::document_ydoc_dir(graph_dir, document_id).join("blocks.json"),
+    )
+    .ok();
     if let Some(snippet) = side_blocks
         .as_deref()
         .and_then(|blocks| block_snippet(blocks, block_id))
@@ -2512,9 +2511,8 @@ fn document_snippet(graph_dir: &Path, document_id: &str, block_id: Option<&str>)
         .get("blocks")
         .and_then(Value::as_array)
         .unwrap_or(&empty);
-    block_snippet(blocks, block_id).or_else(|| {
-        string_value(record.get("body")).map(|text| js_slice(&text, 240))
-    })
+    block_snippet(blocks, block_id)
+        .or_else(|| string_value(record.get("body")).map(|text| js_slice(&text, 240)))
 }
 
 /// The snippet a document's blocks give: the named block's text, else the first
@@ -4401,8 +4399,11 @@ mod tests {
         // No manifest: no snippet, even with a side file.
         let ydoc_dir = crate::ydoc_paths::document_ydoc_dir(&dir, "doc-d");
         std::fs::create_dir_all(&ydoc_dir).expect("ydoc dir");
-        std::fs::write(ydoc_dir.join("blocks.json"), r#"[{"id":"b","content":"x"}]"#)
-            .expect("blocks.json");
+        std::fs::write(
+            ydoc_dir.join("blocks.json"),
+            r#"[{"id":"b","content":"x"}]"#,
+        )
+        .expect("blocks.json");
         assert_eq!(document_snippet(&dir, "doc-d", None), None);
         let _ = std::fs::remove_dir_all(dir);
     }

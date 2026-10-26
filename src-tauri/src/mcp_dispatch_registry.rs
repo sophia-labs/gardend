@@ -551,7 +551,9 @@ fn tramp_read_document<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandl
     let app = ctx.app.clone();
     Box::pin(async move {
         await_read_projection(&app, args, false).await?;
-        mcp_local_read_document_live(app, args).await.map_err(AppError::internal)
+        mcp_local_read_document_live(app, args)
+            .await
+            .map_err(AppError::internal)
     })
 }
 

@@ -51,7 +51,9 @@ pub(super) fn read_ydoc_update_bytes(
     if !state_path.is_file() {
         return Ok(None);
     }
-    Ok(Some(canonicalize_ydoc_update_bytes(read_bytes(state_path)?)))
+    Ok(Some(canonicalize_ydoc_update_bytes(read_bytes(
+        state_path,
+    )?)))
 }
 
 pub(super) fn write_document_state_files(

@@ -606,12 +606,7 @@ pub(crate) fn survey_document_faces(
         .collect();
 
     let mut per_face: Vec<Vec<Triple>> = vec![Vec::new(); scopes.len()];
-    for quad in store.quads_for_pattern(
-        None,
-        None,
-        None,
-        Some(GraphNameRef::NamedNode(graph)),
-    ) {
+    for quad in store.quads_for_pattern(None, None, None, Some(GraphNameRef::NamedNode(graph))) {
         let quad = quad.map_err(|e| format!("document survey row: {e}"))?;
         let NamedOrBlankNode::NamedNode(quad_subject) = &quad.subject else {
             continue;
@@ -1412,8 +1407,8 @@ mod tests {
             store.insert(quad).expect("insert noise quad");
         }
 
-        let one_pass = survey_document_faces(&store, GRAPH, DOC, &rec.rdf_subject)
-            .expect("one-pass survey");
+        let one_pass =
+            survey_document_faces(&store, GRAPH, DOC, &rec.rdf_subject).expect("one-pass survey");
         assert_eq!(one_pass.len(), Face::ALL.len());
         for (index, &face) in Face::ALL.iter().enumerate() {
             let sparql = survey_face_span(&store, GRAPH, DOC, face, &rec.rdf_subject)

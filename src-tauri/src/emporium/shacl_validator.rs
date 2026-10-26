@@ -335,7 +335,9 @@ fn shapes_ttl_for(contract: &VocabularyContract) -> std::borrow::Cow<'static, st
     }
     if std::ptr::eq(contract, memory_core_vocabulary()) {
         return std::borrow::Cow::Borrowed(
-            MEMORY_CORE.get_or_init(|| vocab_to_shacl(contract)).as_str(),
+            MEMORY_CORE
+                .get_or_init(|| vocab_to_shacl(contract))
+                .as_str(),
         );
     }
     std::borrow::Cow::Owned(vocab_to_shacl(contract))
@@ -955,7 +957,9 @@ w5:NoNotesShape a sh:NodeShape ;
             assert_eq!(again.len(), first.len(), "same verdict on every call");
             assert!(validate_against_shapes(shapes, &good, membrane, "w5").is_ok());
         }
-        assert!(first.iter().any(|v| v.message.contains("w5: a record must not carry a note")));
+        assert!(first
+            .iter()
+            .any(|v| v.message.contains("w5: a record must not carry a note")));
         assert!(first
             .iter()
             .any(|v| v.property_path.as_deref() == Some("http://mnemosyne.dev/memory#sourceKind")));
@@ -972,14 +976,20 @@ w5:NoNotesShape a sh:NodeShape ;
     fn static_contract_shapes_are_the_derived_shapes() {
         use crate::emporium::contract::workspace_vocabulary;
         for contract in [memory_core_vocabulary(), workspace_vocabulary()] {
-            assert_eq!(&*shapes_ttl_for(contract), vocab_to_shacl(contract).as_str());
+            assert_eq!(
+                &*shapes_ttl_for(contract),
+                vocab_to_shacl(contract).as_str()
+            );
             assert!(
                 matches!(shapes_ttl_for(contract), std::borrow::Cow::Borrowed(_)),
                 "kept, not regenerated"
             );
         }
         let cloned = memory_core_vocabulary().clone();
-        assert!(matches!(shapes_ttl_for(&cloned), std::borrow::Cow::Owned(_)));
+        assert!(matches!(
+            shapes_ttl_for(&cloned),
+            std::borrow::Cow::Owned(_)
+        ));
         assert_eq!(&*shapes_ttl_for(&cloned), vocab_to_shacl(&cloned).as_str());
     }
 

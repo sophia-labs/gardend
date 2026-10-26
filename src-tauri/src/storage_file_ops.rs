@@ -1,8 +1,8 @@
 use crate::{
     app_error::{AppError, AppResult},
     storage_atomic::{
-        atomic_temp_path, copy_file_atomic_inner, display_path, sync_parent_dir, write_bytes_atomic,
-        write_bytes_atomic_no_dir_sync,
+        atomic_temp_path, copy_file_atomic_inner, display_path, sync_parent_dir,
+        write_bytes_atomic, write_bytes_atomic_no_dir_sync,
     },
 };
 use std::{
@@ -353,7 +353,10 @@ mod tests {
         let lines: Vec<&str> = raw.lines().collect();
         assert_eq!(lines.len(), 3);
         assert!(serde_json::from_str::<serde_json::Value>(lines[1]).is_err());
-        assert_eq!(lines[2], r#"{"n":3}"#, "the new record is intact on its own line");
+        assert_eq!(
+            lines[2], r#"{"n":3}"#,
+            "the new record is intact on its own line"
+        );
         // A clean tail gets no blank line.
         append_secret_line(&path, r#"{"n":4}"#).expect("append after a clean tail");
         assert_eq!(

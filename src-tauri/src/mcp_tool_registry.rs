@@ -189,7 +189,9 @@ pub(super) fn cached_tools_list_result(
 ) -> std::sync::Arc<serde_json::Value> {
     static CACHE: std::sync::Mutex<Vec<CachedToolsList>> = std::sync::Mutex::new(Vec::new());
     {
-        let mut cache = CACHE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut cache = CACHE
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         cache.retain(|entry| entry.boundary.strong_count() > 0);
         if let Some(entry) = cache.iter().find(|entry| {
             std::ptr::eq(entry.boundary.as_ptr(), std::sync::Arc::as_ptr(boundary))
@@ -210,7 +212,9 @@ pub(super) fn cached_tools_list_result(
     let mut result = serde_json::to_value(listed).expect("McpToolsListResult always serializes");
     result["_meta"] = serde_json::json!({"sophia.optionalCapabilities":[{"id":"custom-css","description":"Explicit graph stylesheet read/guide and guarded write/reset; local application requires user consent","request":{"optionalCapabilities":["custom-css"]}}]});
     let result = std::sync::Arc::new(result);
-    let mut cache = CACHE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut cache = CACHE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     if cache.len() >= TOOLS_LIST_CACHE_ENTRIES {
         cache.remove(0);
     }
@@ -778,7 +782,8 @@ mod tests {
         let again = cached_tools_list_result(&boundary, CellRole::Owner, false, false, &scopes);
         assert!(Arc::ptr_eq(&first, &again), "same state: same built list");
         let other_scopes = vec!["mcp.tools.read".to_string(), "documents.read".to_string()];
-        let other = cached_tools_list_result(&boundary, CellRole::Owner, false, false, &other_scopes);
+        let other =
+            cached_tools_list_result(&boundary, CellRole::Owner, false, false, &other_scopes);
         assert!(!Arc::ptr_eq(&first, &other), "scopes are part of the state");
         let with_optional =
             cached_tools_list_result(&boundary, CellRole::Owner, true, false, &scopes);

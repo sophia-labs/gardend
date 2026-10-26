@@ -94,8 +94,8 @@ use crate::graph_service::{create_graph_service, CreateGraphInput};
 // The reconcile + materializer engine fns, reached crate-internally. Each of
 // these lives in a TOP-LEVEL module, so `pub(super)` == crate-reachable here.
 use crate::document_meaningful_object::{
-    face_desired_triples, reconcile_document_record, survey_document_faces, survey_document_projection,
-    survey_face_span, Face,
+    face_desired_triples, reconcile_document_record, survey_document_faces,
+    survey_document_projection, survey_face_span, Face,
 };
 use crate::geist_song_rdf::{materialize_song_store, reconcile_song_store};
 use crate::geist_song_store::read_song_store;
@@ -1207,9 +1207,8 @@ fn one_pass_survey_matches_the_sparql_survey_on_a_real_document() {
 
         for record in [&v1] {
             reconcile_document_record(&store, record).expect("reconcile");
-            let one_pass =
-                survey_document_faces(&store, graph_id, "notes", &record.rdf_subject)
-                    .expect("one-pass survey");
+            let one_pass = survey_document_faces(&store, graph_id, "notes", &record.rdf_subject)
+                .expect("one-pass survey");
             for (index, &face) in Face::ALL.iter().enumerate() {
                 let sparql = survey_face_span(&store, graph_id, "notes", face, &record.rdf_subject)
                     .expect("sparql survey");

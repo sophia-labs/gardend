@@ -82,8 +82,7 @@ pub(crate) struct SparqlAdmission {
 
 impl SparqlAdmission {
     pub(crate) fn from_env() -> Self {
-        let concurrency =
-            positive_env_usize(CONCURRENCY_ENV).unwrap_or_else(default_concurrency);
+        let concurrency = positive_env_usize(CONCURRENCY_ENV).unwrap_or_else(default_concurrency);
         let max_timeout_ms = positive_env_u64(MAX_TIMEOUT_ENV)
             .unwrap_or(MAX_TIMEOUT_MS)
             .max(MIN_TIMEOUT_MS);
@@ -550,7 +549,11 @@ mod tests {
     #[test]
     fn default_permits_follow_the_machine_and_stay_in_bounds() {
         assert_eq!(concurrency_for_cpus(1), 2);
-        assert_eq!(concurrency_for_cpus(4), 2, "a 4 vCPU box keeps the former 2");
+        assert_eq!(
+            concurrency_for_cpus(4),
+            2,
+            "a 4 vCPU box keeps the former 2"
+        );
         assert_eq!(concurrency_for_cpus(6), 3);
         assert_eq!(concurrency_for_cpus(16), 4);
         assert_eq!(concurrency_for_cpus(256), 4);
@@ -559,11 +562,15 @@ mod tests {
 
     #[tokio::test]
     async fn an_update_that_cannot_start_in_time_is_refused_before_it_runs() {
-        let admission =
-            SparqlAdmission::new(1, Duration::from_millis(150), Duration::from_secs(1));
-        let _slow_query = admission.acquire_before(admission.update_start_deadline()).await.unwrap();
+        let admission = SparqlAdmission::new(1, Duration::from_millis(150), Duration::from_secs(1));
+        let _slow_query = admission
+            .acquire_before(admission.update_start_deadline())
+            .await
+            .unwrap();
         let started = Instant::now();
-        let refused = admission.acquire_before(admission.update_start_deadline()).await;
+        let refused = admission
+            .acquire_before(admission.update_start_deadline())
+            .await;
         assert!(
             matches!(refused, Err(error) if error.kind() == crate::app_error::AppErrorKind::Capacity)
         );
@@ -573,7 +580,10 @@ mod tests {
     #[tokio::test]
     async fn shared_semaphore_bounds_queries_and_updates() {
         let admission = SparqlAdmission::new(1, Duration::from_secs(1), Duration::from_secs(1));
-        let first = admission.acquire_before(tokio::time::Instant::now() + Duration::from_secs(1)).await.unwrap();
+        let first = admission
+            .acquire_before(tokio::time::Instant::now() + Duration::from_secs(1))
+            .await
+            .unwrap();
         let deadline = tokio::time::Instant::now() + Duration::from_millis(25);
         let blocked = admission.acquire_before(deadline).await;
         assert!(

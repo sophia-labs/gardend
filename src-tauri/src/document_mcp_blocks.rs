@@ -19,8 +19,7 @@ async fn live_or_stored_blocks(
         return Ok(live.blocks);
     }
     // Only the blocks are used: the cold read skips the sidecar and its base64.
-    let document =
-        read_document_cold(app.clone(), graph_id.to_string(), document_id.to_string())?;
+    let document = read_document_cold(app.clone(), graph_id.to_string(), document_id.to_string())?;
     Ok(document_blocks_for_read(&document))
 }
 

@@ -2,10 +2,10 @@ use crate::app_runtime::AppHandle;
 use crate::{
     app_error::{AppError, AppResult},
     clock,
+    crdt_engine::persistence_coordinator::{GraphPersistenceCoordinator, HotWriteLease},
     document_history_file_store::read_document_snapshot_payload,
     document_history_service::current_document_snapshot_with_lease,
     document_history_store::document_snapshot_payload_path,
-    crdt_engine::persistence_coordinator::{GraphPersistenceCoordinator, HotWriteLease},
     graph_paths::existing_graph_dir,
     restore_guard::RestoreGuardState,
     storage::read_json,
@@ -125,11 +125,7 @@ impl CaptureFence {
 
 /// A short hot-write lease for one step of a lease-per-document capture, or none when the caller already
 /// holds the graph lease (restore's backup).
-fn scoped_lease(
-    app: &AppHandle,
-    graph_id: &str,
-    scoped: bool,
-) -> AppResult<Option<HotWriteLease>> {
+fn scoped_lease(app: &AppHandle, graph_id: &str, scoped: bool) -> AppResult<Option<HotWriteLease>> {
     if !scoped {
         return Ok(None);
     }
@@ -527,7 +523,11 @@ fn document_content_fingerprint(record_path: &Path, ydoc: &[u8]) -> AppResult<St
     hasher.update(&record);
     hasher.update((ydoc.len() as u64).to_le_bytes());
     hasher.update(ydoc);
-    Ok(hasher.finalize().iter().map(|b| format!("{b:02x}")).collect())
+    Ok(hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect())
 }
 
 /// Whether `previous_ref`, an entry of the newest restore point, can stand in for the document as it is now:
@@ -564,7 +564,9 @@ fn reusable_entry(
         Ok(meta) if meta.is_file() && meta.len() == ydoc.len() as u64 => {}
         _ => return Ok(false),
     }
-    Ok(std::fs::read(&old_bytes).map(|old| old == ydoc).unwrap_or(false))
+    Ok(std::fs::read(&old_bytes)
+        .map(|old| old == ydoc)
+        .unwrap_or(false))
 }
 
 pub(crate) fn list_restore_points_response(
@@ -1002,7 +1004,10 @@ mod tests {
             assert!(!fence.still_holds(&app, graph_id), "a restore is running");
             let refused = capture_restore_point(&app, graph_id, RestorePointTrigger::Manual, None)
                 .expect_err("a capture must not start under a running restore");
-            assert!(refused.to_string().contains("restore in progress"), "{refused}");
+            assert!(
+                refused.to_string().contains("restore in progress"),
+                "{refused}"
+            );
             drop(lease);
             assert!(
                 !fence.still_holds(&app, graph_id),

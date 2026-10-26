@@ -33,7 +33,13 @@ thread_local! {
 
 #[cfg(test)]
 pub(crate) fn thread_sync_count(what: &str) -> usize {
-    THREAD_SYNCS.with(|syncs| syncs.borrow().iter().filter(|label| **label == what).count())
+    THREAD_SYNCS.with(|syncs| {
+        syncs
+            .borrow()
+            .iter()
+            .filter(|label| **label == what)
+            .count()
+    })
 }
 
 /// The flush itself. Lib tests issue a plain `fsync(2)`: it keeps the syscall and its ordering but not the drive drain,

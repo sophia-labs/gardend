@@ -107,7 +107,10 @@ pub(crate) fn read_document_bytes(
 }
 
 /// Create the (empty) bundle directories of a restore point about to be written with the `_deferred` writers.
-pub(crate) fn prepare_restore_point_dirs(graph_dir: &Path, restore_point_id: &str) -> AppResult<()> {
+pub(crate) fn prepare_restore_point_dirs(
+    graph_dir: &Path,
+    restore_point_id: &str,
+) -> AppResult<()> {
     create_dir_all(&restore_point_documents_dir(graph_dir, restore_point_id))
 }
 
@@ -132,8 +135,7 @@ pub(crate) fn link_document_bytes_deferred(
     restore_point_id: &str,
     document_id: &str,
 ) -> AppResult<bool> {
-    let source =
-        restore_point_document_bytes_path(graph_dir, source_restore_point_id, document_id);
+    let source = restore_point_document_bytes_path(graph_dir, source_restore_point_id, document_id);
     let target = restore_point_document_bytes_path(graph_dir, restore_point_id, document_id);
     link_or_copy_deferred_dir_sync(&source, &target)
 }

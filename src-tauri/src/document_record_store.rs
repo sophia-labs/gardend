@@ -790,8 +790,15 @@ mod tests {
         document.body = "A different body".to_string();
         write_document_projection_record(&graph_dir, &document).unwrap();
         let second = inodes(&files);
-        assert_ne!(second[0], first[0], "document.json changed, so it was rewritten");
-        assert_eq!(second[1..], first[1..], "the unchanged sidecars were left alone");
+        assert_ne!(
+            second[0], first[0],
+            "document.json changed, so it was rewritten"
+        );
+        assert_eq!(
+            second[1..],
+            first[1..],
+            "the unchanged sidecars were left alone"
+        );
 
         // The blocks change: blocks.json follows, tree.json and tiptap.json do not.
         document.blocks[0].content = "Hello again".to_string();

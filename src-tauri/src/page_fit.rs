@@ -22,7 +22,9 @@ pub(crate) fn largest_fitting_prefix(
     let mut upper = 0;
     let mut sum = 0usize;
     for (index, size) in row_sizes.iter().enumerate() {
-        sum = sum.saturating_add(*size).saturating_add(usize::from(index > 0));
+        sum = sum
+            .saturating_add(*size)
+            .saturating_add(usize::from(index > 0));
         if sum > max_bytes {
             break;
         }

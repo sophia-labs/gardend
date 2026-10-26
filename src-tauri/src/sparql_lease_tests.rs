@@ -23,7 +23,8 @@ fn with_app(test: impl FnOnce(&crate::app_runtime::AppHandle)) {
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     let previous = std::env::var_os("GARDEN_PROFILE_DIR");
-    let profile = std::env::temp_dir().join(format!("garden-sparql-lease-{}", uuid::Uuid::new_v4()));
+    let profile =
+        std::env::temp_dir().join(format!("garden-sparql-lease-{}", uuid::Uuid::new_v4()));
     std::env::set_var("GARDEN_PROFILE_DIR", &profile);
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let app = crate::tauri_runtime::build_mock_app_for_tests(true);
@@ -103,13 +104,11 @@ fn a_writer_does_not_wait_for_a_running_query() {
                 .acquire_lifecycle_shared(GRAPH)
                 .await
                 .expect("shared lease");
-            let writer = tokio::time::timeout(
-                Duration::from_secs(5),
-                coordinator.acquire_hot_write(GRAPH),
-            )
-            .await
-            .expect("a writer must not wait for a query's lease")
-            .expect("hot-write lease");
+            let writer =
+                tokio::time::timeout(Duration::from_secs(5), coordinator.acquire_hot_write(GRAPH))
+                    .await
+                    .expect("a writer must not wait for a query's lease")
+                    .expect("hot-write lease");
             drop(writer);
             drop(running_query);
             // Deletion and restore still fence on the shared lease.

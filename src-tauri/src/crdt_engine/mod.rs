@@ -34,8 +34,8 @@ pub(crate) mod import_vault_ops;
 pub(crate) mod markdown_export;
 pub(crate) mod minimal_edit;
 pub(crate) mod persistence_coordinator;
-pub(crate) mod projection_stamp;
 pub mod projection;
+pub(crate) mod projection_stamp;
 pub mod rooms;
 pub(crate) mod upload_ingest_ops;
 #[doc(hidden)]

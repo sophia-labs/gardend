@@ -169,7 +169,14 @@ pub(super) fn run_sparql_query_service_controlled(
     let graph_dir = existing_graph_dir(&app, &input.graph_id).map_err(AppError::storage)?;
     ensure_graph_store_seeded_with_cancellation(&graph_dir, &cancellation)
         .map_err(AppError::rdf)?;
-    evaluate_seeded_query(input, max_rows, page, cancellation, hidden_graphs, graph_dir)
+    evaluate_seeded_query(
+        input,
+        max_rows,
+        page,
+        cancellation,
+        hidden_graphs,
+        graph_dir,
+    )
 }
 
 /// The query under the SHARED lifecycle lease: it never walks the seed.
@@ -185,13 +192,18 @@ pub(super) fn run_sparql_query_service_shared(
     hidden_graphs: &[String],
 ) -> AppResult<Option<(SparqlQueryResult, Option<String>)>> {
     let graph_dir = existing_graph_dir(&app, &input.graph_id).map_err(AppError::storage)?;
-    if !ensure_graph_store_seeded_without_walk(&graph_dir, &cancellation)
-        .map_err(AppError::rdf)?
-    {
+    if !ensure_graph_store_seeded_without_walk(&graph_dir, &cancellation).map_err(AppError::rdf)? {
         return Ok(None);
     }
-    evaluate_seeded_query(input, max_rows, page, cancellation, hidden_graphs, graph_dir)
-        .map(Some)
+    evaluate_seeded_query(
+        input,
+        max_rows,
+        page,
+        cancellation,
+        hidden_graphs,
+        graph_dir,
+    )
+    .map(Some)
 }
 
 fn evaluate_seeded_query(

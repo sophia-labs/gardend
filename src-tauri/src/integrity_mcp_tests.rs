@@ -1019,7 +1019,11 @@ fn read_document_pages_carry_the_comments_of_their_blocks_and_the_total_count() 
             .await
             .unwrap();
             assert_eq!(first["commentCount"], 1, "{first}");
-            assert_eq!(first["comments"].as_array().map(Vec::len), Some(1), "{first}");
+            assert_eq!(
+                first["comments"].as_array().map(Vec::len),
+                Some(1),
+                "{first}"
+            );
             // A page past the block that opens the comment's anchor: the
             // document-level count stays, the comment is not repeated.
             let past = tool(
