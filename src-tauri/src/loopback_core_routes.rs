@@ -40,6 +40,12 @@ pub(crate) fn loopback_core_router() -> Router<Arc<LoopbackState>> {
         .route("/api/local/crdt-timings", get(loopback_local_crdt_timings))
 }
 
+/// What this engine can do that a gateway checks before it routes a caller
+/// here (`GET /health`, on a serving cell). `viewer-rooms-v1`: a socket whose
+/// lease is below Editor is a Viewer's (it reads, keeps its presence and
+/// never writes; a frame that would change the room closes it with 4403).
+pub(crate) const CELL_CAPABILITIES: &[&str] = &["viewer-rooms-v1"];
+
 pub(crate) async fn loopback_health(State(state): State<Arc<LoopbackState>>) -> Response {
     // The cell is a self-contained in-process runtime (Oxigraph + CRDT engine);
     // there is no Redis or other external dependency to report on. Keep the
@@ -73,6 +79,7 @@ pub(crate) async fn loopback_health(State(state): State<Arc<LoopbackState>>) -> 
         // durable-flush gates in `cell_durability` (Gate A/B/C) refuse.
         Json(serde_json::json!({
             "status": "fenced",
+            "capabilities": CELL_CAPABILITIES,
         }))
         .into_response()
     } else {
@@ -84,6 +91,7 @@ pub(crate) async fn loopback_health(State(state): State<Arc<LoopbackState>>) -> 
             // The block vocabulary this cell normalises writes to; the SPA
             // records the version it was built against.
             "blockContract": crate::crdt_engine::block_contract::contract_status(),
+            "capabilities": CELL_CAPABILITIES,
         }))
         .into_response()
     }

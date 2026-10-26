@@ -357,7 +357,12 @@ What they do:
   holding the room's write scope (`documents.write.crdt` or
   `workspace.write.crdt`) is accepted (with or without these knobs; a refused
   request still gets the same 401), and under Access the Access login is, with
-  its `Origin` checked against the allowed list.
+  its `Origin` checked against the allowed list. In a hosted cell, a gateway
+  lease below Editor makes the socket a Viewer's: it reads (the Trash
+  included), its presence is stamped with the lease principal, a frame that
+  would change the room closes it with 4403, and its open writes nothing (no
+  room for a missing document, no incarnation, no self-heal). `GET /health`
+  says so with `"capabilities": ["viewer-rooms-v1"]`.
 - **`GET /self-host.json`** (public, `no-store`):
   `{"kind":"gardend-self-host","version":"…","auth":"cloudflare-access"|"key","user":{"email":"…"}|null}`.
   `user` is set when a valid Access token for a person came with the request (a
