@@ -32,6 +32,30 @@ pub fn write_bytes(path: &Path, bytes: &[u8]) -> AppResult<()> {
     result
 }
 
+/// [`write_bytes`], skipped when `path` already holds exactly `bytes`.
+///
+/// The comparison is against the file itself (its length, then its content), not
+/// against a remembered hash: a file edited from outside the process is rewritten,
+/// and the check needs no state that could go stale. A skipped write leaves the
+/// existing file, which an earlier atomic write already synced, untouched. Returns
+/// whether the file was written.
+pub fn write_bytes_if_changed(path: &Path, bytes: &[u8]) -> AppResult<bool> {
+    if file_holds_exactly(path, bytes) {
+        tracing::info!(target: "gardend_otel", { sophia.files.skipped_unchanged = 1_u64, sophia.files.bytes = bytes.len() as u64 }, "file unchanged");
+        return Ok(false);
+    }
+    write_bytes(path, bytes)?;
+    Ok(true)
+}
+
+fn file_holds_exactly(path: &Path, bytes: &[u8]) -> bool {
+    match fs::metadata(path) {
+        Ok(metadata) if metadata.is_file() && metadata.len() == bytes.len() as u64 => {}
+        _ => return false,
+    }
+    fs::read(path).is_ok_and(|existing| existing == bytes)
+}
+
 pub fn copy_file_atomic(source: &Path, target: &Path) -> AppResult<u64> {
     if let Some(parent) = target.parent() {
         create_dir_all(parent)?;

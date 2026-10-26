@@ -2,7 +2,10 @@ use crate::app_error::PersistenceError;
 use crate::{
     document_types::DocumentRecord,
     paths::{document_ydoc_dir, document_ydoc_state_path},
-    storage::{create_dir_all, read_bytes, write_bytes, write_json},
+    storage::{
+        create_dir_all, read_bytes, write_bytes, write_bytes_if_changed,
+        write_json_compact_if_changed,
+    },
 };
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use std::path::Path;
@@ -64,16 +67,19 @@ pub(super) fn write_document_projection_files(
     let ydoc_dir = document_ydoc_dir(graph_dir, &document.document_id);
     create_dir_all(&ydoc_dir)?;
     if !document.tiptap_xml.is_empty() {
-        write_bytes(&ydoc_dir.join("tiptap.xml"), document.tiptap_xml.as_bytes())
+        write_bytes_if_changed(&ydoc_dir.join("tiptap.xml"), document.tiptap_xml.as_bytes())
             .map_err(|error| PersistenceError::from(error).with_context("write TipTap XML"))?;
     }
+    // Derived projections: parsed by every reader, never read by eye, so compact;
+    // and a flush that changed none of them (a comment edit, an identical re-save)
+    // rewrites none of them.
     if let Some(tiptap_json) = &document.tiptap_json {
-        write_json(&ydoc_dir.join("tiptap.json"), tiptap_json)?;
+        write_json_compact_if_changed(&ydoc_dir.join("tiptap.json"), tiptap_json)?;
     }
     if let Some(tree) = &document.tree {
-        write_json(&ydoc_dir.join("tree.json"), tree)?;
+        write_json_compact_if_changed(&ydoc_dir.join("tree.json"), tree)?;
     }
-    write_json(&ydoc_dir.join("blocks.json"), &document.blocks)?;
+    write_json_compact_if_changed(&ydoc_dir.join("blocks.json"), &document.blocks)?;
 
     Ok(())
 }
