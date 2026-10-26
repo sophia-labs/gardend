@@ -56,6 +56,13 @@ fn para(t: &str) -> Value {
     json!({"type": "paragraph", "content": [text(t)]})
 }
 
+/// A paragraph as the web editor writes it: its BlockId extension walks every
+/// descendant (`doc.descendants`, never stopping at a list item or a cell), so
+/// a nested paragraph carries its own `data-block-id` too.
+fn para_id(id: &str, t: &str) -> Value {
+    json!({"type": "paragraph", "attrs": {"data-block-id": id}, "content": [text(t)]})
+}
+
 fn item(children: Vec<Value>) -> Value {
     json!({"type": "listItem", "content": children})
 }
@@ -576,16 +583,20 @@ fn canonical_content_is_stored_verbatim_without_receipts() {
         crate::app_runtime::async_runtime::block_on(async {
             create(&app, "doc-canonical").await;
             // What the web editor itself writes: flat list items, a table, a
-            // block image, math, a query block, a known-marked run.
+            // block image, math, a query block, a known-marked run. Every
+            // paragraph carries an id, nested ones included (the editor's
+            // BlockId extension ids every descendant of its block types); an
+            // id-less paragraph is not canonical, and the write path mints one
+            // (idless_blocks_tests).
             let canonical = vec![
                 json!({"type": "heading", "attrs": {"data-block-id": "h", "level": 2}, "content": [text("Title")]}),
                 json!({"type": "listItem", "attrs": {"data-block-id": "l1", "listType": "bullet", "indent": 0},
-                       "content": [para("one")]}),
+                       "content": [para_id("l1p", "one")]}),
                 json!({"type": "listItem", "attrs": {"data-block-id": "l2", "listType": "task", "indent": 1, "checked": true},
-                       "content": [para("two")]}),
+                       "content": [para_id("l2p", "two")]}),
                 json!({"type": "table", "content": [{"type": "tableRow", "content": [
-                    {"type": "tableHeader", "content": [para("H")]},
-                    {"type": "tableCell", "content": [para("C")]}]}]}),
+                    {"type": "tableHeader", "content": [para_id("thp", "H")]},
+                    {"type": "tableCell", "content": [para_id("tcp", "C")]}]}]}),
                 json!({"type": "image", "attrs": {"data-block-id": "img", "src": "https://example.org/c.png"}}),
                 json!({"type": "mathBlock", "attrs": {"data-block-id": "m", "src": "x^2"}}),
                 json!({"type": "queryBlock", "attrs": {"data-block-id": "q", "query": "SELECT * WHERE {}"}}),

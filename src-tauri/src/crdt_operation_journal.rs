@@ -370,6 +370,10 @@ mod tests {
         };
         set_thread_barrier_model(true);
         let path = temp_journal_path("ordered-line");
+        // Creating the journal's directories makes new names durable with full syncs (one per new
+        // directory: a once-per-profile durability point, kept full by design). The steady-state
+        // append is what this test measures, so the directory exists before the count starts.
+        crate::storage_file_ops::create_dir_all(path.parent().expect("journal dir")).expect("journal dir");
         let op = operation("op-ordered");
         let full_before = thread_full_sync_total();
         write_queued(&path, &op, "q1", "1");
