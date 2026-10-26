@@ -40,7 +40,11 @@ pub struct Room {
     doc: Mutex<Doc>,
     awareness: Mutex<HashMap<ClientID, RoomAwarenessEntry>>,
     presence_sessions: Mutex<HashMap<PresenceSessionKey, PresenceSessionLease>>,
+    /// Raw payloads for in-process observers (tests). Sockets use `frames`.
     tx: broadcast::Sender<Vec<u8>>,
+    /// What the websocket loops deliver: the same payloads, tagged with the
+    /// connection that produced them and whether they carry graph state.
+    frames: broadcast::Sender<RoomFrame>,
     next_connection_id: AtomicU64,
     /// Where to persist the authoritative Y.Doc state (update-v1.bin).
     state_path: PathBuf,
@@ -69,6 +73,23 @@ pub struct Room {
 }
 
 type ConnectionId = u64;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum FrameKind {
+    /// A Y.Doc update: graph content, so delivery is linearized with deletion.
+    State,
+    /// Ephemeral presence: no graph content, so delivery takes no lease.
+    Awareness,
+}
+
+#[derive(Clone)]
+struct RoomFrame {
+    /// The socket whose frame this is, when that socket already has it. Its
+    /// own loop skips it: y-websocket clients do not need their own echo.
+    origin: Option<ConnectionId>,
+    kind: FrameKind,
+    payload: Vec<u8>,
+}
 
 #[derive(Clone)]
 struct RoomAwarenessEntry {
@@ -534,11 +555,13 @@ impl RoomRegistry {
             }
         }
         let (tx, _) = broadcast::channel(256);
+        let (frames, _) = broadcast::channel(256);
         let room = Arc::new(Room {
             doc: Mutex::new(doc),
             awareness: Mutex::new(HashMap::new()),
             presence_sessions: Mutex::new(HashMap::new()),
             tx,
+            frames,
             next_connection_id: AtomicU64::new(1),
             state_path: state_path.clone(),
             // Conservatively materialize a hydrated room once. Its hot-tier
@@ -754,6 +777,20 @@ impl Room {
         self.next_connection_id.fetch_add(1, Ordering::Relaxed)
     }
 
+    /// Hand one encoded y-protocol message to every subscriber. Sockets read
+    /// `frames`; the raw `tx` only has receivers in tests, so production pays
+    /// no extra copy for it.
+    fn publish(&self, origin: Option<ConnectionId>, kind: FrameKind, payload: Vec<u8>) {
+        if self.tx.receiver_count() > 0 {
+            let _ = self.tx.send(payload.clone());
+        }
+        let _ = self.frames.send(RoomFrame {
+            origin,
+            kind,
+            payload,
+        });
+    }
+
     /// Install the headless cold-projection scheduler for this hosted room.
     /// Multiple websocket clients race through this safely: the first target
     /// wins and later clients must describe the same room. A hydrated hot-tier
@@ -886,11 +923,25 @@ impl Room {
         (!update.clients.is_empty()).then_some(update)
     }
 
+    #[cfg(test)]
     async fn merge_awareness(
         &self,
         update: &AwarenessUpdate,
         owner: ConnectionId,
     ) -> Option<AwarenessUpdate> {
+        self.merge_awareness_tagged(update, owner)
+            .await
+            .map(|(accepted, _)| accepted)
+    }
+
+    /// [`Self::merge_awareness`], plus whether every accepted entry belongs to
+    /// `owner`'s own live client ids. Only then may the sender skip its echo:
+    /// synthetic removals of superseded ids are news to the sender too.
+    async fn merge_awareness_tagged(
+        &self,
+        update: &AwarenessUpdate,
+        owner: ConnectionId,
+    ) -> Option<(AwarenessUpdate, bool)> {
         let mut state = self.awareness.lock().await;
         let mut sessions = self.presence_sessions.lock().await;
         let mut accepted = HashMap::new();
@@ -1046,7 +1097,12 @@ impl Room {
         if accepted.is_empty() {
             None
         } else {
-            Some(AwarenessUpdate { clients: accepted })
+            let own_only = accepted.keys().all(|client| {
+                state
+                    .get(client)
+                    .is_some_and(|live| live.owner == Some(owner))
+            });
+            Some((AwarenessUpdate { clients: accepted }, own_only))
         }
     }
 
@@ -1169,7 +1225,7 @@ impl Room {
         // broadcast when content actually changed.
         if update.len() > 3 {
             let message = Message::Sync(SyncMessage::Update(update)).encode_v1();
-            let _ = self.tx.send(message);
+            self.publish(None, FrameKind::State, message);
         }
         Ok(result)
     }
@@ -1264,13 +1320,26 @@ impl Room {
             sophia.ydoc.changed = tracing::field::Empty,
             otel.status_code = tracing::field::Empty))]
     pub(crate) async fn apply_client_update(&self, update: &[u8]) -> Result<bool, String> {
-        let result = self.apply_client_update_inner(update).await;
+        let result = self.apply_client_update_inner(update, None).await;
         if result.is_err() {
             tracing::Span::current().record("otel.status_code", "ERROR");
         }
         result
     }
 
+    /// Apply a sync-client update and schedule its cold projection (no
+    /// connection to exclude from the broadcast).
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) async fn apply_client_update_and_schedule(
+        self: &Arc<Self>,
+        update: &[u8],
+        app: AppHandle,
+    ) -> Result<bool, String> {
+        self.apply_client_frame(update, app, None).await
+    }
+
+    /// [`Self::apply_client_update_and_schedule`] for a frame that arrived on
+    /// connection `origin`, which will not be sent its own update back.
     /// Keep the update current through scheduling so a coalesced flush links
     /// to the update it absorbed, even after this connection closes.
     #[tracing::instrument(target = "gardend_otel", name = "ydoc.update.apply", skip_all,
@@ -1278,12 +1347,13 @@ impl Room {
             sophia.ydoc.mutex_wait_ms = tracing::field::Empty,
             sophia.ydoc.changed = tracing::field::Empty,
             otel.status_code = tracing::field::Empty))]
-    pub(crate) async fn apply_client_update_and_schedule(
+    async fn apply_client_frame(
         self: &Arc<Self>,
         update: &[u8],
         app: AppHandle,
+        origin: Option<ConnectionId>,
     ) -> Result<bool, String> {
-        let changed = match self.apply_client_update_inner(update).await {
+        let changed = match self.apply_client_update_inner(update, origin).await {
             Ok(changed) => changed,
             Err(error) => {
                 tracing::Span::current().record("otel.status_code", "ERROR");
@@ -1296,7 +1366,11 @@ impl Room {
         Ok(changed)
     }
 
-    async fn apply_client_update_inner(&self, update: &[u8]) -> Result<bool, String> {
+    async fn apply_client_update_inner(
+        &self,
+        update: &[u8],
+        origin: Option<ConnectionId>,
+    ) -> Result<bool, String> {
         let waiting = crate::telemetry::timer();
         let _authority_guard = self.authority_lock.lock().await;
         if self.is_evicted() {
@@ -1340,7 +1414,7 @@ impl Room {
         if changed {
             self.persist().await?;
             let rebroadcast = Message::Sync(SyncMessage::Update(update.to_vec())).encode_v1();
-            let _ = self.tx.send(rebroadcast);
+            self.publish(origin, FrameKind::State, rebroadcast);
         }
         Ok(changed)
     }
@@ -1815,7 +1889,32 @@ async fn linearize_state_bearing_delivery<F>(
 where
     F: std::future::Future<Output = Result<(), String>>,
 {
-    let result = linearize_state_bearing_delivery_inner(app, graph_id, room, delivery).await;
+    let result = linearize_state_bearing_delivery_inner(app, graph_id, room, true, delivery).await;
+    if result.is_err() {
+        tracing::Span::current().record("otel.status_code", "ERROR");
+    }
+    result
+}
+
+/// Delivery of a broadcast update to one socket. The shared lifecycle lease
+/// still orders it against graph deletion, but the `graph.json` read is gone:
+/// deletion evicts the graph's rooms while it holds the exclusive lease, so
+/// `room.is_evicted()` under the shared lease already says "deleted", and the
+/// read-and-parse of the record per frame per socket told it nothing more.
+#[tracing::instrument(target = "gardend_otel", name = "ydoc.broadcast.deliver", skip_all,
+    fields(sophia.graph.id = graph_id, sophia.lease.wait_ms = tracing::field::Empty,
+        sophia.delivery.outcome = tracing::field::Empty,
+        otel.status_code = tracing::field::Empty))]
+async fn broadcast_state_delivery<F>(
+    app: &AppHandle,
+    graph_id: &str,
+    room: &Room,
+    delivery: F,
+) -> Result<(), String>
+where
+    F: std::future::Future<Output = Result<(), String>>,
+{
+    let result = linearize_state_bearing_delivery_inner(app, graph_id, room, false, delivery).await;
     if result.is_err() {
         tracing::Span::current().record("otel.status_code", "ERROR");
     }
@@ -1826,6 +1925,7 @@ async fn linearize_state_bearing_delivery_inner<F>(
     app: &AppHandle,
     graph_id: &str,
     room: &Room,
+    check_graph_record: bool,
     delivery: F,
 ) -> Result<(), String>
 where
@@ -1861,9 +1961,11 @@ where
             return Err("graph persistence lease acquire timed out".to_string());
         }
     };
-    if let Err(error) = crate::graph_record_store::read_graph_record_no_heal(app, graph_id) {
-        tracing::Span::current().record("sophia.delivery.outcome", "graph_gone");
-        return Err(error.message());
+    if check_graph_record {
+        if let Err(error) = crate::graph_record_store::read_graph_record_no_heal(app, graph_id) {
+            tracing::Span::current().record("sophia.delivery.outcome", "graph_gone");
+            return Err(error.message());
+        }
     }
     if room.is_evicted() {
         tracing::Span::current().record("sophia.delivery.outcome", "room_evicted");
@@ -1892,7 +1994,7 @@ pub(super) async fn initial_sync_delivery<F>(
 where
     F: std::future::Future<Output = Result<(), String>>,
 {
-    let result = linearize_state_bearing_delivery_inner(app, graph_id, room, delivery).await;
+    let result = linearize_state_bearing_delivery_inner(app, graph_id, room, true, delivery).await;
     if result.is_err() {
         tracing::Span::current().record("otel.status_code", "ERROR");
     }
@@ -1941,7 +2043,7 @@ pub(crate) async fn serve_room_with(
     let mut visitor_noop_frames: u32 = 0;
     const VISITOR_NOOP_FRAMES: u32 = 16;
     let (mut sink, mut stream) = socket.split();
-    let mut rx = room.tx.subscribe();
+    let mut rx = room.frames.subscribe();
 
     // Server-initiated SyncStep1 is graph content: deletion must either wait
     // until the socket accepted it or win the lease and evict the room first.
@@ -2097,7 +2199,7 @@ pub(crate) async fn serve_room_with(
                         } else {
                             None
                         };
-                        match room.apply_client_update_and_schedule(&update, app.clone()).await {
+                        match room.apply_client_frame(&update, app.clone(), Some(connection_id)).await {
                             Ok(_) => {}
                             Err(error) => {
                                 // Deletion marks extant room Arcs evicted before it
@@ -2136,9 +2238,15 @@ pub(crate) async fn serve_room_with(
                                 None => continue,
                             },
                         };
-                        if let Some(accepted) = room.merge_awareness(&update, connection_id).await {
+                        if let Some((accepted, own_only)) =
+                            room.merge_awareness_tagged(&update, connection_id).await
+                        {
                             let rebroadcast = Message::Awareness(accepted).encode_v1();
-                            let _ = room.tx.send(rebroadcast);
+                            room.publish(
+                                own_only.then_some(connection_id),
+                                FrameKind::Awareness,
+                                rebroadcast,
+                            );
                         }
                     }
                     Message::AwarenessQuery => {
@@ -2159,23 +2267,45 @@ pub(crate) async fn serve_room_with(
                 }
             }
             broadcasted = rx.recv() => {
-                let Ok(payload) = broadcasted else {
+                let Ok(frame) = broadcasted else {
                     break;
                 };
-                let result = linearize_state_bearing_delivery(
-                    &app,
-                    &graph_id,
-                    &room,
-                    async {
-                        sink.send(WsMessage::binary(payload))
-                            .await
-                            .map_err(|error| format!("send websocket room update: {error}"))
-                    },
-                )
-                .await;
-                if let Err(error) = result {
-                    log::warn!("closing websocket broadcast for {graph_id}: {error}");
-                    break;
+                // A client that produced the frame already has it.
+                if frame.origin == Some(connection_id) {
+                    continue;
+                }
+                let RoomFrame { kind, payload, .. } = frame;
+                match kind {
+                    // Presence is ephemeral and carries no graph content:
+                    // nothing for deletion to order against, so no lease.
+                    FrameKind::Awareness => {
+                        let result = tokio::time::timeout(
+                            WS_STATE_SEND_TIMEOUT,
+                            sink.send(WsMessage::binary(payload)),
+                        )
+                        .await;
+                        if !matches!(result, Ok(Ok(()))) {
+                            log::warn!("closing websocket awareness broadcast for {graph_id}");
+                            break;
+                        }
+                    }
+                    FrameKind::State => {
+                        let result = broadcast_state_delivery(
+                            &app,
+                            &graph_id,
+                            &room,
+                            async {
+                                sink.send(WsMessage::binary(payload))
+                                    .await
+                                    .map_err(|error| format!("send websocket room update: {error}"))
+                            },
+                        )
+                        .await;
+                        if let Err(error) = result {
+                            log::warn!("closing websocket broadcast for {graph_id}: {error}");
+                            break;
+                        }
+                    }
                 }
             }
         }
@@ -2184,7 +2314,11 @@ pub(crate) async fn serve_room_with(
     if let Some(removal) = room.remove_awareness_for_connection(connection_id).await {
         // Other subscribers receive the synthetic removals even when this
         // transport disappeared without a graceful Awareness null.
-        let _ = room.tx.send(Message::Awareness(removal).encode_v1());
+        room.publish(
+            None,
+            FrameKind::Awareness,
+            Message::Awareness(removal).encode_v1(),
+        );
     }
 }
 
@@ -3565,5 +3699,94 @@ mod tests {
         if let Err(payload) = result {
             std::panic::resume_unwind(payload);
         }
+    }
+
+    #[test]
+    fn awareness_echo_is_skipped_only_for_the_senders_own_ids() {
+        crate::app_runtime::async_runtime::block_on(async {
+            let room = presence_test_room("awareness-own-only").await;
+            let (_, own_only) = room
+                .merge_awareness_tagged(
+                    &awareness_update(vec![(41, 1, presence_json("vera", "device-a", "tab-a", 1))]),
+                    1,
+                )
+                .await
+                .expect("first incarnation accepted");
+            assert!(own_only, "a socket's own live id needs no echo");
+
+            // A newer incarnation of the same tab, on another socket, supersedes
+            // client 41: the synthetic removal rides along and the sender must
+            // still hear it, so the frame is not tagged as the sender's own.
+            let (accepted, own_only) = room
+                .merge_awareness_tagged(
+                    &awareness_update(vec![(42, 1, presence_json("vera", "device-a", "tab-a", 2))]),
+                    2,
+                )
+                .await
+                .expect("newer incarnation accepted");
+            assert!(accepted.clients.contains_key(&ClientID::new(41)));
+            assert!(
+                !own_only,
+                "removal of a superseded id is news to the sender"
+            );
+        });
+    }
+
+    #[test]
+    fn client_frame_is_published_tagged_with_its_origin() {
+        crate::app_runtime::async_runtime::block_on(async {
+            let room = presence_test_room("frame-origin").await;
+            let app = crate::tauri_runtime::build_mock_app_for_tests(true);
+            let mut frames = room.frames.subscribe();
+            let remote = Doc::new();
+            {
+                let mut txn = remote.transact_mut();
+                txn.get_or_insert_map("metadata")
+                    .insert(&mut txn, "typed", true);
+            }
+            let update = remote
+                .transact()
+                .encode_state_as_update_v1(&StateVector::default());
+            assert!(room
+                .apply_client_frame(&update, app.clone(), Some(7))
+                .await
+                .expect("client frame"));
+            let frame = frames.try_recv().expect("the frame is broadcast");
+            assert_eq!(frame.origin, Some(7), "the author's loop will skip it");
+            assert_eq!(frame.kind, FrameKind::State);
+
+            room.update_doc(|_doc, txn| {
+                txn.get_or_insert_map("metadata").insert(txn, "api", true);
+                Ok(())
+            })
+            .await
+            .expect("server write");
+            let frame = frames.try_recv().expect("the server write is broadcast");
+            assert_eq!(frame.origin, None, "an API write is nobody's echo");
+        });
+    }
+
+    #[test]
+    fn broadcast_delivery_does_not_read_the_graph_record() {
+        crate::app_runtime::async_runtime::block_on(async {
+            let app = crate::tauri_runtime::build_mock_app_for_tests(true);
+            let room = presence_test_room("broadcast-no-record").await;
+            // No graph.json exists for this id. The first-delivery path still
+            // refuses a vanished graph; the per-frame path no longer asks.
+            let graph_id = "graph-without-a-record";
+            assert!(
+                linearize_state_bearing_delivery(&app, graph_id, &room, async { Ok(()) })
+                    .await
+                    .is_err()
+            );
+            broadcast_state_delivery(&app, graph_id, &room, async { Ok(()) })
+                .await
+                .expect("broadcast delivery rests on the lease and the eviction flag");
+            room.evict();
+            let error = broadcast_state_delivery(&app, graph_id, &room, async { Ok(()) })
+                .await
+                .expect_err("an evicted room delivers nothing");
+            assert!(error.contains("evicted"), "{error}");
+        });
     }
 }
