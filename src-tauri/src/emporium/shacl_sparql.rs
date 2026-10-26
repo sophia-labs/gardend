@@ -179,6 +179,77 @@ pub(crate) fn evaluate_sparql_constraints(
     target_graph_iri: &str,
 ) -> Result<Vec<ViolationRecord>, String> {
     let constraints = extract_sparql_constraints(shapes_ttl)?;
+    evaluate_constraints(&constraints, desired_ntriples, target_graph_iri)
+}
+
+/// ACTUAL constraint extractions (cache misses of [`cached_sparql_constraints`])
+/// per shapes TTL: the observable of the cache test, keyed by the shapes text so
+/// parallel tests over other shapes cannot move it.
+#[cfg(test)]
+static EXTRACT_COUNTS: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::BTreeMap<String, u64>>,
+> = std::sync::OnceLock::new();
+
+#[cfg(test)]
+pub(crate) fn extract_count_for(shapes_ttl: &str) -> u64 {
+    EXTRACT_COUNTS
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get(shapes_ttl)
+        .copied()
+        .unwrap_or(0)
+}
+
+/// Constraint cache: `sha256(shapes TTL)` -> the extracted constraints. Extraction
+/// builds a fresh store, parses the whole shapes Turtle and runs two SPARQL queries;
+/// it is a pure function of the TTL, so it is done once per distinct shapes graph
+/// (the same key the compiled-schema cache uses), not once per validated write.
+static CONSTRAINT_CACHE: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::BTreeMap<String, std::sync::Arc<Vec<SparqlConstraint>>>>,
+> = std::sync::OnceLock::new();
+
+/// [`extract_sparql_constraints`], cached per shapes TTL. Poison-recovered.
+pub(crate) fn cached_sparql_constraints(
+    shapes_ttl: &str,
+) -> Result<std::sync::Arc<Vec<SparqlConstraint>>, String> {
+    let key = crate::emporium::terms::sha256_text(shapes_ttl);
+    let cache = CONSTRAINT_CACHE.get_or_init(Default::default);
+    if let Some(hit) = cache
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get(&key)
+        .cloned()
+    {
+        return Ok(hit);
+    }
+    // A concurrent double-miss extracts twice; the result is a pure function of
+    // the TTL, so the last insert wins harmlessly.
+    #[cfg(test)]
+    {
+        *EXTRACT_COUNTS
+            .get_or_init(Default::default)
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .entry(shapes_ttl.to_string())
+            .or_insert(0) += 1;
+    }
+    let extracted = std::sync::Arc::new(extract_sparql_constraints(shapes_ttl)?);
+    cache
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .insert(key, extracted.clone());
+    Ok(extracted)
+}
+
+/// Evaluate already-extracted constraints over `desired_ntriples` (loaded into
+/// `target_graph_iri` for membrane context). An empty constraint list is a no-op
+/// that never touches `desired_ntriples`.
+pub(crate) fn evaluate_constraints(
+    constraints: &[SparqlConstraint],
+    desired_ntriples: &str,
+    target_graph_iri: &str,
+) -> Result<Vec<ViolationRecord>, String> {
     if constraints.is_empty() {
         return Ok(Vec::new());
     }
@@ -197,7 +268,7 @@ pub(crate) fn evaluate_sparql_constraints(
         .map_err(|e| format!("load desired into '{target_graph_iri}': {e}"))?;
 
     let mut violations = Vec::new();
-    for c in &constraints {
+    for c in constraints {
         let query = with_prefixes(&c.prefixes, &c.select);
         let QueryResults::Solutions(solutions) = run_over_union(&store, &query)
             .map_err(|e| format!("run sh:select for shape '{}': {e}", c.shape))?

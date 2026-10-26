@@ -311,11 +311,34 @@ pub(crate) fn validate_desired_structured_in_graph(
     // for {survey-span, Lean, SHACL}). `validate_against_shapes` runs BOTH faces —
     // the rudof structural engine and the oxigraph sh:select evaluator — over it.
     validate_against_shapes(
-        &vocab_to_shacl(contract),
+        &shapes_ttl_for(contract),
         desired,
         target_graph_iri,
         &contract.name,
     )
+}
+
+/// The shapes Turtle derived from `contract`. `vocab_to_shacl` regenerates it
+/// string by string, so the two process-lifetime contracts every write path validates
+/// against (workspace, memory core) are generated once and kept; any other contract
+/// (a chamber-proposed ontology is not static and may share a name with an older
+/// one) is derived on each call, as before. The identity test is on the address of
+/// the `&'static` contract, never its name.
+fn shapes_ttl_for(contract: &VocabularyContract) -> std::borrow::Cow<'static, str> {
+    use crate::emporium::contract::{memory_core_vocabulary, workspace_vocabulary};
+    static WORKSPACE: OnceLock<String> = OnceLock::new();
+    static MEMORY_CORE: OnceLock<String> = OnceLock::new();
+    if std::ptr::eq(contract, workspace_vocabulary()) {
+        return std::borrow::Cow::Borrowed(
+            WORKSPACE.get_or_init(|| vocab_to_shacl(contract)).as_str(),
+        );
+    }
+    if std::ptr::eq(contract, memory_core_vocabulary()) {
+        return std::borrow::Cow::Borrowed(
+            MEMORY_CORE.get_or_init(|| vocab_to_shacl(contract)).as_str(),
+        );
+    }
+    std::borrow::Cow::Owned(vocab_to_shacl(contract))
 }
 
 /// Validate `desired` against an explicit SHACL `shapes_ttl`, running BOTH the
@@ -355,9 +378,19 @@ pub(crate) fn validate_against_shapes(
     //     (the capability rudof 0.2.9 LACKS: no SPARQL constraint component + no
     //     named-graph context). These MERGE with the structural violations below
     //     into ONE list the caller gates uniformly.
-    let mut sparql_violations = crate::emporium::shacl_sparql::evaluate_sparql_constraints(
-        shapes_ttl,
-        &triples_to_ntriples(desired),
+    //     The constraints are extracted once per shapes graph (cached); a shapes
+    //     graph without any (the production workspace shapes) costs one lookup.
+    let _validate_span = tracing::info_span!(target: "gardend_otel", "shacl.validate",
+        sophia.shacl.triples = desired.len() as u64)
+    .entered();
+    // The N-Triples text is built once and outside the engine lock (it is a pure
+    // string pass over `desired`); both faces read it.
+    let data_nt = triples_to_ntriples(desired);
+    let constraints = crate::emporium::shacl_sparql::cached_sparql_constraints(shapes_ttl)
+        .map_err(|e| engine_fault("sh:select evaluation", e))?;
+    let mut sparql_violations = crate::emporium::shacl_sparql::evaluate_constraints(
+        &constraints,
+        &data_nt,
         target_graph_iri,
     )
     .map_err(|e| engine_fault("sh:select evaluation", e))?;
@@ -373,12 +406,13 @@ pub(crate) fn validate_against_shapes(
     // The guard is held to function end so the report is also extracted under it. The
     // oxigraph `sh:select` pass above does not need it (each call builds its own Store),
     // and the compile above already ran under the lock on its (rare) cache miss.
+    let lock_wait = tracing::info_span!(target: "gardend_otel", "shacl.lock_wait").entered();
     let _engine_guard = SHACL_ENGINE_LOCK
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
+    drop(lock_wait);
 
     // (2) Parse the desired triples into a throwaway in-memory data graph.
-    let data_nt = triples_to_ntriples(desired);
     let in_mem =
         InMemoryGraph::from_str(&data_nt, &RDFFormat::NTriples, None, &ReaderMode::default())
             .map_err(|e| {
@@ -860,6 +894,93 @@ agt:I1_MembraneWitnessShape a sh:NodeShape ;
             "both faces contribute: {} violations",
             violations.len()
         );
+    }
+
+    /// W5: repeated validations against one shapes graph extract its `sh:sparql`
+    /// constraints once (the extraction parses the shapes into a fresh store and runs
+    /// SPARQL over them), and the verdicts do not change: the same doubly-bad record
+    /// yields the same merged violations on every call, and a conformant record stays
+    /// conformant. The shapes text is unique to this test, so no other test's
+    /// extraction moves the count.
+    #[test]
+    fn repeated_validation_extracts_sparql_constraints_once_and_keeps_its_verdicts() {
+        let shapes = r#"
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix mem:  <http://mnemosyne.dev/memory#> .
+@prefix w5:   <http://example.org/w5-cache-test#> .
+
+w5:KindShape a sh:NodeShape ;
+    sh:targetClass mem:MemoryRecord ;
+    sh:property [ sh:path mem:sourceKind ; sh:minCount 1 ] .
+
+w5:NoNotesShape a sh:NodeShape ;
+    sh:targetClass mem:MemoryRecord ;
+    sh:sparql [
+        sh:severity sh:Violation ;
+        sh:message "w5: a record must not carry a note" ;
+        sh:prefixes [ sh:declare [ sh:prefix "mem" ; sh:namespace "http://mnemosyne.dev/memory#" ] ] ;
+        sh:select """
+            SELECT $this WHERE { GRAPH ?g { $this mem:note ?n . } }
+        """ ;
+    ] .
+"#;
+        let membrane = "urn:mnemosyne:local:graph:lab:projection:memory:agent:w5";
+        let bad = vec![
+            (
+                "urn:rec:w5".to_string(),
+                RDF_TYPE.to_string(),
+                uri(&format!("{MEM}MemoryRecord")),
+            ),
+            (
+                "urn:rec:w5".to_string(),
+                format!("{MEM}note"),
+                string("a note"),
+            ),
+        ];
+        let good = vec![
+            (
+                "urn:rec:w5-ok".to_string(),
+                RDF_TYPE.to_string(),
+                uri(&format!("{MEM}MemoryRecord")),
+            ),
+            (
+                "urn:rec:w5-ok".to_string(),
+                format!("{MEM}sourceKind"),
+                string("DocumentBlock"),
+            ),
+        ];
+        let first = validate_against_shapes(shapes, &bad, membrane, "w5").expect_err("bad");
+        for _ in 0..5 {
+            let again = validate_against_shapes(shapes, &bad, membrane, "w5").expect_err("bad");
+            assert_eq!(again.len(), first.len(), "same verdict on every call");
+            assert!(validate_against_shapes(shapes, &good, membrane, "w5").is_ok());
+        }
+        assert!(first.iter().any(|v| v.message.contains("w5: a record must not carry a note")));
+        assert!(first
+            .iter()
+            .any(|v| v.property_path.as_deref() == Some("http://mnemosyne.dev/memory#sourceKind")));
+        assert_eq!(
+            crate::emporium::shacl_sparql::extract_count_for(shapes),
+            1,
+            "twelve validations, one constraint extraction"
+        );
+    }
+
+    /// The generated shapes of the two static contracts are generated once and are
+    /// the very text `vocab_to_shacl` returns; any other contract is derived fresh.
+    #[test]
+    fn static_contract_shapes_are_the_derived_shapes() {
+        use crate::emporium::contract::workspace_vocabulary;
+        for contract in [memory_core_vocabulary(), workspace_vocabulary()] {
+            assert_eq!(&*shapes_ttl_for(contract), vocab_to_shacl(contract).as_str());
+            assert!(
+                matches!(shapes_ttl_for(contract), std::borrow::Cow::Borrowed(_)),
+                "kept, not regenerated"
+            );
+        }
+        let cloned = memory_core_vocabulary().clone();
+        assert!(matches!(shapes_ttl_for(&cloned), std::borrow::Cow::Owned(_)));
+        assert_eq!(&*shapes_ttl_for(&cloned), vocab_to_shacl(&cloned).as_str());
     }
 
     // ── CA-1: the §3 shapes fire through the LIVE contract → vocab_to_shacl path ──
