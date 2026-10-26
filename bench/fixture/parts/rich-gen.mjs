@@ -63,7 +63,7 @@ export function gizmoRecords(n, seed, start = 0) {
 // Memory records for remember_batch (and the emporium sweep, which scans the memory projection).
 export function memoryRecords(n, seed, start = 0) {
   const rnd = mulberry32(seed ^ 0x3e30), L = lex(seed)
-  return Array.from({ length: n }, (_, k) => ({ content: `${makeText(rnd, L, 14)} (${start + k})`, kind: 'SemanticMemory', clientRef: `mem${start + k}`, sourceRefs: [{ sourceKind: 'external', label: `bench source ${(start + k) % 50}`, externalId: `bench:${(start + k) % 50}` }] }))
+  return Array.from({ length: n }, (_, k) => ({ content: `${makeText(rnd, L, 14)} (${start + k})`, kind: 'SemanticMemory', clientRef: `mem${start + k}`, sourceRefs: [{ sourceKind: 'ConversationTurn', label: `bench source ${(start + k) % 50}` }] }))
 }
 
 // ---- workflows --------------------------------------------------------------------------------------------------------

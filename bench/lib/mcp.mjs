@@ -4,7 +4,13 @@ import { readFileSync } from 'node:fs'
 
 export const hex = (n) => randomBytes(n).toString('hex')
 export const newTrace = () => ({ traceId: hex(16), spanId: hex(8) })
-export const readKey = (file) => JSON.parse(readFileSync(file, 'utf8')).key
+// Key file: selfhost-key.json ({"key": "..."}), a JSON with token/masterToken/authToken, or a plain-text file holding only the key.
+export const readKey = (file) => {
+  const raw = readFileSync(file, 'utf8').trim()
+  try { const j = JSON.parse(raw); const k = j.key ?? j.token ?? j.masterToken ?? j.authToken ?? j.bearer; if (typeof k === 'string' && k) return k } catch { /* plain text */ }
+  if (!raw || /\s/.test(raw)) throw new Error(`unrecognised key file format: ${file}`)
+  return raw
+}
 
 export class Client {
   constructor({ url, key, timeoutMs = 600_000 }) { this.url = url.replace(/\/$/, ''); this.key = key; this.timeoutMs = timeoutMs; this.id = 0 }
