@@ -897,6 +897,36 @@ pub(crate) fn normalise_doc_content_at(
     (blocks, ctx.warnings)
 }
 
+/// Give every block of a minted type (`MINTED_BLOCK_IDS`) that arrives without an id one, at any
+/// depth, so the room stores it. A `tiptapJson` or `blocks` carrier owns its ids, but a block it sent
+/// without one would otherwise be stored id-less and handed a fresh random id by every projection:
+/// an id no room holds (IDLESS-BLOCKS, 2026-10-25). The id is seeded by the operation id and the
+/// block's path in the carrier, so a replayed operation mints the same ids; a block that has an id
+/// keeps it, and a node of a type gardend does not mint (tables, cells, lists) is left alone.
+pub(crate) fn mint_missing_block_ids(nodes: &mut [Value], seed: &str, prefix: &str) {
+    let seed = format!("{seed}#idless");
+    let mut ctx = Normaliser {
+        seed: &seed,
+        warnings: Vec::new(),
+        rewrites: 0,
+        minted: 0,
+    };
+    for (index, node) in nodes.iter_mut().enumerate() {
+        mint_missing_in(&mut ctx, node, &format!("{prefix}[{index}]"));
+    }
+}
+
+fn mint_missing_in(ctx: &mut Normaliser<'_>, node: &mut Value, path: &str) {
+    ctx.ensure_id(node, path);
+    if let Some(children) = node.get_mut("content").and_then(Value::as_array_mut) {
+        for (index, child) in children.iter_mut().enumerate() {
+            if child.is_object() && type_of(child) != Some("text") {
+                mint_missing_in(ctx, child, &format!("{path}.content[{index}]"));
+            }
+        }
+    }
+}
+
 /// True for a warning that records a rewrite (not a preserved note).
 pub(crate) fn is_rewrite_warning(warning: &str) -> bool {
     warning.starts_with("block-contract known-equivalent")

@@ -290,8 +290,15 @@ pub(crate) async fn document_write_classified(
             .and_then(Value::as_array)
             .map(Vec::as_slice)
             .unwrap_or(&[]);
-        let (nodes, receipts) = super::block_contract::normalise_doc_content_at(
+        let (mut nodes, receipts) = super::block_contract::normalise_doc_content_at(
             nodes,
+            &operation.operation_id,
+            receipt_prefix,
+        );
+        // A block the caller sent without an id is given one now, so the room stores it
+        // (a projection would otherwise invent a new random id for it on every read).
+        super::block_contract::mint_missing_block_ids(
+            &mut nodes,
             &operation.operation_id,
             receipt_prefix,
         );
