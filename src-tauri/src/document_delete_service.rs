@@ -187,9 +187,11 @@ WHERE {{
     crate::pdf_source::remove_document(&store, graph_id, document_id)?;
     crate::whiteboard::lane::remove_document(&store, graph_id, document_id)?;
     touch_graph_content_revision(graph_dir)?;
-    let quad_count = store
-        .len()
-        .map_err(|error| format!("count quads: {error}"))?;
+    // `Store::len` is a full scan of the quad indexes. No caller reads this
+    // number (the CRDT queue discards the result; the desktop command's
+    // frontend never reads `quadCount`), so report the remembered count of the
+    // cached store, and 0 when none is remembered, instead of scanning.
+    let quad_count = crate::rdf_store_service::graph_store_cached_quad_count(&store).unwrap_or(0);
     Ok(MutationResult {
         ok: true,
         quad_count,

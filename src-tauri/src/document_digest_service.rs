@@ -3,7 +3,7 @@ use crate::{
     active_documents::try_live_projection,
     document_digest_connections::document_digest_wire_summary,
     document_projection_service::document_blocks_for_read,
-    document_service::{read_document, read_workspace_record},
+    document_service::{read_document_cold, read_workspace_record},
     json_utils::{json_bool, json_string},
     mcp_utils::{mcp_arg_usize, mcp_required_document_id, mcp_required_graph_id},
     paths::existing_graph_dir,
@@ -23,7 +23,7 @@ pub(super) async fn mcp_local_document_digest(
     let top_valued = mcp_arg_usize(arguments, &["topValued", "top_valued"], 3);
     let graph_dir = existing_graph_dir(&app, &graph_id)?;
     let workspace = read_workspace_record(&graph_dir, &graph_id)?;
-    let document = read_document(app.clone(), graph_id.clone(), document_id.clone())?;
+    let document = read_document_cold(app.clone(), graph_id.clone(), document_id.clone())?;
     let blocks = match try_live_projection(&app, &graph_id, &document_id).await {
         Some(live) => live.blocks,
         None => document_blocks_for_read(&document),

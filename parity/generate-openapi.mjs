@@ -1191,7 +1191,7 @@ const components = {
         rows: { type: 'array', items: { type: 'object', additionalProperties: { type: 'string' } } },
         boolean: { type: ['boolean', 'null'] },
         graph: { type: ['string', 'null'] },
-        quadCount: { type: 'integer' },
+        quadCount: { type: ['integer', 'null'] },
         warnings: { type: 'array', items: { type: 'string' } },
       },
     },

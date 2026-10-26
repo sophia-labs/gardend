@@ -333,23 +333,16 @@ async fn handle_mcp_request(
                 }
                 return mcp_success(request.id, result);
             }
-            let mut listed = match bound {
-                Some(_) => crate::mcp_tool_registry::mcp_tools_list_result_for_bound_graph(
-                    &state.cell_graph,
-                    token_scopes,
-                    optional,
-                ),
-                None => crate::mcp_tool_registry::mcp_tools_list_result_with_optional(
-                    &state.cell_graph,
-                    role,
-                    optional,
-                ),
-            };
-            // What this token may call of what is listed (an unbound list is
-            // narrowed by the cell role only).
-            crate::mcp_tool_registry::annotate_callable(&mut listed, token_scopes);
-            let mut result =
-                serde_json::to_value(listed).expect("McpToolsListResult always serializes");
+            // Built once per catalogue state (role, optional capabilities,
+            // bound or not, the token's scopes); see `cached_tools_list_result`.
+            let cached = crate::mcp_tool_registry::cached_tools_list_result(
+                &state.cell_graph,
+                role,
+                optional,
+                bound.is_some(),
+                token_scopes,
+            );
+            let mut result = (*cached).clone();
             // Tools lent by local services (`service_mcp`): none unless a
             // service.json declares `mcp`, never in a hosted cell.
             let lent = crate::service_mcp::listed_service_tools(
@@ -367,7 +360,6 @@ async fn handle_mcp_request(
                     tools.extend(lent);
                 }
             }
-            result["_meta"] = serde_json::json!({"sophia.optionalCapabilities":[{"id":"custom-css","description":"Explicit graph stylesheet read/guide and guarded write/reset; local application requires user consent","request":{"optionalCapabilities":["custom-css"]}}]});
             if let Some(delegation) = bound {
                 result["_meta"]["sophia.boundGraph"] = serde_json::json!(delegation.graph_id);
             }
@@ -533,13 +525,7 @@ async fn public_tool_call(
             Ok(entries) => {
                 let graphs = crate::public_mode::public_graph_entries(public, entries);
                 let value = serde_json::json!({ "graphs": graphs, "count": graphs.len() });
-                mcp_success(
-                    id,
-                    serde_json::json!({
-                        "content": [{ "type": "text", "text": serde_json::to_string_pretty(&value).unwrap_or_default() }],
-                        "structuredContent": value,
-                    }),
-                )
+                mcp_success(id, crate::mcp_tool_dispatch::tool_success_result(value))
             }
             Err(error) => mcp_error(id, -32000, error.message()),
         };

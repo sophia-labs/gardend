@@ -110,8 +110,17 @@ pub(crate) fn get_backlinks(
         });
     }
 
-    // Titles and kinds are the workspace lane's, by source document.
-    let documents = document_titles(store)?;
+    // Titles and kinds are the workspace lane's, by source document. Only the
+    // documents the rows name are looked up (O6): the old query enumerated every
+    // document node in the store for a handful of rows, and ran even when
+    // there were none.
+    let mut source_ids: Vec<&str> = rows
+        .iter()
+        .map(|row| row.source_document_id.as_str())
+        .collect();
+    source_ids.sort_unstable();
+    source_ids.dedup();
+    let documents = document_titles_for(store, &source_ids)?;
     for row in &mut rows {
         if let Some((title, kind)) = documents.get(&row.source_document_id) {
             row.source_title = title.clone();
@@ -282,9 +291,9 @@ fn incoming_query(graph_id: &str, target: &Resolved) -> String {
             .iter()
             .map(|href| sparql_string_literal(href))
             .collect::<Vec<_>>()
-            .join(", ");
+            .join(" ");
         branches.push(format!(
-            "{{ GRAPH ?g {{ ?n doc:href ?href . FILTER(?href IN ({hrefs})) {in_a_document} }} BIND(\"link\" AS ?kind) }}"
+            "{{ GRAPH ?g {{ VALUES ?href {{ {hrefs} }} ?n doc:href ?href . {in_a_document} }} BIND(\"link\" AS ?kind) }}"
         ));
         // Board: a shape or card that refers to the target.
         branches.push(format!(
@@ -428,15 +437,28 @@ fn row_from_solution(solution: &oxigraph::sparql::QuerySolution) -> Option<Backl
     }
 }
 
-/// `(title, documentKind)` of every document the workspace lane knows, by document id.
-fn document_titles(
+/// `(title, documentKind)` of the given documents (those the workspace lane knows), by document id. A keyed
+/// lookup: `VALUES ?d { <subject> ... }` joined with the document node, not a scan of every document.
+fn document_titles_for(
     store: &Store,
+    document_ids: &[&str],
 ) -> Result<BTreeMap<String, (Option<String>, Option<String>)>, String> {
-    let query = format!(
-        "{PREFIXES}SELECT ?d ?t ?k WHERE {{ GRAPH ?g {{ ?d a doc:TipTapDocument . \
-         OPTIONAL {{ ?d dcterms:title ?t }} OPTIONAL {{ ?d doc:documentKind ?k }} }} }}"
-    );
     let mut documents: BTreeMap<String, (Option<String>, Option<String>)> = BTreeMap::new();
+    let subjects: Vec<String> = document_ids
+        .iter()
+        .map(|id| document_subject(id))
+        // An id that is not a valid IRI names no node in the store.
+        .filter(|subject| NamedNode::new(subject.as_str()).is_ok())
+        .map(|subject| format!("<{subject}>"))
+        .collect();
+    if subjects.is_empty() {
+        return Ok(documents);
+    }
+    let query = format!(
+        "{PREFIXES}SELECT ?d ?t ?k WHERE {{ GRAPH ?g {{ VALUES ?d {{ {} }} ?d a doc:TipTapDocument . \
+         OPTIONAL {{ ?d dcterms:title ?t }} OPTIONAL {{ ?d doc:documentKind ?k }} }} }}",
+        subjects.join(" ")
+    );
     for solution in solutions(store, &query)? {
         let Some(subject) = text(&solution, "d") else {
             continue;
@@ -516,4 +538,68 @@ pub(crate) fn mcp_local_get_backlinks(
         "backlinks": rows.iter().map(backlink_json).collect::<Vec<_>>(),
         "count": rows.len(),
     }))
+}
+
+#[cfg(test)]
+mod keyed_lookup_tests {
+    use super::*;
+    use oxigraph::model::{GraphName, Literal, NamedNodeRef, Quad};
+
+    const TIPTAP: &str = "http://mnemosyne.dev/doc#TipTapDocument";
+    const TITLE: &str = "http://purl.org/dc/terms/title";
+    const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
+
+    fn add_document(store: &Store, id: &str, title: &str) {
+        let subject = NamedNode::new(document_subject(id)).unwrap();
+        let graph = GraphName::NamedNode(NamedNode::new(format!("urn:g:{id}")).unwrap());
+        for quad in [
+            Quad::new(
+                subject.clone(),
+                NamedNodeRef::new_unchecked(RDF_TYPE),
+                NamedNodeRef::new_unchecked(TIPTAP),
+                graph.clone(),
+            ),
+            Quad::new(
+                subject,
+                NamedNodeRef::new_unchecked(TITLE),
+                Literal::new_simple_literal(title),
+                graph,
+            ),
+        ] {
+            store.insert(&quad).unwrap();
+        }
+    }
+
+    #[test]
+    fn titles_are_looked_up_for_the_named_documents_only() {
+        let store = Store::new().unwrap();
+        add_document(&store, "alpha", "Alpha title");
+        add_document(&store, "beta", "Beta title");
+        add_document(&store, "gamma", "Gamma title");
+        let found = document_titles_for(&store, &["alpha", "gamma", "unknown"]).unwrap();
+        assert_eq!(found.len(), 2, "{found:?}");
+        assert_eq!(found["alpha"].0.as_deref(), Some("Alpha title"));
+        assert_eq!(found["gamma"].0.as_deref(), Some("Gamma title"));
+        assert!(!found.contains_key("beta"), "beta was not asked for");
+        assert!(
+            document_titles_for(&store, &[]).unwrap().is_empty(),
+            "no rows: no query"
+        );
+    }
+
+    #[test]
+    fn the_link_branch_is_a_values_join_not_an_in_filter() {
+        let target = Resolved::Document {
+            document_id: "alpha".into(),
+            block_id: None,
+            subject: document_subject("alpha"),
+            block_ref: None,
+        };
+        let query = incoming_query("g", &target);
+        assert!(query.contains("VALUES ?href {"), "{query}");
+        assert!(!query.contains("?href IN ("), "{query}");
+        // And it still parses and runs.
+        let store = Store::new().unwrap();
+        assert!(solutions(&store, &query).unwrap().is_empty());
+    }
 }

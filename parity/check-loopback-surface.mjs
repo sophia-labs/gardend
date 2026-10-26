@@ -882,7 +882,7 @@ const mcpGraphQuery = await timedStep('mcpQueryGraphMs', () => callTool('query_g
 if (
   mcpGraphQuery.graph_id !== mcpGraphId
   || !Array.isArray(mcpGraphQuery.rows)
-  || typeof mcpGraphQuery.quadCount !== 'number'
+  || !(mcpGraphQuery.quadCount === null || typeof mcpGraphQuery.quadCount === 'number')
 ) {
   throw new Error('MCP query_graph returned an invalid SPARQL result envelope')
 }

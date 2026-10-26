@@ -78,7 +78,8 @@ pub(crate) async fn handle_mcp_tool_call(
     let span = tracing::info_span!(target: "gardend_otel", "tools/call",
         otel.name = %format!("tools/call {}", entry.name), otel.kind = "server",
         rpc.system = "mcp", rpc.method = "tools/call", rpc.service = entry.name,
-        otel.status_code = tracing::field::Empty);
+        otel.status_code = tracing::field::Empty,
+        sophia.mcp.result_bytes = tracing::field::Empty);
     let result = (entry.handler)(&ctx, &arguments)
         .instrument(span.clone())
         .await;
@@ -87,20 +88,34 @@ pub(crate) async fn handle_mcp_tool_call(
     }
 
     match result {
-        Ok(value) => mcp_success(
-            id,
-            serde_json::json!({
-                "content": [
-                    {
-                        "type": "text",
-                        "text": serde_json::to_string_pretty(&value).unwrap_or_else(|_| "{}".to_string()),
-                    }
-                ],
-                "structuredContent": value,
-            }),
-        ),
+        Ok(value) => {
+            let response = tool_success_result(value);
+            if !span.is_disabled() {
+                // Payload size, never payload content.
+                span.record(
+                    "sophia.mcp.result_bytes",
+                    response["content"][0]["text"].as_str().map_or(0, str::len) as u64,
+                );
+            }
+            mcp_success(id, response)
+        }
         Err(error) => tool_failure_response(id, error),
     }
+}
+
+/// The `tools/call` success envelope. The answer is serialised ONCE, compact,
+/// as the `text` block (valid JSON for any client that parses it; indentation
+/// was ~1.3-1.6x the bytes and tokens for nothing), and the same value rides as
+/// `structuredContent`. Both stay: the server speaks MCP 2025-03-26, whose
+/// clients read `content[].text`, while Shrubbery's and Choreograph's newer
+/// paths read `structuredContent` first.
+pub(crate) fn tool_success_result(value: serde_json::Value) -> serde_json::Value {
+    // Owned, so the structured copy is a move, not a deep clone.
+    let text = serde_json::to_string(&value).unwrap_or_else(|_| "{}".to_string());
+    serde_json::json!({
+        "content": [{ "type": "text", "text": text }],
+        "structuredContent": value,
+    })
 }
 
 /// The dispatcher boundary's error→envelope mapping (§4.2.5): the message
@@ -204,5 +219,21 @@ mod tests {
             value["error"].get("data").is_none(),
             "data must be absent, not null, when the error carries no code"
         );
+    }
+
+    #[test]
+    fn success_envelope_is_compact_text_plus_the_same_structured_value() {
+        let value = serde_json::json!({"rows": [{"a": 1, "b": "x y"}], "count": 1});
+        let envelope = tool_success_result(value.clone());
+        let text = envelope["content"][0]["text"].as_str().unwrap();
+        assert_eq!(envelope["content"][0]["type"], "text");
+        assert!(!text.contains('\n'), "compact: no newlines or indentation");
+        assert!(!text.contains("  "), "compact: no indentation");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(text).unwrap(),
+            value,
+            "the text is the answer as JSON, for clients that parse it"
+        );
+        assert_eq!(envelope["structuredContent"], value);
     }
 }

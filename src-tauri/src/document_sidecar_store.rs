@@ -37,11 +37,18 @@ pub(super) fn canonicalize_ydoc_update_bytes(bytes: Vec<u8>) -> Vec<u8> {
 pub(super) fn read_ydoc_update_base64(
     state_path: &Path,
 ) -> Result<Option<String>, PersistenceError> {
+    Ok(read_ydoc_update_bytes(state_path)?.map(|bytes| BASE64_STANDARD.encode(bytes)))
+}
+
+/// The sidecar's update bytes as stored (canonicalised), for a reader that
+/// decodes them itself and has no use for the base64 form.
+pub(super) fn read_ydoc_update_bytes(
+    state_path: &Path,
+) -> Result<Option<Vec<u8>>, PersistenceError> {
     if !state_path.is_file() {
         return Ok(None);
     }
-    let state_bytes = canonicalize_ydoc_update_bytes(read_bytes(state_path)?);
-    Ok(Some(BASE64_STANDARD.encode(state_bytes)))
+    Ok(Some(canonicalize_ydoc_update_bytes(read_bytes(state_path)?)))
 }
 
 pub(super) fn write_document_state_files(

@@ -3,7 +3,7 @@ pub(super) use crate::geist_memory_recall_service::mcp_local_recall_or_recent_do
 pub(super) use crate::geist_song_service::mcp_local_song_summary;
 use crate::{
     document_projection_service::document_blocks_for_read,
-    document_service::{list_documents, DocumentRecord},
+    document_service::{list_documents_cold, DocumentRecord},
     graph_service::read_graph_record,
     mcp_utils::{mcp_arg_bool, mcp_arg_string, mcp_arg_usize, mcp_graph_id_or_default},
     orientation_service::mcp_local_orientation_location,
@@ -65,7 +65,7 @@ pub(super) fn mcp_local_quick_orient(
     let graph_id = mcp_graph_id_or_default(&app, arguments)?;
     let profile = ensure_profile(&app)?;
     let (_, graph) = read_graph_record(&app, &graph_id)?;
-    let documents = list_documents(app.clone(), graph_id)?;
+    let documents = list_documents_cold(app.clone(), graph_id)?;
     let recall_limit = mcp_arg_usize(arguments, &["recall_limit", "recallLimit"], 5).min(20);
     Ok(serde_json::json!({
         "location": mcp_local_orientation_location(&profile, &graph),
@@ -92,7 +92,7 @@ pub(super) async fn mcp_local_context_bundle(
     let graph_id = mcp_graph_id_or_default(&app, arguments)?;
     let profile = ensure_profile(&app)?;
     let (_, graph) = read_graph_record(&app, &graph_id)?;
-    let documents = list_documents(app.clone(), graph_id.clone())?;
+    let documents = list_documents_cold(app.clone(), graph_id.clone())?;
     let recall_limit = mcp_arg_usize(arguments, &["recall_limit", "recallLimit"], 5).min(20);
     let important_limit =
         mcp_arg_usize(arguments, &["important_limit", "importantLimit"], 5).min(20);

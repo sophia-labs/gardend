@@ -35,6 +35,7 @@ pub(super) use crate::rdf_record_materializer::{
 };
 pub(super) use crate::rdf_seed_service::{
     ensure_graph_store_seeded, ensure_graph_store_seeded_with_cancellation,
+    ensure_graph_store_seeded_without_walk,
 };
 pub(super) use crate::rdf_store_service::open_graph_store;
 pub(super) use crate::rdf_workspace_store_materializer::reconcile_workspace_snapshot;
@@ -168,6 +169,39 @@ pub(super) fn run_sparql_query_service_controlled(
     let graph_dir = existing_graph_dir(&app, &input.graph_id).map_err(AppError::storage)?;
     ensure_graph_store_seeded_with_cancellation(&graph_dir, &cancellation)
         .map_err(AppError::rdf)?;
+    evaluate_seeded_query(input, max_rows, page, cancellation, hidden_graphs, graph_dir)
+}
+
+/// The query under the SHARED lifecycle lease: it never walks the seed.
+/// `Ok(None)`: the seed markers are stale (a document was saved since), so the
+/// walk, which writes the store, is needed; the caller retakes the hot-write
+/// lease and runs [`run_sparql_query_service_controlled`].
+pub(super) fn run_sparql_query_service_shared(
+    app: AppHandle,
+    input: SparqlInput,
+    max_rows: usize,
+    page: Option<crate::sparql_cursor::PageStart>,
+    cancellation: CancellationToken,
+    hidden_graphs: &[String],
+) -> AppResult<Option<(SparqlQueryResult, Option<String>)>> {
+    let graph_dir = existing_graph_dir(&app, &input.graph_id).map_err(AppError::storage)?;
+    if !ensure_graph_store_seeded_without_walk(&graph_dir, &cancellation)
+        .map_err(AppError::rdf)?
+    {
+        return Ok(None);
+    }
+    evaluate_seeded_query(input, max_rows, page, cancellation, hidden_graphs, graph_dir)
+        .map(Some)
+}
+
+fn evaluate_seeded_query(
+    input: SparqlInput,
+    max_rows: usize,
+    page: Option<crate::sparql_cursor::PageStart>,
+    cancellation: CancellationToken,
+    hidden_graphs: &[String],
+    graph_dir: std::path::PathBuf,
+) -> AppResult<(SparqlQueryResult, Option<String>)> {
     let store = open_graph_store(&graph_dir).map_err(AppError::rdf)?;
     let revision = crate::rdf_store_service::graph_store_revision(&store);
     if let Some(page) = page.as_ref() {

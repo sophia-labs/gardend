@@ -35,6 +35,25 @@ pub(super) fn list_documents(
     app: AppHandle,
     graph_id: String,
 ) -> Result<Vec<DocumentRecord>, String> {
+    list_documents_with(app, graph_id, read_document_record)
+}
+
+/// [`list_documents`] without the Y.Doc history: each record comes from the
+/// cold reader (content projection only; no sidecar read, no base64). For
+/// callers that count, list or preview (`quick_orient`, `context_bundle`) and
+/// would drop the update payload. The hydrating walk is O(all histories).
+pub(super) fn list_documents_cold(
+    app: AppHandle,
+    graph_id: String,
+) -> Result<Vec<DocumentRecord>, String> {
+    list_documents_with(app, graph_id, read_document_record_cold)
+}
+
+fn list_documents_with(
+    app: AppHandle,
+    graph_id: String,
+    read_record: fn(&std::path::Path, &std::path::Path) -> Result<DocumentRecord, String>,
+) -> Result<Vec<DocumentRecord>, String> {
     let graph_dir = existing_graph_dir(&app, &graph_id)?;
     let documents_dir = documents_dir(&graph_dir);
     create_dir_all(&documents_dir)?;
@@ -58,7 +77,7 @@ pub(super) fn list_documents(
         if crate::document_trash_service::document_is_trashed(&graph_dir, &document_id) {
             continue;
         }
-        documents.push(read_document_record(&graph_dir, &manifest_path)?);
+        documents.push(read_record(&graph_dir, &manifest_path)?);
     }
 
     documents.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));

@@ -64,6 +64,18 @@ pub(crate) fn graph_store_quad_count(store: &Store) -> Result<usize, String> {
     Ok(count)
 }
 
+/// The remembered quad count of a cached graph store, if there is one. Never
+/// scans: callers that only want to report a number (the `quadCount` field of
+/// a query answer, a log line) use this and say "unknown" otherwise; the
+/// callers that need the number (the silent-zero warning) use
+/// [`graph_store_quad_count`].
+pub(crate) fn graph_store_cached_quad_count(store: &Store) -> Option<usize> {
+    if !is_cached_graph_store(store) {
+        return None;
+    }
+    quad_counts().get(&store_key(store)).copied()
+}
+
 /// The store was written (or left the cache): its remembered count is gone,
 /// and so is its revision ([`graph_store_revision`]).
 pub(crate) fn forget_quad_count(store: &Store) {

@@ -32,7 +32,7 @@ use crate::{
     document_digest_service::mcp_local_document_digest,
     document_history_mcp::{mcp_local_get_document_history, mcp_local_read_document_at_snapshot},
     document_mcp_blocks::{mcp_local_get_block, mcp_local_query_blocks, mcp_local_read_blocks},
-    document_mcp_service::{mcp_local_list_documents, mcp_local_read_document},
+    document_mcp_service::{mcp_local_list_documents, mcp_local_read_document_live},
     document_mutation_service::mcp_local_write_document,
     emporium::{
         chamber::propose_domain_ontology,
@@ -551,7 +551,7 @@ fn tramp_read_document<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandl
     let app = ctx.app.clone();
     Box::pin(async move {
         await_read_projection(&app, args, false).await?;
-        mcp_local_read_document(app, args).map_err(AppError::internal)
+        mcp_local_read_document_live(app, args).await.map_err(AppError::internal)
     })
 }
 

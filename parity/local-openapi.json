@@ -16183,7 +16183,10 @@
             ]
           },
           "quadCount": {
-            "type": "integer"
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "warnings": {
             "type": "array",

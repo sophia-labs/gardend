@@ -43,12 +43,12 @@ one semaphore shared by external reads and writes.
 
 | Setting | Default | Semantics |
 |---|---:|---|
-| `GARDEN_SPARQL_MAX_CONCURRENCY` | `2` | Process-wide external query + update permits |
+| `GARDEN_SPARQL_MAX_CONCURRENCY` | `ncpu/2`, clamped to `2..=4` | Process-wide external query + update permits |
 | `GARDEN_SPARQL_DEFAULT_TIMEOUT_MS` | `30000` | Query deadline when the caller omits one |
 | `GARDEN_SPARQL_MAX_TIMEOUT_MS` | `120000` | Hard server ceiling on requested query deadlines |
 | `GARDEN_SPARQL_MAX_ROWS` | `50000` | Hard server ceiling on materialized SELECT rows or CONSTRUCT/DESCRIBE triples |
 
-The query deadline includes semaphore wait and graph-lease wait. Evaluation
+The query deadline includes semaphore wait and graph-lease wait. An update has a deadline to start (the default query timeout, for the permit and the graph lease) and is refused with a capacity error if it cannot; once running it has no deadline. A query takes the shared lifecycle lease and escalates to the hot-write lease only when the seed walk, which writes the store, is needed. Evaluation
 runs in `spawn_blocking`. A deadline fires Oxigraph's
 `sparql::CancellationToken` and the handler waits for the blocking worker to
 unwind before returning 504; it never detaches an engine and labels that

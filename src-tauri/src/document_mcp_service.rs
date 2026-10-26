@@ -1,7 +1,7 @@
 use crate::app_runtime::AppHandle;
 use crate::{
     document_rendering::{document_blocks_for_read, document_markdown},
-    document_service::{read_document, read_graph_documents_cold, DocumentRecord},
+    document_service::{read_document, read_document_cold, read_graph_documents_cold, DocumentRecord},
     mcp_utils::{mcp_arg_string, mcp_arg_usize, mcp_required_document_id, mcp_required_graph_id},
     paths::existing_graph_dir,
 };
@@ -50,18 +50,23 @@ pub(super) fn mcp_local_list_documents(
         .clamp(MIN_LIST_BYTES, MAX_LIST_BYTES);
     let total = documents.len();
     let start = cursor.min(total);
-    let mut page = Vec::new();
-    for document in documents.iter().skip(start).take(limit) {
-        let mut candidate = page.clone();
-        candidate.push(document.clone());
-        let next = start + candidate.len();
-        let candidate_value = document_list_page(candidate, total, start, next, limit, max_bytes);
-        let (_, candidate_bytes) = finalize_document_list_bytes(candidate_value)?;
-        if candidate_bytes > max_bytes {
-            break;
-        }
-        page.push(document.clone());
-    }
+    // Linear page fitting (R9): the rows' own sizes once, then a bisection over
+    // how many fit, instead of rebuilding and serialising the page per row.
+    let candidates: Vec<serde_json::Value> =
+        documents.iter().skip(start).take(limit).cloned().collect();
+    let sizes = crate::page_fit::row_sizes(&candidates)?;
+    let fitted = crate::page_fit::largest_fitting_prefix(&sizes, max_bytes, |count| {
+        let candidate_value = document_list_page(
+            candidates[..count].to_vec(),
+            total,
+            start,
+            start + count,
+            limit,
+            max_bytes,
+        );
+        finalize_document_list_bytes(candidate_value).map(|(_, bytes)| bytes)
+    })?;
+    let page = candidates[..fitted].to_vec();
     let next = start + page.len();
     let response = document_list_page(page, total, start, next, limit, max_bytes);
     let (response, _) = finalize_document_list_bytes(response)?;
@@ -169,14 +174,79 @@ pub(crate) async fn require_document_target(
     Ok(())
 }
 
+fn read_document_includes_comments(arguments: &serde_json::Value) -> bool {
+    !matches!(
+        arguments
+            .get("includeComments")
+            .or_else(|| arguments.get("include_comments")),
+        Some(serde_json::Value::Bool(false))
+    )
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
 pub(super) fn mcp_local_read_document(
     app: AppHandle,
     arguments: &serde_json::Value,
 ) -> Result<serde_json::Value, String> {
+    read_document_with_comments(app, arguments, None)
+}
+
+/// `read_document` as the tool serves it: when the document's room is
+/// resident, its comments are read from the live Y.Doc (no decode of the
+/// persisted history at all); otherwise from the sidecar's bytes.
+pub(super) async fn mcp_local_read_document_live(
+    app: AppHandle,
+    arguments: &serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let live = if read_document_includes_comments(arguments) {
+        match (
+            mcp_required_graph_id(arguments),
+            mcp_required_document_id(arguments),
+        ) {
+            (Ok(graph_id), Ok(document_id)) => {
+                live_room_comments(&app, &graph_id, &document_id).await
+            }
+            _ => None,
+        }
+    } else {
+        None
+    };
+    read_document_with_comments(app, arguments, live)
+}
+
+async fn live_room_comments(
+    app: &AppHandle,
+    graph_id: &str,
+    document_id: &str,
+) -> Option<Vec<serde_json::Value>> {
+    let registry = app.try_state::<crate::crdt_engine::rooms::RoomRegistry>()?;
+    let room = registry.peek(&format!("doc:{graph_id}:{document_id}")).await?;
+    Some(
+        room.with_doc(crate::document_comments_read::comments_in_doc)
+            .await,
+    )
+}
+
+fn read_document_with_comments(
+    app: AppHandle,
+    arguments: &serde_json::Value,
+    live_comments: Option<Vec<serde_json::Value>>,
+) -> Result<serde_json::Value, String> {
     let graph_id = mcp_required_graph_id(arguments)?;
     let document_id = mcp_required_document_id(arguments)?;
     let format = mcp_arg_string(arguments, &["format"]).unwrap_or_else(|| "xml".to_string());
-    let document = read_document(app, graph_id.clone(), document_id.clone())?;
+    let include_comments = read_document_includes_comments(arguments);
+    // R4: the history is not read into the record. A document with a sidecar is
+    // read cold (content projection only) and its comments decoded from the
+    // sidecar's bytes (or taken from the live room); a legacy document whose
+    // history is only inline in the manifest keeps the hydrating read.
+    let graph_dir = existing_graph_dir(&app, &graph_id)?;
+    let has_sidecar = crate::paths::document_ydoc_state_path(&graph_dir, &document_id).is_file();
+    let document = if has_sidecar || !include_comments {
+        read_document_cold(app, graph_id.clone(), document_id.clone())?
+    } else {
+        read_document(app, graph_id.clone(), document_id.clone())?
+    };
     let blocks = document_blocks_for_read(&document);
 
     if format == "ids_only" {
@@ -237,16 +307,34 @@ pub(super) fn mcp_local_read_document(
     let next_offset = offset + visible_content.chars().count();
     let complete = next_offset >= total_chars;
 
-    let include_comments = !matches!(
-        arguments
-            .get("includeComments")
-            .or_else(|| arguments.get("include_comments")),
-        Some(serde_json::Value::Bool(false))
-    );
-    let comments = if include_comments {
-        crate::document_comments_read::comments_for_read(&document)
-    } else {
+    // R6: the comments of THIS page, plus the document-level count. The whole
+    // list used to ride on every page of a long document.
+    let all_comments = if !include_comments {
         Vec::new()
+    } else if let Some(live) = live_comments {
+        live
+    } else if has_sidecar {
+        crate::document_comments_read::comments_for_read_from_sidecar(&graph_dir, &document_id)
+            .unwrap_or_default()
+    } else {
+        crate::document_comments_read::comments_for_read(&document)
+    };
+    let comment_total = all_comments.len();
+    let comments = if all_comments.is_empty() {
+        all_comments
+    } else {
+        crate::document_comments_read::comments_for_page(
+            all_comments,
+            &content,
+            &visible_content,
+            offset,
+            |block_id| {
+                blocks
+                    .iter()
+                    .find(|block| block.id == block_id)
+                    .map(|block| block.content.clone())
+            },
+        )
     };
 
     let mut result = serde_json::json!({
@@ -268,11 +356,15 @@ pub(super) fn mcp_local_read_document(
         "rdfTripleCount": document.rdf_triple_count,
         "schemaVersion": document.schema_version,
     });
-    if !comments.is_empty() {
+    if comment_total > 0 {
         // People's notes and highlights on this document (resolved ones
-        // included, flagged). Pass includeComments:false to leave them out.
-        result["commentCount"] = serde_json::json!(comments.len());
-        result["comments"] = serde_json::Value::Array(comments);
+        // included, flagged). `commentCount` is the document's total; `comments`
+        // are those anchored in this page's blocks (the unanchored ones come on
+        // the first page). Pass includeComments:false to leave them out.
+        result["commentCount"] = serde_json::json!(comment_total);
+        if !comments.is_empty() {
+            result["comments"] = serde_json::Value::Array(comments);
+        }
     }
     Ok(result)
 }
@@ -365,5 +457,56 @@ mod tests {
         let (value, bytes) = finalize_document_list_bytes(value).unwrap();
         assert_eq!(value["page"]["serializedBytes"], bytes);
         assert_eq!(serde_json::to_vec(&value).unwrap().len(), bytes);
+    }
+
+    #[test]
+    fn bisected_page_fit_matches_the_row_by_row_scan_on_real_pages() {
+        let rows: Vec<serde_json::Value> = (0..120)
+            .map(|i| {
+                serde_json::json!({
+                    "documentId": format!("doc-{i}"),
+                    "title": "t".repeat(20 + (i * 13) % 90),
+                    "createdAt": "1700000000000",
+                    "updatedAt": "1700000000001",
+                    "blockCount": i,
+                    "rdfTripleCount": i * 3,
+                    "schemaVersion": 3,
+                })
+            })
+            .collect();
+        for max_bytes in [MIN_LIST_BYTES, 10_000, 25_000, DEFAULT_LIST_BYTES] {
+            for start in [0usize, 17] {
+                let limit = 100;
+                let total = rows.len();
+                // The scan the bisection replaced.
+                let mut scanned = Vec::new();
+                for row in rows.iter().skip(start).take(limit) {
+                    let mut candidate = scanned.clone();
+                    candidate.push(row.clone());
+                    let next = start + candidate.len();
+                    let value = document_list_page(candidate, total, start, next, limit, max_bytes);
+                    let (_, bytes) = finalize_document_list_bytes(value).unwrap();
+                    if bytes > max_bytes {
+                        break;
+                    }
+                    scanned.push(row.clone());
+                }
+                let candidates: Vec<_> = rows.iter().skip(start).take(limit).cloned().collect();
+                let sizes = crate::page_fit::row_sizes(&candidates).unwrap();
+                let fitted = crate::page_fit::largest_fitting_prefix(&sizes, max_bytes, |count| {
+                    let value = document_list_page(
+                        candidates[..count].to_vec(),
+                        total,
+                        start,
+                        start + count,
+                        limit,
+                        max_bytes,
+                    );
+                    finalize_document_list_bytes(value).map(|(_, bytes)| bytes)
+                })
+                .unwrap();
+                assert_eq!(fitted, scanned.len(), "max_bytes {max_bytes}, start {start}");
+            }
+        }
     }
 }
