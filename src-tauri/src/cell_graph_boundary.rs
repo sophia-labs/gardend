@@ -59,6 +59,9 @@ mod source_authority_direct_writes_tests;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 #[path = "upload_ingest_refusal_cell_tests.rs"]
 mod upload_ingest_refusal_cell_tests;
+#[cfg(all(test, feature = "headless"))]
+#[path = "viewer_rooms_cell_tests.rs"]
+mod viewer_rooms_cell_tests;
 const MCP_CATALOG_JSON: &str = include_str!("mcp_tool_catalog.json");
 const EFFECT_REGISTRY_JSON: &str = include_str!("../../parity/local-loopback-surface.json");
 
