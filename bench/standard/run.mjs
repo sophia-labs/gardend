@@ -160,13 +160,13 @@ export async function runCmd(pos, o) {
       schema: 'sophia.bench.run.v1', runId, label, protocolVersion: 1, startedAt: startedAt.toISOString(), finishedAt: finishedAt.toISOString(),
       mode: 'attach', suite: 'standard', kind: 'standard', benchmark: bench, tier: String(scale), seed: workload.type === 'mixes' ? manifest.streams?.[spec.stream]?.seed ?? null : null,
       target: {
-        binary: null, binarySha256: null, name: store?.name ?? o['target-name'] ?? 'unknown', version: o['target-version'] ?? store?.image ?? 'unknown', gitRev: null,
+        binary: null, binarySha256: null, name: store?.name ?? o['target-name'] ?? 'unknown', version: o['target-version'] ?? store?.image ?? 'unknown', gitRev: (o['target-version'] ?? store?.image ?? 'unknown').split(':').pop().slice(0, 40),
         imageDigest: store?.digest ?? null, url: o.endpoint, graphId: 'default-graph', spans: false,
         settings: store ? { cpus: store.cpus, memory: store.memory, reasoning: store.reasoning, defaultGraph: store.defaultGraph } : (o.settings ? JSON.parse(o.settings) : null),
       },
       env, dataset: { benchmark: manifest.benchmark, scale: manifest.scale, triples: manifest.dataset?.triples, sha256: manifest.dataset?.sha256, generator: manifest.generator },
       load: loadRec ? { kind: loadRec.kind, loader: loadRec.loader ?? loadRec.method, triplesPerSec: loadRec.triplesPerSec, seconds: loadRec.seconds, storedTriples: loadRec.storedTriples } : null,
-      qualification, cases, process: null, notes,
+      qualification, cases, process: { rssStartMB: null, rssPeakMB: null, rssEndMB: null, cpuUserS: null, cpuSysS: null }, notes,
     }
     writeJson(path.join(runDir, 'run.json'), run); writeFileSync(path.join(runDir, 'summary.md'), summaryMd(run))
     console.log(summaryMd(run)); console.log(`run written to ${runDir}`)

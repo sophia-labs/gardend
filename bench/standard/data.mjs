@@ -97,20 +97,23 @@ export async function buildBsbmStreams(outDir, o) {
   const result = {}
   for (const [name, usecase] of [['explore', 'explore'], ['explore-update', 'exploreAndUpdate']]) {
     const reqs = await recordStream({ outDir, usecase, mixes, warmup, seed })
-    const expect = name === 'explore' ? exploreIds.map((n) => ['q', n]) : [...updIds.map((n) => ['u', n]), ...exploreIds.map((n) => ['q', n])]
-    const per = expect.length
-    if (reqs.length !== per * (mixes + warmup)) throw new Error(`${name}: recorded ${reqs.length} requests, expected ${per * (mixes + warmup)} (${per} x ${mixes + warmup})`)
-    const lines = []
+    // the official driver issues the update queries only in measured mixes; warm-up mixes are explore-only
+    const exploreOnly = exploreIds.map((n) => ['q', n]), full = name === 'explore' ? exploreOnly : [...updIds.map((n) => ['u', n]), ...exploreOnly]
+    const total = warmup * exploreOnly.length + mixes * full.length
+    if (reqs.length !== total) throw new Error(`${name}: recorded ${reqs.length} requests, expected ${total}`)
+    const lines = []; let at = 0
     for (let m = 0; m < mixes + warmup; m++) {
-      const queries = reqs.slice(m * per, (m + 1) * per).map((r, i) => {
+      const expect = m < warmup ? exploreOnly : full
+      const queries = reqs.slice(at, at + expect.length).map((r, i) => {
         const [k, n] = expect[i], re = k === 'q' ? exRe[n] : upRe[n]
         if (!re.test(r.text)) throw new Error(`${name}: mix ${m} position ${i}: text does not match template ${k}${n}: ${r.text.slice(0, 120)}`)
         return { id: `${k}${n}`, kind: r.kind, text: r.text }
       })
+      at += expect.length
       lines.push(JSON.stringify({ mix: m, warmup: m < warmup, queries }))
     }
     writeFileSync(path.join(outDir, 'streams', `${name}.jsonl`), lines.join('\n') + '\n')
-    result[name] = { mixes, warmup, queriesPerMix: per, seed, file: `streams/${name}.jsonl` }
+    result[name] = { mixes, warmup, queriesPerMix: full.length, seed, file: `streams/${name}.jsonl` }
     log(`stream ${name}: ${mixes + warmup} mixes x ${per} queries (seed ${seed})`)
   }
   return result

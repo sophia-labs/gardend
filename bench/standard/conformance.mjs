@@ -23,7 +23,7 @@ import { SRC, exec, log, authHeader, mkdirp, writeJson, readJson, CACHE } from '
 import { withMachine } from './lib/machine.mjs'
 
 const { namedNode, blankNode, literal, quad, defaultGraph } = DataFactory
-const RT = path.join(SRC, 'rdf-tests'), S11 = path.join(RT, 'sparql', 'sparql11')
+export const RT = path.join(SRC, 'rdf-tests'), S11 = path.join(RT, 'sparql', 'sparql11')
 const BASE = 'http://www.w3.org/2009/sparql/docs/tests/data-sparql11/'
 const NS = {
   mf: 'http://www.w3.org/2001/sw/DataAccess/tests/test-manifest#', qt: 'http://www.w3.org/2001/sw/DataAccess/tests/test-query#',
@@ -53,7 +53,7 @@ function parseTtl(file) {
 const one = (st, s, p) => st.getObjects(s, p, null)[0] ?? null
 function list(st, head) { const out = []; let n = head; while (n && n.value !== P('rdf', 'nil')) { out.push(one(st, n, P('rdf', 'first'))); n = one(st, n, P('rdf', 'rest')) } return out }
 
-function collect(manifestFile, group = null, seen = new Set()) {
+export function collect(manifestFile, group = null, seen = new Set()) {
   if (seen.has(manifestFile)) return []
   seen.add(manifestFile)
   const { iri, store } = parseTtl(manifestFile), man = namedNode(iri), tests = []
