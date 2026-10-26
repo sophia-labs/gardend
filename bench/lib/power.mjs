@@ -85,12 +85,17 @@ export function foreignCpuSampler({ everyMs = 5000, ours = () => [] } = {}) {
     if (busy) return; busy = true
     try {
       const { stdout } = await run('ps', ['-Ao', 'pid=,ppid=,pcpu=,comm='], { maxBuffer: 8 << 20 })
-      const skip = new Set([...self, ...ours()]); let tot = 0, oursPct = 0; const seen = new Map()
-      for (const l of stdout.split('\n')) {
-        const m = l.trim().match(/^(\d+)\s+(\d+)\s+([\d.]+)\s+(.*)$/); if (!m) continue
-        const pid = +m[1], ppid = +m[2], pct = +m[3]; if (!pct) continue
-        if (skip.has(pid) || ppid === process.pid) { oursPct += pct; continue } // ours, and our children (caffeinate, ps)
-        tot += pct; const c = path.basename(m[4]); seen.set(c, (seen.get(c) ?? 0) + pct)
+      const rows = []
+      for (const l of stdout.split('\n')) { const m = l.trim().match(/^(\d+)\s+(\d+)\s+([\d.]+)\s+(.*)$/); if (m) rows.push({ pid: +m[1], ppid: +m[2], pct: +m[3], comm: m[4] }) }
+      // ours = this process, the given pids, and every descendant of either (gardend, a browser the bench drives, ps, caffeinate)
+      const kids = new Map(); for (const r of rows) { if (!kids.has(r.ppid)) kids.set(r.ppid, []); kids.get(r.ppid).push(r.pid) }
+      const skip = new Set(), stack = [...self, ...ours()]
+      while (stack.length) { const p = stack.pop(); if (skip.has(p)) continue; skip.add(p); for (const c of kids.get(p) ?? []) stack.push(c) }
+      let tot = 0, oursPct = 0; const seen = new Map()
+      for (const { pid, pct, comm } of rows) {
+        if (!pct) continue
+        if (skip.has(pid)) { oursPct += pct; continue }
+        tot += pct; const c = path.basename(comm); seen.set(c, (seen.get(c) ?? 0) + pct)
       }
       samples.push({ t: Date.now(), foreignPct: Math.round(tot), oursPct: Math.round(oursPct) })
       for (const [c, p] of seen) byComm.set(c, (byComm.get(c) ?? 0) + p)
@@ -108,12 +113,23 @@ export function foreignCpuSampler({ everyMs = 5000, ours = () => [] } = {}) {
   }
 }
 
-// A round is a judge-worthy measurement only if the machine stayed awake, out of DarkWake, unthrottled, on AC.
+// Compilers, linkers and virtual machines: their presence in a round is a contamination, not background noise.
+export const HEAVY = /^(rustc|cargo|ld|ld64|clang|cc1|cc|swift-frontend|java|qemu|com\.docker\.|Docker|com\.apple\.Virtualization|vfkit|node-gyp)/
+// A round is a judge-worthy measurement only if the machine stayed awake, out of DarkWake, unthrottled, on AC, and
+// with no build or VM beside it.
 export function roundHealth(env) {
   const p = env?.machine, why = []
   if (!p) return { clean: null, why: ['machine state not recorded (run predates gbench power accounting, 2026-10-26)'] }
   if (p.during && !p.during.checked) why.push('power log unreadable')
   if (p.during?.reasons?.length) why.push(...p.during.reasons)
+  // A build or a VM beside a round contaminates it even when the power state is perfect (10-26: rustc at 169% inside a GUI
+  // round). Sustained foreign load over ~3 cores does too.
+  const fc = p.foreignCpu
+  if (fc?.measured) {
+    const heavy = (fc.top ?? []).filter((t) => HEAVY.test(t.comm) && t.meanPct >= 25)
+    if (heavy.length) why.push(`heavy foreign process(es): ${heavy.map((t) => `${t.comm} ${t.meanPct}%`).join(', ')}`)
+    if (fc.foreignPct?.mean > 300) why.push(`busy machine: foreign CPU mean ${fc.foreignPct.mean}%`)
+  }
   for (const k of ['start', 'end']) { const s = p[k]; if (s && s.cpuSpeedLimit != null && s.cpuSpeedLimit < 100) why.push(`CPU speed limit ${s.cpuSpeedLimit}% at ${k}`); if (s && s.source === 'battery') why.push(`on battery at ${k}`) }
   return { clean: why.length === 0, why }
 }
