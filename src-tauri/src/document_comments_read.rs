@@ -29,7 +29,26 @@ pub(crate) fn comments_for_read(document: &DocumentRecord) -> Vec<Value> {
     let Ok(bytes) = BASE64_STANDARD.decode(&document.ydoc_update_base64) else {
         return Vec::new();
     };
-    let Ok(update) = Update::decode_v1(&bytes) else {
+    comments_in_update_bytes(&bytes)
+}
+
+/// The comments of a document whose sidecar is on disk, read from the raw
+/// update bytes: no hydrating record, no base64 round trip. `None` when there
+/// is no sidecar (a legacy document whose history is inline in the manifest;
+/// the caller then reads the hydrating record).
+pub(crate) fn comments_for_read_from_sidecar(
+    graph_dir: &std::path::Path,
+    document_id: &str,
+) -> Option<Vec<Value>> {
+    let state_path = crate::paths::document_ydoc_state_path(graph_dir, document_id);
+    let bytes = crate::document_sidecar_store::read_ydoc_update_bytes(&state_path)
+        .ok()
+        .flatten()?;
+    Some(comments_in_update_bytes(&bytes))
+}
+
+pub(crate) fn comments_in_update_bytes(bytes: &[u8]) -> Vec<Value> {
+    let Ok(update) = Update::decode_v1(bytes) else {
         return Vec::new();
     };
     let doc = Doc::new();

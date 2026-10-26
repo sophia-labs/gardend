@@ -3,7 +3,7 @@ use crate::{
     active_documents::try_live_projection,
     document_block_projection::{block_json, block_matches_query},
     document_rendering::{document_blocks_for_read, render_block_content},
-    document_service::{read_document, BlockSnapshot},
+    document_service::{read_document_cold, BlockSnapshot},
     mcp_utils::{
         mcp_arg_bool, mcp_arg_isize, mcp_arg_string, mcp_arg_usize, mcp_required_document_id,
         mcp_required_graph_id,
@@ -18,7 +18,9 @@ async fn live_or_stored_blocks(
     if let Some(live) = try_live_projection(app, graph_id, document_id).await {
         return Ok(live.blocks);
     }
-    let document = read_document(app.clone(), graph_id.to_string(), document_id.to_string())?;
+    // Only the blocks are used: the cold read skips the sidecar and its base64.
+    let document =
+        read_document_cold(app.clone(), graph_id.to_string(), document_id.to_string())?;
     Ok(document_blocks_for_read(&document))
 }
 

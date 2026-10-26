@@ -22,6 +22,17 @@ thread_local! {
     };
 }
 
+/// Test-only: how many cold and hydrating record reads this thread has made.
+#[cfg(test)]
+pub(super) fn record_read_counts_for_test() -> (usize, usize) {
+    RECORD_READ_COUNTS.with(std::cell::Cell::get)
+}
+
+#[cfg(test)]
+pub(super) fn reset_record_read_counts_for_test() {
+    RECORD_READ_COUNTS.with(|counts| counts.set((0, 0)));
+}
+
 pub(super) fn read_document_record(
     graph_dir: &Path,
     manifest_path: &Path,
