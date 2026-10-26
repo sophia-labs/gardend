@@ -1,0 +1,11 @@
+# Apache Jena Fuseki (TDB2), minimal. No official Docker Hub image; build from the Apache archive.
+FROM eclipse-temurin:17-jre-jammy
+ARG JENA_VERSION=5.2.0
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates && rm -rf /var/lib/apt/lists/* \
+ && curl -fsSL https://archive.apache.org/dist/jena/binaries/apache-jena-fuseki-${JENA_VERSION}.tar.gz | tar xz -C /opt \
+ && curl -fsSL https://archive.apache.org/dist/jena/binaries/apache-jena-${JENA_VERSION}.tar.gz | tar xz -C /opt \
+ && ln -s /opt/apache-jena-fuseki-${JENA_VERSION} /opt/fuseki && ln -s /opt/apache-jena-${JENA_VERSION} /opt/jena
+ENV JAVA_OPTIONS="-Xmx7g" PATH="/opt/jena/bin:${PATH}"
+EXPOSE 3030
+# Load first with: tdb2.tdbloader --loc /data/db dataset.nt ; then serve.
+CMD ["/opt/fuseki/fuseki-server", "--loc", "/data/db", "--update", "/ds"]

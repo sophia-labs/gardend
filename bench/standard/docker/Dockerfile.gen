@@ -1,0 +1,27 @@
+# Generator image for the standard benchmarks: BSBM (Java), SP2Bench (C++), WatDiv (C++/Boost).
+# Build context is ~/.cache/sophia-bench/standard/src (see data.mjs); sources are pinned by sha256 / git sha there.
+# BSBM is compiled from source here (the committed bsbm.jar is ignored).
+FROM eclipse-temurin:17-jdk-jammy
+RUN apt-get update && apt-get install -y --no-install-recommends g++ make libboost-all-dev wamerican ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# ---- BSBM tools (Tpt/bsbm-tools clone of bsbmtools 0.2) ----
+COPY bsbm-tools /opt/bsbm
+RUN cd /opt/bsbm && mkdir -p bin && javac -nowarn -cp "lib/jdom.jar:lib/log4j-1.2.12.jar:lib/ssj.jar" -d bin $(find src -name '*.java') 2>&1 | tail -3 \
+    && sed -i 's#^CP=\.#CP=./bin#' generate testdriver && chmod +x generate testdriver
+
+# ---- SP2Bench v1.01 (patches as in sparq-org/sparq bench/sp2b/gen.sh: includes; keep -O2, never -O3) ----
+COPY sp2b-v1_01-full.tar.gz /tmp/sp2b.tgz
+RUN echo "6640506cf2e2d142ea3435b1b8cc3999879349ebcd1a3cdc601db831f5cb3d73  /tmp/sp2b.tgz" | sha256sum -c - \
+    && mkdir -p /opt && tar xzf /tmp/sp2b.tgz -C /opt && cd /opt/sp2b/src \
+    && for f in namepoolfile.cpp missingcites.cpp namepoolmgr.cpp; do sed -i '1i #include <cstring>' $f; done \
+    && sed -i '1i #include <cstdlib>' volumemgr.cpp \
+    && sed -i 's/^    char c;$/    int c;/' namepoolfile.cpp \
+    && sed -i 's/g++ -Wall -m32 -O2/g++ -w -O2/' Makefile && make >/dev/null && cp sp2b_gen /opt/sp2b/bin/sp2b_gen_native && cp /opt/sp2b/src/*.txt /opt/sp2b/bin/
+
+# ---- WatDiv v0.6 ----
+COPY watdiv_v06.tar /tmp/watdiv.tar
+RUN echo "fb8d930b74b3fbc8f948101bfaf658a90d2f74002f1fefda465c45ffd33a71d2  /tmp/watdiv.tar" | sha256sum -c - \
+    && tar xf /tmp/watdiv.tar -C /opt && cd /opt/watdiv && export BOOST_HOME=/usr/lib && make 2>&1 | tail -5; ls /opt/watdiv/bin/Release/watdiv
+COPY gen-entry.sh /usr/local/bin/gen-entry
+ENTRYPOINT ["/usr/local/bin/gen-entry"]
