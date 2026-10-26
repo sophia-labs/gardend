@@ -1391,6 +1391,10 @@ pub(crate) async fn rebuild_room_document_projection(
     // Whiteboards: the `:projection:whiteboard` lane, from the same verified record (no-op for every other kind).
     crate::whiteboard::lane::reconcile_record(&store, &graph_dir, &record)?;
     room.mark_projection_persisted(materialized.projection_epoch);
+    // The record was just verified to describe this sidecar's Y.Doc.
+    if let Some(witness) = materialized.sidecar.as_ref() {
+        super::projection_stamp::write_stamp(&graph_dir, document_id, witness);
+    }
     Ok(true)
 }
 
@@ -1420,6 +1424,8 @@ async fn persist_room_document_with_expected_revision(
 
 pub(super) struct MaterializedRoomDocument {
     pub(super) projection_epoch: u64,
+    /// The sidecar this projection was taken from (see `projection_stamp`).
+    pub(super) sidecar: Option<super::projection_stamp::SidecarWitness>,
     pub(super) candidate: Value,
     save_input: SaveDocumentInput,
 }
@@ -1498,8 +1504,10 @@ pub(super) async fn materialize_room_document(
 ) -> Result<MaterializedRoomDocument, String> {
     if crate::whiteboard::is_scene_kind(document_kind) {
         let is_whiteboard = crate::whiteboard::is_whiteboard(document_kind);
+        let mut sidecar = None;
         let (projection_epoch, (ydoc_state, body, blocks)) = room
             .with_doc_version(|doc| {
+                sidecar = room.witness_sidecar();
                 // A whiteboard's saved `body` is its outline markdown, so search,
                 // `read_document` and the semantic index see the board's words,
                 // and its `blocks` list one block per live shape (the element
@@ -1546,18 +1554,22 @@ pub(super) async fn materialize_room_document(
             .map_err(|error| format!("assemble flow-board save_document input: {error}"))?;
         return Ok(MaterializedRoomDocument {
             projection_epoch,
+            sidecar,
             candidate,
             save_input,
         });
     }
 
-    // Under the room's locks take only the epoch and the encoded state (the
-    // two are read together, so the bytes are exactly that epoch). The
-    // TipTap/tree/blocks/body walk then runs on a scratch Doc built from
-    // those bytes with the locks released, so a keystroke is never queued
-    // behind a whole-document materialization.
+    // Under the room's locks take only the epoch, the sidecar witness and the
+    // encoded state (read together, so the bytes and the witnessed sidecar are
+    // exactly that epoch: `with_doc_version` brings the group-commit tail to
+    // disk first). The TipTap/tree/blocks/body walk then runs on a scratch Doc
+    // built from those bytes with the locks released, so a keystroke is never
+    // queued behind a whole-document materialization.
+    let mut sidecar = None;
     let (projection_epoch, ydoc_state) = room
         .with_doc_version(|doc| {
+            sidecar = room.witness_sidecar();
             doc.transact()
                 .encode_state_as_update_v1(&yrs::StateVector::default())
         })
@@ -1604,6 +1616,7 @@ pub(super) async fn materialize_room_document(
         .map_err(|error| format!("assemble save_document input: {error}"))?;
     Ok(MaterializedRoomDocument {
         projection_epoch,
+        sidecar,
         candidate,
         save_input,
     })
@@ -2096,6 +2109,18 @@ fn persist_materialized_room_document_with_tombstone_fence(
         }
     };
     room.mark_projection_persisted(materialized.projection_epoch);
+    // The record, RDF and history tail now project the sidecar this
+    // materialization was taken from: say so, so a later graph-wide read can
+    // skip this document while it is cold. Not for a same-ID recreation, whose
+    // tombstone boundary is still open. A failure only costs the shortcut.
+    if expected_deletion_id.is_none() {
+        if let (Some(witness), Ok(graph_dir)) = (
+            materialized.sidecar.as_ref(),
+            existing_graph_dir(app, graph_id),
+        ) {
+            super::projection_stamp::write_stamp(&graph_dir, document_id, witness);
+        }
+    }
     Ok(record_value)
 }
 

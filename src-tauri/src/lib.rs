@@ -435,6 +435,13 @@ mod web_fetch;
 mod whiteboard_blocks_store_tests;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod whiteboard_lane_store_tests;
+#[cfg(all(
+    test,
+    feature = "headless",
+    not(feature = "desktop"),
+    not(feature = "frontend-crdt")
+))]
+mod fence_tests;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod wire_iri_store_tests;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
