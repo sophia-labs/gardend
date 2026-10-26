@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 pub(crate) const DOCUMENT_INCARNATION_HEADER: &str = "x-document-incarnation";
 pub(crate) const DOCUMENT_INCARNATION_QUERY: &str = "document_incarnation";
-const DOCUMENT_INCARNATION_FILE: &str = ".incarnation-id";
+pub(crate) const DOCUMENT_INCARNATION_FILE: &str = ".incarnation-id";
 
 fn incarnation_path(graph_dir: &Path, document_id: &str) -> Result<PathBuf, String> {
     validate_local_id(document_id, "document_id")?;
@@ -64,6 +64,23 @@ pub(crate) fn ensure_document_incarnation_id(
 ) -> Result<String, String> {
     ensure_document_incarnation_id_with_requested(graph_dir, document_id, None)
         .map_err(|fault| fault.to_string())
+}
+
+/// The published identity of one document incarnation, `None` while none has
+/// been published. Never writes: a hosted Viewer's room open reads it.
+pub(crate) fn read_document_incarnation_id(
+    graph_dir: &Path,
+    document_id: &str,
+) -> Result<Option<String>, String> {
+    let path = incarnation_path(graph_dir, document_id)?;
+    match fs::read_to_string(&path) {
+        Ok(value) => parse_incarnation(&path, &value).map(Some),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(format!(
+            "read document incarnation {}: {error}",
+            path.display()
+        )),
+    }
 }
 
 /// Publish or verify a caller-minted document-lifetime identity.

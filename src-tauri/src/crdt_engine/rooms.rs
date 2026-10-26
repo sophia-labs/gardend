@@ -2731,6 +2731,11 @@ pub(crate) enum RoomAccess {
         fence: crate::visitor_fence::WriteFence,
         document_id: String,
     },
+    /// A hosted cell's Viewer (a gateway lease below Editor): reads the room
+    /// as an Editor sees it; a frame that would change it closes the
+    /// connection (4403), as for `ReadOnly`; its presence is stamped with the
+    /// lease `principal`.
+    Viewer { principal: String },
 }
 
 /// The close code a refused visitor frame gets (application range).
@@ -2876,13 +2881,16 @@ pub(crate) async fn serve_room_with(
                         }
                         let refused = match &access {
                             RoomAccess::ReadWrite => None,
-                            RoomAccess::ReadOnly { .. } => match room.shadow_apply(&update, |_, _, _| Ok(())).await {
+                            RoomAccess::ReadOnly { .. } | RoomAccess::Viewer { .. } => match room.shadow_apply(&update, |_, _, _| Ok(())).await {
                                 Ok(false) => {
                                     visitor_noop_frames += 1;
                                     if visitor_noop_frames <= VISITOR_NOOP_FRAMES {
                                         continue;
                                     }
                                     Some("too many frames that change nothing".to_string())
+                                }
+                                Ok(true) if matches!(access, RoomAccess::Viewer { .. }) => {
+                                    Some("read-only: viewers read this room".to_string())
                                 }
                                 Ok(true) => Some("read-only: visitors read this room".to_string()),
                                 Err(error) => Some(error),
@@ -2965,6 +2973,13 @@ pub(crate) async fn serve_room_with(
                             }
                             RoomAccess::Fenced { fence, .. } => {
                                 match crate::visitor_fence::stamp_awareness_update(&app, Some(&fence.account), update) {
+                                    Some(update) => update,
+                                    None => continue,
+                                }
+                            }
+                            // A Viewer's presence is its lease principal.
+                            RoomAccess::Viewer { principal } => {
+                                match crate::visitor_fence::stamp_viewer_awareness_update(principal, update) {
                                     Some(update) => update,
                                     None => continue,
                                 }

@@ -2168,6 +2168,52 @@ pub(crate) fn stamp_awareness_update(
     (!clients.is_empty()).then_some(yrs::sync::AwarenessUpdate { clients })
 }
 
+/// Rewrite one awareness state a hosted cell's Viewer publishes: its user id
+/// and its presence's human id are the lease principal, whatever the client
+/// sent (so it cannot speak as, or take over the presence session of,
+/// another person), and it is marked `viewer`. The name and colour stay the
+/// client's. `None` drops a state that is not a JSON object.
+pub(crate) fn stamp_viewer_awareness(principal: &str, json_text: &str) -> Option<String> {
+    if json_text == "null" {
+        return Some(json_text.to_string());
+    }
+    let mut state: Value = serde_json::from_str(json_text).ok()?;
+    let object = state.as_object_mut()?;
+    let mut user = object
+        .get("user")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    user.insert("userId".into(), json!(principal));
+    user.insert("viewer".into(), json!(true));
+    object.insert("user".into(), Value::Object(user));
+    if let Some(lifecycle) = object.get_mut("presence").and_then(Value::as_object_mut) {
+        lifecycle.insert("humanId".into(), json!(principal));
+    }
+    serde_json::to_string(&state).ok()
+}
+
+/// Stamp every state of an awareness update a hosted Viewer sends (see
+/// [`stamp_viewer_awareness`]); `None` when nothing is left to merge.
+pub(crate) fn stamp_viewer_awareness_update(
+    principal: &str,
+    update: yrs::sync::AwarenessUpdate,
+) -> Option<yrs::sync::AwarenessUpdate> {
+    let mut clients = HashMap::new();
+    for (client, entry) in update.clients {
+        if let Some(json_text) = stamp_viewer_awareness(principal, &entry.json) {
+            clients.insert(
+                client,
+                yrs::sync::awareness::AwarenessUpdateEntry {
+                    clock: entry.clock,
+                    json: json_text.into(),
+                },
+            );
+        }
+    }
+    (!clients.is_empty()).then_some(yrs::sync::AwarenessUpdate { clients })
+}
+
 // The end-to-end tests carry `loopback_self_host` in their module name so the
 // cells lane's gating passes run them (`ship/lanes/cells.sh`).
 #[cfg(all(test, feature = "headless"))]

@@ -14,6 +14,11 @@
 //! (`documents.write.crdt` / `workspace.write.crdt`). Self-host only: a
 //! Cloudflare Access login (`Cf-Access-Jwt-Assertion`) with that scope, from
 //! an allowed `Origin` (cross-site WebSocket hijacking rides the cookie).
+//!
+//! Hosted cells: the gateway's lease names the caller's role. A lease below
+//! Editor makes the socket a Viewer's ([`RoomAccess::Viewer`]): it reads,
+//! keeps its presence, and never writes, not even on open (no self-heal, no
+//! incarnation published, no room for a document that does not exist).
 
 use crate::{
     app_runtime::AppHandle,
@@ -118,12 +123,16 @@ pub(crate) fn authorize_ws(
 /// read-only reader's (which should send none that matter).
 const FENCED_MAX_MESSAGE: usize = 256 * 1024;
 const READ_ONLY_MAX_MESSAGE: usize = 64 * 1024;
+/// A hosted Viewer's frames are an editor-grade client's presence (cursor,
+/// selection, user card) and sync frames that change nothing.
+const VIEWER_MAX_MESSAGE: usize = 256 * 1024;
 
 /// Who may use a room, and how (W6). Every credential `authorize_ws` admits
-/// keeps `ReadWrite`, exactly as before. Then, on a public Sophia and a
-/// public graph only: a Sophia account (an ID token, as a bearer or a
-/// `bearer.<token>` subprotocol) reads, and writes its own documents inside
-/// its fence; a caller with no credential at all reads.
+/// keeps `ReadWrite`, exactly as before, unless a hosted cell's gateway lease
+/// says the caller is below Editor: then it is a `Viewer`. Then, on a public
+/// Sophia and a public graph only: a Sophia account (an ID token, as a bearer
+/// or a `bearer.<token>` subprotocol) reads, and writes its own documents
+/// inside its fence; a caller with no credential at all reads.
 pub(crate) async fn room_access(
     headers: &HeaderMap,
     state: &LoopbackState,
@@ -132,7 +141,7 @@ pub(crate) async fn room_access(
     required_scope: &str,
 ) -> Result<(Option<String>, RoomAccess), Response> {
     let refused = match authorize_ws(headers, state, required_scope) {
-        Ok(subprotocol) => return Ok((subprotocol, RoomAccess::ReadWrite)),
+        Ok(subprotocol) => return Ok((subprotocol, admitted_room_access())),
         Err(response) => response,
     };
     let Some(public) = state.self_host.public() else {
@@ -219,12 +228,40 @@ pub(crate) async fn room_access(
     ))
 }
 
+/// What a credential `authorize_ws` admitted may do: the verified gateway
+/// lease of a hosted cell (set by `cell_graph_boundary_middleware` around
+/// the handler) below Editor makes it a Viewer, stamped with the lease
+/// principal; anything else stays `ReadWrite`.
+fn admitted_room_access() -> RoomAccess {
+    match crate::cell_graph_boundary::current_cell_lease() {
+        Some(lease) if lease.role < crate::cell_graph_boundary::CellRole::Editor => {
+            RoomAccess::Viewer {
+                principal: lease.principal,
+            }
+        }
+        _ => RoomAccess::ReadWrite,
+    }
+}
+
 fn with_access_limits(ws: WebSocketUpgrade, access: &RoomAccess) -> WebSocketUpgrade {
     match access {
         RoomAccess::ReadWrite => ws,
         RoomAccess::ReadOnly { .. } => ws.max_message_size(READ_ONLY_MAX_MESSAGE),
         RoomAccess::Fenced { .. } => ws.max_message_size(FENCED_MAX_MESSAGE),
+        RoomAccess::Viewer { .. } => ws.max_message_size(VIEWER_MAX_MESSAGE),
     }
+}
+
+/// A Viewer's graph: its directory and published incarnation, read without
+/// self-heal, directory repair or incarnation migration (a Viewer writes
+/// nothing on open). A missing or deleted graph is an error.
+fn viewer_graph(
+    app: &AppHandle,
+    graph_id: &str,
+) -> Result<(std::path::PathBuf, Option<String>), String> {
+    crate::graph_record_store::read_graph_record_no_heal(app, graph_id)
+        .map(|(graph_dir, graph)| (graph_dir, graph.incarnation_id))
+        .map_err(crate::app_error::AppError::message)
 }
 
 fn ws_client_token_scopes(state: &LoopbackState, token: &str) -> Option<Vec<String>> {
@@ -385,9 +422,11 @@ async fn doc_room(
             Ok(value) => value,
             Err(response) => return response,
         };
+    let viewer = matches!(access, RoomAccess::Viewer { .. });
     // A public reader (or visitor) does not open a document in the Trash: it is
-    // the owner's to see (W6, sealed exam C1).
-    if !matches!(access, RoomAccess::ReadWrite) {
+    // the owner's to see (W6, sealed exam C1). A hosted Viewer sees what an
+    // Editor sees, the Trash included.
+    if matches!(access, RoomAccess::ReadOnly { .. } | RoomAccess::Fenced { .. }) {
         if let Ok(trashed) = crate::visitor_fence::trashed_documents(&state.app, &graph_id).await {
             if trashed.contains(doc_id.as_str()) {
                 return loopback_error(StatusCode::NOT_FOUND, "document not found");
@@ -402,11 +441,18 @@ async fn doc_room(
         Ok(lease) => lease,
         Err(error) => return loopback_error(StatusCode::INTERNAL_SERVER_ERROR, &error),
     };
-    let (graph_dir, graph_lease) =
+    // A Viewer writes nothing on open: no self-heal of a missing graph.
+    let (graph_dir, graph_lease) = if viewer {
+        match viewer_graph(&state.app, &graph_id) {
+            Ok((graph_dir, _)) => (graph_dir, graph_lease),
+            Err(error) => return loopback_error(StatusCode::NOT_FOUND, &error),
+        }
+    } else {
         match existing_graph_dir_for_room(&state.app, &coordinator, &graph_id, graph_lease).await {
             Ok(result) => result,
             Err(error) => return loopback_error(StatusCode::NOT_FOUND, &error),
-        };
+        }
+    };
     let state_path = match checked_document_ydoc_state_path(&graph_dir, &doc_id) {
         Ok(path) => path,
         Err(error) => return loopback_error(StatusCode::BAD_REQUEST, &error),
@@ -417,15 +463,20 @@ async fn doc_room(
         Ok(false) => return loopback_error(StatusCode::NOT_FOUND, "document not found"),
         Err(error) => return loopback_error(StatusCode::INTERNAL_SERVER_ERROR, &error),
     }
-    let incarnation = match crate::document_incarnation_store::ensure_document_incarnation_id(
-        &graph_dir, &doc_id,
-    ) {
+    // A Viewer reads the published incarnation; it never publishes one.
+    let incarnation = if viewer {
+        crate::document_incarnation_store::read_document_incarnation_id(&graph_dir, &doc_id)
+    } else {
+        crate::document_incarnation_store::ensure_document_incarnation_id(&graph_dir, &doc_id)
+            .map(Some)
+    };
+    let incarnation = match incarnation {
         Ok(value) => value,
         Err(error) => return loopback_error(StatusCode::INTERNAL_SERVER_ERROR, &error),
     };
     if let Some(expected) = query.get(crate::document_incarnation_store::DOCUMENT_INCARNATION_QUERY)
     {
-        if expected != &incarnation {
+        if incarnation.as_deref() != Some(expected.as_str()) {
             return loopback_error(StatusCode::CONFLICT, "document incarnation changed");
         }
     }
@@ -483,25 +534,37 @@ async fn workspace_room(
             Ok(value) => value,
             Err(response) => return response,
         };
+    let viewer = matches!(access, RoomAccess::Viewer { .. });
     let coordinator = state.app.state::<GraphPersistenceCoordinator>();
     let graph_lease = match coordinator.acquire_lifecycle_shared(&graph_id).await {
         Ok(lease) => lease,
         Err(error) => return loopback_error(StatusCode::INTERNAL_SERVER_ERROR, &error),
     };
-    let (graph_dir, graph_lease) =
-        match existing_graph_dir_for_room(&state.app, &coordinator, &graph_id, graph_lease).await {
-            Ok(result) => result,
+    // A Viewer writes nothing on open: no self-heal of a missing graph, no
+    // incarnation published for a graph that has none yet.
+    let (graph_dir, graph_lease, published) = if viewer {
+        match viewer_graph(&state.app, &graph_id) {
+            Ok((graph_dir, incarnation)) => (graph_dir, graph_lease, incarnation),
             Err(error) => return loopback_error(StatusCode::NOT_FOUND, &error),
-        };
-    let incarnation =
+        }
+    } else {
+        match existing_graph_dir_for_room(&state.app, &coordinator, &graph_id, graph_lease).await {
+            Ok((graph_dir, graph_lease)) => (graph_dir, graph_lease, None),
+            Err(error) => return loopback_error(StatusCode::NOT_FOUND, &error),
+        }
+    };
+    let incarnation = if viewer {
+        published
+    } else {
         match crate::graph_record_store::ensure_graph_incarnation(&state.app, &graph_id) {
-            Ok(value) => value,
+            Ok(value) => Some(value),
             Err(error) => {
                 return loopback_error(StatusCode::INTERNAL_SERVER_ERROR, error.message_ref())
             }
-        };
+        }
+    };
     match query.get(crate::graph_record_store::GRAPH_INCARNATION_QUERY) {
-        Some(expected) if expected == &incarnation => {}
+        Some(expected) if incarnation.as_deref() == Some(expected.as_str()) => {}
         Some(_) => return loopback_error(StatusCode::CONFLICT, "graph incarnation changed"),
         None => {
             return loopback_error(
