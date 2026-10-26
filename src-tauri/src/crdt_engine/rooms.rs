@@ -212,7 +212,39 @@ struct ProjectionFlushTarget {
     document_id: Option<String>,
     debounce: Duration,
     generation: AtomicU64,
+    /// The newest lifecycle generation a scheduling call saw; the timer task
+    /// flushes against it.
+    graph_generation: AtomicU64,
     contexts: StdMutex<FlushContexts>,
+    timer: StdMutex<DebounceTimer>,
+}
+
+/// One timer task per room serves a whole typing session instead of one
+/// spawned task per frame. A frame only moves `last` (and sets `first` when it
+/// starts a burst); the task sleeps until `last + debounce`, but never past
+/// `first + PROJECTION_DEBOUNCE_MAX_WAIT`, so a person who types without a
+/// pause still gets their document projected.
+#[cfg(not(feature = "frontend-crdt"))]
+#[derive(Default)]
+struct DebounceTimer {
+    /// A timer task owns the pending burst.
+    armed: bool,
+    first: Option<Instant>,
+    last: Option<Instant>,
+}
+
+/// How long until the pending burst is due: the debounce after the latest
+/// update, capped at `max_wait` after the first. Zero means flush now.
+#[cfg(not(feature = "frontend-crdt"))]
+fn debounce_remaining(
+    first: Instant,
+    last: Instant,
+    now: Instant,
+    debounce: Duration,
+    max_wait: Duration,
+) -> Duration {
+    let due = (last + debounce).min(first + max_wait);
+    due.saturating_duration_since(now)
 }
 
 #[cfg(not(feature = "frontend-crdt"))]
@@ -242,6 +274,10 @@ impl FlushContexts {
 const WORKSPACE_PROJECTION_DEBOUNCE: Duration = Duration::from_millis(250);
 #[cfg(not(feature = "frontend-crdt"))]
 const DOCUMENT_PROJECTION_DEBOUNCE: Duration = Duration::from_millis(600);
+/// Continuous typing postpones the debounce for as long as keys keep coming;
+/// the projection (cold record, RDF, search) still lands at least this often.
+#[cfg(not(feature = "frontend-crdt"))]
+const PROJECTION_DEBOUNCE_MAX_WAIT: Duration = Duration::from_secs(5);
 #[cfg(not(feature = "frontend-crdt"))]
 const PROJECTION_RETRY_INITIAL: Duration = Duration::from_millis(100);
 #[cfg(not(feature = "frontend-crdt"))]
@@ -1021,7 +1057,9 @@ impl Room {
                 document_id,
                 debounce,
                 generation: AtomicU64::new(0),
+                graph_generation: AtomicU64::new(0),
                 contexts: StdMutex::new(FlushContexts::default()),
+                timer: StdMutex::new(DebounceTimer::default()),
             });
             if let Err(rejected) = self.projection_flush.set(target) {
                 let existing = self
@@ -1794,22 +1832,30 @@ impl Room {
 
 #[cfg(not(feature = "frontend-crdt"))]
 impl ProjectionFlushTarget {
+    /// Note one update. Returns true when the caller must start the timer
+    /// task: only the first update of a burst does, later ones just move
+    /// `last`.
+    fn register_update(&self, now: Instant) -> bool {
+        let mut timer = self.timer.lock().unwrap_or_else(|error| error.into_inner());
+        timer.first.get_or_insert(now);
+        timer.last = Some(now);
+        !std::mem::replace(&mut timer.armed, true)
+    }
+
     fn schedule(self: &Arc<Self>, room: Weak<Room>, app: AppHandle, graph_generation: u64) {
-        let generation = if crate::telemetry::enabled() {
+        if crate::telemetry::enabled() {
             let mut contexts = self
                 .contexts
                 .lock()
                 .unwrap_or_else(|error| error.into_inner());
             contexts.push(crate::telemetry::TraceContext::capture());
-            self.generation
-                .fetch_add(1, Ordering::SeqCst)
-                .wrapping_add(1)
-        } else {
-            self.generation
-                .fetch_add(1, Ordering::SeqCst)
-                .wrapping_add(1)
-        };
-        let debounce = self.debounce;
+        }
+        self.generation.fetch_add(1, Ordering::SeqCst);
+        self.graph_generation
+            .store(graph_generation, Ordering::SeqCst);
+        if !self.register_update(Instant::now()) {
+            return;
+        }
         let target = Arc::downgrade(self);
         // A socket update can outlive the socket itself while it waits through
         // the projection debounce. Publish that pending work to the process
@@ -1822,26 +1868,82 @@ impl ProjectionFlushTarget {
         crate::app_runtime::async_runtime::spawn(
             async move {
                 let _lifecycle_lease = lifecycle_lease;
-                if wait_for_room_delay(&room, debounce).await {
-                    return;
-                }
-                // This task intentionally retains AppHandle while an older graph
-                // operation owns the persistence lease. It exits once its flush is
-                // queued, superseded, or evicted; runtime shutdown aborts spawned
-                // tasks. A fixed total deadline would lose dirty state behind a
-                // legitimate long-running import.
-                run_projection_flush(
-                    target,
-                    room,
-                    app,
-                    generation,
-                    graph_generation,
-                    PROJECTION_FLUSH_ATTEMPT_TIMEOUT,
-                )
-                .await;
+                run_debounced_projection(target, room, app, PROJECTION_FLUSH_ATTEMPT_TIMEOUT).await;
             }
             .with_current_subscriber(),
         );
+    }
+}
+
+/// The room's single timer task: wait for the burst to go quiet (or hit the
+/// max wait), flush against the generation as it stands, and go again if
+/// updates arrived while the flush ran. It exits, disarmed, when nothing is
+/// pending, and silently when the room or its target is gone or evicted.
+#[cfg(not(feature = "frontend-crdt"))]
+async fn run_debounced_projection(
+    target: Weak<ProjectionFlushTarget>,
+    room: Weak<Room>,
+    app: AppHandle,
+    attempt_timeout: Duration,
+) {
+    loop {
+        let Some(target_ref) = target.upgrade() else {
+            return;
+        };
+        let wait = {
+            let mut timer = target_ref
+                .timer
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            let (Some(first), Some(last)) = (timer.first, timer.last) else {
+                timer.armed = false;
+                return;
+            };
+            debounce_remaining(
+                first,
+                last,
+                Instant::now(),
+                target_ref.debounce,
+                PROJECTION_DEBOUNCE_MAX_WAIT,
+            )
+        };
+        drop(target_ref);
+        if !wait.is_zero() {
+            if wait_for_room_delay(&room, wait).await {
+                return;
+            }
+            continue;
+        }
+        let Some(target_ref) = target.upgrade() else {
+            return;
+        };
+        let (generation, graph_generation) = {
+            let mut timer = target_ref
+                .timer
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            timer.first = None;
+            timer.last = None;
+            (
+                target_ref.generation.load(Ordering::SeqCst),
+                target_ref.graph_generation.load(Ordering::SeqCst),
+            )
+        };
+        drop(target_ref);
+        // This task intentionally retains AppHandle while an older graph
+        // operation owns the persistence lease. It exits once its flush is
+        // queued, superseded, or evicted; runtime shutdown aborts spawned
+        // tasks. A fixed total deadline would lose dirty state behind a
+        // legitimate long-running import.
+        run_projection_flush(
+            target.clone(),
+            room.clone(),
+            app.clone(),
+            generation,
+            graph_generation,
+            attempt_timeout,
+        )
+        .await;
     }
 }
 
@@ -4207,6 +4309,82 @@ mod tests {
                 .filter(|entry| entry.file_name().to_string_lossy().contains(".tmp-"))
                 .count();
             assert_eq!(leftovers, 0);
+        });
+    }
+
+    #[cfg(not(feature = "frontend-crdt"))]
+    #[test]
+    fn continuous_typing_is_flushed_by_the_max_wait() {
+        let debounce = Duration::from_millis(600);
+        let max_wait = PROJECTION_DEBOUNCE_MAX_WAIT;
+        let first = Instant::now();
+        let ms = Duration::from_millis;
+
+        // A pause: due the debounce after the latest update.
+        assert_eq!(
+            debounce_remaining(first, first + ms(100), first + ms(100), debounce, max_wait),
+            debounce
+        );
+        // Keys keep coming, so the debounce keeps moving out, but never past
+        // the max wait counted from the first update of the burst.
+        let near_cap = first + max_wait - ms(50);
+        assert_eq!(
+            debounce_remaining(first, near_cap, near_cap, debounce, max_wait),
+            ms(50)
+        );
+        assert_eq!(
+            debounce_remaining(
+                first,
+                first + max_wait + ms(900),
+                first + max_wait,
+                debounce,
+                max_wait
+            ),
+            Duration::ZERO,
+            "continuous typing is flushed once the max wait has elapsed"
+        );
+        // Overdue never goes negative.
+        assert_eq!(
+            debounce_remaining(first, first, first + max_wait * 3, debounce, max_wait),
+            Duration::ZERO
+        );
+    }
+
+    #[cfg(not(feature = "frontend-crdt"))]
+    #[test]
+    fn one_timer_task_serves_a_whole_burst_of_frames() {
+        crate::app_runtime::async_runtime::block_on(async {
+            let room = presence_test_room("one-timer-per-burst").await;
+            room.configure_projection_flush("graph".to_string(), Some("doc".to_string()))
+                .expect("configure projection target");
+            let target = room.projection_flush.get().expect("target").clone();
+
+            let start = Instant::now();
+            assert!(
+                target.register_update(start),
+                "the first frame of a burst starts the timer task"
+            );
+            for frame in 1..200 {
+                assert!(
+                    !target.register_update(start + Duration::from_millis(frame)),
+                    "frame {frame} must not spawn another task"
+                );
+            }
+            {
+                let timer = target.timer.lock().unwrap();
+                assert_eq!(timer.first, Some(start));
+                assert_eq!(timer.last, Some(start + Duration::from_millis(199)));
+            }
+
+            // The task flushed and found nothing newer: it disarms, and the
+            // next burst starts a fresh one.
+            {
+                let mut timer = target.timer.lock().unwrap();
+                timer.first = None;
+                timer.last = None;
+                timer.armed = false;
+            }
+            assert!(target.register_update(start + Duration::from_secs(1)));
         });
     }
 }
