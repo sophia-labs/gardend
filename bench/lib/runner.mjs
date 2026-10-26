@@ -135,6 +135,7 @@ async function runBenchInner(o) {
       finally { try { if (def.teardown) await def.teardown(ctx) } catch {} }
       results.push(caseResult({ caseId: def.id, kind: def.kind, caseVersion: def.version, params, calls, extra }))
       const s = results.at(-1).ms; log(`  ${def.id}: n ${results.at(-1).n} err ${results.at(-1).errors} p50 ${s.p50} p95 ${s.p95}`)
+      try { writeFileSync(path.join(runDir, 'run.partial.json'), JSON.stringify({ runId, label, suite, tier, cases: results.map(({ _calls, ...r }) => r) })) } catch {}
       await sleep(def.kind === 'read' || def.kind === 'boot' ? 300 : 1200) // let background work (projection flush) settle
     }
     if (sampler) { clearInterval(sampler); sampleRss() }
@@ -181,7 +182,7 @@ async function runBenchInner(o) {
     spanJoin, notes: [...notes, ...(fp0.loadBefore[0] > 6 ? [`machine was busy at start: load1 ${fp0.loadBefore[0]}`] : [])],
   }
   if (fp0.otherGardends.length) run.notes.push(`foreign gardend process(es) present, not ours: ${fp0.otherGardends.map((g) => `pid ${g.pid} port ${g.port}`).join('; ')}`)
-  writeFileSync(path.join(runDir, 'run.json'), JSON.stringify(run, null, 1))
+  writeFileSync(path.join(runDir, 'run.json'), JSON.stringify(run, null, 1)); rmSync(path.join(runDir, 'run.partial.json'), { force: true })
   writeFileSync(path.join(runDir, 'summary.md'), summaryMd(run))
   // remove this run's profile clone (ours, under the cache)
   if (!attach && clone.startsWith(path.join(CACHE_ROOT, 'runs', runId))) rmSync(path.dirname(clone), { recursive: true, force: true })
