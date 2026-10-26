@@ -84,11 +84,159 @@ pub(crate) struct FenceCounts {
     pub(crate) projected: u64,
 }
 
+/// Prefix of the structured, retryable error a read gets when the projection
+/// pass behind its fence has not finished by the deadline. The pass keeps
+/// running (it is owned by the graph, not by the request), so a retry joins it
+/// and the progress only grows. Never a stale result: the read fails instead.
+#[cfg_attr(feature = "frontend-crdt", allow(dead_code))]
+pub(crate) const PROJECTION_PENDING_PREFIX: &str = "projection_pending (retryable):";
+
+/// True for the error a read gets when its fence is still catching up.
+#[allow(dead_code)]
+pub(crate) fn is_projection_pending(message: &str) -> bool {
+    message.starts_with(PROJECTION_PENDING_PREFIX)
+}
+
+#[cfg(not(feature = "frontend-crdt"))]
+const FENCE_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// One graph-wide projection pass in flight. Owned by the graph: a reader that
+/// gives up at its deadline leaves it running.
+#[cfg(not(feature = "frontend-crdt"))]
+struct Pass {
+    /// Documents finished / documents to visit, for the pending error.
+    done: std::sync::atomic::AtomicU64,
+    total: std::sync::atomic::AtomicU64,
+    finished: tokio::sync::watch::Sender<Option<Result<(), String>>>,
+}
+
+#[cfg(not(feature = "frontend-crdt"))]
+static PASSES: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashMap<String, Arc<Pass>>>,
+> = std::sync::OnceLock::new();
+
+#[cfg(not(feature = "frontend-crdt"))]
+fn passes() -> std::sync::MutexGuard<'static, std::collections::HashMap<String, Arc<Pass>>> {
+    PASSES
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// The fence's work for one call, on a blocking thread so its own runtime can
+/// outlive the request that asked.
+#[cfg(not(feature = "frontend-crdt"))]
+fn spawn_fence_task(
+    app: AppHandle,
+    graph_id: String,
+    document_id: Option<String>,
+    progress: Option<Arc<Pass>>,
+) -> tokio::task::JoinHandle<Result<(), String>> {
+    crate::app_runtime::async_runtime::spawn_blocking(crate::telemetry::blocking(move || {
+        crate::app_runtime::async_runtime::block_on(async {
+            #[cfg(test)]
+            hold_pass_for_test(&graph_id).await;
+            let fence = tracing::info_span!(target: "gardend_otel", "read.fence",
+                sophia.graph.id = graph_id.as_str(),
+                sophia.fence.graph_wide = document_id.is_none(),
+                sophia.fence.lease_wait_ms = tracing::field::Empty,
+                sophia.fence.list_ms = tracing::field::Empty,
+                sophia.fence.docs_visited = tracing::field::Empty,
+                sophia.fence.docs_skipped_current = tracing::field::Empty,
+                sophia.fence.docs_resident_current = tracing::field::Empty,
+                sophia.fence.docs_hydrated = tracing::field::Empty,
+                sophia.fence.docs_projected = tracing::field::Empty,
+                sophia.fence.stat_ms = tracing::field::Empty,
+                sophia.fence.lock_wait_ms = tracing::field::Empty,
+                sophia.fence.hydrate_ms = tracing::field::Empty,
+                sophia.fence.project_ms = tracing::field::Empty,
+                sophia.fence.evict_ms = tracing::field::Empty);
+            let mut counts = FenceCounts::default();
+            let result = fence_projections(
+                &app,
+                &graph_id,
+                document_id,
+                &fence,
+                &mut counts,
+                progress.as_deref(),
+            )
+            .instrument(fence.clone())
+            .await;
+            fence.record("sophia.fence.docs_visited", counts.visited);
+            fence.record("sophia.fence.docs_skipped_current", counts.skipped_current);
+            fence.record(
+                "sophia.fence.docs_resident_current",
+                counts.resident_current,
+            );
+            fence.record("sophia.fence.docs_hydrated", counts.hydrated);
+            fence.record("sophia.fence.docs_projected", counts.projected);
+            #[cfg(test)]
+            record_fence_counts_for_test(&graph_id, counts);
+            if let Some(pass) = progress {
+                // Leave the map before announcing, so a reader that sees the
+                // pass finished can never join it again.
+                {
+                    let mut map = passes();
+                    if map.get(&graph_id).is_some_and(|p| Arc::ptr_eq(p, &pass)) {
+                        map.remove(&graph_id);
+                    }
+                }
+                pass.finished.send_replace(Some(result.clone()));
+            }
+            result
+        })
+    }))
+}
+
+/// Join the graph's pass in flight, or start one. The bool is true when this
+/// call started it (so the pass began after the caller entered).
+#[cfg(not(feature = "frontend-crdt"))]
+fn join_or_start_pass(app: &AppHandle, graph_id: &str) -> (Arc<Pass>, bool) {
+    let mut map = passes();
+    if let Some(pass) = map.get(graph_id) {
+        return (pass.clone(), false);
+    }
+    let (finished, _) = tokio::sync::watch::channel(None);
+    let pass = Arc::new(Pass {
+        done: Default::default(),
+        total: Default::default(),
+        finished,
+    });
+    map.insert(graph_id.to_string(), pass.clone());
+    drop(map);
+    #[cfg(test)]
+    count_pass_start_for_test(graph_id);
+    // Detached on purpose: the pass outlives any reader's deadline.
+    drop(spawn_fence_task(
+        app.clone(),
+        graph_id.to_string(),
+        None,
+        Some(pass.clone()),
+    ));
+    (pass, true)
+}
+
+/// Start the graph's catch-up pass without waiting for it (single-flight: a
+/// pass already in flight is joined, not duplicated). Meant for a graph that
+/// opens with unstamped documents, so no reader pays for it.
+#[cfg(not(feature = "frontend-crdt"))]
+#[allow(dead_code)]
+pub(crate) fn start_background_projection_pass(app: &AppHandle, graph_id: &str) {
+    let _ = join_or_start_pass(app, graph_id);
+}
+
 /// MCP consistency boundary. Capture the committed room epoch at read entry
 /// and bring the entire projection tail through it, with a bounded observer
 /// and no hot-write lease. A cold reopen hydrates the authority and starts
 /// dirty, so a completed write needs no pending journal entry to be repaired.
 /// A graph-wide read fences every document (SPARQL cannot infer a doc scope).
+///
+/// A graph-wide fence is single-flight per graph and its pass is detached from
+/// the request. A reader that arrives while a pass is in flight waits for it
+/// and then takes a pass of its own: the one it joined may have passed a
+/// document before the reader's write landed, but with every cold document
+/// stamped the second pass is a few stats. Past the deadline the reader gets
+/// [`PROJECTION_PENDING_PREFIX`] with the pass's progress and may retry.
 pub(crate) async fn await_document_projections(
     app: AppHandle,
     graph_id: String,
@@ -101,47 +249,64 @@ pub(crate) async fn await_document_projections(
     }
     #[cfg(not(feature = "frontend-crdt"))]
     {
-        let projection = crate::app_runtime::async_runtime::spawn_blocking(
-            crate::telemetry::blocking(move || {
-                crate::app_runtime::async_runtime::block_on(async {
-                    let fence = tracing::info_span!(target: "gardend_otel", "read.fence",
-                        sophia.graph.id = graph_id.as_str(),
-                        sophia.fence.graph_wide = document_id.is_none(),
-                        sophia.fence.lease_wait_ms = tracing::field::Empty,
-                        sophia.fence.list_ms = tracing::field::Empty,
-                        sophia.fence.docs_visited = tracing::field::Empty,
-                        sophia.fence.docs_skipped_current = tracing::field::Empty,
-                        sophia.fence.docs_resident_current = tracing::field::Empty,
-                        sophia.fence.docs_hydrated = tracing::field::Empty,
-                        sophia.fence.docs_projected = tracing::field::Empty,
-                        sophia.fence.stat_ms = tracing::field::Empty,
-                        sophia.fence.lock_wait_ms = tracing::field::Empty,
-                        sophia.fence.hydrate_ms = tracing::field::Empty,
-                        sophia.fence.project_ms = tracing::field::Empty,
-                        sophia.fence.evict_ms = tracing::field::Empty);
-                    let mut counts = FenceCounts::default();
-                    let result =
-                        fence_projections(&app, &graph_id, document_id, &fence, &mut counts)
-                            .instrument(fence.clone())
-                            .await;
-                    fence.record("sophia.fence.docs_visited", counts.visited);
-                    fence.record("sophia.fence.docs_skipped_current", counts.skipped_current);
-                    fence.record(
-                        "sophia.fence.docs_resident_current",
-                        counts.resident_current,
-                    );
-                    fence.record("sophia.fence.docs_hydrated", counts.hydrated);
-                    fence.record("sophia.fence.docs_projected", counts.projected);
-                    #[cfg(test)]
-                    record_fence_counts_for_test(&graph_id, counts);
-                    result
-                })
-            }),
-        );
-        tokio::time::timeout(std::time::Duration::from_secs(30), projection)
-            .await
-            .map_err(|_| "document projection read timed out after 30s".to_string())?
-            .map_err(|error| format!("document projection read join: {error}"))?
+        await_document_projections_within(app, graph_id, document_id, FENCE_DEADLINE).await
+    }
+}
+
+#[cfg(not(feature = "frontend-crdt"))]
+pub(crate) async fn await_document_projections_within(
+    app: AppHandle,
+    graph_id: String,
+    document_id: Option<String>,
+    deadline: std::time::Duration,
+) -> Result<(), String> {
+    let until = tokio::time::Instant::now() + deadline;
+    if let Some(document) = document_id {
+        // One document is a handful of stats; no pass to share.
+        let task = spawn_fence_task(app, graph_id.clone(), Some(document.clone()), None);
+        return match tokio::time::timeout_at(until, task).await {
+            Err(_) => Err(format!(
+                "{PROJECTION_PENDING_PREFIX} the projection of {graph_id}/{document} did not finish in {}s",
+                deadline.as_secs()
+            )),
+            Ok(joined) => joined
+                .map_err(|error| format!("document projection read join: {error}"))?,
+        };
+    }
+    let mut stale_pass_possible = true;
+    loop {
+        let (pass, started) = join_or_start_pass(&app, &graph_id);
+        let mut finished = pass.finished.subscribe();
+        let wait = async {
+            loop {
+                let current = finished.borrow_and_update().clone();
+                if let Some(result) = current {
+                    return result;
+                }
+                if finished.changed().await.is_err() {
+                    return Err("document projection pass was dropped".to_string());
+                }
+            }
+        };
+        let result = match tokio::time::timeout_at(until, wait).await {
+            Ok(result) => result,
+            Err(_) => {
+                use std::sync::atomic::Ordering::Relaxed;
+                return Err(format!(
+                    "{PROJECTION_PENDING_PREFIX} the projection pass for {graph_id} is at {} of {} documents after {}s; retry, it keeps running",
+                    pass.done.load(Relaxed),
+                    pass.total.load(Relaxed),
+                    deadline.as_secs()
+                ));
+            }
+        };
+        if started || !stale_pass_possible {
+            return result;
+        }
+        // We joined a pass that began before we entered: it proves nothing about
+        // writes acknowledged since. Any pass we see from here on began after
+        // it finished, so after we entered.
+        stale_pass_possible = false;
     }
 }
 
@@ -164,10 +329,19 @@ async fn fence_projections(
     document_id: Option<String>,
     fence: &tracing::Span,
     counts: &mut FenceCounts,
+    progress: Option<&Pass>,
 ) -> Result<(), String> {
     let mut phases = FencePhases::default();
-    let result =
-        fence_projections_inner(app, graph_id, document_id, fence, counts, &mut phases).await;
+    let result = fence_projections_inner(
+        app,
+        graph_id,
+        document_id,
+        fence,
+        counts,
+        &mut phases,
+        progress,
+    )
+    .await;
     fence.record("sophia.fence.stat_ms", phases.stat);
     fence.record("sophia.fence.lock_wait_ms", phases.lock_wait);
     fence.record("sophia.fence.hydrate_ms", phases.hydrate);
@@ -184,6 +358,7 @@ async fn fence_projections_inner(
     fence: &tracing::Span,
     counts: &mut FenceCounts,
     phases: &mut FencePhases,
+    progress: Option<&Pass>,
 ) -> Result<(), String> {
     let coordinator = app.state::<super::persistence_coordinator::GraphPersistenceCoordinator>();
     let lease_timer = crate::telemetry::timer();
@@ -216,7 +391,15 @@ async fn fence_projections_inner(
         "sophia.fence.list_ms",
         crate::telemetry::elapsed_ms(list_timer),
     );
+    if let Some(pass) = progress {
+        pass.total
+            .store(documents.len() as u64, std::sync::atomic::Ordering::Relaxed);
+    }
     for id in documents {
+        if let Some(pass) = progress {
+            pass.done
+                .store(counts.visited, std::sync::atomic::Ordering::Relaxed);
+        }
         counts.visited += 1;
         let stat_timer = crate::telemetry::timer();
         if crate::document_tombstone_store::document_is_tombstoned(&graph_dir, &id)? {
@@ -312,7 +495,58 @@ async fn fence_projections_inner(
             ));
         }
     }
+    if let Some(pass) = progress {
+        pass.done
+            .store(counts.visited, std::sync::atomic::Ordering::Relaxed);
+    }
     Ok::<(), String>(())
+}
+
+/// Test hooks: hold a graph's next passes at their start, and count the passes
+/// that were started (not joined).
+#[cfg(test)]
+static PASS_HOLD_FOR_TEST: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+#[cfg(test)]
+static PASS_STARTS_FOR_TEST: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+#[cfg(test)]
+pub(crate) fn hold_passes_for_test(graph_id: Option<&str>) {
+    *PASS_HOLD_FOR_TEST
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = graph_id.map(str::to_string);
+}
+
+#[cfg(test)]
+async fn hold_pass_for_test(graph_id: &str) {
+    loop {
+        let held = PASS_HOLD_FOR_TEST
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .as_deref()
+            == Some(graph_id);
+        if !held {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+}
+
+#[cfg(test)]
+fn count_pass_start_for_test(graph_id: &str) {
+    PASS_STARTS_FOR_TEST
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .push(graph_id.to_string());
+}
+
+#[cfg(test)]
+pub(crate) fn pass_starts_for_test(graph_id: &str) -> usize {
+    PASS_STARTS_FOR_TEST
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .iter()
+        .filter(|id| id.as_str() == graph_id)
+        .count()
 }
 
 #[cfg(test)]

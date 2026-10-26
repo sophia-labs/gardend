@@ -19,7 +19,8 @@ use yrs::updates::decoder::Decode;
 use yrs::{Transact, Update, WriteTxn};
 
 use crate::crdt_engine::flush_ops::{
-    await_document_projections, last_fence_counts_for_test, FenceCounts,
+    await_document_projections, await_document_projections_within, hold_passes_for_test,
+    is_projection_pending, last_fence_counts_for_test, pass_starts_for_test, FenceCounts,
 };
 use crate::crdt_engine::rooms::RoomRegistry;
 use crate::local_jobs::LocalJobRegistry;
@@ -470,5 +471,144 @@ fn a_read_after_a_save_neither_walks_nor_dirties_the_store() {
             "a pure read left the store clean: nothing to publish"
         );
         let _ = std::fs::remove_dir_all(&durable);
+    });
+}
+
+/// A graph that predates stamps: every document cold, current, and unstamped.
+fn cold_and_unstamped(env: &Env, count: usize) -> Vec<String> {
+    let ids = cold_and_current(env, count);
+    let graph_dir = crate::paths::existing_graph_dir(&env.app, GRAPH).unwrap();
+    for id in &ids {
+        crate::crdt_engine::projection_stamp::forget_stamp_for_test(&graph_dir, id);
+    }
+    ids
+}
+
+/// Holds the graph's next passes at their start; releases on drop, so a failed
+/// assertion cannot leave the hook set.
+struct Held;
+impl Held {
+    fn new() -> Self {
+        hold_passes_for_test(Some(GRAPH));
+        Held
+    }
+    fn release(&self) {
+        hold_passes_for_test(None);
+    }
+}
+impl Drop for Held {
+    fn drop(&mut self) {
+        hold_passes_for_test(None);
+    }
+}
+
+async fn until(what: &str, mut condition: impl FnMut() -> bool) {
+    for _ in 0..400 {
+        if condition() {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    panic!("timed out waiting for {what}");
+}
+
+#[test]
+fn an_unstamped_graph_is_stamped_once_by_the_first_pass() {
+    with_env(|env| {
+        let ids = cold_and_unstamped(env, 6);
+        let starts = pass_starts_for_test(GRAPH);
+        let first = fence(&env.app);
+        assert_eq!(first.visited, ids.len() as u64, "{first:?}");
+        assert_eq!(
+            first.skipped_current, 0,
+            "no stamp, so none proven current: {first:?}"
+        );
+        assert_eq!(pass_starts_for_test(GRAPH), starts + 1, "one pass");
+        // Every document is stamped now: the next fence is stats only.
+        evict_document_rooms(env);
+        let second = fence(&env.app);
+        assert_eq!(second.skipped_current, ids.len() as u64, "{second:?}");
+        assert_eq!(second.hydrated, 0, "{second:?}");
+        assert_eq!(second.projected, 0, "{second:?}");
+    });
+}
+
+#[test]
+fn a_fence_during_the_pass_joins_it_and_does_not_start_a_second() {
+    with_env(|env| {
+        let ids = cold_and_unstamped(env, 5);
+        let starts = pass_starts_for_test(GRAPH);
+        let held = Held::new();
+        run(async {
+            let first = crate::app_runtime::async_runtime::spawn(await_document_projections(
+                env.app.clone(),
+                GRAPH.to_string(),
+                None,
+            ));
+            until("the pass to start", || {
+                pass_starts_for_test(GRAPH) == starts + 1
+            })
+            .await;
+            let joiner = crate::app_runtime::async_runtime::spawn(await_document_projections(
+                env.app.clone(),
+                GRAPH.to_string(),
+                None,
+            ));
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            assert_eq!(
+                pass_starts_for_test(GRAPH),
+                starts + 1,
+                "the second reader joined the pass in flight"
+            );
+            held.release();
+            first.await.unwrap().unwrap();
+            joiner.await.unwrap().unwrap();
+        });
+        // The joiner's own follow-up pass (a write may have landed after the
+        // pass passed it) found everything stamped: stats, no decode.
+        let last = last_fence_counts_for_test(GRAPH);
+        assert_eq!(last.hydrated, 0, "{last:?}");
+        assert_eq!(last.projected, 0, "{last:?}");
+        assert_eq!(last.skipped_current, ids.len() as u64, "{last:?}");
+    });
+}
+
+#[test]
+fn a_write_after_the_pass_is_fenced() {
+    with_env(|env| {
+        let ids = cold_and_unstamped(env, 4);
+        fence(&env.app);
+        evict_document_rooms(env);
+        write_document(env, &ids[0], "written after the pass");
+        assert!(ask(env, "written after the pass"), "read-after-write");
+        websocket_frame(env, &ids[1], "frame after the pass");
+        assert!(ask(env, "frame after the pass"), "read-after-write, socket");
+    });
+}
+
+#[test]
+fn a_reader_past_its_deadline_gets_a_retryable_error_and_the_retry_succeeds() {
+    with_env(|env| {
+        cold_and_unstamped(env, 4);
+        let held = Held::new();
+        let error = run(await_document_projections_within(
+            env.app.clone(),
+            GRAPH.to_string(),
+            None,
+            std::time::Duration::from_millis(150),
+        ))
+        .expect_err("the held pass cannot finish inside the deadline");
+        assert!(is_projection_pending(&error), "{error}");
+        assert!(error.contains(" of "), "it names progress: {error}");
+        assert!(error.contains("retry"), "{error}");
+        // The pass was not abandoned: release it and the same read succeeds.
+        held.release();
+        run(await_document_projections(
+            env.app.clone(),
+            GRAPH.to_string(),
+            None,
+        ))
+        .expect("the retry joins the pass and finishes");
+        assert!(!ask(env, "never written"));
     });
 }
