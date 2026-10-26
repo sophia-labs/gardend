@@ -57,6 +57,12 @@ pub(crate) struct DocumentSnapshotRef {
     /// manifests; absent on legacy v1 manifests (which cannot be restored).
     #[serde(default)]
     pub ydoc_bytes_path: Option<String>,
+    /// SHA-256 over the document's record file and Y.Doc sidecar as they were when this entry was captured.
+    /// A later capture whose document reads back with the same fingerprint (and byte-identical Y.Doc state)
+    /// reuses this entry's snapshot and hard-links its bytes instead of rewriting them. Absent on entries
+    /// written before the fingerprint existed and on imported points: those are always recaptured.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_fingerprint: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

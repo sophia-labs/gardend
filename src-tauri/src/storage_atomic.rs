@@ -82,6 +82,22 @@ pub(crate) fn write_bytes_atomic(
     path: &Path,
     temp_path: &Path,
     bytes: &[u8],
+    unix_mode: Option<u32>,
+) -> Result<(), PersistenceError> {
+    write_bytes_atomic_no_dir_sync(path, temp_path, bytes, unix_mode)?;
+    if let Some(parent) = path.parent() {
+        sync_parent_dir(parent)?;
+    }
+    Ok(())
+}
+
+/// `write_bytes_atomic` without the final parent-directory sync: the file's bytes are durable and the rename is
+/// atomic, but the new directory entry is durable only after the caller syncs the directory itself. For a caller
+/// that writes many files into one directory and syncs it once (restore-point bundles).
+pub(crate) fn write_bytes_atomic_no_dir_sync(
+    path: &Path,
+    temp_path: &Path,
+    bytes: &[u8],
     #[cfg_attr(not(unix), allow(unused_variables))] unix_mode: Option<u32>,
 ) -> Result<(), PersistenceError> {
     let mut options = fs::OpenOptions::new();
@@ -104,11 +120,7 @@ pub(crate) fn write_bytes_atomic(
     })?;
     drop(file);
 
-    rename_atomic(temp_path, path)?;
-    if let Some(parent) = path.parent() {
-        sync_parent_dir(parent)?;
-    }
-    Ok(())
+    rename_atomic(temp_path, path)
 }
 
 pub(crate) fn sync_parent_dir(parent: &Path) -> Result<(), PersistenceError> {

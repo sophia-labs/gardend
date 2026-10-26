@@ -4,17 +4,19 @@ use crate::{
     clock,
     document_history_file_store::read_document_snapshot_payload,
     document_history_service::current_document_snapshot_with_lease,
+    document_history_store::document_snapshot_payload_path,
     graph_paths::existing_graph_dir,
     storage::read_json,
     storage_file_ops::read_bytes,
     time_travel_paths::{
-        document_bytes_relative_path, RESTORE_POINT_WORKSPACE_BYTES_FILE,
-        RESTORE_POINT_WORKSPACE_SNAPSHOT_FILE,
+        document_bytes_relative_path, restore_point_document_bytes_path,
+        RESTORE_POINT_WORKSPACE_BYTES_FILE, RESTORE_POINT_WORKSPACE_SNAPSHOT_FILE,
     },
     time_travel_store::{
-        delete_restore_point, list_index_page, read_manifest, read_workspace_bundle,
-        remove_index_entry, upsert_index_entry, write_document_bytes, write_manifest,
-        write_workspace_bundle, ListPage,
+        delete_restore_point, link_document_bytes_deferred, list_index_page, newest_index_entry,
+        prepare_restore_point_dirs, read_manifest, read_workspace_bundle, remove_index_entry,
+        sync_restore_point_dirs, upsert_index_entry, write_document_bytes_deferred, write_manifest,
+        write_workspace_bundle_deferred, ListPage,
     },
     time_travel_types::{
         DocumentSnapshotRef, RestorePointIndexEntry, RestorePointManifest, RestorePointMetadata,
@@ -58,6 +60,12 @@ pub(crate) fn capture_restore_point(
 ///
 /// Restore uses this for its pre-apply backup so the single lease spans
 /// backup + file replacement + RDF rebuild without a re-entrant deadlock.
+///
+/// Cost is O(changed documents). A document whose record file and Y.Doc sidecar read back exactly as they were
+/// in the newest existing restore point (same content fingerprint, byte-identical Y.Doc state, and the old
+/// point's snapshot still on disk) is not re-snapshotted and its bytes are not rewritten: the new manifest
+/// reuses the old entry's snapshot and the new bundle hard-links the old bytes. Everything else takes the
+/// full path. The bundle's directories are synced once, before the manifest is written.
 pub(crate) fn capture_restore_point_with_lease(
     app: &AppHandle,
     graph_id: &str,
@@ -82,6 +90,7 @@ pub(crate) fn capture_restore_point_with_lease(
     );
     let _capture_entered = capture_span.enter();
     let mut bytes_written: u64 = 0;
+    let mut documents_reused: u64 = 0;
 
     // Workspace bytes + JSON snapshot are best-effort: a freshly-created graph
     // may not have either yet. We persist whatever exists so the bundle is
@@ -92,18 +101,28 @@ pub(crate) fn capture_restore_point_with_lease(
         sophia.restore_point.workspace_bytes = tracing::field::Empty,
         sophia.restore_point.documents = tracing::field::Empty,
     );
-    let (workspace_bytes, workspace_snapshot) = {
+    let (workspace_bytes, workspace_snapshot, previous) = {
         let _enumerate = enumerate_span.enter();
         let workspace_bytes = read_workspace_ydoc_bytes(&graph_dir)?;
         let workspace_snapshot = read_workspace_snapshot(&graph_dir)?;
-        write_workspace_bundle(
+        prepare_restore_point_dirs(&graph_dir, &restore_point_id)?;
+        write_workspace_bundle_deferred(
             &graph_dir,
             &restore_point_id,
             &workspace_bytes,
             &workspace_snapshot,
         )?;
-        enumerate_span.record("sophia.restore_point.workspace_bytes", workspace_bytes.len() as u64);
-        (workspace_bytes, workspace_snapshot)
+        enumerate_span.record(
+            "sophia.restore_point.workspace_bytes",
+            workspace_bytes.len() as u64,
+        );
+        // The point to dedupe against. Unreadable or missing means a full capture, never an error.
+        let previous = newest_index_entry(&graph_dir, graph_id)
+            .ok()
+            .flatten()
+            .and_then(|entry| read_manifest(&graph_dir, &entry.restore_point_id).ok())
+            .filter(|manifest| manifest.schema_version >= RESTORE_POINT_MANIFEST_SCHEMA_VERSION);
+        (workspace_bytes, workspace_snapshot, previous)
     };
     bytes_written += workspace_bytes.len() as u64;
 
@@ -117,6 +136,16 @@ pub(crate) fn capture_restore_point_with_lease(
     let document_ids = workspace_document_ids(&workspace_snapshot);
     enumerate_span.record("sophia.restore_point.documents", document_ids.len() as u64);
     capture_span.record("sophia.restore_point.documents", document_ids.len() as u64);
+    let previous_by_id: std::collections::HashMap<&str, &DocumentSnapshotRef> = previous
+        .as_ref()
+        .map(|manifest| {
+            manifest
+                .documents
+                .iter()
+                .map(|doc| (doc.document_id.as_str(), doc))
+                .collect()
+        })
+        .unwrap_or_default();
     let mut documents = Vec::with_capacity(document_ids.len());
     let mut total_doc_size: u64 = 0;
     let snapshot_label = label
@@ -131,12 +160,11 @@ pub(crate) fn capture_restore_point_with_lease(
         // graph capture here re-ran the full snapshot storm every interval
         // against the same ghost, forever (2026-08-30). Every other
         // per-document failure below still fails the capture closed.
-        if !graph_dir
+        let record_path = graph_dir
             .join("documents")
             .join(&document_id)
-            .join("document.json")
-            .is_file()
-        {
+            .join("document.json");
+        if !record_path.is_file() {
             log::warn!(
                 "restore point {restore_point_id}: skipping catalog ghost {document_id} \
                  (workspace lists it, no document record exists)"
@@ -151,6 +179,62 @@ pub(crate) fn capture_restore_point_with_lease(
             sophia.restore_point.bytes = tracing::field::Empty,
         );
         let _document_entered = document_span.enter();
+
+        // The sidecar and the record, read once. The fingerprint is only meaningful over a real sidecar;
+        // a legacy inline-only record has none and always takes the full path.
+        let ydoc_state_path = document_ydoc_state_path(&graph_dir, &document_id);
+        let sidecar_bytes = if ydoc_state_path.is_file() {
+            Some(read_bytes(&ydoc_state_path).map_err(AppError::storage)?)
+        } else {
+            None
+        };
+        let fingerprint = match sidecar_bytes.as_deref() {
+            Some(ydoc) => Some(document_content_fingerprint(&record_path, ydoc)?),
+            None => None,
+        };
+
+        if let (Some(ydoc), Some(fingerprint), Some(previous)) = (
+            sidecar_bytes.as_deref(),
+            fingerprint.as_deref(),
+            previous.as_ref(),
+        ) {
+            if let Some(previous_ref) = previous_by_id.get(document_id.as_str()) {
+                if reusable_entry(&graph_dir, previous, previous_ref, fingerprint, ydoc)? {
+                    // Same record, same Y.Doc bytes, snapshot still on disk: name the old snapshot and
+                    // link the old bytes. Tombstones fail closed exactly as the cold read would.
+                    crate::document_tombstone_store::require_document_not_tombstoned(
+                        &graph_dir,
+                        &document_id,
+                    )
+                    .map_err(|error| AppError::storage(error.to_string()))?;
+                    match link_document_bytes_deferred(
+                        &graph_dir,
+                        &previous.restore_point_id,
+                        &restore_point_id,
+                        &document_id,
+                    ) {
+                        Ok(_) => {
+                            document_span.record("sophia.restore_point.reused", true);
+                            document_span.record("sophia.restore_point.bytes", 0u64);
+                            documents_reused += 1;
+                            total_doc_size += previous_ref.size_bytes;
+                            documents.push(DocumentSnapshotRef {
+                                document_id: document_id.clone(),
+                                ..(*previous_ref).clone()
+                            });
+                            continue;
+                        }
+                        // The old point vanished between the check and the link (deleted): recapture.
+                        Err(error) => log::debug!(
+                            "restore point {restore_point_id}: reuse of {document_id} failed ({}); \
+                             recapturing",
+                            error.message_ref()
+                        ),
+                    }
+                }
+            }
+        }
+
         let snapshot_meta = current_document_snapshot_with_lease(
             app,
             graph_id,
@@ -167,9 +251,8 @@ pub(crate) fn capture_restore_point_with_lease(
         let title = payload.title.clone();
         // v2 schema: capture the live Y.Doc bytes so restore can be a deterministic
         // file swap rather than a TS-side reconstruction from the snapshot payload.
-        let ydoc_state_path = document_ydoc_state_path(&graph_dir, &document_id);
-        let ydoc_bytes = if ydoc_state_path.is_file() {
-            read_bytes(&ydoc_state_path).map_err(AppError::storage)?
+        let ydoc_bytes = if let Some(bytes) = sidecar_bytes {
+            bytes
         } else {
             // LEGACY inline-only records: `current_document_snapshot` now
             // reads COLD (no sidecar hydration, no legacy backfill), so a
@@ -232,7 +315,7 @@ pub(crate) fn capture_restore_point_with_lease(
                     })?
             }
         };
-        write_document_bytes(&graph_dir, &restore_point_id, &document_id, &ydoc_bytes)?;
+        write_document_bytes_deferred(&graph_dir, &restore_point_id, &document_id, &ydoc_bytes)?;
         document_span.record("sophia.restore_point.reused", false);
         document_span.record("sophia.restore_point.bytes", ydoc_bytes.len() as u64);
         bytes_written += ydoc_bytes.len() as u64;
@@ -246,13 +329,17 @@ pub(crate) fn capture_restore_point_with_lease(
             block_count,
             char_count,
             ydoc_bytes_path: Some(document_bytes_relative_path(&document_id)),
+            content_fingerprint: fingerprint,
         });
     }
 
-    capture_span.record("sophia.restore_point.documents_reused", 0u64);
+    capture_span.record("sophia.restore_point.documents_reused", documents_reused);
     capture_span.record("sophia.restore_point.bytes_written", bytes_written);
     let manifest_span = tracing::info_span!(target: "gardend_otel", "restore_point.manifest");
     let _manifest_entered = manifest_span.enter();
+    // The bundle's files are fsynced; their names are not durable until the directories are. Two directory
+    // syncs for the whole point, before the manifest exists: a manifest on disk implies a durable bundle.
+    sync_restore_point_dirs(&graph_dir, &restore_point_id)?;
     let metadata = RestorePointMetadata {
         folder_count: workspace_array_len(&workspace_snapshot, "folders"),
         document_count: documents.len() as u64,
@@ -281,6 +368,57 @@ pub(crate) fn capture_restore_point_with_lease(
     upsert_index_entry(&graph_dir, graph_id, entry.clone())?;
 
     Ok(restore_point_summary_json(&entry, true))
+}
+
+/// SHA-256 over a document's record file and Y.Doc state, length-prefixed so the two cannot trade bytes. The
+/// record file carries everything a history snapshot is built from (title, blocks, XML, revision); the Y.Doc
+/// state is the other half of what a restore point stores.
+fn document_content_fingerprint(record_path: &Path, ydoc: &[u8]) -> AppResult<String> {
+    let record = read_bytes(record_path).map_err(AppError::storage)?;
+    let mut hasher = Sha256::new();
+    hasher.update(b"restore-point-document-fingerprint-v1\0");
+    hasher.update((record.len() as u64).to_le_bytes());
+    hasher.update(&record);
+    hasher.update((ydoc.len() as u64).to_le_bytes());
+    hasher.update(ydoc);
+    Ok(hasher.finalize().iter().map(|b| format!("{b:02x}")).collect())
+}
+
+/// Whether `previous_ref`, an entry of the newest restore point, can stand in for the document as it is now:
+/// same fingerprint, its bytes file on disk and byte-identical to the live Y.Doc state (so an in-place
+/// corruption of the old file is never propagated), and the snapshot it names still on disk (a manual
+/// snapshot the user deleted is not reused).
+fn reusable_entry(
+    graph_dir: &Path,
+    previous: &RestorePointManifest,
+    previous_ref: &DocumentSnapshotRef,
+    fingerprint: &str,
+    ydoc: &[u8],
+) -> AppResult<bool> {
+    if previous_ref.content_fingerprint.as_deref() != Some(fingerprint)
+        || previous_ref.ydoc_bytes_path.is_none()
+    {
+        return Ok(false);
+    }
+    if !document_snapshot_payload_path(
+        graph_dir,
+        &previous_ref.document_id,
+        &previous_ref.snapshot_id,
+    )
+    .is_file()
+    {
+        return Ok(false);
+    }
+    let old_bytes = restore_point_document_bytes_path(
+        graph_dir,
+        &previous.restore_point_id,
+        &previous_ref.document_id,
+    );
+    match std::fs::metadata(&old_bytes) {
+        Ok(meta) if meta.is_file() && meta.len() == ydoc.len() as u64 => {}
+        _ => return Ok(false),
+    }
+    Ok(std::fs::read(&old_bytes).map(|old| old == ydoc).unwrap_or(false))
 }
 
 pub(crate) fn list_restore_points_response(
