@@ -1,0 +1,5 @@
+node_modules/
+runs/
+spans*.jsonl
+*.jsonl.gz
+*.log

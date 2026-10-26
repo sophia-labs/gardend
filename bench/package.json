@@ -1,0 +1,7 @@
+{
+  "name": "gbench",
+  "private": true,
+  "type": "module",
+  "description": "gardend benchmark protocol and runner. Only the ws cases need dependencies.",
+  "dependencies": { "yjs": "13.6.20", "y-protocols": "1.0.6", "lib0": "0.2.99" }
+}
