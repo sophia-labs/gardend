@@ -3,6 +3,7 @@ import { readFileSync, existsSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { Client, readKey } from './mcp.mjs'
 import { summaryMd } from './report.mjs'
+import { sittingHealth } from './compare.mjs'
 
 const B = 'https://sophia-labs.com/ns/bench#', XSD = 'http://www.w3.org/2001/XMLSchema#', RDF = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#', RDFS = 'http://www.w3.org/2000/01/rdf-schema#'
 const esc = (s) => String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t')
@@ -25,6 +26,11 @@ export function runTriples(run, { baseline = false } = {}) {
   add(runIri, B + 'host', lit(run.env.host)); add(runIri, B + 'loadBefore1m', dec(run.env.loadBefore[0]))
   if (run.abSitting) add(runIri, B + 'abSitting', lit(run.abSitting)); if (run.abPartner) add(runIri, B + 'abPartner', lit(run.abPartner))
   add(runIri, B + 'rssPeakMB', int(run.process.rssPeakMB)); add(runIri, B + 'isBaseline', `"${baseline}"^^<${XSD}boolean>`)
+  // Machine health (power.mjs): a pooled ab side is clean only if all its rounds were. Unrecorded → no triple (unknown).
+  const h = sittingHealth(run), known = h.filter((r) => r.clean != null)
+  if (known.length === h.length) add(runIri, B + 'machineClean', `"${h.every((r) => r.clean)}"^^<${XSD}boolean>`)
+  const why = [...new Set(h.flatMap((r) => r.why))]; if (why.length) add(runIri, B + 'machineNote', lit(why.join('; ')))
+  const fc = h.map((r) => r.foreignCpu?.mean).filter(Number.isFinite); if (fc.length) add(runIri, B + 'foreignCpuMeanPct', dec(Math.max(...fc)))
   for (const c of run.cases) {
     const caseIri = `urn:sophia:bench:case:${iriEsc(c.caseId)}@v${c.caseVersion}`, crIri = `${runIri}/case/${iriEsc(c.caseId)}`
     add(caseIri, RDF + 'type', `<${B}Case>`); add(caseIri, B + 'caseId', lit(c.caseId)); add(caseIri, B + 'caseVersion', int(c.caseVersion)); add(caseIri, B + 'kind', lit(c.kind)); add(caseIri, RDFS + 'label', lit(c.caseId))

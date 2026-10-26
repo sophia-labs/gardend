@@ -18,6 +18,9 @@ export function summaryMd(run) {
   L.push(`- target: ${run.target.version}, sha256 ${String(run.target.binarySha256 ?? '').slice(0, 12)}, spans ${run.target.spans}`)
   L.push(`- env: ${run.env.cpu}, ${run.env.ncpu} cpu, ${run.env.memGB} GB, power ${run.env.power}, disk free ${run.env.diskFreeGB} GB, node ${run.env.node}`)
   L.push(`- load before ${run.env.loadBefore.join(' ')}; after ${run.env.loadAfter.join(' ')}`)
+  const m = run.env.machine
+  if (m) L.push(`- machine: ${m.health?.clean ? 'clean' : `**NOT CLEAN** (${(m.health?.why ?? []).join('; ')})`}; awake held ${m.awakeHeld}; foreign CPU mean ${m.foreignCpu?.foreignPct?.mean ?? '-'}% p95 ${m.foreignCpu?.foreignPct?.p95 ?? '-'}% of ${m.foreignCpu?.cores ?? '?'}00% (top: ${(m.foreignCpu?.top ?? []).slice(0, 4).map((t) => `${t.comm} ${t.meanPct}%`).join(', ') || '-'})`)
+  else L.push('- machine: not recorded (predates power accounting)')
   L.push(`- other gardends (not ours): ${run.env.otherGardends.map((g) => `pid ${g.pid}${g.port ? ` :${g.port}` : ''}`).join(', ') || 'none'}`)
   L.push(`- fixture: ${JSON.stringify(run.fixture)}`)
   L.push(`- process: ${JSON.stringify(run.process)}`)

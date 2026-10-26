@@ -15,6 +15,7 @@ import { pathToFileURL } from 'node:url'
 import { takeMeasure, registerDev } from './lock.mjs'
 import { loadSpans, serverFacts } from './spans.mjs'
 import { summaryMd } from './report.mjs'
+import { holdAwake, powerNow, powerDuring, foreignCpuSampler, roundHealth } from './power.mjs'
 
 const utcStamp = () => new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z')
 const r1 = (x) => Math.round(x * 10) / 10
@@ -47,6 +48,9 @@ async function runBenchInner(o) {
 
   let failure = null
   const fp0 = fingerprint([])
+  // Machine state (power.mjs): hold the Mac awake unless the sitting already does, and watch everyone else's CPU.
+  const awake = o.holdsAwake ? null : holdAwake(log), power0 = await powerNow(), foreign = foreignCpuSampler({ ours: () => pids })
+  foreign.start()
   let startN = 0
   const startGardend = async () => {
     const spansFile = path.join(runDir, `spans-${++startN}.jsonl`); spanFiles.push(spansFile)
@@ -150,6 +154,13 @@ async function runBenchInner(o) {
     if (gard && gard.child && gard.child.exitCode === null) { log('stopping our gardend (SIGINT, final flush)'); await gard.stop(); if (gard.stopMs) notes.push(`final flush on SIGINT took ${Math.round(gard.stopMs)} ms`) }
   }
 
+  // ---- what the machine did meanwhile (the power log read costs ~5 s of CPU: after our gardend stopped, never during)
+  const foreignCpu = foreign.stop(), power1 = await powerNow(), during = await powerDuring(startedAt.getTime(), Date.now())
+  awake?.release()
+  const machine = { awakeHeld: o.holdsAwake ? 'by the sitting' : !!awake?.held, start: power0, end: power1, during, foreignCpu }
+  machine.health = roundHealth({ machine })
+  if (machine.health.clean === false) { notes.push(`NOT CLEAN, not a judge: ${machine.health.why.join('; ')}`); log(`machine not clean: ${machine.health.why.join('; ')}`) }
+
   // ---- join spans
   const hasSpans = !attach && spanFiles.length > 0
   let spanJoin = null
@@ -180,7 +191,7 @@ async function runBenchInner(o) {
     schema: 'sophia.bench.run.v1', runId, label, protocolVersion: PROTOCOL_VERSION, startedAt: startedAt.toISOString(), finishedAt: finishedAt.toISOString(),
     mode: attach ? 'attach' : 'spawn', suite, tier, seed,
     target: { binary: binInfo.binary, binarySha256: binInfo.binarySha256, version: binInfo.version, gitRev: binInfo.gitRev, url, graphId: G, spans: hasSpans },
-    env: { ...fp0, contention: o._contention ?? { measured: false }, loadAfter: loadavg(), otherGardends: fp0.otherGardends.filter((g) => !pids.includes(g.pid)) },
+    env: { ...fp0, contention: o._contention ?? { measured: false }, machine, loadAfter: loadavg(), otherGardends: fp0.otherGardends.filter((g) => !pids.includes(g.pid)) },
     fixture: { ...manifest.counts, seedMs: manifest.seedMs },
     cases: results,
     process: { rssStartMB: Math.round(rssStart / 1024), rssPeakMB: Math.round(rssPeak / 1024), rssEndMB: Math.round(rssEnd / 1024), cpuUserS: Math.round(cpuU * 10) / 10, cpuSysS: Math.round(cpuS * 10) / 10 },
