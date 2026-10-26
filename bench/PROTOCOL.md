@@ -29,6 +29,20 @@ produced it is not a claim.
 4. Compare **interleaved**: `ab` runs A B A B in turn on the same fixture snapshot, so drift hits both sides alike. Compare the pooled samples.
 5. Judge by the bootstrap CI of the ratio of medians, never by two single numbers. `same` means the CI contains 1.0 or |ratio-1| < 0.05.
 6. Look at the noise floor first: run the same binary twice and `compare`. The spread of those ratios is what a real change must beat.
+7. **The machine is part of the measurement** (`lib/power.mjs`, since 2026-10-26). Every run, or the whole `ab` sitting, holds
+   `caffeinate -i -m -s -w <pid>`. It samples everyone else's CPU every 5 s and, after each round (once our gardend has
+   stopped), reads `pmset -g log` for the round's window: sleeps, DarkWake, full wakes and thermal events. It also records
+   the power source and CPU speed limit at start and end. All of this goes in `env.machine`.
+
+   A round is **clean** only with no sleep, no DarkWake, no thermal event, on AC, and unthrottled.
+
+   `compare` and `ab` print **NOT A JUDGE** and exit 3 unless every round on both sides is clean, and `ab` prints the median
+   ratio of each interleaved pair. A pooled verdict that the pairs disagree on is drift, not a result.
+
+   Why: wave 1's first sitting (10-25 night) ran entirely on a Mac in Deep Idle. Its "70 s queue stall" was a 74 s
+   Maintenance Sleep in the middle of a request, and its "4× drift" was DarkWake. A gardend span whose wall time far exceeds
+   `busy_ns + idle_ns` was slept through (Rust's `Instant` stops in sleep). `gbench audit <dir>` reconstructs the machine
+   state for older runs.
 
 ## Cases (protocol v1)
 
