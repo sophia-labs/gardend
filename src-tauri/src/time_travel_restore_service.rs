@@ -226,6 +226,23 @@ async fn run_restore(
         None => None,
     };
 
+    // A forward restore applies a diff to the live rooms and then verifies each
+    // room equals its restore point. Client frames no longer queue behind the
+    // hot-write gate this restore holds, so fence them explicitly: wait for the
+    // ones in flight, admit none until the restore (and any rollback) is done.
+    let frame_fence = match app
+        .try_state::<crate::crdt_engine::persistence_coordinator::GraphPersistenceCoordinator>(
+    ) {
+        Some(coordinator) => match coordinator.fence_client_frames(graph_id).await {
+            Ok(fence) => Some(fence),
+            Err(error) => {
+                finish_failed(&jobs, operation_id, PHASE_FAILED, &error, None);
+                return Err(AppError::storage(error));
+            }
+        },
+        None => None,
+    };
+
     let blocking_app = app.clone();
     let blocking_jobs = jobs.clone();
     let blocking_graph_id = graph_id.to_string();
@@ -234,6 +251,7 @@ async fn run_restore(
     crate::app_runtime::async_runtime::spawn_blocking(move || {
         let _restore_guard = restore_guard;
         let _graph_lease = graph_lease;
+        let _frame_fence = frame_fence;
         run_restore_under_graph_lease(
             &blocking_app,
             blocking_jobs,
@@ -1373,6 +1391,85 @@ mod tests {
                 !ask(graph_dir, graph_id, doc_id, "RestoreSentinelTwo"),
                 "the post-capture text is gone from RDF too"
             );
+        });
+    }
+
+    /// A restore applies a diff to the live rooms and verifies them against the restore point, so it must not
+    /// run beside a client frame: it waits for a frame in flight, and the frame gate stays closed until it ends.
+    #[test]
+    fn restore_waits_for_an_in_flight_client_frame_and_fences_new_ones() {
+        let graph_id = "restore-frame-fence";
+        let doc_id = "restore-doc";
+        with_restore_graph(graph_id, |app, _graph_dir| {
+            write_markdown(
+                app,
+                graph_id,
+                doc_id,
+                "RestoreSentinelOne is the captured content.",
+            );
+            let summary = capture_restore_point(app, graph_id, RestorePointTrigger::Manual, None)
+                .expect("capture restore point");
+            let restore_point_id = summary["restorePointId"].as_str().expect("id").to_string();
+            write_markdown(
+                app,
+                graph_id,
+                doc_id,
+                "RestoreSentinelTwo is the post-capture content.",
+            );
+
+            let coordinator = app
+                .state::<crate::crdt_engine::persistence_coordinator::GraphPersistenceCoordinator>();
+            let frame = crate::app_runtime::async_runtime::block_on(
+                coordinator.acquire_client_frame(graph_id),
+            )
+            .expect("a client frame is in flight");
+
+            let jobs_dir = std::path::PathBuf::from(
+                std::env::var_os("GARDEN_PROFILE_DIR").expect("profile dir is set by the test"),
+            )
+            .join("restore-fence-jobs");
+            let jobs = Arc::new(LocalJobRegistry::new(jobs_dir).expect("job registry"));
+            let started = start_restore(app, jobs.clone(), graph_id, &restore_point_id, false)
+                .expect("start restore");
+            let operation_id = started["operationId"]
+                .as_str()
+                .expect("operation id")
+                .to_string();
+
+            std::thread::sleep(std::time::Duration::from_millis(600));
+            let state = get_restore_operation(&jobs, &operation_id).expect("operation");
+            assert!(
+                !matches!(
+                    state["state"].as_str(),
+                    Some(PHASE_SUCCEEDED) | Some(PHASE_FAILED) | Some(PHASE_ROLLED_BACK)
+                ),
+                "the restore ran while a client frame was in flight: {state}"
+            );
+            let room = room_text(app, graph_id, doc_id).expect("room");
+            assert!(
+                room.contains("RestoreSentinelTwo"),
+                "nothing was applied yet: {room}"
+            );
+
+            drop(frame);
+            for _ in 0..600 {
+                let state = get_restore_operation(&jobs, &operation_id).expect("operation");
+                if matches!(
+                    state["state"].as_str(),
+                    Some(PHASE_SUCCEEDED) | Some(PHASE_FAILED) | Some(PHASE_ROLLED_BACK)
+                ) {
+                    assert_eq!(
+                        state["state"], PHASE_SUCCEEDED,
+                        "restore settled as {state}"
+                    );
+                    let room = room_text(app, graph_id, doc_id).expect("room");
+                    assert!(room.contains("RestoreSentinelOne"), "room: {room}");
+                    assert!(!room.contains("RestoreSentinelTwo"), "room: {room}");
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            panic!("restore operation {operation_id} did not settle in 60 s");
         });
     }
 

@@ -5043,6 +5043,14 @@ pub(crate) async fn mcp_local_source_pull(app: AppHandle, arguments: &Value) -> 
         .await
         .map_err(AppError::internal)?;
     active_graph_identity(&app, &input.graph_id, Some(&graph_incarnation))?;
+    // Source pull reads sidecars directly; websocket edits are broadcast
+    // before the group commit writes them, so persist every dirty room first.
+    if let Some(registry) = app.try_state::<crate::crdt_engine::rooms::RoomRegistry>() {
+        registry
+            .flush_graph_rooms(&input.graph_id)
+            .await
+            .map_err(AppError::from)?;
+    }
     // The workspace Y.Doc read below and the tree projection dumped further
     // down must agree, and a pending rebuild must not be the step that marks a
     // dirty room persisted: bring the projection up to the live room first.

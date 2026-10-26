@@ -687,6 +687,10 @@ fn serve(selfhost: Option<garden_lib::selfhost::ServePlan>) {
                 let reason =
                     drain_admitted_work(&lifecycle, &lifecycle_testimony, reason, quiesce_timeout)
                         .await;
+                let flushed_rooms = garden_lib::headless::flush_dirty_rooms(&services_handle).await;
+                if flushed_rooms > 0 {
+                    log::info!("shutdown flushed {flushed_rooms} dirty rooms");
+                }
                 lifecycle_testimony.emit_terminal_succeeded(
                     reason.testimony(),
                     SuccessfulFinalFlush::NotConfigured,
@@ -989,6 +993,10 @@ fn serve(selfhost: Option<garden_lib::selfhost::ServePlan>) {
             let reason =
                 drain_admitted_work(&lifecycle, &lifecycle_testimony, reason, quiesce_timeout)
                     .await;
+            let flushed_rooms = garden_lib::headless::flush_dirty_rooms(&services_handle).await;
+            if flushed_rooms > 0 {
+                log::info!("shutdown flushed {flushed_rooms} dirty rooms");
+            }
             log::info!(
                 "gardend {} shutdown; running final durable flush",
                 reason.label()

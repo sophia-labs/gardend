@@ -6,6 +6,7 @@ use super::{
         rebuild_room_document_projection, reconcile_matching_document_projection,
     },
     executor::ApplyOperationError,
+    projection,
     rooms::{run_projection_flush_for_test, Room, RoomRegistry},
     workspace_ops::{
         materialize_workspace, persist_materialized_workspace, persist_workspace,
@@ -136,6 +137,74 @@ fn legacy_graph_incarnation_is_backfilled_without_touching_content_revision() {
             assert_eq!(stored.incarnation_id.as_deref(), Some(incarnation.as_str()));
             assert_eq!(stored.updated_at, updated_at);
             assert_eq!(stored.content_revision, content_revision);
+        });
+    });
+}
+
+#[test]
+fn materialization_off_the_locks_equals_the_live_projection() {
+    with_profile("garden-document-materialize-scratch", || {
+        crate::app_runtime::async_runtime::block_on(async {
+            let app = crate::tauri_runtime::build_mock_app_for_tests(true);
+            let graph_id = "materialize-scratch";
+            let document_id = "document-scratch";
+            create_graph_service(
+                &app,
+                CreateGraphInput {
+                    title: "Materialize Scratch".to_string(),
+                    graph_id: Some(graph_id.to_string()),
+                    description: None,
+                    operation_id: None,
+                },
+            )
+            .expect("create graph");
+            let graph_dir = existing_graph_dir(&app, graph_id).expect("graph dir");
+            let room = app
+                .state::<RoomRegistry>()
+                .get_or_create(
+                    &format!("doc:{graph_id}:{document_id}"),
+                    document_ydoc_state_path(&graph_dir, document_id),
+                )
+                .await
+                .expect("document room");
+            replace_room_text(&room, "scratch-block", "projected from a scratch doc").await;
+
+            // What the projection of the live Y.Doc says, computed under the lock.
+            let (epoch, (live_snapshot, live_xml)) = room
+                .with_doc_version(|doc| {
+                    (
+                        projection::materialize_ydoc(doc, document_id),
+                        projection::ydoc_to_tiptap_xml(doc),
+                    )
+                })
+                .await;
+            let materialized = materialize_room_document(
+                graph_id,
+                document_id,
+                "Scratch Document",
+                &room,
+                "scratch-flush",
+                None,
+                None,
+            )
+            .await
+            .expect("materialize");
+            assert_eq!(materialized.candidate["body"], json!(live_snapshot.body));
+            assert_eq!(materialized.candidate["tiptapXml"], json!(live_xml));
+            assert_eq!(
+                materialized.candidate["tiptapJson"],
+                live_snapshot.tiptap_json
+            );
+            assert_eq!(materialized.candidate["blocks"], live_snapshot.blocks_json);
+            assert_eq!(materialized.candidate["tree"], live_snapshot.tree_json);
+            assert!(live_xml.contains("projected from a scratch doc"));
+            assert_eq!(
+                materialized.projection_epoch, epoch,
+                "the snapshot names exactly the epoch it was read at"
+            );
+            // The projection reads the sidecar-consistent room: nothing is left dirty
+            // by the read fence itself.
+            assert!(!room.state_is_dirty_for_test());
         });
     });
 }

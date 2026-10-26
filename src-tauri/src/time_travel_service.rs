@@ -25,6 +25,8 @@ use crate::{
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::path::Path;
+#[cfg(feature = "desktop")]
+use tauri::Manager;
 use uuid::Uuid;
 
 const TIMESTAMP_LABEL: &str = "restore-point";
@@ -65,6 +67,14 @@ pub(crate) fn capture_restore_point_with_lease(
     label: Option<String>,
 ) -> AppResult<Value> {
     let graph_dir = existing_graph_dir(app, graph_id).map_err(AppError::not_found)?;
+    // The capture reads sidecar bytes directly. Websocket edits are broadcast
+    // before the group commit writes them, so bring every dirty room of this
+    // graph to disk first; the restore point then holds what clients saw.
+    if let Some(registry) = app.try_state::<crate::crdt_engine::rooms::RoomRegistry>() {
+        registry
+            .flush_graph_rooms_blocking(graph_id)
+            .map_err(AppError::from)?;
+    }
     let restore_point_id = format!("rp-{}", Uuid::new_v4().simple());
     let created_at = clock::epoch_millis() as i64;
 

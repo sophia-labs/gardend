@@ -82,7 +82,22 @@ pub(crate) fn write_bytes_atomic(
     path: &Path,
     temp_path: &Path,
     bytes: &[u8],
+    unix_mode: Option<u32>,
+) -> Result<(), PersistenceError> {
+    write_bytes_atomic_with(path, temp_path, bytes, unix_mode, true)
+}
+
+/// [`write_bytes_atomic`] with the parent-directory sync made optional. The
+/// directory sync only makes a *new name* durable; replacing an existing
+/// entry by rename needs none for the file to be whole after a power cut (the
+/// old or the new complete file survives, never a torn one). A caller that
+/// skips it must make one at its own cadence (`sync_parent_dir`).
+pub(crate) fn write_bytes_atomic_with(
+    path: &Path,
+    temp_path: &Path,
+    bytes: &[u8],
     #[cfg_attr(not(unix), allow(unused_variables))] unix_mode: Option<u32>,
+    sync_dir: bool,
 ) -> Result<(), PersistenceError> {
     let mut options = fs::OpenOptions::new();
     options.create_new(true).write(true);
@@ -105,8 +120,10 @@ pub(crate) fn write_bytes_atomic(
     drop(file);
 
     rename_atomic(temp_path, path)?;
-    if let Some(parent) = path.parent() {
-        sync_parent_dir(parent)?;
+    if sync_dir {
+        if let Some(parent) = path.parent() {
+            sync_parent_dir(parent)?;
+        }
     }
     Ok(())
 }

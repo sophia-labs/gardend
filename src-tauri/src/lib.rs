@@ -531,6 +531,17 @@ pub mod headless {
     /// Tokio facade used by the Gardend process and the core service layer.
     pub use crate::app_runtime::async_runtime;
 
+    /// Shutdown: write every websocket room that still holds changes the
+    /// sidecar lacks (the group-commit tail), directory entries included.
+    /// Returns how many rooms were written. Call after admitted work has
+    /// drained and before the final durable flush.
+    pub async fn flush_dirty_rooms(handle: &crate::app_runtime::AppHandle) -> usize {
+        match handle.try_state::<crate::crdt_engine::rooms::RoomRegistry>() {
+            Some(registry) => registry.flush_dirty_rooms().await,
+            None => 0,
+        }
+    }
+
     /// Strongly consistent minimal-registry read. Gardend calls this before
     /// durable hydrate so an unknown/tombstoned/stale binding cannot touch
     /// storage.

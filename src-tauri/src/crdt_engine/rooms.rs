@@ -13,7 +13,7 @@
 
 use crate::app_error::PersistenceError;
 use crate::app_runtime::AppHandle;
-use crate::storage_atomic::{atomic_temp_path, write_bytes_atomic};
+use crate::storage_atomic::{atomic_temp_path, sync_parent_dir, write_bytes_atomic_with};
 use axum::extract::ws::{Message as WsMessage, WebSocket};
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
@@ -21,10 +21,10 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::sync::{OnceLock, Weak};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 #[cfg(feature = "desktop")]
 use tauri::Manager;
 use tokio::sync::{broadcast, Mutex, Notify};
@@ -40,10 +40,34 @@ pub struct Room {
     doc: Mutex<Doc>,
     awareness: Mutex<HashMap<ClientID, RoomAwarenessEntry>>,
     presence_sessions: Mutex<HashMap<PresenceSessionKey, PresenceSessionLease>>,
+    /// Raw payloads for in-process observers (tests). Sockets use `frames`.
     tx: broadcast::Sender<Vec<u8>>,
+    /// What the websocket loops deliver: the same payloads, tagged with the
+    /// connection that produced them and whether they carry graph state.
+    frames: broadcast::Sender<RoomFrame>,
     next_connection_id: AtomicU64,
+    /// Sockets currently serving this room (see [`ConnectionGuard`]).
+    connections: AtomicUsize,
     /// Where to persist the authoritative Y.Doc state (update-v1.bin).
     state_path: PathBuf,
+    /// When the sidecar's directory entry was last fsynced (see
+    /// [`DirSyncCadence`]).
+    dir_sync: Arc<DirSyncCadence>,
+    /// Bumped, with the doc mutex held, by every change to the live Y.Doc.
+    /// `persisted_state_epoch` is the newest epoch whose bytes are in the
+    /// sidecar; the difference is the room's unpersisted tail (group commit).
+    state_epoch: AtomicU64,
+    persisted_state_epoch: AtomicU64,
+    /// A group-commit task is waiting out its window.
+    persist_armed: AtomicBool,
+    /// Serializes sidecar writes (group commit, API write, flushes) so an
+    /// older encode can never be renamed over a newer one.
+    persist_gate: Mutex<()>,
+    /// Set by the websocket host. Only a room with a scope defers its
+    /// persistence; every other caller persists before it returns.
+    persist_scope: OnceLock<PersistScope>,
+    /// When the oldest unpersisted change happened (telemetry only).
+    dirty_since: StdMutex<Option<Instant>>,
     /// Monotonic version of the live Y.Doc state that still needs to reach the
     /// cold document/workspace projections. The Y.Doc remains authoritative;
     /// these epochs only prevent redundant materialization work.
@@ -69,6 +93,81 @@ pub struct Room {
 }
 
 type ConnectionId = u64;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum FrameKind {
+    /// A Y.Doc update: graph content, so delivery is linearized with deletion.
+    State,
+    /// Ephemeral presence: no graph content, so delivery takes no lease.
+    Awareness,
+}
+
+#[derive(Clone)]
+struct RoomFrame {
+    /// The socket whose frame this is, when that socket already has it. Its
+    /// own loop skips it: y-websocket clients do not need their own echo.
+    origin: Option<ConnectionId>,
+    kind: FrameKind,
+    payload: Vec<u8>,
+}
+
+/// Where a room's deferred persistence runs: the graph whose lifecycle lease it
+/// takes around a write (so deletion stays ordered against it) and the app that
+/// owns the coordinator.
+#[derive(Clone)]
+struct PersistScope {
+    app: AppHandle,
+    graph_id: String,
+}
+
+/// Longest an acknowledged websocket edit waits before the room state reaches
+/// the sidecar. The edit is broadcast at once; within this window the sidecar
+/// lags the live room by at most one group commit (Vera's accepted loss on a
+/// power cut is about one second, never corruption).
+const ROOM_PERSIST_WINDOW: Duration = Duration::from_millis(250);
+
+/// The room sidecar is replaced by rename, so after the first write its name
+/// already exists: the file's own fsync makes the new content whole, and a
+/// power cut leaves the old or the new complete file, never a torn one. The
+/// directory fsync would only matter for a brand-new name, yet it cost as much
+/// as the file's (stress round 2: 94% of all fsyncs). It now runs for a new
+/// name, at most once per `ROOM_DIR_SYNC_INTERVAL` otherwise, and when a
+/// connection closes or the process flushes for shutdown, so a rename that was
+/// skipped is made durable within about a second. The loss it allows is the
+/// accepted window: a power cut may resurrect the previous complete sidecar.
+const ROOM_DIR_SYNC_INTERVAL: Duration = Duration::from_secs(1);
+
+#[derive(Default)]
+struct DirSyncCadence {
+    last: StdMutex<Option<Instant>>,
+    /// A rename since the last directory sync has not been made durable.
+    pending: AtomicBool,
+}
+
+impl DirSyncCadence {
+    /// Whether the write about to happen must fsync the directory.
+    fn due_at(&self, now: Instant, target_existed: bool, force: bool) -> bool {
+        let mut last = self.last.lock().unwrap_or_else(|error| error.into_inner());
+        let due = force
+            || !target_existed
+            || last.map_or(true, |at| {
+                now.saturating_duration_since(at) >= ROOM_DIR_SYNC_INTERVAL
+            });
+        if due {
+            *last = Some(now);
+            self.pending.store(false, Ordering::SeqCst);
+        } else {
+            self.pending.store(true, Ordering::SeqCst);
+        }
+        due
+    }
+
+    /// The directory sync was done elsewhere (a close-time settle).
+    fn settled_at(&self, now: Instant) {
+        *self.last.lock().unwrap_or_else(|error| error.into_inner()) = Some(now);
+        self.pending.store(false, Ordering::SeqCst);
+    }
+}
 
 #[derive(Clone)]
 struct RoomAwarenessEntry {
@@ -145,7 +244,39 @@ struct ProjectionFlushTarget {
     document_id: Option<String>,
     debounce: Duration,
     generation: AtomicU64,
+    /// The newest lifecycle generation a scheduling call saw; the timer task
+    /// flushes against it.
+    graph_generation: AtomicU64,
     contexts: StdMutex<FlushContexts>,
+    timer: StdMutex<DebounceTimer>,
+}
+
+/// One timer task per room serves a whole typing session instead of one
+/// spawned task per frame. A frame only moves `last` (and sets `first` when it
+/// starts a burst); the task sleeps until `last + debounce`, but never past
+/// `first + PROJECTION_DEBOUNCE_MAX_WAIT`, so a person who types without a
+/// pause still gets their document projected.
+#[cfg(not(feature = "frontend-crdt"))]
+#[derive(Default)]
+struct DebounceTimer {
+    /// A timer task owns the pending burst.
+    armed: bool,
+    first: Option<Instant>,
+    last: Option<Instant>,
+}
+
+/// How long until the pending burst is due: the debounce after the latest
+/// update, capped at `max_wait` after the first. Zero means flush now.
+#[cfg(not(feature = "frontend-crdt"))]
+fn debounce_remaining(
+    first: Instant,
+    last: Instant,
+    now: Instant,
+    debounce: Duration,
+    max_wait: Duration,
+) -> Duration {
+    let due = (last + debounce).min(first + max_wait);
+    due.saturating_duration_since(now)
 }
 
 #[cfg(not(feature = "frontend-crdt"))]
@@ -175,6 +306,10 @@ impl FlushContexts {
 const WORKSPACE_PROJECTION_DEBOUNCE: Duration = Duration::from_millis(250);
 #[cfg(not(feature = "frontend-crdt"))]
 const DOCUMENT_PROJECTION_DEBOUNCE: Duration = Duration::from_millis(600);
+/// Continuous typing postpones the debounce for as long as keys keep coming;
+/// the projection (cold record, RDF, search) still lands at least this often.
+#[cfg(not(feature = "frontend-crdt"))]
+const PROJECTION_DEBOUNCE_MAX_WAIT: Duration = Duration::from_secs(5);
 #[cfg(not(feature = "frontend-crdt"))]
 const PROJECTION_RETRY_INITIAL: Duration = Duration::from_millis(100);
 #[cfg(not(feature = "frontend-crdt"))]
@@ -213,6 +348,10 @@ pub struct RoomRegistry {
     // opener takes this admission mutex before the room map, closing the
     // check-to-open race without evicting existing runtime authority.
     disk_restores: StdMutex<std::collections::HashSet<String>>,
+    // One mutex per room key, held across a cold open's disk read and decode
+    // so concurrent openers of that key do the work once and openers of other
+    // keys never wait on it. Taken before any other registry lock.
+    opening: StdMutex<HashMap<String, Arc<StdMutex<()>>>>,
 }
 
 pub(crate) struct DiskRestoreRoomGuard<'a> {
@@ -354,6 +493,62 @@ fn pause_before_fresh_recheck(state_path: &std::path::Path) {
 #[cfg(not(test))]
 fn pause_before_fresh_recheck(_state_path: &std::path::Path) {}
 
+// A third barrier, inside a cold open's disk read and decode (phase 2): it
+// parks the opener at the point that used to hold the process-wide registry
+// mutex, so a test can prove other rooms are not waiting behind it.
+#[cfg(test)]
+struct OpenDecodeHook {
+    state_path: PathBuf,
+    reached: std::sync::mpsc::Sender<()>,
+    release: std::sync::mpsc::Receiver<()>,
+}
+
+#[cfg(test)]
+static OPEN_DECODE_HOOK: std::sync::OnceLock<StdMutex<Option<OpenDecodeHook>>> =
+    std::sync::OnceLock::new();
+
+#[cfg(test)]
+fn install_open_decode_hook(
+    state_path: PathBuf,
+    reached: std::sync::mpsc::Sender<()>,
+    release: std::sync::mpsc::Receiver<()>,
+) {
+    *OPEN_DECODE_HOOK
+        .get_or_init(|| StdMutex::new(None))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(OpenDecodeHook {
+        state_path,
+        reached,
+        release,
+    });
+}
+
+#[cfg(test)]
+fn pause_during_open_decode(state_path: &std::path::Path) {
+    // Single-fire, and the hook mutex is released before blocking.
+    let hook = {
+        let mut guard = OPEN_DECODE_HOOK
+            .get_or_init(|| StdMutex::new(None))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if guard
+            .as_ref()
+            .is_some_and(|hook| hook.state_path == state_path)
+        {
+            guard.take()
+        } else {
+            None
+        }
+    };
+    if let Some(hook) = hook {
+        let _ = hook.reached.send(());
+        let _ = hook.release.recv();
+    }
+}
+
+#[cfg(not(test))]
+fn pause_during_open_decode(_state_path: &std::path::Path) {}
+
 enum TombstoneOpenPolicy<'a> {
     Reject,
     FreshRecreation(&'a str),
@@ -462,41 +657,78 @@ impl RoomRegistry {
         }
         pause_after_tombstone_precheck(&state_path);
 
-        let restores = self
-            .disk_restores
-            .lock()
-            .map_err(|_| "restore room admission lock poisoned")?;
-        if restores
-            .iter()
-            .any(|graph_id| room_key_belongs_to_graph(key, graph_id))
+        let span = tracing::info_span!(target: "gardend_otel", "room.open",
+            sophia.room.hydrated = tracing::field::Empty,
+            sophia.room.state_bytes = tracing::field::Empty,
+            sophia.room.decode_ms = tracing::field::Empty,
+            sophia.room.slot_wait_ms = tracing::field::Empty,
+            sophia.room.registry_lock_wait_ms = tracing::field::Empty,
+            sophia.room.registry_lock_held_ms = tracing::field::Empty);
+        let _opening = span.enter();
+
+        // Openers of the same key queue here; openers of different keys never
+        // do. The registry map is locked only for the cheap checks below and
+        // for the insert, never across the disk read and the Y.Doc decode: a
+        // multi-megabyte cold open used to freeze every room lookup in the
+        // process for as long as it took.
+        let waiting = crate::telemetry::timer();
+        let slot = self.opening_slot(key);
+        let open_guard = slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        span.record(
+            "sophia.room.slot_wait_ms",
+            crate::telemetry::elapsed_ms(waiting),
+        );
+        let mut lock_wait_ms = 0.0;
+
+        // Phase 1: admission and the cache hit, under the locks.
         {
-            return Err("graph room is unavailable during disk archive restore".into());
-        }
-        let mut rooms = self
-            .rooms
-            .lock()
-            .map_err(|_| "room registry lock poisoned".to_string())?;
-        if let Some(room) = rooms.get(key).cloned() {
-            if !room.is_evicted() && matches!(&policy, TombstoneOpenPolicy::Reject) {
-                drop(rooms);
-                drop(restores);
-                // Pre-existing (cache-hit) room: a recheck error returns Err
-                // but the live room stays — it was live before this call.
-                return self.finish_tombstone_checked_open(key, &state_path, room, &policy, false);
+            let restores = self
+                .disk_restores
+                .lock()
+                .map_err(|_| "restore room admission lock poisoned")?;
+            if restores
+                .iter()
+                .any(|graph_id| room_key_belongs_to_graph(key, graph_id))
+            {
+                return Err("graph room is unavailable during disk archive restore".into());
             }
-            // A hot-authority write failure invalidates the in-memory Doc.
-            // Reopen from the last durable sidecar instead of returning that
-            // partially-mutated incarnation to a new caller.
-            if let Some(removed) = rooms.remove(key) {
-                removed.evict();
+            let waiting = crate::telemetry::timer();
+            let rooms = self
+                .rooms
+                .lock()
+                .map_err(|_| "room registry lock poisoned".to_string())?;
+            lock_wait_ms += crate::telemetry::elapsed_ms(waiting);
+            if let Some(room) = rooms.get(key).cloned() {
+                if !room.is_evicted() && matches!(&policy, TombstoneOpenPolicy::Reject) {
+                    drop(rooms);
+                    drop(restores);
+                    drop(open_guard);
+                    // Pre-existing (cache-hit) room: a recheck error returns Err
+                    // but the live room stays — it was live before this call.
+                    return self.finish_tombstone_checked_open(
+                        key,
+                        &state_path,
+                        room,
+                        &policy,
+                        false,
+                    );
+                }
+                // An evicted or superseded room is replaced below, atomically
+                // with the insert of its successor (no window in which the key
+                // is absent), once the new incarnation is decoded.
             }
         }
+
+        // Phase 2: read and decode with no registry lock held.
+        pause_during_open_decode(&state_path);
+        let decoding = crate::telemetry::timer();
         let doc = Doc::new();
         let mut hydrated = false;
         if matches!(&policy, TombstoneOpenPolicy::Reject) && state_path.exists() {
             let bytes = std::fs::read(&state_path).map_err(|error| {
                 PersistenceError::io(error, format!("read ydoc state {}", state_path.display()))
             })?;
+            span.record("sophia.room.state_bytes", bytes.len() as u64);
             // Two on-disk shapes both mean "no application content yet": the
             // legacy zero-byte sentinel, and `write_ydoc_update`'s canonical
             // encoded-empty-Y.Doc bytes (written so an empty sidecar is still
@@ -533,14 +765,30 @@ impl RoomRegistry {
                 }
             }
         }
+        span.record("sophia.room.hydrated", hydrated);
+        span.record(
+            "sophia.room.decode_ms",
+            crate::telemetry::elapsed_ms(decoding),
+        );
+
         let (tx, _) = broadcast::channel(256);
+        let (frames, _) = broadcast::channel(256);
         let room = Arc::new(Room {
             doc: Mutex::new(doc),
             awareness: Mutex::new(HashMap::new()),
             presence_sessions: Mutex::new(HashMap::new()),
             tx,
+            frames,
             next_connection_id: AtomicU64::new(1),
+            connections: AtomicUsize::new(0),
             state_path: state_path.clone(),
+            dir_sync: Arc::new(DirSyncCadence::default()),
+            state_epoch: AtomicU64::new(0),
+            persisted_state_epoch: AtomicU64::new(0),
+            persist_armed: AtomicBool::new(false),
+            persist_gate: Mutex::new(()),
+            persist_scope: OnceLock::new(),
+            dirty_since: StdMutex::new(None),
             // Conservatively materialize a hydrated room once. Its hot-tier
             // authority may be newer than (or have outlived) the cold files.
             projection_epoch: AtomicU64::new(u64::from(hydrated)),
@@ -552,9 +800,42 @@ impl RoomRegistry {
             #[cfg(not(feature = "frontend-crdt"))]
             projection_flush: OnceLock::new(),
         });
-        rooms.insert(key.to_string(), room.clone());
-        drop(rooms);
-        drop(restores);
+
+        // Phase 3: admission again (a disk restore may have begun while this
+        // opener was decoding), then swap the entry in.
+        {
+            let restores = self
+                .disk_restores
+                .lock()
+                .map_err(|_| "restore room admission lock poisoned")?;
+            if restores
+                .iter()
+                .any(|graph_id| room_key_belongs_to_graph(key, graph_id))
+            {
+                return Err("graph room is unavailable during disk archive restore".into());
+            }
+            let waiting = crate::telemetry::timer();
+            let mut rooms = self
+                .rooms
+                .lock()
+                .map_err(|_| "room registry lock poisoned".to_string())?;
+            lock_wait_ms += crate::telemetry::elapsed_ms(waiting);
+            let held = crate::telemetry::timer();
+            // A hot-authority write failure invalidates the in-memory Doc.
+            // Reopen from the last durable sidecar instead of returning that
+            // partially-mutated incarnation to a new caller. Only this
+            // function inserts, and it holds the key's opening slot, so what
+            // is here now is what phase 1 saw (or less).
+            if let Some(removed) = rooms.remove(key) {
+                removed.evict();
+            }
+            rooms.insert(key.to_string(), room.clone());
+            span.record(
+                "sophia.room.registry_lock_held_ms",
+                crate::telemetry::elapsed_ms(held),
+            );
+        }
+        span.record("sophia.room.registry_lock_wait_ms", lock_wait_ms);
         // Freshly inserted room: a recheck that cannot even be evaluated must
         // evict it (see below) — the caller gets an Err with no Arc, so
         // nothing else would ever evict the just-decoded room, and every
@@ -562,8 +843,28 @@ impl RoomRegistry {
         // permanent one-room leak per transient tombstone-store error. The
         // eviction is IDENTITY-checked so this cleanup can never destroy a
         // newer live room installed here in the no-lock window (test hook).
+        // The opening slot is released first: the window exists so that other
+        // paths (and the test hook) can open this key again.
+        drop(open_guard);
         pause_before_fresh_recheck(&state_path);
         self.finish_tombstone_checked_open(key, &state_path, room, &policy, true)
+    }
+
+    /// The per-key mutex that serializes cold opens of one room. The map
+    /// itself is held only to fetch or create the entry.
+    fn opening_slot(&self, key: &str) -> Arc<StdMutex<()>> {
+        let mut slots = self
+            .opening
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if slots.len() > 256 {
+            // Idle entries (nobody holds or awaits them) are dead weight.
+            slots.retain(|_, slot| Arc::strong_count(slot) > 1);
+        }
+        slots
+            .entry(key.to_string())
+            .or_insert_with(|| Arc::new(StdMutex::new(())))
+            .clone()
     }
 
     fn finish_tombstone_checked_open(
@@ -697,6 +998,7 @@ impl RoomRegistry {
                 Arc::ptr_eq(room, expected)
                     && Arc::strong_count(room) == 2
                     && !room.needs_projection_flush()
+                    && !room.state_is_dirty()
             }) {
                 if let Some(room) = rooms.remove(key) {
                     room.evict();
@@ -719,6 +1021,68 @@ impl RoomRegistry {
             .collect();
         matches.sort_by(|(left, _), (right, _)| left.cmp(right));
         matches
+    }
+
+    fn live_rooms_for_graph(&self, graph_id: &str) -> Vec<Arc<Room>> {
+        let workspace_key = format!("workspace:{graph_id}");
+        let document_prefix = format!("doc:{graph_id}:");
+        let Ok(rooms) = self.rooms.lock() else {
+            return Vec::new();
+        };
+        rooms
+            .iter()
+            .filter(|(key, room)| {
+                (**key == workspace_key || key.starts_with(&document_prefix))
+                    && !room.is_evicted()
+                    && room.state_is_dirty()
+            })
+            .map(|(_, room)| room.clone())
+            .collect()
+    }
+
+    /// Write every dirty room of `graph_id` to its sidecar. For callers that
+    /// read sidecar bytes directly and hold the graph's lease (source pull).
+    pub(crate) async fn flush_graph_rooms(&self, graph_id: &str) -> Result<(), PersistenceError> {
+        for room in self.live_rooms_for_graph(graph_id) {
+            room.flush_state_if_dirty(false).await?;
+        }
+        Ok(())
+    }
+
+    /// [`Self::flush_graph_rooms`] for synchronous callers that already hold
+    /// the graph's lease (restore-point capture).
+    pub(crate) fn flush_graph_rooms_blocking(
+        &self,
+        graph_id: &str,
+    ) -> Result<(), PersistenceError> {
+        for room in self.live_rooms_for_graph(graph_id) {
+            room.flush_state_blocking()?;
+        }
+        Ok(())
+    }
+
+    /// Shutdown: every dirty room reaches disk, directory entry included.
+    /// Returns the number of rooms written. A failure is logged and does not
+    /// stop the remaining rooms.
+    pub(crate) async fn flush_dirty_rooms(&self) -> usize {
+        let dirty: Vec<Arc<Room>> = match self.rooms.lock() {
+            Ok(rooms) => rooms
+                .values()
+                .filter(|room| !room.is_evicted() && room.state_is_dirty())
+                .cloned()
+                .collect(),
+            Err(_) => Vec::new(),
+        };
+        let mut written = 0;
+        for room in dirty {
+            match room.flush_state_under_lifecycle(true).await {
+                Ok(true) => written += 1,
+                Ok(false) => {}
+                Err(error) => log::error!("shutdown room flush failed: {error}"),
+            }
+            room.settle_state_dir().await;
+        }
+        written
     }
 
     /// Remove every hosted room for a graph and synchronously cancel its
@@ -754,6 +1118,20 @@ impl Room {
         self.next_connection_id.fetch_add(1, Ordering::Relaxed)
     }
 
+    /// Hand one encoded y-protocol message to every subscriber. Sockets read
+    /// `frames`; the raw `tx` only has receivers in tests, so production pays
+    /// no extra copy for it.
+    fn publish(&self, origin: Option<ConnectionId>, kind: FrameKind, payload: Vec<u8>) {
+        if self.tx.receiver_count() > 0 {
+            let _ = self.tx.send(payload.clone());
+        }
+        let _ = self.frames.send(RoomFrame {
+            origin,
+            kind,
+            payload,
+        });
+    }
+
     /// Install the headless cold-projection scheduler for this hosted room.
     /// Multiple websocket clients race through this safely: the first target
     /// wins and later clients must describe the same room. A hydrated hot-tier
@@ -781,7 +1159,9 @@ impl Room {
                 document_id,
                 debounce,
                 generation: AtomicU64::new(0),
+                graph_generation: AtomicU64::new(0),
                 contexts: StdMutex::new(FlushContexts::default()),
+                timer: StdMutex::new(DebounceTimer::default()),
             });
             if let Err(rejected) = self.projection_flush.set(target) {
                 let existing = self
@@ -886,11 +1266,25 @@ impl Room {
         (!update.clients.is_empty()).then_some(update)
     }
 
+    #[cfg(test)]
     async fn merge_awareness(
         &self,
         update: &AwarenessUpdate,
         owner: ConnectionId,
     ) -> Option<AwarenessUpdate> {
+        self.merge_awareness_tagged(update, owner)
+            .await
+            .map(|(accepted, _)| accepted)
+    }
+
+    /// [`Self::merge_awareness`], plus whether every accepted entry belongs to
+    /// `owner`'s own live client ids. Only then may the sender skip its echo:
+    /// synthetic removals of superseded ids are news to the sender too.
+    async fn merge_awareness_tagged(
+        &self,
+        update: &AwarenessUpdate,
+        owner: ConnectionId,
+    ) -> Option<(AwarenessUpdate, bool)> {
         let mut state = self.awareness.lock().await;
         let mut sessions = self.presence_sessions.lock().await;
         let mut accepted = HashMap::new();
@@ -1046,7 +1440,12 @@ impl Room {
         if accepted.is_empty() {
             None
         } else {
-            Some(AwarenessUpdate { clients: accepted })
+            let own_only = accepted.keys().all(|client| {
+                state
+                    .get(client)
+                    .is_some_and(|live| live.owner == Some(owner))
+            });
+            Some((AwarenessUpdate { clients: accepted }, own_only))
         }
     }
 
@@ -1143,6 +1542,7 @@ impl Room {
                     let update = txn.encode_update_v1();
                     if update.len() > 3 {
                         self.projection_epoch.fetch_add(1, Ordering::SeqCst);
+                        self.state_epoch.fetch_add(1, Ordering::SeqCst);
                     }
                     Ok((result, update))
                 }
@@ -1169,7 +1569,7 @@ impl Room {
         // broadcast when content actually changed.
         if update.len() > 3 {
             let message = Message::Sync(SyncMessage::Update(update)).encode_v1();
-            let _ = self.tx.send(message);
+            self.publish(None, FrameKind::State, message);
         }
         Ok(result)
     }
@@ -1264,13 +1664,26 @@ impl Room {
             sophia.ydoc.changed = tracing::field::Empty,
             otel.status_code = tracing::field::Empty))]
     pub(crate) async fn apply_client_update(&self, update: &[u8]) -> Result<bool, String> {
-        let result = self.apply_client_update_inner(update).await;
+        let result = self.apply_client_update_inner(update, None, false).await;
         if result.is_err() {
             tracing::Span::current().record("otel.status_code", "ERROR");
         }
         result
     }
 
+    /// Apply a sync-client update and schedule its cold projection (no
+    /// connection to exclude from the broadcast).
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) async fn apply_client_update_and_schedule(
+        self: &Arc<Self>,
+        update: &[u8],
+        app: AppHandle,
+    ) -> Result<bool, String> {
+        self.apply_client_frame(update, app, None).await
+    }
+
+    /// [`Self::apply_client_update_and_schedule`] for a frame that arrived on
+    /// connection `origin`, which will not be sent its own update back.
     /// Keep the update current through scheduling so a coalesced flush links
     /// to the update it absorbed, even after this connection closes.
     #[tracing::instrument(target = "gardend_otel", name = "ydoc.update.apply", skip_all,
@@ -1278,12 +1691,17 @@ impl Room {
             sophia.ydoc.mutex_wait_ms = tracing::field::Empty,
             sophia.ydoc.changed = tracing::field::Empty,
             otel.status_code = tracing::field::Empty))]
-    pub(crate) async fn apply_client_update_and_schedule(
+    async fn apply_client_frame(
         self: &Arc<Self>,
         update: &[u8],
         app: AppHandle,
+        origin: Option<ConnectionId>,
     ) -> Result<bool, String> {
-        let changed = match self.apply_client_update_inner(update).await {
+        // Only a websocket frame on a room the host bound defers its sidecar
+        // write. Source sync and every other caller of the plain path still
+        // return only after their change is on disk.
+        let defer = origin.is_some() && self.persist_scope.get().is_some();
+        let changed = match self.apply_client_update_inner(update, origin, defer).await {
             Ok(changed) => changed,
             Err(error) => {
                 tracing::Span::current().record("otel.status_code", "ERROR");
@@ -1291,12 +1709,22 @@ impl Room {
             }
         };
         if changed {
+            if defer {
+                self.arm_state_persist();
+            }
             self.schedule_projection_flush(app);
         }
         Ok(changed)
     }
 
-    async fn apply_client_update_inner(&self, update: &[u8]) -> Result<bool, String> {
+    /// `defer`: broadcast without persisting; the caller arms the group commit
+    /// (`arm_state_persist`) that makes the change durable within the window.
+    async fn apply_client_update_inner(
+        &self,
+        update: &[u8],
+        origin: Option<ConnectionId>,
+        defer: bool,
+    ) -> Result<bool, String> {
         let waiting = crate::telemetry::timer();
         let _authority_guard = self.authority_lock.lock().await;
         if self.is_evicted() {
@@ -1320,6 +1748,7 @@ impl Room {
                     let changed = applied.len() > 3;
                     if changed {
                         self.projection_epoch.fetch_add(1, Ordering::SeqCst);
+                        self.state_epoch.fetch_add(1, Ordering::SeqCst);
                     }
                     Ok(changed)
                 }
@@ -1338,9 +1767,13 @@ impl Room {
         };
         tracing::Span::current().record("sophia.ydoc.changed", changed);
         if changed {
-            self.persist().await?;
+            if defer {
+                self.note_state_dirty();
+            } else {
+                self.persist().await?;
+            }
             let rebroadcast = Message::Sync(SyncMessage::Update(update.to_vec())).encode_v1();
-            let _ = self.tx.send(rebroadcast);
+            self.publish(origin, FrameKind::State, rebroadcast);
         }
         Ok(changed)
     }
@@ -1357,10 +1790,45 @@ impl Room {
     /// epoch, so marking this snapshot persisted cannot accidentally clear a
     /// newer dirty state.
     pub(crate) async fn with_doc_version<T, F: FnOnce(&Doc) -> T>(&self, read: F) -> (u64, T) {
-        let _authority_guard = self.authority_lock.lock().await;
-        let doc = self.doc.lock().await;
-        let epoch = self.projection_epoch.load(Ordering::SeqCst);
-        (epoch, read(&doc))
+        // A projection (and a read fence) must never run ahead of the sidecar:
+        // bring the group-commit tail to disk first, so after a crash the cold
+        // files are at most as new as the authority. The check is repeated
+        // with the doc mutex held (state_epoch only moves under it, so it is
+        // exact there); a frame that lands between the flush and the lock
+        // sends us around again. After a few rounds of continuous typing the
+        // read proceeds: the lag is then bounded by the commit window.
+        let mut rounds = 0;
+        loop {
+            if let Err(error) = self.flush_state_if_dirty(false).await {
+                log::warn!(
+                    "room state flush before projection failed for {}: {error}",
+                    self.state_path.display()
+                );
+            }
+            let waiting = crate::telemetry::timer();
+            let _authority_guard = self.authority_lock.lock().await;
+            let doc = self.doc.lock().await;
+            rounds += 1;
+            if self.state_is_dirty() && !self.is_evicted() && rounds < 4 {
+                continue;
+            }
+            if let Some(started) = waiting {
+                tracing::Span::current().record(
+                    "sophia.lock.wait_ms",
+                    started.elapsed().as_secs_f64() * 1000.0,
+                );
+            }
+            let held = crate::telemetry::timer();
+            let epoch = self.projection_epoch.load(Ordering::SeqCst);
+            let value = read(&doc);
+            if let Some(started) = held {
+                tracing::Span::current().record(
+                    "sophia.lock.held_ms",
+                    started.elapsed().as_secs_f64() * 1000.0,
+                );
+            }
+            return (epoch, value);
+        }
     }
 
     pub(crate) fn needs_projection_flush(&self) -> bool {
@@ -1391,22 +1859,88 @@ impl Room {
             .fetch_max(epoch, Ordering::SeqCst);
     }
 
-    /// Persist the full authoritative state. Called after applied updates;
-    /// cheap for M1-scale docs (full-state write, atomic rename).
+    /// Persist the full authoritative state before returning. API writes
+    /// (`update_doc`) and every non-websocket caller acknowledge on this.
     async fn persist(&self) -> Result<(), String> {
         self.persist_classified().await.map_err(Into::into)
     }
 
-    #[tracing::instrument(target = "gardend_otel", name = "ydoc.state.persist", skip_all,
-        fields(sophia.ydoc.state_bytes = tracing::field::Empty))]
     async fn persist_classified(&self) -> Result<(), PersistenceError> {
-        let bytes = async {
+        self.persist_state(false, false).await.map(|_| ())
+    }
+
+    /// Whether the live Y.Doc holds changes the sidecar does not.
+    fn state_is_dirty(&self) -> bool {
+        self.state_epoch.load(Ordering::SeqCst) > self.persisted_state_epoch.load(Ordering::SeqCst)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn state_is_dirty_for_test(&self) -> bool {
+        self.state_is_dirty()
+    }
+
+    /// Remember when the oldest unpersisted change happened. Costs nothing
+    /// unless telemetry is on.
+    fn note_state_dirty(&self) {
+        if crate::telemetry::enabled() {
+            self.dirty_since
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .get_or_insert_with(Instant::now);
+        }
+    }
+
+    /// Write the room's whole state to the sidecar (atomic rename, file fsync).
+    /// `only_if_dirty`: skip when nothing changed since the last write (group
+    /// commit and flushes); an API write persists unconditionally.
+    /// `force_dir_sync`: also make the directory entry durable now (close,
+    /// shutdown). Returns whether a write happened. On failure the room is
+    /// evicted: it is not a faithful picture of the disk, and a reconnecting
+    /// client re-pushes whatever the sidecar lacks.
+    #[tracing::instrument(target = "gardend_otel", name = "ydoc.state.persist", skip_all,
+        fields(sophia.ydoc.state_bytes = tracing::field::Empty,
+            sophia.ydoc.batch_updates = tracing::field::Empty,
+            sophia.ydoc.dirty_lag_ms = tracing::field::Empty))]
+    async fn persist_state(
+        &self,
+        only_if_dirty: bool,
+        force_dir_sync: bool,
+    ) -> Result<bool, PersistenceError> {
+        let _gate = self.persist_gate.lock().await;
+        if only_if_dirty && (!self.state_is_dirty() || self.is_evicted()) {
+            return Ok(false);
+        }
+        let (bytes, epoch) = async {
             let doc = self.doc.lock().await;
+            // Read with the doc mutex held: no change can land between the
+            // epoch and the bytes it names.
+            let epoch = self.state_epoch.load(Ordering::SeqCst);
             let txn = doc.transact();
-            txn.encode_state_as_update_v1(&yrs::StateVector::default())
+            (
+                txn.encode_state_as_update_v1(&yrs::StateVector::default()),
+                epoch,
+            )
         }
         .instrument(tracing::info_span!(target: "gardend_otel", "ydoc.state.encode"))
         .await;
+        if crate::telemetry::enabled() {
+            let span = tracing::Span::current();
+            span.record(
+                "sophia.ydoc.batch_updates",
+                epoch.saturating_sub(self.persisted_state_epoch.load(Ordering::SeqCst)),
+            );
+            if let Some(since) = self
+                .dirty_since
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .take()
+            {
+                span.record(
+                    "sophia.ydoc.dirty_lag_ms",
+                    since.elapsed().as_secs_f64() * 1000.0,
+                );
+            }
+        }
         // The commit section runs on a blocking thread: `write_guard()` takes
         // a blocking read of the flush gate, and parking a tokio worker on it
         // starves the runtime once a few persists stack up behind a flush —
@@ -1414,9 +1948,14 @@ impl Room {
         // cell. The guard is `!Send` by design: acquired and released entirely
         // inside the closure, only owned data crosses in.
         let state_path = self.state_path.clone();
+        let cadence = self.dir_sync.clone();
         tracing::Span::current().record("sophia.ydoc.state_bytes", bytes.len() as u64);
         let persisted = crate::app_runtime::async_runtime::spawn_blocking(
-            crate::telemetry::blocking(move || Room::persist_state_bytes_at(&state_path, &bytes)),
+            crate::telemetry::blocking(move || {
+                let existed = state_path.exists();
+                let sync_dir = cadence.due_at(Instant::now(), existed, force_dir_sync);
+                Room::persist_state_bytes_with(&state_path, &bytes, sync_dir)
+            }),
         )
         .await
         .map_err(|error| format!("room persist join: {error}"))?;
@@ -1424,13 +1963,149 @@ impl Room {
             self.evict();
             return Err(error);
         }
-        Ok(())
+        self.persisted_state_epoch
+            .fetch_max(epoch, Ordering::SeqCst);
+        Ok(true)
     }
 
-    #[tracing::instrument(target = "gardend_otel", name = "ydoc.state.write", skip_all, fields(sophia.ydoc.state_bytes = bytes.len() as u64))]
+    /// Write the state if the sidecar lags the room (no-op otherwise).
+    pub(crate) async fn flush_state_if_dirty(
+        &self,
+        force_dir_sync: bool,
+    ) -> Result<bool, PersistenceError> {
+        if !self.state_is_dirty() || self.is_evicted() {
+            return Ok(false);
+        }
+        self.persist_state(true, force_dir_sync).await
+    }
+
+    /// [`Self::flush_state_if_dirty`] for a caller that holds no graph lease
+    /// (a socket closing, the shutdown flush): the write happens under the
+    /// graph's shared lifecycle lease, so deletion cannot purge the directory
+    /// and have this write recreate the sidecar behind it.
+    pub(crate) async fn flush_state_under_lifecycle(
+        &self,
+        force_dir_sync: bool,
+    ) -> Result<bool, PersistenceError> {
+        if !self.state_is_dirty() || self.is_evicted() {
+            return Ok(false);
+        }
+        let _lifecycle = match self.persist_scope.get() {
+            Some(scope) => match scope
+                .app
+                .try_state::<super::persistence_coordinator::GraphPersistenceCoordinator>(
+            ) {
+                Some(coordinator) => Some(
+                    coordinator
+                        .acquire_lifecycle_shared(&scope.graph_id)
+                        .await?,
+                ),
+                None => None,
+            },
+            None => None,
+        };
+        self.flush_state_if_dirty(force_dir_sync).await
+    }
+
+    /// [`Self::flush_state_if_dirty`] for synchronous callers that already hold
+    /// the graph's lease (restore-point capture). Polls the room's async locks
+    /// instead of nesting a runtime; the holders it waits for (a group commit,
+    /// one frame's apply) are milliseconds.
+    pub(crate) fn flush_state_blocking(&self) -> Result<(), PersistenceError> {
+        let started = Instant::now();
+        loop {
+            if !self.state_is_dirty() || self.is_evicted() {
+                return Ok(());
+            }
+            if let Ok(_gate) = self.persist_gate.try_lock() {
+                // Re-check under the gate: a group commit may just have run.
+                if !self.state_is_dirty() {
+                    return Ok(());
+                }
+                let snapshot = self.doc.try_lock().map(|doc| {
+                    let epoch = self.state_epoch.load(Ordering::SeqCst);
+                    let bytes = doc
+                        .transact()
+                        .encode_state_as_update_v1(&yrs::StateVector::default());
+                    (bytes, epoch)
+                });
+                if let Ok((bytes, epoch)) = snapshot {
+                    let existed = self.state_path.exists();
+                    let sync_dir = self.dir_sync.due_at(Instant::now(), existed, true);
+                    if let Err(error) =
+                        Room::persist_state_bytes_with(&self.state_path, &bytes, sync_dir)
+                    {
+                        self.evict();
+                        return Err(error);
+                    }
+                    self.persisted_state_epoch
+                        .fetch_max(epoch, Ordering::SeqCst);
+                    return Ok(());
+                }
+            }
+            if started.elapsed() > Duration::from_secs(10) {
+                return Err(PersistenceError::from(
+                    "timed out waiting for the room to flush its state",
+                ));
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+
+    /// Let the websocket host defer this room's sidecar writes to the group
+    /// commit, under `graph_id`'s lifecycle lease.
+    fn bind_persist_scope(&self, app: &AppHandle, graph_id: &str) {
+        let _ = self.persist_scope.set(PersistScope {
+            app: app.clone(),
+            graph_id: graph_id.to_string(),
+        });
+    }
+
+    /// Make sure a group commit is coming for the change just broadcast. At
+    /// most one task per room is waiting at a time; it clears `persist_armed`
+    /// *before* it encodes, so a change that lands after that arms the next
+    /// task and one that landed before is in this commit: no change is left
+    /// without a pending commit. The task holds a background lifecycle lease
+    /// so idle drain and shutdown wait for it.
+    fn arm_state_persist(self: &Arc<Self>) {
+        if self.persist_armed.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        #[cfg(test)]
+        let lifecycle_lease: Option<crate::cell_lifecycle::BackgroundLease> = None;
+        #[cfg(not(test))]
+        let lifecycle_lease = crate::cell_lifecycle::process_lifecycle()
+            .and_then(|lifecycle| lifecycle.begin_background("room-state-persist").ok());
+        let room = self.clone();
+        crate::app_runtime::async_runtime::spawn(
+            async move {
+                let _lifecycle_lease = lifecycle_lease;
+                tokio::time::sleep(ROOM_PERSIST_WINDOW).await;
+                room.persist_armed.store(false, Ordering::SeqCst);
+                if let Err(error) = room.flush_state_under_lifecycle(false).await {
+                    log::warn!(
+                        "room state commit failed for {} (room evicted; clients re-push on reconnect): {error}",
+                        room.state_path.display()
+                    );
+                }
+            }
+            .with_current_subscriber(),
+        );
+    }
+
     fn persist_state_bytes_at(
         state_path: &std::path::Path,
         bytes: &[u8],
+    ) -> Result<(), PersistenceError> {
+        Room::persist_state_bytes_with(state_path, bytes, true)
+    }
+
+    #[tracing::instrument(target = "gardend_otel", name = "ydoc.state.write", skip_all,
+        fields(sophia.ydoc.state_bytes = bytes.len() as u64, sophia.fsync.dir = sync_dir))]
+    fn persist_state_bytes_with(
+        state_path: &std::path::Path,
+        bytes: &[u8],
+        sync_dir: bool,
     ) -> Result<(), PersistenceError> {
         crate::document_body_availability::require_state_path_available(state_path)
             .map_err(PersistenceError::permanent)?;
@@ -1445,8 +2120,40 @@ impl Room {
             })?;
         }
         let temp_path = atomic_temp_path(state_path);
-        write_bytes_atomic(state_path, &temp_path, bytes, None)
+        write_bytes_atomic_with(state_path, &temp_path, bytes, None, sync_dir)
             .map_err(|error| error.with_context(format!("room persist {}", state_path.display())))
+    }
+
+    /// Make the sidecar's directory entry durable if a rename since the last
+    /// directory sync skipped it. Called when a connection closes.
+    async fn settle_state_dir(&self) {
+        if !self.dir_sync.pending.load(Ordering::SeqCst) {
+            return;
+        }
+        let Some(parent) = self.state_path.parent().map(std::path::Path::to_path_buf) else {
+            return;
+        };
+        let cadence = self.dir_sync.clone();
+        let settled = crate::app_runtime::async_runtime::spawn_blocking(
+            crate::telemetry::blocking(move || {
+                let _durability_guard = crate::cell_durability::write_guard();
+                let result = sync_parent_dir(&parent);
+                if result.is_ok() {
+                    cadence.settled_at(Instant::now());
+                }
+                result
+            }),
+        )
+        .await;
+        match settled {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => log::warn!(
+                "room sidecar directory sync failed for {}: {}",
+                self.state_path.display(),
+                String::from(error)
+            ),
+            Err(error) => log::warn!("room sidecar directory sync join: {error}"),
+        }
     }
 
     #[cfg(test)]
@@ -1471,22 +2178,30 @@ impl Room {
 
 #[cfg(not(feature = "frontend-crdt"))]
 impl ProjectionFlushTarget {
+    /// Note one update. Returns true when the caller must start the timer
+    /// task: only the first update of a burst does, later ones just move
+    /// `last`.
+    fn register_update(&self, now: Instant) -> bool {
+        let mut timer = self.timer.lock().unwrap_or_else(|error| error.into_inner());
+        timer.first.get_or_insert(now);
+        timer.last = Some(now);
+        !std::mem::replace(&mut timer.armed, true)
+    }
+
     fn schedule(self: &Arc<Self>, room: Weak<Room>, app: AppHandle, graph_generation: u64) {
-        let generation = if crate::telemetry::enabled() {
+        if crate::telemetry::enabled() {
             let mut contexts = self
                 .contexts
                 .lock()
                 .unwrap_or_else(|error| error.into_inner());
             contexts.push(crate::telemetry::TraceContext::capture());
-            self.generation
-                .fetch_add(1, Ordering::SeqCst)
-                .wrapping_add(1)
-        } else {
-            self.generation
-                .fetch_add(1, Ordering::SeqCst)
-                .wrapping_add(1)
-        };
-        let debounce = self.debounce;
+        }
+        self.generation.fetch_add(1, Ordering::SeqCst);
+        self.graph_generation
+            .store(graph_generation, Ordering::SeqCst);
+        if !self.register_update(Instant::now()) {
+            return;
+        }
         let target = Arc::downgrade(self);
         // A socket update can outlive the socket itself while it waits through
         // the projection debounce. Publish that pending work to the process
@@ -1499,26 +2214,82 @@ impl ProjectionFlushTarget {
         crate::app_runtime::async_runtime::spawn(
             async move {
                 let _lifecycle_lease = lifecycle_lease;
-                if wait_for_room_delay(&room, debounce).await {
-                    return;
-                }
-                // This task intentionally retains AppHandle while an older graph
-                // operation owns the persistence lease. It exits once its flush is
-                // queued, superseded, or evicted; runtime shutdown aborts spawned
-                // tasks. A fixed total deadline would lose dirty state behind a
-                // legitimate long-running import.
-                run_projection_flush(
-                    target,
-                    room,
-                    app,
-                    generation,
-                    graph_generation,
-                    PROJECTION_FLUSH_ATTEMPT_TIMEOUT,
-                )
-                .await;
+                run_debounced_projection(target, room, app, PROJECTION_FLUSH_ATTEMPT_TIMEOUT).await;
             }
             .with_current_subscriber(),
         );
+    }
+}
+
+/// The room's single timer task: wait for the burst to go quiet (or hit the
+/// max wait), flush against the generation as it stands, and go again if
+/// updates arrived while the flush ran. It exits, disarmed, when nothing is
+/// pending, and silently when the room or its target is gone or evicted.
+#[cfg(not(feature = "frontend-crdt"))]
+async fn run_debounced_projection(
+    target: Weak<ProjectionFlushTarget>,
+    room: Weak<Room>,
+    app: AppHandle,
+    attempt_timeout: Duration,
+) {
+    loop {
+        let Some(target_ref) = target.upgrade() else {
+            return;
+        };
+        let wait = {
+            let mut timer = target_ref
+                .timer
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            let (Some(first), Some(last)) = (timer.first, timer.last) else {
+                timer.armed = false;
+                return;
+            };
+            debounce_remaining(
+                first,
+                last,
+                Instant::now(),
+                target_ref.debounce,
+                PROJECTION_DEBOUNCE_MAX_WAIT,
+            )
+        };
+        drop(target_ref);
+        if !wait.is_zero() {
+            if wait_for_room_delay(&room, wait).await {
+                return;
+            }
+            continue;
+        }
+        let Some(target_ref) = target.upgrade() else {
+            return;
+        };
+        let (generation, graph_generation) = {
+            let mut timer = target_ref
+                .timer
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            timer.first = None;
+            timer.last = None;
+            (
+                target_ref.generation.load(Ordering::SeqCst),
+                target_ref.graph_generation.load(Ordering::SeqCst),
+            )
+        };
+        drop(target_ref);
+        // This task intentionally retains AppHandle while an older graph
+        // operation owns the persistence lease. It exits once its flush is
+        // queued, superseded, or evicted; runtime shutdown aborts spawned
+        // tasks. A fixed total deadline would lose dirty state behind a
+        // legitimate long-running import.
+        run_projection_flush(
+            target.clone(),
+            room.clone(),
+            app.clone(),
+            generation,
+            graph_generation,
+            attempt_timeout,
+        )
+        .await;
     }
 }
 
@@ -1815,7 +2586,32 @@ async fn linearize_state_bearing_delivery<F>(
 where
     F: std::future::Future<Output = Result<(), String>>,
 {
-    let result = linearize_state_bearing_delivery_inner(app, graph_id, room, delivery).await;
+    let result = linearize_state_bearing_delivery_inner(app, graph_id, room, true, delivery).await;
+    if result.is_err() {
+        tracing::Span::current().record("otel.status_code", "ERROR");
+    }
+    result
+}
+
+/// Delivery of a broadcast update to one socket. The shared lifecycle lease
+/// still orders it against graph deletion, but the `graph.json` read is gone:
+/// deletion evicts the graph's rooms while it holds the exclusive lease, so
+/// `room.is_evicted()` under the shared lease already says "deleted", and the
+/// read-and-parse of the record per frame per socket told it nothing more.
+#[tracing::instrument(target = "gardend_otel", name = "ydoc.broadcast.deliver", skip_all,
+    fields(sophia.graph.id = graph_id, sophia.lease.wait_ms = tracing::field::Empty,
+        sophia.delivery.outcome = tracing::field::Empty,
+        otel.status_code = tracing::field::Empty))]
+async fn broadcast_state_delivery<F>(
+    app: &AppHandle,
+    graph_id: &str,
+    room: &Room,
+    delivery: F,
+) -> Result<(), String>
+where
+    F: std::future::Future<Output = Result<(), String>>,
+{
+    let result = linearize_state_bearing_delivery_inner(app, graph_id, room, false, delivery).await;
     if result.is_err() {
         tracing::Span::current().record("otel.status_code", "ERROR");
     }
@@ -1826,6 +2622,7 @@ async fn linearize_state_bearing_delivery_inner<F>(
     app: &AppHandle,
     graph_id: &str,
     room: &Room,
+    check_graph_record: bool,
     delivery: F,
 ) -> Result<(), String>
 where
@@ -1861,9 +2658,11 @@ where
             return Err("graph persistence lease acquire timed out".to_string());
         }
     };
-    if let Err(error) = crate::graph_record_store::read_graph_record_no_heal(app, graph_id) {
-        tracing::Span::current().record("sophia.delivery.outcome", "graph_gone");
-        return Err(error.message());
+    if check_graph_record {
+        if let Err(error) = crate::graph_record_store::read_graph_record_no_heal(app, graph_id) {
+            tracing::Span::current().record("sophia.delivery.outcome", "graph_gone");
+            return Err(error.message());
+        }
     }
     if room.is_evicted() {
         tracing::Span::current().record("sophia.delivery.outcome", "room_evicted");
@@ -1892,7 +2691,7 @@ pub(super) async fn initial_sync_delivery<F>(
 where
     F: std::future::Future<Output = Result<(), String>>,
 {
-    let result = linearize_state_bearing_delivery_inner(app, graph_id, room, delivery).await;
+    let result = linearize_state_bearing_delivery_inner(app, graph_id, room, true, delivery).await;
     if result.is_err() {
         tracing::Span::current().record("otel.status_code", "ERROR");
     }
@@ -1920,6 +2719,34 @@ pub(crate) enum RoomAccess {
 /// The close code a refused visitor frame gets (application range).
 pub(crate) const VISITOR_REFUSED_CLOSE: u16 = 4403;
 
+/// Counts one socket in a room. When the last one goes away the room schedules
+/// its projection repair: a room hydrated from its sidecar is marked dirty in
+/// case a prior exit left the cold files stale, and that repair now runs when
+/// nobody is watching instead of when the first client opens the document.
+/// A no-op when the room is clean or has no projection target.
+struct ConnectionGuard {
+    room: Arc<Room>,
+    app: AppHandle,
+}
+
+impl ConnectionGuard {
+    fn new(room: &Arc<Room>, app: &AppHandle) -> Self {
+        room.connections.fetch_add(1, Ordering::SeqCst);
+        Self {
+            room: room.clone(),
+            app: app.clone(),
+        }
+    }
+}
+
+impl Drop for ConnectionGuard {
+    fn drop(&mut self) {
+        if self.room.connections.fetch_sub(1, Ordering::SeqCst) == 1 {
+            self.room.schedule_projection_flush(self.app.clone());
+        }
+    }
+}
+
 /// Drive one client connection through the room (y-websocket protocol).
 pub async fn serve_room(socket: WebSocket, room: Arc<Room>, app: AppHandle, graph_id: String) {
     serve_room_with(socket, room, app, graph_id, RoomAccess::ReadWrite).await
@@ -1936,12 +2763,16 @@ pub(crate) async fn serve_room_with(
     access: RoomAccess,
 ) {
     let connection_id = room.allocate_connection_id();
+    let _connection = ConnectionGuard::new(&room, &app);
+    // From here the room's websocket frames are broadcast first and made
+    // durable by the group commit (within ROOM_PERSIST_WINDOW).
+    room.bind_persist_scope(&app, &graph_id);
     // W6: a visitor's frames that change nothing still cost a copy of the room;
     // a connection gets a few, then it is closed.
     let mut visitor_noop_frames: u32 = 0;
     const VISITOR_NOOP_FRAMES: u32 = 16;
     let (mut sink, mut stream) = socket.split();
-    let mut rx = room.tx.subscribe();
+    let mut rx = room.frames.subscribe();
 
     // Server-initiated SyncStep1 is graph content: deletion must either wait
     // until the socket accepted it or win the lease and evict the room first.
@@ -2068,28 +2899,24 @@ pub(crate) async fn serve_room_with(
                                 .await;
                             break;
                         }
-                        let _graph_lease = if let Some(coordinator) = app.try_state::<
+                        // A frame needs the graph's shared lifecycle lease, so deletion
+                        // and the other exclusive roots still order against it, and
+                        // nothing more: it never queues behind an API write holding the
+                        // hot-write gate (an agent mid-`insert_blocks` used to stall
+                        // Vera's typing). Operations that need a quiet room (a forward
+                        // restore applies a diff, then verifies the room equals the
+                        // target) raise an explicit frame fence, which waits for frames
+                        // in flight and holds new ones back. Dirty marking is not this
+                        // lease's job: a client frame never touches Oxigraph, and the
+                        // sidecar write marks itself through `write_guard`.
+                        let _frame_lease = if let Some(coordinator) = app.try_state::<
                             super::persistence_coordinator::GraphPersistenceCoordinator,
                         >() {
-                            match coordinator.acquire_hot_write(&graph_id).await {
-                                Ok(lease) => {
-                                    // This lease only linearizes `apply_client_update`
-                                    // (merges into the in-memory Y.Doc and, if changed,
-                                    // rewrites the Y.Doc state file) against concurrent
-                                    // graph deletion. It never reaches Oxigraph directly:
-                                    // any RDF projection it needs is materialized later by
-                                    // a separately-scheduled `crdt.flush` operation, which
-                                    // acquires its own (non-read-only) lease. Most inbound
-                                    // sync/update frames are no-ops (`changed == false`,
-                                    // e.g. awareness/heartbeat traffic) — declaring this
-                                    // read-only stops those from spuriously dirtying the
-                                    // graph's RDF stores.
-                                    lease.declare_rdf_read_only();
-                                    Some(lease)
-                                }
+                            match coordinator.acquire_client_frame(&graph_id).await {
+                                Ok(lease) => Some(lease),
                                 Err(error) => {
                                     log::error!(
-                                        "websocket persistence lease failed for {graph_id}: {error}"
+                                        "websocket frame lease failed for {graph_id}: {error}"
                                     );
                                     continue;
                                 }
@@ -2097,7 +2924,7 @@ pub(crate) async fn serve_room_with(
                         } else {
                             None
                         };
-                        match room.apply_client_update_and_schedule(&update, app.clone()).await {
+                        match room.apply_client_frame(&update, app.clone(), Some(connection_id)).await {
                             Ok(_) => {}
                             Err(error) => {
                                 // Deletion marks extant room Arcs evicted before it
@@ -2136,9 +2963,15 @@ pub(crate) async fn serve_room_with(
                                 None => continue,
                             },
                         };
-                        if let Some(accepted) = room.merge_awareness(&update, connection_id).await {
+                        if let Some((accepted, own_only)) =
+                            room.merge_awareness_tagged(&update, connection_id).await
+                        {
                             let rebroadcast = Message::Awareness(accepted).encode_v1();
-                            let _ = room.tx.send(rebroadcast);
+                            room.publish(
+                                own_only.then_some(connection_id),
+                                FrameKind::Awareness,
+                                rebroadcast,
+                            );
                         }
                     }
                     Message::AwarenessQuery => {
@@ -2159,32 +2992,64 @@ pub(crate) async fn serve_room_with(
                 }
             }
             broadcasted = rx.recv() => {
-                let Ok(payload) = broadcasted else {
+                let Ok(frame) = broadcasted else {
                     break;
                 };
-                let result = linearize_state_bearing_delivery(
-                    &app,
-                    &graph_id,
-                    &room,
-                    async {
-                        sink.send(WsMessage::binary(payload))
-                            .await
-                            .map_err(|error| format!("send websocket room update: {error}"))
-                    },
-                )
-                .await;
-                if let Err(error) = result {
-                    log::warn!("closing websocket broadcast for {graph_id}: {error}");
-                    break;
+                // A client that produced the frame already has it.
+                if frame.origin == Some(connection_id) {
+                    continue;
+                }
+                let RoomFrame { kind, payload, .. } = frame;
+                match kind {
+                    // Presence is ephemeral and carries no graph content:
+                    // nothing for deletion to order against, so no lease.
+                    FrameKind::Awareness => {
+                        let result = tokio::time::timeout(
+                            WS_STATE_SEND_TIMEOUT,
+                            sink.send(WsMessage::binary(payload)),
+                        )
+                        .await;
+                        if !matches!(result, Ok(Ok(()))) {
+                            log::warn!("closing websocket awareness broadcast for {graph_id}");
+                            break;
+                        }
+                    }
+                    FrameKind::State => {
+                        let result = broadcast_state_delivery(
+                            &app,
+                            &graph_id,
+                            &room,
+                            async {
+                                sink.send(WsMessage::binary(payload))
+                                    .await
+                                    .map_err(|error| format!("send websocket room update: {error}"))
+                            },
+                        )
+                        .await;
+                        if let Err(error) = result {
+                            log::warn!("closing websocket broadcast for {graph_id}: {error}");
+                            break;
+                        }
+                    }
                 }
             }
         }
     }
 
+    // The socket is gone: bring the room's unpersisted tail to disk now, with
+    // the directory entry, rather than waiting out the window.
+    if let Err(error) = room.flush_state_under_lifecycle(true).await {
+        log::warn!("room state flush at close failed for {graph_id}: {error}");
+    }
+    room.settle_state_dir().await;
     if let Some(removal) = room.remove_awareness_for_connection(connection_id).await {
         // Other subscribers receive the synthetic removals even when this
         // transport disappeared without a graceful Awareness null.
-        let _ = room.tx.send(Message::Awareness(removal).encode_v1());
+        room.publish(
+            None,
+            FrameKind::Awareness,
+            Message::Awareness(removal).encode_v1(),
+        );
     }
 }
 
@@ -3565,5 +4430,589 @@ mod tests {
         if let Err(payload) = result {
             std::panic::resume_unwind(payload);
         }
+    }
+
+    #[test]
+    fn awareness_echo_is_skipped_only_for_the_senders_own_ids() {
+        crate::app_runtime::async_runtime::block_on(async {
+            let room = presence_test_room("awareness-own-only").await;
+            let (_, own_only) = room
+                .merge_awareness_tagged(
+                    &awareness_update(vec![(41, 1, presence_json("vera", "device-a", "tab-a", 1))]),
+                    1,
+                )
+                .await
+                .expect("first incarnation accepted");
+            assert!(own_only, "a socket's own live id needs no echo");
+
+            // A newer incarnation of the same tab, on another socket, supersedes
+            // client 41: the synthetic removal rides along and the sender must
+            // still hear it, so the frame is not tagged as the sender's own.
+            let (accepted, own_only) = room
+                .merge_awareness_tagged(
+                    &awareness_update(vec![(42, 1, presence_json("vera", "device-a", "tab-a", 2))]),
+                    2,
+                )
+                .await
+                .expect("newer incarnation accepted");
+            assert!(accepted.clients.contains_key(&ClientID::new(41)));
+            assert!(
+                !own_only,
+                "removal of a superseded id is news to the sender"
+            );
+        });
+    }
+
+    #[test]
+    fn client_frame_is_published_tagged_with_its_origin() {
+        crate::app_runtime::async_runtime::block_on(async {
+            let room = presence_test_room("frame-origin").await;
+            let app = crate::tauri_runtime::build_mock_app_for_tests(true);
+            let mut frames = room.frames.subscribe();
+            let remote = Doc::new();
+            {
+                let mut txn = remote.transact_mut();
+                txn.get_or_insert_map("metadata")
+                    .insert(&mut txn, "typed", true);
+            }
+            let update = remote
+                .transact()
+                .encode_state_as_update_v1(&StateVector::default());
+            assert!(room
+                .apply_client_frame(&update, app.clone(), Some(7))
+                .await
+                .expect("client frame"));
+            let frame = frames.try_recv().expect("the frame is broadcast");
+            assert_eq!(frame.origin, Some(7), "the author's loop will skip it");
+            assert_eq!(frame.kind, FrameKind::State);
+
+            room.update_doc(|_doc, txn| {
+                txn.get_or_insert_map("metadata").insert(txn, "api", true);
+                Ok(())
+            })
+            .await
+            .expect("server write");
+            let frame = frames.try_recv().expect("the server write is broadcast");
+            assert_eq!(frame.origin, None, "an API write is nobody's echo");
+        });
+    }
+
+    #[test]
+    fn broadcast_delivery_does_not_read_the_graph_record() {
+        crate::app_runtime::async_runtime::block_on(async {
+            let app = crate::tauri_runtime::build_mock_app_for_tests(true);
+            let room = presence_test_room("broadcast-no-record").await;
+            // No graph.json exists for this id. The first-delivery path still
+            // refuses a vanished graph; the per-frame path no longer asks.
+            let graph_id = "graph-without-a-record";
+            assert!(
+                linearize_state_bearing_delivery(&app, graph_id, &room, async { Ok(()) })
+                    .await
+                    .is_err()
+            );
+            broadcast_state_delivery(&app, graph_id, &room, async { Ok(()) })
+                .await
+                .expect("broadcast delivery rests on the lease and the eviction flag");
+            room.evict();
+            let error = broadcast_state_delivery(&app, graph_id, &room, async { Ok(()) })
+                .await
+                .expect_err("an evicted room delivers nothing");
+            assert!(error.contains("evicted"), "{error}");
+        });
+    }
+
+    fn typed_update(key: &str) -> Vec<u8> {
+        let remote = Doc::new();
+        {
+            let mut txn = remote.transact_mut();
+            txn.get_or_insert_map("metadata")
+                .insert(&mut txn, key, true);
+        }
+        let update = remote
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        update
+    }
+
+    /// Whether the sidecar on disk holds `metadata.<key>`.
+    fn sidecar_has(room: &Room, key: &str) -> bool {
+        let Ok(bytes) = std::fs::read(&room.state_path) else {
+            return false;
+        };
+        let doc = Doc::new();
+        let update = Update::decode_v1(&bytes).expect("sidecar decodes");
+        doc.transact_mut().apply_update(update).expect("apply");
+        let txn = doc.transact();
+        txn.get_map("metadata")
+            .is_some_and(|map| map.get(&txn, key).is_some())
+    }
+
+    async fn deferred_room(label: &str) -> (Arc<Room>, AppHandle) {
+        let app = crate::tauri_runtime::build_mock_app_for_tests(true);
+        let room = presence_test_room(label).await;
+        room.bind_persist_scope(&app, "deferred-graph");
+        (room, app)
+    }
+
+    #[test]
+    fn a_dirty_room_is_persisted_within_the_window() {
+        crate::app_runtime::async_runtime::block_on(async {
+            let (room, app) = deferred_room("group-commit").await;
+            for key in ["a", "b", "c"] {
+                assert!(room
+                    .apply_client_frame(&typed_update(key), app.clone(), Some(1))
+                    .await
+                    .expect("client frame"));
+            }
+            // Broadcast already happened; the sidecar lags until the window.
+            assert!(room.state_is_dirty());
+            assert!(!sidecar_has(&room, "a"), "persistence is deferred");
+            tokio::time::sleep(ROOM_PERSIST_WINDOW * 3).await;
+            assert!(!room.state_is_dirty(), "the group commit ran");
+            for key in ["a", "b", "c"] {
+                assert!(sidecar_has(&room, key), "{key} reached the sidecar");
+            }
+            assert!(
+                !room.persist_armed.load(Ordering::SeqCst),
+                "the commit task has finished"
+            );
+        });
+    }
+
+    #[test]
+    fn a_change_after_a_commit_arms_the_next_commit() {
+        crate::app_runtime::async_runtime::block_on(async {
+            let (room, app) = deferred_room("group-commit-twice").await;
+            room.apply_client_frame(&typed_update("first"), app.clone(), Some(1))
+                .await
+                .expect("first");
+            tokio::time::sleep(ROOM_PERSIST_WINDOW * 3).await;
+            assert!(sidecar_has(&room, "first"));
+            room.apply_client_frame(&typed_update("second"), app.clone(), Some(1))
+                .await
+                .expect("second");
+            tokio::time::sleep(ROOM_PERSIST_WINDOW * 3).await;
+            assert!(sidecar_has(&room, "second"), "no change is left unarmed");
+        });
+    }
+
+    #[test]
+    fn closing_flushes_a_dirty_room_at_once_and_shutdown_flushes_every_room() {
+        crate::app_runtime::async_runtime::block_on(async {
+            let (room, app) = deferred_room("close-flush").await;
+            room.apply_client_frame(&typed_update("tail"), app.clone(), Some(1))
+                .await
+                .expect("frame");
+            assert!(!sidecar_has(&room, "tail"));
+            assert!(room
+                .flush_state_under_lifecycle(true)
+                .await
+                .expect("close flush"));
+            assert!(sidecar_has(&room, "tail"), "flushed without waiting");
+            assert!(!room.state_is_dirty());
+            assert!(
+                !room
+                    .flush_state_under_lifecycle(true)
+                    .await
+                    .expect("clean flush"),
+                "a clean room writes nothing"
+            );
+
+            // Registry-wide shutdown flush over two dirty rooms.
+            let registry = RoomRegistry::default();
+            let root =
+                std::env::temp_dir().join(format!("garden-room-shutdown-{}", Uuid::new_v4()));
+            let mut rooms = Vec::new();
+            for name in ["one", "two"] {
+                let room = registry
+                    .get_or_create(
+                        &format!("doc:deferred-graph:{name}"),
+                        root.join(name).join("update-v1.bin"),
+                    )
+                    .await
+                    .expect("room");
+                room.bind_persist_scope(&app, "deferred-graph");
+                room.apply_client_frame(&typed_update(name), app.clone(), Some(1))
+                    .await
+                    .expect("frame");
+                rooms.push((name, room));
+            }
+            assert_eq!(registry.flush_dirty_rooms().await, 2);
+            for (name, room) in &rooms {
+                assert!(sidecar_has(room, name), "{name} was flushed at shutdown");
+            }
+            assert_eq!(registry.flush_dirty_rooms().await, 0);
+        });
+    }
+
+    #[test]
+    fn a_blocking_flush_writes_the_tail_for_a_restore_point() {
+        crate::app_runtime::async_runtime::block_on(async {
+            let (room, app) = deferred_room("blocking-flush").await;
+            room.apply_client_frame(&typed_update("tail"), app.clone(), Some(1))
+                .await
+                .expect("frame");
+            let flusher = room.clone();
+            crate::app_runtime::async_runtime::spawn_blocking(move || {
+                flusher.flush_state_blocking()
+            })
+            .await
+            .expect("join")
+            .expect("blocking flush");
+            assert!(sidecar_has(&room, "tail"));
+            assert!(!room.state_is_dirty());
+        });
+    }
+
+    #[test]
+    fn an_evicted_room_is_never_written_by_the_group_commit() {
+        crate::app_runtime::async_runtime::block_on(async {
+            let (room, app) = deferred_room("evicted-no-write").await;
+            room.apply_client_frame(&typed_update("lost"), app.clone(), Some(1))
+                .await
+                .expect("frame");
+            room.evict();
+            tokio::time::sleep(ROOM_PERSIST_WINDOW * 3).await;
+            assert!(
+                !room.state_path.exists(),
+                "a deleted graph's room must not recreate its sidecar"
+            );
+        });
+    }
+
+    #[test]
+    fn a_failed_group_commit_evicts_the_room() {
+        crate::app_runtime::async_runtime::block_on(async {
+            let (room, app) = deferred_room("failed-commit").await;
+            // A directory where the sidecar file belongs makes the rename fail.
+            std::fs::create_dir_all(&room.state_path).expect("block the sidecar path");
+            room.apply_client_frame(&typed_update("x"), app.clone(), Some(1))
+                .await
+                .expect("the frame itself is accepted and broadcast");
+            assert!(!room.is_evicted());
+            tokio::time::sleep(ROOM_PERSIST_WINDOW * 3).await;
+            assert!(
+                room.is_evicted(),
+                "the room no longer matches the disk; clients re-push on reconnect"
+            );
+        });
+    }
+
+    #[test]
+    fn api_writes_still_persist_before_they_return_on_a_bound_room() {
+        crate::app_runtime::async_runtime::block_on(async {
+            let (room, _app) = deferred_room("api-inline").await;
+            room.update_doc(|_doc, txn| {
+                txn.get_or_insert_map("metadata").insert(txn, "api", true);
+                Ok(())
+            })
+            .await
+            .expect("api write");
+            assert!(sidecar_has(&room, "api"), "acknowledged means on disk");
+            assert!(!room.state_is_dirty());
+        });
+    }
+
+    #[test]
+    fn a_slow_open_of_one_room_does_not_block_another_rooms_lookup() {
+        let registry = Arc::new(RoomRegistry::default());
+        let root = std::env::temp_dir().join(format!("garden-room-slow-open-{}", Uuid::new_v4()));
+        let slow_key = "doc:slow-graph:slow-document";
+        let slow_path = root.join("slow/update-v1.bin");
+        let (reached_tx, reached_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        install_open_decode_hook(slow_path.clone(), reached_tx, release_rx);
+
+        let opener_registry = registry.clone();
+        let opener_path = slow_path.clone();
+        let opener = std::thread::spawn(move || {
+            crate::app_runtime::async_runtime::block_on(async {
+                opener_registry.get_or_create(slow_key, opener_path).await
+            })
+        });
+        reached_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("the slow open is parked inside its read and decode");
+
+        // Everything below used to wait on the opener's registry mutex. It
+        // runs on its own thread so a regression fails instead of hanging.
+        let other_registry = registry.clone();
+        let other_root = root.clone();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let outcome = crate::app_runtime::async_runtime::block_on(async {
+                assert!(other_registry.peek("doc:other-graph:other").await.is_none());
+                assert!(other_registry
+                    .existing_room("doc:other-graph:other")
+                    .unwrap()
+                    .is_none());
+                let other = other_registry
+                    .get_or_create(
+                        "doc:other-graph:other",
+                        other_root.join("other/update-v1.bin"),
+                    )
+                    .await
+                    .expect("another graph's room opens meanwhile");
+                assert_eq!(other_registry.evict_graph("unrelated-graph"), 0);
+                assert!(
+                    other_registry
+                        .rooms_with_prefix("doc:other-graph:")
+                        .await
+                        .len()
+                        == 1
+                );
+                other
+            });
+            let _ = done_tx.send(outcome);
+        });
+        let other = done_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("another room's lookup and open are not blocked by the slow open");
+
+        release_tx.send(()).expect("release the slow opener");
+        let slow = opener
+            .join()
+            .expect("opener thread")
+            .expect("the slow open completes");
+        assert!(!Arc::ptr_eq(&slow, &other));
+        crate::app_runtime::async_runtime::block_on(async {
+            assert!(Arc::ptr_eq(
+                &registry.peek(slow_key).await.expect("slow room registered"),
+                &slow
+            ));
+        });
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn concurrent_openers_of_one_key_share_one_room() {
+        let registry = Arc::new(RoomRegistry::default());
+        let root = std::env::temp_dir().join(format!("garden-room-one-key-{}", Uuid::new_v4()));
+        let path = root.join("update-v1.bin");
+        let handles: Vec<_> = (0..4)
+            .map(|_| {
+                let registry = registry.clone();
+                let path = path.clone();
+                std::thread::spawn(move || {
+                    crate::app_runtime::async_runtime::block_on(async {
+                        registry.get_or_create("doc:one-key:document", path).await
+                    })
+                    .expect("open")
+                })
+            })
+            .collect();
+        let rooms: Vec<_> = handles
+            .into_iter()
+            .map(|handle| handle.join().expect("opener"))
+            .collect();
+        for room in &rooms[1..] {
+            assert!(Arc::ptr_eq(&rooms[0], room), "one key, one room");
+        }
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn room_sidecar_directory_sync_is_bounded_to_one_per_interval() {
+        let cadence = DirSyncCadence::default();
+        let t0 = Instant::now();
+        assert!(
+            cadence.due_at(t0, false, false),
+            "a new name is always synced"
+        );
+        assert!(!cadence.due_at(t0 + Duration::from_millis(100), true, false));
+        assert!(cadence.pending.load(Ordering::SeqCst));
+        assert!(!cadence.due_at(t0 + Duration::from_millis(900), true, false));
+        assert!(cadence.due_at(t0 + ROOM_DIR_SYNC_INTERVAL, true, false));
+        assert!(!cadence.pending.load(Ordering::SeqCst));
+        assert!(
+            cadence.due_at(
+                t0 + ROOM_DIR_SYNC_INTERVAL + Duration::from_millis(1),
+                true,
+                true
+            ),
+            "a forced sync (close, shutdown) is always due"
+        );
+    }
+
+    #[test]
+    fn skipped_directory_sync_is_settled_and_the_state_is_whole() {
+        crate::app_runtime::async_runtime::block_on(async {
+            let room = presence_test_room("dir-sync-settle").await;
+            room.update_doc(|_doc, txn| {
+                txn.get_or_insert_map("metadata").insert(txn, "first", true);
+                Ok(())
+            })
+            .await
+            .expect("first write creates the sidecar and syncs its new name");
+            assert!(!room.dir_sync.pending.load(Ordering::SeqCst));
+
+            // Pretend the directory was synced just now: the next rename skips it.
+            room.dir_sync
+                .settled_at(Instant::now() + Duration::from_secs(3600));
+            room.update_doc(|_doc, txn| {
+                txn.get_or_insert_map("metadata")
+                    .insert(txn, "second", true);
+                Ok(())
+            })
+            .await
+            .expect("second write replaces the sidecar by rename");
+            assert!(
+                room.dir_sync.pending.load(Ordering::SeqCst),
+                "the rename skipped its directory sync"
+            );
+
+            room.settle_state_dir().await;
+            assert!(!room.dir_sync.pending.load(Ordering::SeqCst));
+
+            // The skipped sync never costs integrity: the sidecar is the whole
+            // state, and no temp file is left behind.
+            let reopened = RoomRegistry::default()
+                .get_or_create("doc:dir-sync:settle", room.state_path.clone())
+                .await
+                .expect("reopen from the sidecar");
+            reopened
+                .with_doc(|doc| {
+                    let txn = doc.transact();
+                    let metadata = txn.get_map("metadata").expect("metadata map");
+                    assert!(metadata.contains_key(&txn, "first"));
+                    assert!(metadata.contains_key(&txn, "second"));
+                })
+                .await;
+            let leftovers = std::fs::read_dir(room.state_path.parent().unwrap())
+                .unwrap()
+                .filter_map(Result::ok)
+                .filter(|entry| entry.file_name().to_string_lossy().contains(".tmp-"))
+                .count();
+            assert_eq!(leftovers, 0);
+        });
+    }
+
+    #[cfg(not(feature = "frontend-crdt"))]
+    #[test]
+    fn continuous_typing_is_flushed_by_the_max_wait() {
+        let debounce = Duration::from_millis(600);
+        let max_wait = PROJECTION_DEBOUNCE_MAX_WAIT;
+        let first = Instant::now();
+        let ms = Duration::from_millis;
+
+        // A pause: due the debounce after the latest update.
+        assert_eq!(
+            debounce_remaining(first, first + ms(100), first + ms(100), debounce, max_wait),
+            debounce
+        );
+        // Keys keep coming, so the debounce keeps moving out, but never past
+        // the max wait counted from the first update of the burst.
+        let near_cap = first + max_wait - ms(50);
+        assert_eq!(
+            debounce_remaining(first, near_cap, near_cap, debounce, max_wait),
+            ms(50)
+        );
+        assert_eq!(
+            debounce_remaining(
+                first,
+                first + max_wait + ms(900),
+                first + max_wait,
+                debounce,
+                max_wait
+            ),
+            Duration::ZERO,
+            "continuous typing is flushed once the max wait has elapsed"
+        );
+        // Overdue never goes negative.
+        assert_eq!(
+            debounce_remaining(first, first, first + max_wait * 3, debounce, max_wait),
+            Duration::ZERO
+        );
+    }
+
+    #[cfg(not(feature = "frontend-crdt"))]
+    #[test]
+    fn one_timer_task_serves_a_whole_burst_of_frames() {
+        crate::app_runtime::async_runtime::block_on(async {
+            let room = presence_test_room("one-timer-per-burst").await;
+            room.configure_projection_flush("graph".to_string(), Some("doc".to_string()))
+                .expect("configure projection target");
+            let target = room.projection_flush.get().expect("target").clone();
+
+            let start = Instant::now();
+            assert!(
+                target.register_update(start),
+                "the first frame of a burst starts the timer task"
+            );
+            for frame in 1..200 {
+                assert!(
+                    !target.register_update(start + Duration::from_millis(frame)),
+                    "frame {frame} must not spawn another task"
+                );
+            }
+            {
+                let timer = target.timer.lock().unwrap();
+                assert_eq!(timer.first, Some(start));
+                assert_eq!(timer.last, Some(start + Duration::from_millis(199)));
+            }
+
+            // The task flushed and found nothing newer: it disarms, and the
+            // next burst starts a fresh one.
+            {
+                let mut timer = target.timer.lock().unwrap();
+                timer.first = None;
+                timer.last = None;
+                timer.armed = false;
+            }
+            assert!(target.register_update(start + Duration::from_secs(1)));
+        });
+    }
+
+    #[cfg(not(feature = "frontend-crdt"))]
+    #[test]
+    fn the_last_connection_to_close_schedules_the_projection_repair() {
+        crate::app_runtime::async_runtime::block_on(async {
+            let app = crate::tauri_runtime::build_mock_app_for_tests(true);
+            let dir = std::env::temp_dir().join(format!("garden-room-repair-{}", Uuid::new_v4()));
+            let state_path = dir.join("update-v1.bin");
+            let first = RoomRegistry::default()
+                .get_or_create("doc:repair-graph:repair-doc", state_path.clone())
+                .await
+                .expect("create room");
+            first
+                .update_doc(|_doc, txn| {
+                    txn.get_or_insert_map("metadata").insert(txn, "seed", true);
+                    Ok(())
+                })
+                .await
+                .expect("persist a sidecar to hydrate from");
+
+            // Reopened from the sidecar the room is dirty: the cold files may be stale.
+            let room = RoomRegistry::default()
+                .get_or_create("doc:repair-graph:repair-doc", state_path)
+                .await
+                .expect("hydrate room");
+            room.configure_projection_flush(
+                "repair-graph".to_string(),
+                Some("repair-doc".to_string()),
+            )
+            .expect("configure projection target");
+            assert!(room.needs_projection_flush());
+            let target = room.projection_flush.get().expect("target").clone();
+
+            let first_socket = ConnectionGuard::new(&room, &app);
+            let second_socket = ConnectionGuard::new(&room, &app);
+            assert!(
+                target.timer.lock().unwrap().first.is_none(),
+                "opening a room schedules no projection"
+            );
+            drop(first_socket);
+            assert!(
+                target.timer.lock().unwrap().first.is_none(),
+                "a socket closing while another is open schedules nothing"
+            );
+            drop(second_socket);
+            assert!(
+                target.timer.lock().unwrap().first.is_some(),
+                "the last socket closing schedules the repair"
+            );
+            room.evict();
+            let _ = std::fs::remove_dir_all(dir);
+        });
     }
 }
