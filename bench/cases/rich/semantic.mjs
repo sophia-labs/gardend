@@ -7,7 +7,7 @@ const NO_MODEL = process.env.GBENCH_SKIP_MODEL ? 'GBENCH_SKIP_MODEL is set (the 
 // n paragraphs in one document, then the model prepared (a no-op after the first time on a machine).
 async function corpus(ctx, name, n) {
   await graphFor(ctx, name)
-  const doc = (await ctx.mcp('create_document', { graphId: ctx.graphId, title: 'semantic corpus' })).documentId ?? 'x'
+  const doc = `sem-${ctx.tag}`; await ctx.mcp('create_document', { graphId: ctx.graphId, title: 'semantic corpus', documentId: doc })
   const paras = markdownDoc(n, seed(ctx)).split('\n\n').slice(1)
   for (let s = 0; s < paras.length; s += 100) await ctx.mcp('insert_blocks', { graphId: ctx.graphId, documentId: doc, content: paras.slice(s, s + 100).join('\n\n'), format: 'markdown' })
   await waitJob(ctx, await ctx.mcp('prepare_semantic_model', { graphId: ctx.graphId }))

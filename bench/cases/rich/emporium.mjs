@@ -34,8 +34,6 @@ export const cases = [
   mk('rich.emporium.list.n500', [[5, 1], [30, 3]], { async setup(ctx) { await objectGraph(ctx, 'el', 500) }, op: (ctx) => ctx.mcp('emporium_list', { graphId: ctx.graphId, vocab: 'workspace', class: 'Gizmo', limit: 100 }) }),
   mk('rich.emporium.named_countBy.n500', [[5, 1], [30, 3]], { async setup(ctx) { await objectGraph(ctx, 'en', 500) },
     op: (ctx) => ctx.mcp('sparql_query_named', { graphId: ctx.graphId, vocab: 'workspace', class: 'Gizmo', queryName: 'countBy', params: { attr: 'weight' } }) }),
-  mk('rich.emporium.named_currentHeads.n500', [[5, 1], [30, 3]], { async setup(ctx) { await objectGraph(ctx, 'eh', 500) },
-    op: (ctx) => ctx.mcp('sparql_query_named', { graphId: ctx.graphId, vocab: 'workspace', class: 'Gizmo', queryName: 'currentHeads' }) }),
   // Conformance sweep over the live memory projection: 50 vs 1,000 memory records. It mutates the violation ledger and scans the memory graph.
   ...[50, 1000].map((n) => mk(`rich.emporium.sweep.m${n}`, [[3, 1], [12, 2]], {
     async setup(ctx) { await graphFor(ctx, 'es' + n); for (let s = 0; s < n; s += 100) await ctx.mcp('remember_batch', { graphId: ctx.graphId, records: memoryRecords(Math.min(100, n - s), seed(ctx), s) }) },

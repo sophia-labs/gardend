@@ -10,7 +10,7 @@ const lastCollection = (phases, parallel = 3) => `c${phases}x0`
 async function publishable(ctx, n) {
   await graphFor(ctx, 'wfp' + n)
   const text = markdownDoc(n, seed(ctx)).split('\n\n').slice(1).filter((p) => !p.startsWith('##'))
-  const src = (await ctx.mcp('create_document', { graphId: ctx.graphId, title: 'wf source', ...parent(ctx) })).documentId ?? (await ctx.mcp('create_document', { graphId: ctx.graphId, title: 'wf source' })).documentId
+  const src = `wfsrc-${ctx.tag}-${n}`; await ctx.mcp('create_document', { graphId: ctx.graphId, title: 'wf source', documentId: src, ...parent(ctx) })
   for (let s = 0; s < text.length; s += 100) await ctx.mcp('insert_blocks', { graphId: ctx.graphId, documentId: src, content: text.slice(s, s + 100).join('\n\n'), format: 'markdown' })
   const plan = await newPlan(ctx, 'publish plan')
   await compose(ctx, plan, planMoves(src, { phases: 2, parallel: 2 }, seed(ctx)))
@@ -26,9 +26,9 @@ export const cases = [
   mk('rich.workflow.plan_create', [[3, 1], [10, 2]], { async setup(ctx) { await graphFor(ctx, 'wfc') }, op: (ctx, i) => newPlan(ctx, `gbench plan ${i}`) }),
   // Compose a 3-phase, 9-step plan (about 16 moves) / the 12-step maximum over 6 phases; a fresh plan document per iteration made in setup.
   ...[[3, 3, 'p3x3'], [6, 2, 'p6x2']].map(([phases, parallel, nm]) => mk(`rich.workflow.plan_compose.${nm}`, [[3, 1], [10, 2]], {
-    async setup(ctx) { await graphFor(ctx, 'wfm' + nm); const t = ctx.params.iterations + ctx.params.warmup; ctx.S = { docs: [], src: (await ctx.mcp('create_document', { graphId: ctx.graphId, title: 'src' })).documentId }; for (let k = 0; k < t; k++) ctx.S.docs.push(await newPlan(ctx, `c${k}`)) },
+    async setup(ctx) { await graphFor(ctx, 'wfm' + nm); const t = ctx.params.iterations + ctx.params.warmup; ctx.S = { docs: [], src: `wfsrc-${ctx.tag}` }; await ctx.mcp('create_document', { graphId: ctx.graphId, title: 'src', documentId: ctx.S.src }); for (let k = 0; k < t; k++) ctx.S.docs.push(await newPlan(ctx, `c${k}`)) },
     op: (ctx, i) => compose(ctx, ctx.S.docs[i], planMoves(ctx.S.src, { phases, parallel }, seed(ctx))) })),
-  mk('rich.workflow.plan_read', [[5, 1], [30, 3]], { async setup(ctx) { await graphFor(ctx, 'wfr'); const src = (await ctx.mcp('create_document', { graphId: ctx.graphId, title: 'src' })).documentId; ctx.S = { plan: await newPlan(ctx, 'read'), }; await compose(ctx, ctx.S.plan, planMoves(src, { phases: 3, parallel: 3 }, seed(ctx))) },
+  mk('rich.workflow.plan_read', [[5, 1], [30, 3]], { async setup(ctx) { await graphFor(ctx, 'wfr'); const src = `wfsrc-${ctx.tag}`; await ctx.mcp('create_document', { graphId: ctx.graphId, title: 'src', documentId: src }); ctx.S = { plan: await newPlan(ctx, 'read'), }; await compose(ctx, ctx.S.plan, planMoves(src, { phases: 3, parallel: 3 }, seed(ctx))) },
     op: (ctx) => ctx.mcp('workflow_plan_read', { graphId: ctx.graphId, documentId: ctx.S.plan }) }),
   // Record a finished run (Turtle parse + one transaction replacing the run graph) with 50 vs 1,000 items.
   ...[50, 1000].map((n) => mk(`rich.workflow.run_record.i${n}`, [[3, 1], [10, 2]], {
