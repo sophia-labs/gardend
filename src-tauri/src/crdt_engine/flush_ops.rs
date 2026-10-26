@@ -8,10 +8,10 @@ use crate::crdt_queue::CrdtOperation;
 use serde_json::{json, Value};
 use std::path::Path;
 use std::sync::Arc;
-#[cfg(not(feature = "frontend-crdt"))]
-use tracing::Instrument;
 #[cfg(feature = "desktop")]
 use tauri::Manager;
+#[cfg(not(feature = "frontend-crdt"))]
+use tracing::Instrument;
 
 pub(crate) const HYDRATE_PERSISTED_SIDECARS_PAYLOAD_KEY: &str = "hydratePersistedSidecars";
 
@@ -120,18 +120,16 @@ pub(crate) async fn await_document_projections(
                         sophia.fence.project_ms = tracing::field::Empty,
                         sophia.fence.evict_ms = tracing::field::Empty);
                     let mut counts = FenceCounts::default();
-                    let result = fence_projections(
-                        &app,
-                        &graph_id,
-                        document_id,
-                        &fence,
-                        &mut counts,
-                    )
-                    .instrument(fence.clone())
-                    .await;
+                    let result =
+                        fence_projections(&app, &graph_id, document_id, &fence, &mut counts)
+                            .instrument(fence.clone())
+                            .await;
                     fence.record("sophia.fence.docs_visited", counts.visited);
                     fence.record("sophia.fence.docs_skipped_current", counts.skipped_current);
-                    fence.record("sophia.fence.docs_resident_current", counts.resident_current);
+                    fence.record(
+                        "sophia.fence.docs_resident_current",
+                        counts.resident_current,
+                    );
                     fence.record("sophia.fence.docs_hydrated", counts.hydrated);
                     fence.record("sophia.fence.docs_projected", counts.projected);
                     #[cfg(test)]
@@ -168,7 +166,8 @@ async fn fence_projections(
     counts: &mut FenceCounts,
 ) -> Result<(), String> {
     let mut phases = FencePhases::default();
-    let result = fence_projections_inner(app, graph_id, document_id, fence, counts, &mut phases).await;
+    let result =
+        fence_projections_inner(app, graph_id, document_id, fence, counts, &mut phases).await;
     fence.record("sophia.fence.stat_ms", phases.stat);
     fence.record("sophia.fence.lock_wait_ms", phases.lock_wait);
     fence.record("sophia.fence.hydrate_ms", phases.hydrate);
@@ -228,9 +227,26 @@ async fn fence_projections_inner(
         let (room, hydrated) = match registry.peek(&key).await {
             Some(room) => {
                 phases.stat += crate::telemetry::elapsed_ms(stat_timer);
+                // A resident room is judged by its committed epoch alone. Every
+                // acknowledged write bumped it before the acknowledgement, so
+                // reading it without the room's locks cannot miss one, and it
+                // no longer queues behind a writer's persist (the authority
+                // lock is held across the writer's fsync).
+                let epoch = room.committed_projection_epoch();
+                if room.projection_reaches(epoch) {
+                    counts.resident_current += 1;
+                    continue;
+                }
                 (room, false)
             }
             None => {
+                // A cold document whose record is stamped as the projection of
+                // its current sidecar is current: no room, no decode.
+                if super::projection_stamp::cold_projection_is_current(&graph_dir, &id) {
+                    phases.stat += crate::telemetry::elapsed_ms(stat_timer);
+                    counts.skipped_current += 1;
+                    continue;
+                }
                 let path = crate::ydoc_paths::checked_document_ydoc_state_path(&graph_dir, &id)?;
                 let present = path.is_file();
                 phases.stat += crate::telemetry::elapsed_ms(stat_timer);
@@ -240,8 +256,10 @@ async fn fence_projections_inner(
                 let hydrate_timer = crate::telemetry::timer();
                 let room = registry
                     .get_or_create(&key, path)
-                    .instrument(tracing::info_span!(target: "gardend_otel", "read.fence.hydrate",
-                        sophia.graph.id = graph_id, sophia.document.id = id.as_str()))
+                    .instrument(
+                        tracing::info_span!(target: "gardend_otel", "read.fence.hydrate",
+                        sophia.graph.id = graph_id, sophia.document.id = id.as_str()),
+                    )
                     .await?;
                 phases.hydrate += crate::telemetry::elapsed_ms(hydrate_timer);
                 counts.hydrated += 1;
@@ -249,23 +267,39 @@ async fn fence_projections_inner(
             }
         };
         let lock_timer = crate::telemetry::timer();
-        let (epoch, ()) = room
-            .with_doc_version(|_| ())
-            .instrument(tracing::info_span!(target: "gardend_otel", "read.fence.lock_wait",
-                sophia.graph.id = graph_id, sophia.document.id = id.as_str()))
+        let (epoch, witness) = room
+            .with_doc_version(|_| {
+                if hydrated {
+                    room.witness_sidecar()
+                } else {
+                    None
+                }
+            })
+            .instrument(
+                tracing::info_span!(target: "gardend_otel", "read.fence.lock_wait",
+                sophia.graph.id = graph_id, sophia.document.id = id.as_str()),
+            )
             .await;
         phases.lock_wait += crate::telemetry::elapsed_ms(lock_timer);
+        if hydrated && room.projection_reaches(epoch) {
+            // Opened only to be told there is nothing to project (an empty
+            // Y.Doc, or one already persisted): record that, so the next fence
+            // does not open it again while neither file moves.
+            if let Some(witness) = witness.as_ref() {
+                super::projection_stamp::write_stamp(&graph_dir, &id, witness);
+            }
+        }
         if !room.projection_reaches(epoch) {
             let project_timer = crate::telemetry::timer();
             flush_document_under_lifecycle(app, graph_id, &id, &room)
-                .instrument(tracing::info_span!(target: "gardend_otel", "read.fence.project",
-                    sophia.graph.id = graph_id, sophia.document.id = id.as_str()))
+                .instrument(
+                    tracing::info_span!(target: "gardend_otel", "read.fence.project",
+                    sophia.graph.id = graph_id, sophia.document.id = id.as_str()),
+                )
                 .await
                 .map_err(String::from)?;
             phases.project += crate::telemetry::elapsed_ms(project_timer);
             counts.projected += 1;
-        } else if !hydrated {
-            counts.resident_current += 1;
         }
         if hydrated {
             let evict_timer = crate::telemetry::timer();

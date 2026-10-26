@@ -1363,6 +1363,23 @@ impl Room {
         (epoch, read(&doc))
     }
 
+    /// The room's committed epoch, without taking any lock. Every acknowledged
+    /// write bumped it before it was acknowledged (`update_doc_classified` and
+    /// `apply_client_update_inner` bump under the doc lock, then persist, then
+    /// reply), so a reader that starts after an acknowledgement sees it here.
+    /// A write still in flight is not yet acknowledged and need not be seen.
+    pub(crate) fn committed_projection_epoch(&self) -> u64 {
+        self.projection_epoch.load(Ordering::SeqCst)
+    }
+
+    /// The sidecar as the projection being materialized sees it. Only
+    /// meaningful inside `with_doc_version`, which holds `authority_lock`:
+    /// a room write holds that lock across its persist, so the file is then
+    /// exactly the state of the Doc being read.
+    pub(crate) fn witness_sidecar(&self) -> Option<super::projection_stamp::SidecarWitness> {
+        super::projection_stamp::witness_sidecar(&self.state_path)
+    }
+
     pub(crate) fn needs_projection_flush(&self) -> bool {
         self.projection_epoch.load(Ordering::SeqCst)
             > self.persisted_projection_epoch.load(Ordering::SeqCst)
