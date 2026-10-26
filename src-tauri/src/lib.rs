@@ -556,6 +556,12 @@ pub mod headless {
         }
     }
 
+    /// Pay every owed full flush now (barrier-only persists reach the media), synchronously. Gardend's final
+    /// durable flush calls this at exit; `flush_dirty_rooms` already does.
+    pub fn flush_ordered_writes() -> Result<(), String> {
+        crate::storage_atomic::flush_now().map_err(|error| error.to_string())
+    }
+
     /// Strongly consistent minimal-registry read. Gardend calls this before
     /// durable hydrate so an unknown/tombstoned/stale binding cannot touch
     /// storage.

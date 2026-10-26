@@ -2,7 +2,7 @@ use crate::{
     app_error::{AppError, AppResult},
     storage_atomic::{
         atomic_temp_path, copy_file_atomic_inner, display_path, sync_parent_dir,
-        write_bytes_atomic, write_bytes_atomic_no_dir_sync,
+        sync_parent_dir_with, write_bytes_atomic, write_bytes_atomic_durable, Durability,
     },
 };
 use std::{
@@ -21,12 +21,24 @@ pub fn read_bytes(path: &Path) -> AppResult<Vec<u8>> {
 }
 
 pub fn write_bytes(path: &Path, bytes: &[u8]) -> AppResult<()> {
+    write_bytes_at(path, bytes, Durability::Full)
+}
+
+/// [`write_bytes`] for a projection or authority persist inside the durability window: the temp file, the rename
+/// and the directory entry are each only ordered (a barrier on macOS), and a full flush follows within the window.
+/// Never for a key, a migration, or a write that deletes or overwrites the only other copy.
+pub(crate) fn write_bytes_ordered(path: &Path, bytes: &[u8]) -> AppResult<()> {
+    write_bytes_at(path, bytes, Durability::Ordered)
+}
+
+fn write_bytes_at(path: &Path, bytes: &[u8], durability: Durability) -> AppResult<()> {
     if let Some(parent) = path.parent() {
         create_dir_all(parent)?;
     }
 
     let temp_path = atomic_temp_path(path);
-    let result = write_bytes_atomic(path, &temp_path, bytes, None).map_err(AppError::from);
+    let result = write_bytes_atomic_durable(path, &temp_path, bytes, None, true, durability)
+        .map_err(AppError::from);
     if result.is_err() {
         let _ = fs::remove_file(&temp_path);
     }
@@ -40,12 +52,26 @@ pub fn write_bytes(path: &Path, bytes: &[u8]) -> AppResult<()> {
 /// and the check needs no state that could go stale. A skipped write leaves the
 /// existing file, which an earlier atomic write already synced, untouched. Returns
 /// whether the file was written.
+#[cfg(test)]
 pub fn write_bytes_if_changed(path: &Path, bytes: &[u8]) -> AppResult<bool> {
+    write_bytes_if_changed_at(path, bytes, Durability::Full)
+}
+
+/// [`write_bytes_if_changed`] at [`write_bytes_ordered`] strength.
+pub(crate) fn write_bytes_if_changed_ordered(path: &Path, bytes: &[u8]) -> AppResult<bool> {
+    write_bytes_if_changed_at(path, bytes, Durability::Ordered)
+}
+
+fn write_bytes_if_changed_at(
+    path: &Path,
+    bytes: &[u8],
+    durability: Durability,
+) -> AppResult<bool> {
     if file_holds_exactly(path, bytes) {
         tracing::info!(target: "gardend_otel", { sophia.files.skipped_unchanged = 1_u64, sophia.files.bytes = bytes.len() as u64 }, "file unchanged");
         return Ok(false);
     }
-    write_bytes(path, bytes)?;
+    write_bytes_at(path, bytes, durability)?;
     Ok(true)
 }
 
@@ -57,12 +83,14 @@ fn file_holds_exactly(path: &Path, bytes: &[u8]) -> bool {
     fs::read(path).is_ok_and(|existing| existing == bytes)
 }
 
-/// `write_bytes` for a bundle writer that syncs the directory itself, once, with `sync_dir`: the parent must
-/// already exist, the bytes are fsynced and the rename atomic, but the directory entry is not yet durable.
+/// `write_bytes` for a bundle writer that orders the directory itself, once, with `order_dir`: the parent must
+/// already exist, the bytes are ordered (a barrier on macOS) and the rename atomic, but the directory entry is
+/// not yet ordered. The bundle's writer owes one full flush when the bundle is declared complete.
 pub fn write_bytes_deferred_dir_sync(path: &Path, bytes: &[u8]) -> AppResult<()> {
     let temp_path = atomic_temp_path(path);
     let result =
-        write_bytes_atomic_no_dir_sync(path, &temp_path, bytes, None).map_err(AppError::from);
+        write_bytes_atomic_durable(path, &temp_path, bytes, None, false, Durability::Ordered)
+            .map_err(AppError::from);
     if result.is_err() {
         let _ = fs::remove_file(&temp_path);
     }
@@ -92,9 +120,9 @@ pub fn link_or_copy_deferred_dir_sync(source: &Path, target: &Path) -> AppResult
     }
 }
 
-/// Make the directory's entries (new names, renames) durable.
-pub fn sync_dir(path: &Path) -> AppResult<()> {
-    sync_parent_dir(path).map_err(AppError::from)
+/// Order the directory's entries (new names, renames): a barrier on macOS, a full sync elsewhere.
+pub fn order_dir(path: &Path) -> AppResult<()> {
+    sync_parent_dir_with(path, Durability::Ordered).map_err(AppError::from)
 }
 
 pub fn copy_file_atomic(source: &Path, target: &Path) -> AppResult<u64> {
@@ -163,17 +191,30 @@ pub(crate) fn write_secret_bytes(path: &Path, bytes: &[u8]) -> AppResult<()> {
 
 /// Append one JSONL record and force it to disk.
 pub fn append_secret_line(path: &Path, line: &str) -> AppResult<()> {
-    append_line(path, line, true)
+    append_line(path, line, AppendSync::Full)
+}
+
+/// Append one JSONL record and order it: a barrier on macOS (a full flush follows within the durability window),
+/// a full sync elsewhere. For the CRDT operation journal, whose loss window Vera ratified at ~1 s.
+pub(crate) fn append_secret_line_ordered(path: &Path, line: &str) -> AppResult<()> {
+    append_line(path, line, AppendSync::Ordered)
 }
 
 /// Append one JSONL record WITHOUT forcing it: the bytes are in the page cache when
 /// this returns, so a process crash loses nothing, and a power loss may lose the
 /// last records. For logs that are telemetry, or whose loss a replay ledger covers.
 pub fn append_secret_line_unsynced(path: &Path, line: &str) -> AppResult<()> {
-    append_line(path, line, false)
+    append_line(path, line, AppendSync::None)
 }
 
-fn append_line(path: &Path, line: &str, sync: bool) -> AppResult<()> {
+#[derive(Clone, Copy)]
+enum AppendSync {
+    None,
+    Full,
+    Ordered,
+}
+
+fn append_line(path: &Path, line: &str, sync: AppendSync) -> AppResult<()> {
     if let Some(parent) = path.parent() {
         create_dir_all(parent)?;
     }
@@ -222,10 +263,14 @@ fn append_line(path: &Path, line: &str, sync: bool) -> AppResult<()> {
     record.push(b'\n');
     file.write_all(&record)
         .and_then(|_| {
-            if sync {
-                crate::storage_atomic::traced_sync(&file, "file")
-            } else {
-                Ok(())
+            match sync {
+                AppendSync::None => Ok(()),
+                AppendSync::Full => crate::storage_atomic::traced_sync(&file, "file"),
+                AppendSync::Ordered => crate::storage_atomic::traced_sync_with(
+                    &file,
+                    "file",
+                    Durability::Ordered,
+                ),
             }
         })
         .map_err(|error| {

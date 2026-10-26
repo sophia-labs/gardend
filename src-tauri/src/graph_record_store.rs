@@ -235,6 +235,17 @@ pub(crate) fn write_graph_record(graph_dir: &Path, graph: &GraphRecord) -> AppRe
     upsert_graph_record_from_graph_dir(graph_dir, graph)
 }
 
+/// [`write_graph_record`] inside the durability window: `graph.json` is ordered, not fully flushed. Only for the
+/// content-revision touch that follows a document or workspace write (the revision is re-derivable from the
+/// authority the write just made, and a lost bump only makes the next query reseed); never for a lifecycle
+/// boundary such as a tombstone.
+fn write_graph_record_ordered(graph_dir: &Path, graph: &GraphRecord) -> AppResult<()> {
+    let _durability_guard = crate::cell_durability::write_guard();
+    crate::storage::write_json_ordered(&graph_dir.join("graph.json"), graph)
+        .map_err(AppError::storage)?;
+    upsert_graph_record_from_graph_dir(graph_dir, graph)
+}
+
 /// Write only the canonical graph manifest. Lifecycle transitions sometimes
 /// need to establish the tombstone boundary before a best-effort catalog cache
 /// projection; callers must explicitly handle that projection afterward.
@@ -257,6 +268,20 @@ pub(crate) fn mutate_graph_record<T>(
         read_json::<GraphRecord>(&graph_dir.join("graph.json")).map_err(AppError::storage)?;
     let result = mutate(&mut graph)?;
     write_graph_record(graph_dir, &graph)?;
+    Ok(result)
+}
+
+/// [`mutate_graph_record`] writing `graph.json` at [`write_graph_record_ordered`] strength.
+pub(crate) fn mutate_graph_record_ordered<T>(
+    graph_dir: &Path,
+    mutate: impl FnOnce(&mut GraphRecord) -> AppResult<T>,
+) -> AppResult<T> {
+    let _durability_guard = crate::cell_durability::write_guard();
+    let _guard = acquire_graph_record_mutation_lock(graph_dir)?;
+    let mut graph =
+        read_json::<GraphRecord>(&graph_dir.join("graph.json")).map_err(AppError::storage)?;
+    let result = mutate(&mut graph)?;
+    write_graph_record_ordered(graph_dir, &graph)?;
     Ok(result)
 }
 
@@ -325,7 +350,7 @@ fn next_content_revision_at(previous: Option<&str>, now: u128) -> AppResult<Stri
 }
 
 pub(crate) fn touch_graph_content_revision(graph_dir: &Path) -> AppResult<String> {
-    mutate_graph_record(graph_dir, |graph| {
+    mutate_graph_record_ordered(graph_dir, |graph| {
         let next = next_content_revision(graph.content_revision.as_deref())?;
         // The RDF seed marker keys on content_revision. Two real content writes
         // in one millisecond must still produce distinct keys.

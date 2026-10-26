@@ -239,7 +239,7 @@ pub(crate) fn touch_graph_content_revision_keeping_seed(
     graph_dir: &Path,
     store: &Store,
 ) -> crate::app_error::AppResult<String> {
-    use crate::graph_record_store::{mutate_graph_record, next_content_revision};
+    use crate::graph_record_store::{mutate_graph_record_ordered, next_content_revision};
     let plain = || crate::graph_record_store::touch_graph_content_revision(graph_dir);
     let store_path = graph_dir.join("store.oxigraph");
     let Ok(walk_lock) = seed_walk_lock(&store_path) else {
@@ -272,7 +272,7 @@ pub(crate) fn touch_graph_content_revision_keeping_seed(
     if !seeded_at_before {
         return plain();
     }
-    let (next, advanced) = mutate_graph_record(graph_dir, |graph| {
+    let (next, advanced) = mutate_graph_record_ordered(graph_dir, |graph| {
         let raced = seed_key_for(graph) != key_before;
         let next = next_content_revision(graph.content_revision.as_deref())?;
         graph.updated_at = next.clone();

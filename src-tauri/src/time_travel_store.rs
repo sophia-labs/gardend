@@ -2,7 +2,7 @@ use crate::{
     app_error::{AppError, AppResult},
     storage::{read_json, write_json},
     storage_file_ops::{
-        create_dir_all, link_or_copy_deferred_dir_sync, read_bytes, remove_dir_all, sync_dir,
+        create_dir_all, link_or_copy_deferred_dir_sync, order_dir, read_bytes, remove_dir_all,
         write_bytes, write_bytes_deferred_dir_sync,
     },
     time_travel_paths::{
@@ -156,12 +156,21 @@ pub(crate) fn write_workspace_bundle_deferred(
     write_bytes_deferred_dir_sync(&snapshot_path, format!("{data}\n").as_bytes())
 }
 
-/// The one directory sync pair of a restore point: the documents directory (the document files and links),
+/// The one directory-ordering pair of a restore point: the documents directory (the document files and links),
 /// then the bundle directory (the workspace files and the documents entry). Call before the manifest is
-/// written, so that a manifest on disk implies a durable bundle.
+/// written. The bundle's files and these entries are only ordered (a barrier on macOS); the capture is declared
+/// complete by the manifest, and `finish_restore_point_durably` pays the one full flush after it.
 pub(crate) fn sync_restore_point_dirs(graph_dir: &Path, restore_point_id: &str) -> AppResult<()> {
-    sync_dir(&restore_point_documents_dir(graph_dir, restore_point_id))?;
-    sync_dir(&restore_point_dir(graph_dir, restore_point_id))
+    order_dir(&restore_point_documents_dir(graph_dir, restore_point_id))?;
+    order_dir(&restore_point_dir(graph_dir, restore_point_id))
+}
+
+/// The durability point of a restore point: it is complete, so everything its capture ordered (every bundle
+/// file, every link, every room state it flushed) is made durable by one full flush, synchronously, before the
+/// capture returns.
+pub(crate) fn finish_restore_point_durably() -> AppResult<()> {
+    crate::storage_atomic::flush_now()
+        .map_err(|error| AppError::storage(format!("flush restore point: {error}")))
 }
 
 /// The newest restore point in the index (ties by id), if any: the one a new capture dedupes against.

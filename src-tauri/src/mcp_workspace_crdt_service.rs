@@ -161,7 +161,7 @@ pub(super) async fn mcp_local_flush_crdt(
         .get("documentId")
         .and_then(serde_json::Value::as_str)
         .map(str::to_string);
-    enqueue_crdt_operation(
+    let result = enqueue_crdt_operation(
         app,
         EnqueueCrdtOperationInput {
             kind: "crdt.flush".to_string(),
@@ -170,7 +170,14 @@ pub(super) async fn mcp_local_flush_crdt(
             payload: serde_json::json!({}),
         },
     )
-    .await
+    .await?;
+    // The explicit flush tool is a durability point: everything ordered so far (this flush's writes and every
+    // earlier edit's) reaches the media with a full flush before the caller is told it is flushed.
+    crate::app_runtime::async_runtime::spawn_blocking(crate::storage_atomic::flush_now)
+        .await
+        .map_err(|error| format!("flush_crdt full flush join: {error}"))?
+        .map_err(|error| format!("flush_crdt full flush: {error}"))?;
+    Ok(result)
 }
 
 pub(super) async fn mcp_local_crdt_operation(
