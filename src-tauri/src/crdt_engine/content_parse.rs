@@ -1533,7 +1533,7 @@ fn ensure_block_ids(node: &mut Value, block_id_seed: Option<&str>, block_ordinal
     }
 }
 
-fn deterministic_block_id(operation_id: &str, ordinal: u64) -> String {
+pub(crate) fn deterministic_block_id(operation_id: &str, ordinal: u64) -> String {
     // FNV-1a is deliberately simple and stable across Rust/toolchain versions;
     // eight hex digits preserve the frontend's `block-<uuid8>` contract.
     let mut hash = 0x811c9dc5_u32;

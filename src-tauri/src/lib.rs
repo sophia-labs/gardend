@@ -361,6 +361,8 @@ mod rdf_workspace_store_materializer;
 mod rdf_workspace_terms;
 mod rdf_workspace_values;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
+mod idless_blocks_tests;
+#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod read_cold_paths_tests;
 mod request_actor;
 mod restore_guard;

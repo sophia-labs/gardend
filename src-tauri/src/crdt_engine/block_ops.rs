@@ -1252,8 +1252,11 @@ fn blocks_from_insert_payload(
     operation_id: &str,
 ) -> Result<(Vec<Value>, Vec<String>), String> {
     let (nodes, mut warnings, prefix) = raw_blocks_from_insert_payload(payload, operation_id)?;
-    let (nodes, receipts) =
+    let (mut nodes, receipts) =
         super::block_contract::normalise_doc_content_at(&nodes, operation_id, prefix);
+    // A tiptapJson or blocks carrier may send a block with no id (nested ones too): mint it here,
+    // seeded by the operation id, so the room stores an id a later read can hand back.
+    super::block_contract::mint_missing_block_ids(&mut nodes, operation_id, prefix);
     warnings.extend(receipts);
     Ok((nodes, warnings))
 }

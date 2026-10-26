@@ -1181,3 +1181,105 @@ fn data_table_is_canonical_and_never_dropped_from_markdown() {
         "Before.\n\nSales by month (table)\n\n(table)\n\n\\# not \\*a\\* heading (table)"
     );
 }
+
+// ---------------------------------------------------------------------------
+// IDLESS-BLOCKS: a block that arrives without an id is given one at write time.
+// ---------------------------------------------------------------------------
+
+fn idless_doc() -> Vec<Value> {
+    vec![
+        json!({"type": "paragraph", "content": [{"type": "text", "text": "alpha"}]}),
+        json!({"type": "heading", "attrs": {"level": 2}, "content": [{"type": "text", "text": "h"}]}),
+        json!({"type": "bulletList", "content": [
+            {"type": "listItem", "content": [
+                {"type": "paragraph", "content": [{"type": "text", "text": "one"}]}]},
+            {"type": "listItem", "content": [
+                {"type": "paragraph", "content": [{"type": "text", "text": "two"}]}]}]}),
+        json!({"type": "blockquote", "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "quoted"}]}]}),
+        json!({"type": "table", "content": [{"type": "tableRow", "content": [
+            {"type": "tableCell", "content": [
+                {"type": "paragraph", "content": [{"type": "text", "text": "cell"}]}]}]}]}),
+    ]
+}
+
+/// Every minted-type node in the tree, with its id (None when it has none).
+fn minted_ids(nodes: &[Value], out: &mut Vec<(String, Option<String>)>) {
+    for node in nodes {
+        let name = node.get("type").and_then(Value::as_str).unwrap_or("");
+        if block_contract::is_block_id_minted(name) {
+            let id = node
+                .pointer("/attrs/data-block-id")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            out.push((name.to_string(), id));
+        }
+        if let Some(children) = node.get("content").and_then(Value::as_array) {
+            minted_ids(children, out);
+        }
+    }
+}
+
+#[test]
+fn idless_blocks_are_minted_at_any_depth() {
+    let (mut nodes, _) = block_contract::normalise_doc_content(&idless_doc(), "op-idless");
+    let mut before = Vec::new();
+    minted_ids(&nodes, &mut before);
+    assert!(
+        before.iter().any(|(_, id)| id.is_none()),
+        "the fixture must be id-less to prove anything: {before:?}"
+    );
+    block_contract::mint_missing_block_ids(&mut nodes, "op-idless", "content");
+    let mut after = Vec::new();
+    minted_ids(&nodes, &mut after);
+    // At least: paragraph, heading, 2 list items, blockquote and its paragraph, the cell's paragraph.
+    assert!(after.len() >= 7, "{after:?}");
+    assert!(
+        after.iter().any(|(name, _)| name == "listItem"),
+        "list items are a minted type: {after:?}"
+    );
+    for (name, id) in &after {
+        assert!(id.is_some(), "{name} has no id after minting");
+    }
+    let unique: BTreeSet<_> = after.iter().map(|(_, id)| id.clone()).collect();
+    assert_eq!(unique.len(), after.len(), "ids must be distinct: {after:?}");
+    // Types gardend does not mint stay as they were.
+    let table = nodes
+        .iter()
+        .find(|node| node["type"] == "table")
+        .expect("the table survives normalising");
+    assert!(table.pointer("/attrs/data-block-id").is_none());
+}
+
+#[test]
+fn minting_is_deterministic_for_an_operation_id() {
+    let run = |seed: &str| {
+        let (mut nodes, _) = block_contract::normalise_doc_content(&idless_doc(), seed);
+        block_contract::mint_missing_block_ids(&mut nodes, seed, "content");
+        let mut ids = Vec::new();
+        minted_ids(&nodes, &mut ids);
+        ids
+    };
+    assert_eq!(run("op-replay"), run("op-replay"), "a replay mints the same ids");
+    assert_ne!(run("op-replay"), run("op-other"), "another operation mints other ids");
+}
+
+#[test]
+fn minting_keeps_the_ids_the_caller_gave() {
+    let mut nodes = vec![
+        json!({"type": "paragraph", "attrs": {"data-block-id": "mine-1"},
+               "content": [{"type": "text", "text": "kept"}]}),
+        json!({"type": "paragraph", "attrs": {"blockId": "mine-2"},
+               "content": [{"type": "text", "text": "kept too"}]}),
+        json!({"type": "paragraph", "content": [{"type": "text", "text": "new"}]}),
+    ];
+    block_contract::mint_missing_block_ids(&mut nodes, "op-keep", "content");
+    assert_eq!(nodes[0]["attrs"]["data-block-id"], "mine-1");
+    assert_eq!(nodes[1]["attrs"]["blockId"], "mine-2");
+    assert!(
+        nodes[1]["attrs"].get("data-block-id").is_none(),
+        "an id under the alias is not given a second one"
+    );
+    let minted = nodes[2]["attrs"]["data-block-id"].as_str().unwrap();
+    assert!(minted.starts_with("block-"), "{minted}");
+}

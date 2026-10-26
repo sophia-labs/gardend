@@ -651,11 +651,18 @@ fn collect_blocks(node: &TreeNode, blocks: &mut Vec<Value>, indent_stack: &mut V
         return;
     }
 
-    let block_id = node
-        .attributes
-        .block_id
-        .clone()
-        .unwrap_or_else(|| format!("block-{}", &Uuid::new_v4().simple().to_string()[..8]));
+    // Every write path mints an id for a block of a minted type, so a block with none here is a
+    // bug upstream. Never a random id: it would differ on every projection and name no block the
+    // room holds. Fall back to one derived from the block's position, stable until the document
+    // changes shape.
+    let block_id = node.attributes.block_id.clone().unwrap_or_else(|| {
+        let ordinal = blocks.len() as u64;
+        log::warn!(
+            "projection: block {ordinal} ({:?}) has no id; using a positional one",
+            node.tag_name
+        );
+        super::content_parse::deterministic_block_id("idless-projection", ordinal)
+    });
     let indent: f64 = node
         .attributes
         .extra
