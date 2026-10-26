@@ -5,7 +5,9 @@ use crate::{
     document_history_file_store::read_document_snapshot_payload,
     document_history_service::current_document_snapshot_with_lease,
     document_history_store::document_snapshot_payload_path,
+    crdt_engine::persistence_coordinator::{GraphPersistenceCoordinator, HotWriteLease},
     graph_paths::existing_graph_dir,
+    restore_guard::RestoreGuardState,
     storage::read_json,
     storage_file_ops::read_bytes,
     time_travel_paths::{
@@ -27,33 +29,124 @@ use crate::{
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::path::Path;
+use std::sync::Arc;
+#[cfg(feature = "desktop")]
+use tauri::Manager;
 use uuid::Uuid;
 
 const TIMESTAMP_LABEL: &str = "restore-point";
 
+/// How many times a capture that raced a restore, a graph deletion or a document deletion starts over.
+const CAPTURE_ATTEMPTS: usize = 3;
+/// Message prefix of the retryable "the graph changed shape under the walk" error.
+const CAPTURE_RACED: &str = "restore point capture raced";
+
+/// Create a restore point without holding the graph's hot-write lease across the walk.
+///
+/// Consistency promise (see `CaptureFence`): the workspace files are read together under one short lease;
+/// then each document is read under its own short lease, so a document's record file, Y.Doc bytes and
+/// snapshot are one consistent cut. Different documents may be cut at different instants, newer than the
+/// workspace's. A point is refused (and retried from scratch) if a restore ran, the graph was deleted, or a
+/// document the workspace listed left it while the walk was in progress.
 pub(crate) fn capture_restore_point(
     app: &AppHandle,
     graph_id: &str,
     trigger: RestorePointTrigger,
     label: Option<String>,
 ) -> AppResult<Value> {
-    let lease = crate::crdt_engine::persistence_coordinator::acquire_hot_write_blocking_if_managed(
-        app, graph_id,
-    )
-    .map_err(AppError::storage)?;
-    let result = capture_restore_point_with_lease(app, graph_id, trigger, label);
-    if result.is_ok() {
-        if let Some(lease) = lease.as_ref() {
-            // Capture writes history/restore-bundle files only. Its bounded
-            // legacy fallback may backfill a Y.Doc sidecar. A headless ghost
-            // self-heal can also create/materialize one document, but that
-            // path precisely calls `mark_rdf_store_written`; no possible RDF
-            // write in this scope relies on the lease's blanket fallback.
-            lease.declare_rdf_writes_self_tracked();
+    let mut attempt = 1;
+    loop {
+        let fence = CaptureFence::open(app, graph_id)?;
+        match capture_restore_point_inner(app, graph_id, trigger, label.clone(), Some(&fence)) {
+            Err(error)
+                if error.message_ref().starts_with(CAPTURE_RACED) && attempt < CAPTURE_ATTEMPTS =>
+            {
+                log::info!(
+                    "restore point capture for graph {graph_id} starting over (attempt {attempt}): {}",
+                    error.message_ref()
+                );
+                attempt += 1;
+            }
+            other => return other,
         }
     }
-    let _lease = lease;
-    result
+}
+
+/// What a lease-per-document capture checks before it publishes a point: no restore started in between
+/// (the restore guard's epoch only grows), the graph was not deleted and recreated (the coordinator's
+/// generation), and the documents the workspace listed are still listed (checked by the capture itself).
+struct CaptureFence {
+    restore_epoch: Option<u64>,
+    generation: Option<u64>,
+}
+
+impl CaptureFence {
+    fn open(app: &AppHandle, graph_id: &str) -> AppResult<Self> {
+        let restore_epoch = match app.try_state::<Arc<RestoreGuardState>>() {
+            Some(guard) => {
+                if guard.is_active() {
+                    return Err(AppError::conflict(
+                        "restore in progress: restore points cannot be created until it finishes",
+                    ));
+                }
+                Some(guard.epoch())
+            }
+            None => None,
+        };
+        let generation = app
+            .try_state::<GraphPersistenceCoordinator>()
+            .and_then(|coordinator| coordinator.generation(graph_id).ok());
+        Ok(Self {
+            restore_epoch,
+            generation,
+        })
+    }
+
+    fn still_holds(&self, app: &AppHandle, graph_id: &str) -> bool {
+        if let (Some(epoch), Some(guard)) = (
+            self.restore_epoch,
+            app.try_state::<Arc<RestoreGuardState>>(),
+        ) {
+            if guard.is_active() || guard.epoch() != epoch {
+                return false;
+            }
+        }
+        if let (Some(generation), Some(coordinator)) = (
+            self.generation,
+            app.try_state::<GraphPersistenceCoordinator>(),
+        ) {
+            if coordinator.generation(graph_id).ok() != Some(generation) {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+/// A short hot-write lease for one step of a lease-per-document capture, or none when the caller already
+/// holds the graph lease (restore's backup).
+fn scoped_lease(
+    app: &AppHandle,
+    graph_id: &str,
+    scoped: bool,
+) -> AppResult<Option<HotWriteLease>> {
+    if !scoped {
+        return Ok(None);
+    }
+    crate::crdt_engine::persistence_coordinator::acquire_hot_write_blocking_if_managed(
+        app, graph_id,
+    )
+    .map_err(AppError::storage)
+}
+
+/// Mark a scoped step as having succeeded. Capture writes history and bundle files only. Its bounded legacy
+/// fallback may backfill a Y.Doc sidecar, and a headless ghost self-heal can create or materialize one
+/// document, but that path calls `mark_rdf_store_written` itself; no RDF write in a step relies on the
+/// lease's blanket fallback. An error before this call keeps the conservative dirty mark.
+fn finish_scoped(lease: &Option<HotWriteLease>) {
+    if let Some(lease) = lease.as_ref() {
+        lease.declare_rdf_writes_self_tracked();
+    }
 }
 
 /// Capture while the caller already owns the graph persistence lease.
@@ -72,6 +165,18 @@ pub(crate) fn capture_restore_point_with_lease(
     trigger: RestorePointTrigger,
     label: Option<String>,
 ) -> AppResult<Value> {
+    capture_restore_point_inner(app, graph_id, trigger, label, None)
+}
+
+/// `fence` is `Some` when the caller holds no lease: every read of live files then takes its own short lease.
+fn capture_restore_point_inner(
+    app: &AppHandle,
+    graph_id: &str,
+    trigger: RestorePointTrigger,
+    label: Option<String>,
+    fence: Option<&CaptureFence>,
+) -> AppResult<Value> {
+    let scoped = fence.is_some();
     let graph_dir = existing_graph_dir(app, graph_id).map_err(AppError::not_found)?;
     let restore_point_id = format!("rp-{}", Uuid::new_v4().simple());
     let created_at = clock::epoch_millis() as i64;
@@ -103,8 +208,11 @@ pub(crate) fn capture_restore_point_with_lease(
     );
     let (workspace_bytes, workspace_snapshot, previous) = {
         let _enumerate = enumerate_span.enter();
+        let workspace_lease = scoped_lease(app, graph_id, scoped)?;
         let workspace_bytes = read_workspace_ydoc_bytes(&graph_dir)?;
         let workspace_snapshot = read_workspace_snapshot(&graph_dir)?;
+        finish_scoped(&workspace_lease);
+        drop(workspace_lease);
         prepare_restore_point_dirs(&graph_dir, &restore_point_id)?;
         write_workspace_bundle_deferred(
             &graph_dir,
@@ -134,6 +242,7 @@ pub(crate) fn capture_restore_point_with_lease(
     };
 
     let document_ids = workspace_document_ids(&workspace_snapshot);
+    let listed_document_ids = document_ids.clone();
     enumerate_span.record("sophia.restore_point.documents", document_ids.len() as u64);
     capture_span.record("sophia.restore_point.documents", document_ids.len() as u64);
     let previous_by_id: std::collections::HashMap<&str, &DocumentSnapshotRef> = previous
@@ -179,6 +288,9 @@ pub(crate) fn capture_restore_point_with_lease(
             sophia.restore_point.bytes = tracing::field::Empty,
         );
         let _document_entered = document_span.enter();
+        // This document's cut: record file, Y.Doc sidecar and snapshot are read under one short lease, and
+        // the lease is released before any bytes are written.
+        let document_lease = scoped_lease(app, graph_id, scoped)?;
 
         // The sidecar and the record, read once. The fingerprint is only meaningful over a real sidecar;
         // a legacy inline-only record has none and always takes the full path.
@@ -216,6 +328,7 @@ pub(crate) fn capture_restore_point_with_lease(
                         Ok(_) => {
                             document_span.record("sophia.restore_point.reused", true);
                             document_span.record("sophia.restore_point.bytes", 0u64);
+                            finish_scoped(&document_lease);
                             documents_reused += 1;
                             total_doc_size += previous_ref.size_bytes;
                             documents.push(DocumentSnapshotRef {
@@ -315,6 +428,8 @@ pub(crate) fn capture_restore_point_with_lease(
                     })?
             }
         };
+        finish_scoped(&document_lease);
+        drop(document_lease);
         write_document_bytes_deferred(&graph_dir, &restore_point_id, &document_id, &ydoc_bytes)?;
         document_span.record("sophia.restore_point.reused", false);
         document_span.record("sophia.restore_point.bytes", ydoc_bytes.len() as u64);
@@ -331,6 +446,29 @@ pub(crate) fn capture_restore_point_with_lease(
             ydoc_bytes_path: Some(document_bytes_relative_path(&document_id)),
             content_fingerprint: fingerprint,
         });
+    }
+
+    if let Some(fence) = fence {
+        // The cut is only as good as the shape it was taken against. The workspace is read again, under a
+        // lease: every document it listed at the start (captured or skipped as a ghost) must still be
+        // listed, and no restore or graph deletion may have run. Otherwise start over.
+        let final_ids: std::collections::HashSet<String> = {
+            let lease = scoped_lease(app, graph_id, true)?;
+            let snapshot = read_workspace_snapshot(&graph_dir)?;
+            finish_scoped(&lease);
+            workspace_document_ids(&snapshot).into_iter().collect()
+        };
+        let removed = listed_document_ids
+            .iter()
+            .filter(|id| !final_ids.contains(*id))
+            .count();
+        if removed > 0 || !fence.still_holds(app, graph_id) {
+            let _ = crate::time_travel_store::delete_restore_point(&graph_dir, &restore_point_id);
+            return Err(AppError::conflict(format!(
+                "{CAPTURE_RACED}: {removed} listed document(s) were removed, or a restore or graph \
+                 deletion ran, while the point was being taken"
+            )));
+        }
     }
 
     capture_span.record("sophia.restore_point.documents_reused", documents_reused);
@@ -812,6 +950,68 @@ mod tests {
     use serde_json::json;
     #[cfg(feature = "desktop")]
     use tauri::Manager;
+
+    /// The lease-per-document capture refuses a point whose walk a restore overlapped: the guard's epoch
+    /// counts engagements, so a restore that began and finished between two documents is still seen. Real
+    /// guard, real coordinator, real graph.
+    #[test]
+    fn capture_fence_notices_a_restore_that_ran_in_between() {
+        let _serial = crate::tauri_runtime::profile_env_serial()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let profile = std::env::temp_dir().join(format!("garden-tt-capture-fence-{nanos}"));
+        std::env::set_var("GARDEN_PROFILE_DIR", &profile);
+
+        let result = std::panic::catch_unwind(|| {
+            let app = crate::tauri_runtime::build_mock_app_for_tests(true);
+            let graph_id = "tt-capture-fence";
+            create_graph_service(
+                &app,
+                CreateGraphInput {
+                    title: "Capture Fence".to_string(),
+                    graph_id: Some(graph_id.to_string()),
+                    description: None,
+                    operation_id: None,
+                },
+            )
+            .expect("create graph");
+
+            let fence = CaptureFence::open(&app, graph_id).expect("no restore is running");
+            assert!(fence.still_holds(&app, graph_id));
+
+            let guard = app.state::<Arc<RestoreGuardState>>().inner().clone();
+            let lease = guard
+                .try_engage(crate::restore_guard::RestoreGuardDetail {
+                    graph_id: graph_id.to_string(),
+                    operation_id: "op-fence".to_string(),
+                    restore_point_id: "rp-fence".to_string(),
+                })
+                .expect("engage");
+            assert!(!fence.still_holds(&app, graph_id), "a restore is running");
+            let refused = capture_restore_point(&app, graph_id, RestorePointTrigger::Manual, None)
+                .expect_err("a capture must not start under a running restore");
+            assert!(refused.to_string().contains("restore in progress"), "{refused}");
+            drop(lease);
+            assert!(
+                !fence.still_holds(&app, graph_id),
+                "a restore that began and finished after the fence opened is still seen"
+            );
+            let fresh = CaptureFence::open(&app, graph_id).expect("restore finished");
+            assert!(fresh.still_holds(&app, graph_id));
+            capture_restore_point(&app, graph_id, RestorePointTrigger::Manual, None)
+                .expect("capture after the restore");
+        });
+
+        std::env::remove_var("GARDEN_PROFILE_DIR");
+        let _ = std::fs::remove_dir_all(&profile);
+        if let Err(panic) = result {
+            std::panic::resume_unwind(panic);
+        }
+    }
 
     #[test]
     fn iso_timestamp_format_is_well_formed() {

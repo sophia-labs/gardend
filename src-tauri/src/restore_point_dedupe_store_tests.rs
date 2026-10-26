@@ -540,3 +540,94 @@ fn unchanged_graph_capture_costs_a_fixed_number_of_fsyncs() {
         assert!(third_fsyncs < first_fsyncs, "{third_fsyncs} vs {first_fsyncs}");
     });
 }
+
+fn decodes_to_text(bytes: &[u8]) -> String {
+    use yrs::updates::decoder::Decode;
+    use yrs::{Doc, Transact, Update};
+    fn node_text(node: &Value) -> String {
+        if node["type"] == "text" {
+            return node["text"].as_str().unwrap_or("").to_string();
+        }
+        node["content"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(node_text)
+            .collect()
+    }
+    let doc = Doc::new();
+    doc.transact_mut()
+        .apply_update(Update::decode_v1(bytes).expect("a point's bytes are a Yjs update"))
+        .expect("apply");
+    node_text(&crate::crdt_engine::projection::ydoc_to_tiptap_json(&doc))
+}
+
+/// The capture no longer holds the graph lease across the walk: writers keep landing while points are being
+/// taken, no point fails, every point lists every document with bytes that decode, and a later quiet point
+/// matches its oracle exactly (so reuse across points that raced writers never reused stale content).
+#[test]
+fn points_taken_while_writers_run_are_complete_and_later_points_are_exact() {
+    with_env(|env| {
+        let ids: Vec<String> = (0..16).map(|n| format!("doc-{n:02}")).collect();
+        for id in &ids {
+            create(env, id);
+            write(env, id, &format!("{id} v0"));
+        }
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let writes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let writer = {
+            let (app, ids, stop, writes) = (env.app.clone(), ids.clone(), stop.clone(), writes.clone());
+            std::thread::spawn(move || {
+                let mut round = 1;
+                while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    for id in &ids {
+                        run(crate::document_mutation_service::mcp_local_write_document(
+                            app.clone(),
+                            &json!({"graph_id": GRAPH, "document_id": id,
+                                    "tiptapJson": {"type": "doc", "content": [paragraph("a", &format!("{id} v{round}"))]}}),
+                        ))
+                        .unwrap();
+                        writes.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        if stop.load(std::sync::atomic::Ordering::Relaxed) {
+                            break;
+                        }
+                    }
+                    round += 1;
+                }
+            })
+        };
+
+        let mut points = Vec::new();
+        for n in 0..3 {
+            points.push(point(env, &format!("racing-{n}")));
+        }
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        writer.join().expect("writer thread");
+        assert!(writes.load(std::sync::atomic::Ordering::Relaxed) > 0, "the writer ran");
+
+        for id in &points {
+            let manifest = manifest(env, id);
+            assert_eq!(manifest.documents.len(), ids.len(), "{id} lists every document");
+            for doc in &ids {
+                let bytes = crate::time_travel_store::read_document_bytes(&env.graph_dir(), id, doc).unwrap();
+                assert!(
+                    decodes_to_text(&bytes).starts_with(doc.as_str()),
+                    "{id}/{doc}: the point holds a whole version of the document"
+                );
+            }
+        }
+
+        // Quiet again: a point is exact, and the next one reuses it all.
+        tick();
+        let quiet = point(env, "quiet");
+        let want = oracle(env, &ids.iter().map(String::as_str).collect::<Vec<_>>());
+        assert_point_matches_oracle(env, &quiet, &want);
+        tick();
+        let again = point(env, "again");
+        assert_point_matches_oracle(env, &again, &want);
+        let diff = env
+            .call("diff_restore_points", json!({"restorePointId": again, "against": quiet}))
+            .unwrap();
+        assert_eq!(diff["aggregate"]["docsModified"], 0, "{diff}");
+    });
+}

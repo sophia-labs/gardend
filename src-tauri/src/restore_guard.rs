@@ -1,6 +1,6 @@
 use crate::app_runtime::AppHandle;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
     Arc, Mutex,
 };
 #[cfg(feature = "desktop")]
@@ -16,6 +16,10 @@ use tauri::Manager;
 #[derive(Default, Debug)]
 pub(crate) struct RestoreGuardState {
     is_active: AtomicBool,
+    /// Bumped on every successful engage. A restore-point capture that does not hold the graph lease for
+    /// its whole walk reads it before and after: a changed epoch (or an active restore) means a restore ran
+    /// between two of its documents, so the half-and-half result must be refused.
+    epoch: AtomicU64,
     detail: Mutex<Option<RestoreGuardDetail>>,
 }
 
@@ -57,6 +61,7 @@ impl RestoreGuardState {
                 .unwrap_or_default();
             return Err(format!("another restore is already in progress{summary}"));
         }
+        self.epoch.fetch_add(1, Ordering::AcqRel);
         let mut slot = self
             .detail
             .lock()
@@ -77,6 +82,11 @@ impl RestoreGuardState {
 
     pub(crate) fn is_active(&self) -> bool {
         self.is_active.load(Ordering::Acquire)
+    }
+
+    /// Number of restores engaged so far in this process.
+    pub(crate) fn epoch(&self) -> u64 {
+        self.epoch.load(Ordering::Acquire)
     }
 
     pub(crate) fn current_detail(&self) -> Option<RestoreGuardDetail> {
@@ -159,6 +169,18 @@ mod tests {
         assert!(!state.is_active());
         // After drop, a fresh engage works.
         let _lease2 = state.try_engage(detail()).expect("re-engage after drop");
+    }
+
+    #[test]
+    fn epoch_counts_engagements_even_after_they_finish() {
+        let state = Arc::new(RestoreGuardState::default());
+        assert_eq!(state.epoch(), 0);
+        drop(state.try_engage(detail()).expect("engage"));
+        assert!(!state.is_active());
+        assert_eq!(state.epoch(), 1, "a finished restore must still be visible");
+        let _held = state.try_engage(detail()).expect("engage again");
+        assert!(state.try_engage(detail()).is_err());
+        assert_eq!(state.epoch(), 2, "a refused engage must not bump the epoch");
     }
 
     #[test]
