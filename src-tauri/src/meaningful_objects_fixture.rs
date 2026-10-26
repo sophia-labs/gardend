@@ -94,7 +94,8 @@ use crate::graph_service::{create_graph_service, CreateGraphInput};
 // The reconcile + materializer engine fns, reached crate-internally. Each of
 // these lives in a TOP-LEVEL module, so `pub(super)` == crate-reachable here.
 use crate::document_meaningful_object::{
-    face_desired_triples, reconcile_document_record, survey_document_projection, Face,
+    face_desired_triples, reconcile_document_record, survey_document_faces, survey_document_projection,
+    survey_face_span, Face,
 };
 use crate::geist_song_rdf::{materialize_song_store, reconcile_song_store};
 use crate::geist_song_store::read_song_store;
@@ -1175,6 +1176,84 @@ fn cartographers_notebook_meaningful_object_pipeline() {
 /// INDEPENDENT oracle for the graph-metadata DESIRED set: the 8 triples built
 /// straight from the `GraphRecord` fields + namespace constants (the Rust image
 /// of Lean `graphMetaTriples`). Never touches a materializer.
+/// O3 on a real document: the one-pass survey of a document written through the
+/// real CRDT engine returns, face by face, the rows of the SPARQL FILTER survey,
+/// before and after an edit, and the reconcile built on it still converges.
+#[test]
+fn one_pass_survey_matches_the_sparql_survey_on_a_real_document() {
+    with_profile("one-pass-survey", || {
+        let app = mock_app();
+        let graph_id = "one-pass-survey";
+        create_graph_service(
+            &app,
+            CreateGraphInput {
+                graph_id: Some(graph_id.to_string()),
+                title: "One-pass survey".to_string(),
+                description: None,
+                operation_id: None,
+            },
+        )
+        .expect("create graph");
+
+        write_doc(
+            &app,
+            graph_id,
+            "notes",
+            "Notes",
+            "# Notes\n\nFirst paragraph.\n\n- a list item\n- another item\n\nLast paragraph.",
+        );
+        let v1 = read_record(&app, graph_id, "notes");
+        let store = Store::new().expect("store");
+
+        for record in [&v1] {
+            reconcile_document_record(&store, record).expect("reconcile");
+            let one_pass =
+                survey_document_faces(&store, graph_id, "notes", &record.rdf_subject)
+                    .expect("one-pass survey");
+            for (index, &face) in Face::ALL.iter().enumerate() {
+                let sparql = survey_face_span(&store, graph_id, "notes", face, &record.rdf_subject)
+                    .expect("sparql survey");
+                assert_eq!(one_pass[index].len(), sparql.len(), "{face:?}");
+                assert_eq!(
+                    canon_of_triples(&one_pass[index]),
+                    canon_of_triples(&sparql),
+                    "{face:?}: one-pass == SPARQL survey"
+                );
+            }
+        }
+
+        write_doc(
+            &app,
+            graph_id,
+            "notes",
+            "Notes",
+            "# Notes\n\nFirst paragraph, edited.\n\nA new middle paragraph.\n\nLast paragraph.",
+        );
+        let v2 = read_record(&app, graph_id, "notes");
+        assert_ne!(v1.body, v2.body);
+        let delta = reconcile_document_record(&store, &v2).expect("reconcile edit");
+        assert!(delta.op_count() > 0);
+        let one_pass = survey_document_faces(&store, graph_id, "notes", &v2.rdf_subject)
+            .expect("one-pass survey after edit");
+        let surveyed: Vec<_> = one_pass.into_iter().flatten().collect();
+        let desired: Vec<_> = Face::ALL
+            .iter()
+            .flat_map(|&face| face_desired_triples(face, &v2))
+            .collect();
+        assert_eq!(
+            canon_of_triples(&surveyed),
+            canon_of_triples(&desired),
+            "after the reconcile the surveyed footprint is the desired one"
+        );
+        assert_eq!(
+            reconcile_document_record(&store, &v2)
+                .expect("converge")
+                .op_count(),
+            0
+        );
+    });
+}
+
 fn graph_meta_oracle(graph: &GraphRecord) -> BTreeSet<(String, String, CanonValue)> {
     let s = graph_subject(&graph.graph_id);
     let lit = |v: &str| canon_value(&Term::Lit(oxigraph::model::Literal::new_simple_literal(v)));

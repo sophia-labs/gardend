@@ -518,9 +518,12 @@ pub(crate) fn survey_document_projection(
     survey_with_filter(store, graph_id, document_id, &filter)
 }
 
-/// Survey the live per-doc projection graph scoped to ONE face's [`OwnedSpan`].
-/// Used by the per-face reconcile loop.
-fn survey_face_span(
+/// Survey the live per-doc projection graph scoped to ONE face's [`OwnedSpan`]
+/// with the SPARQL `FILTER` survey. The reconcile no longer uses it
+/// ([`survey_document_faces`] reads the graph once); it is kept as the oracle
+/// the one-pass survey is tested against.
+#[cfg(test)]
+pub(crate) fn survey_face_span(
     store: &Store,
     graph_id: &str,
     document_id: &str,
@@ -557,6 +560,93 @@ fn full_reclaim_filter(subject: &str) -> String {
         .map(|face| format!("( {} )", face.owned_span(subject).filter_clause()))
         .collect::<Vec<_>>()
         .join("\n      || ")
+}
+
+/// Survey the live per-doc projection graph for EVERY face in one pass: one
+/// `quads_for_pattern` over the document's named graph, each quad routed in Rust to
+/// the faces whose [`OwnedSpan`] covers it. Returns one `Vec<Triple>` per face, in
+/// [`Face::ALL`] order.
+///
+/// Replaces four `SELECT ?s ?p ?o ... FILTER(STRSTARTS(STR(?s), ..) || ..)` queries
+/// (one per face), each of which scanned the whole graph, parsed SPARQL, built a
+/// solution map per row and forced an id2str read for `STR(?s)`. The membership
+/// rule is the filter's, evaluated on the decoded quad: a subject starting with
+/// `{fragment_subject}#`, or the bare subject with one of the face's co-managed
+/// predicates. A blank-node subject matches neither (as `STR(bnode)` is an error
+/// in the filter). Objects go through the same `to_string` -> [`parse_term`] round
+/// trip as before, so surveyed terms compare identically to desired ones. The bare
+/// faces (a handful of quads, including the large body and tiptapXml literals) fall
+/// out of the same pass, so those literals are decoded once, not once per face.
+pub(crate) fn survey_document_faces(
+    store: &Store,
+    graph_id: &str,
+    document_id: &str,
+    subject: &str,
+) -> Result<Vec<Vec<Triple>>, String> {
+    use oxigraph::model::{GraphNameRef, NamedNodeRef, NamedOrBlankNode};
+
+    let graph = document_projection_graph_iri(graph_id, document_id);
+    let graph = NamedNodeRef::new(&graph).map_err(|e| format!("document survey graph: {e}"))?;
+
+    struct FaceScope {
+        fragment_prefix: Option<String>,
+        bare_subject: String,
+        bare_predicates: Vec<String>,
+    }
+    let scopes: Vec<FaceScope> = Face::ALL
+        .iter()
+        .map(|face| {
+            let span = face.owned_span(subject);
+            FaceScope {
+                fragment_prefix: span.fragment_subject.map(|frag| format!("{frag}#")),
+                bare_subject: span.bare_subject,
+                bare_predicates: span.bare_predicates,
+            }
+        })
+        .collect();
+
+    let mut per_face: Vec<Vec<Triple>> = vec![Vec::new(); scopes.len()];
+    for quad in store.quads_for_pattern(
+        None,
+        None,
+        None,
+        Some(GraphNameRef::NamedNode(graph)),
+    ) {
+        let quad = quad.map_err(|e| format!("document survey row: {e}"))?;
+        let NamedOrBlankNode::NamedNode(quad_subject) = &quad.subject else {
+            continue;
+        };
+        let quad_subject = quad_subject.as_str();
+        let quad_predicate = quad.predicate.as_str();
+        let mut covering: Vec<usize> = Vec::new();
+        for (index, scope) in scopes.iter().enumerate() {
+            let covered = scope
+                .fragment_prefix
+                .as_deref()
+                .is_some_and(|prefix| quad_subject.starts_with(prefix))
+                || (quad_subject == scope.bare_subject
+                    && scope
+                        .bare_predicates
+                        .iter()
+                        .any(|predicate| predicate == quad_predicate));
+            if covered {
+                covering.push(index);
+            }
+        }
+        let Some((&last, rest)) = covering.split_last() else {
+            continue;
+        };
+        let triple: Triple = (
+            quad_subject.to_string(),
+            quad_predicate.to_string(),
+            parse_term(&quad.object.to_string()),
+        );
+        for &index in rest {
+            per_face[index].push(triple.clone());
+        }
+        per_face[last].push(triple);
+    }
+    Ok(per_face)
 }
 
 /// Run one survey SELECT scoped by a pre-rendered FILTER body.
@@ -716,20 +806,18 @@ pub(crate) fn reconcile_document_record(
     // predicates). Because the spans are disjoint, surveying each and unioning is
     // equivalent to one union-span survey, and lets each face declare its own
     // scope — the composition is purely additive.
-    let mut current: Vec<Triple> = Vec::new();
-    let mut desired: Vec<Triple> = Vec::new();
-    for &face in Face::ALL {
-        current.extend(survey_face_span(
-            store,
-            &document.graph_id,
-            &document.document_id,
-            face,
-            &subject,
-        )?);
+    let surveyed = {
+        let _survey = tracing::info_span!(target: "gardend_otel", "document.rdf.survey").entered();
+        survey_document_faces(store, &document.graph_id, &document.document_id, &subject)?
+    };
+    let mut current: Vec<Triple> = Vec::with_capacity(surveyed.iter().map(Vec::len).sum());
+    for face_rows in surveyed {
+        current.extend(face_rows);
     }
     // The tree triples are built once: the tree face projects them and the
     // projection-meta face only needs their count.
     let tree_raw = document_tree_triples(document);
+    let mut desired: Vec<Triple> = Vec::new();
     for &face in Face::ALL {
         match face {
             Face::TreeToRdf => desired.extend(projectable_terms(&tree_raw)),
@@ -748,6 +836,7 @@ pub(crate) fn reconcile_document_record(
     tracing::Span::current().record("sophia.rdf.removes", diff.removes.len() as u64);
 
     // DELETE first, then INSERT (the materializer's order; graph-agnostic bodies).
+    let _apply = tracing::info_span!(target: "gardend_otel", "document.rdf.apply").entered();
     for body in render_updates("DELETE DATA", &diff.removes, 60) {
         run_document_update(store, &document.graph_id, &document.document_id, &body)?;
     }
@@ -1090,25 +1179,6 @@ mod tests {
         );
     }
 
-    /// O13: the reconcile builds the tree triples once; the projection-meta face
-    /// fed the tree face's count yields the same triple as the self-contained one.
-    #[test]
-    fn projection_meta_from_a_known_count_equals_the_self_contained_face() {
-        let rec = document_record_with_text("count once");
-        let count = document_tree_triples(&rec).len();
-        assert!(count > 0);
-        let canon = |triples: &[Triple]| -> BTreeSet<(String, String, CanonValue)> {
-            triples
-                .iter()
-                .map(|(s, p, o)| (s.clone(), p.clone(), canon_value(o)))
-                .collect()
-        };
-        assert_eq!(
-            canon(&document_projection_meta_triples_for_count(&rec, count)),
-            canon(&document_projection_meta_triples(&rec))
-        );
-    }
-
     /// The projection-meta face emits EXACTLY the 1 `rdfTripleCount` triple, equal
     /// to `|document_tree_triples|` (tree-only) as an `xsd:integer`.
     #[test]
@@ -1262,6 +1332,126 @@ mod tests {
         assert!(
             bare.is_disjoint(&old_set),
             "the 10 bare-subject triples are absent from the OLD footprint"
+        );
+    }
+
+    // ── one-pass survey vs the SPARQL FILTER survey (O3) ─────────────────────
+
+    fn canon_triples(triples: &[Triple]) -> BTreeSet<(String, String, CanonValue)> {
+        triples
+            .iter()
+            .map(|(s, p, o)| (s.clone(), p.clone(), canon_value(o)))
+            .collect()
+    }
+
+    /// The one-pass survey must return, face by face, exactly the rows the
+    /// SPARQL `FILTER(STRSTARTS(STR(?s), ..) || ..)` survey returns, including
+    /// when the graph holds rows the faces must NOT claim: a foreign predicate on
+    /// the bare subject, a blank-node subject, a subject that only shares the
+    /// prefix without the `#`, and the same subject in another graph.
+    #[test]
+    fn one_pass_survey_matches_the_sparql_filter_survey_face_by_face() {
+        use oxigraph::model::{BlankNode, Literal, NamedNode, Quad};
+
+        let rec = document_record_with_text("hello one-pass survey");
+        let store = Store::new().expect("store");
+        reconcile_document_record(&store, &rec).expect("seed full footprint");
+
+        let graph = NamedNode::new(document_projection_graph_iri(GRAPH, DOC)).expect("graph iri");
+        let other_graph = NamedNode::new_unchecked(format!(
+            "{}:other",
+            document_projection_graph_iri(GRAPH, DOC)
+        ));
+        let subject = NamedNode::new(rec.rdf_subject.clone()).expect("subject iri");
+        let mnemo = |local: &str| NamedNode::new_unchecked(format!("{MNEMO_NS}{local}"));
+        let noise = [
+            // bare subject, a predicate no face co-manages
+            Quad::new(
+                subject.clone(),
+                NamedNode::new_unchecked("http://example.org/foreign"),
+                Literal::from("not claimed"),
+                graph.clone(),
+            ),
+            // an extra fragment subject (claimed by the tree face)
+            Quad::new(
+                NamedNode::new_unchecked(format!("{}#stale-fragment", rec.rdf_subject)),
+                mnemo("stale"),
+                Literal::from("claimed by the tree face"),
+                graph.clone(),
+            ),
+            // blank-node subject: the filter's STR(?s) errors, so no face claims it
+            Quad::new(
+                BlankNode::default(),
+                mnemo("body"),
+                Literal::from("blank"),
+                graph.clone(),
+            ),
+            // shares the subject text as a prefix but not the `#` namespace
+            Quad::new(
+                NamedNode::new_unchecked(format!("{}-sibling#x", rec.rdf_subject)),
+                mnemo("body"),
+                Literal::from("sibling"),
+                graph.clone(),
+            ),
+            // a stale value on a co-managed bare predicate (still claimed)
+            Quad::new(
+                subject.clone(),
+                mnemo("body"),
+                Literal::from("a stale second body"),
+                graph.clone(),
+            ),
+            // the same bare subject and predicate in another graph
+            Quad::new(
+                subject.clone(),
+                mnemo("body"),
+                Literal::from("other graph"),
+                other_graph,
+            ),
+        ];
+        for quad in &noise {
+            store.insert(quad).expect("insert noise quad");
+        }
+
+        let one_pass = survey_document_faces(&store, GRAPH, DOC, &rec.rdf_subject)
+            .expect("one-pass survey");
+        assert_eq!(one_pass.len(), Face::ALL.len());
+        for (index, &face) in Face::ALL.iter().enumerate() {
+            let sparql = survey_face_span(&store, GRAPH, DOC, face, &rec.rdf_subject)
+                .expect("sparql survey");
+            assert_eq!(
+                one_pass[index].len(),
+                sparql.len(),
+                "{face:?}: same number of rows"
+            );
+            assert_eq!(
+                canon_triples(&one_pass[index]),
+                canon_triples(&sparql),
+                "{face:?}: same rows by value"
+            );
+        }
+        assert!(!one_pass[0].is_empty(), "the tree face found its fragments");
+        assert!(one_pass[0]
+            .iter()
+            .any(|(s, _, _)| s.ends_with("#stale-fragment")));
+        assert!(
+            one_pass
+                .iter()
+                .flatten()
+                .all(|(_, p, _)| p != "http://example.org/foreign"),
+            "a foreign bare predicate is claimed by no face"
+        );
+    }
+
+    /// O13: the reconcile builds the tree triples once; the projection-meta face
+    /// fed the tree face's count yields the same triple as the self-contained one.
+    #[test]
+    fn projection_meta_from_a_known_count_equals_the_self_contained_face() {
+        let rec = document_record_with_text("count once");
+        let count = document_tree_triples(&rec).len();
+        assert!(count > 0);
+        assert_eq!(
+            canon_triples(&document_projection_meta_triples_for_count(&rec, count)),
+            canon_triples(&document_projection_meta_triples(&rec))
         );
     }
 
