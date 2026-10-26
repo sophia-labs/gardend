@@ -13,5 +13,5 @@ export const cases = [
     { needs: [], setup: (ctx) => ctx.mcp('create_document', { graphId: ctx.graphId, title: 'gbench write target', documentId: `gb-${ctx.tag}-wd`, ...parent(ctx) }) }),
   mk('write.create_wires', [[8, 2], [40, 3]], (ctx, i) => ctx.mcp('create_wires', { graphId: ctx.graphId, sourceDocumentId: small(ctx, i).id, targetDocumentId: small(ctx, i * 3 + 5).id, predicate: 'relatesTo' })),
   mk('write.create_folder', [[6, 1], [30, 2]], (ctx, i) => ctx.mcp('create_folder', { graphId: ctx.graphId, name: `gbench shelf ${ctx.tag} ${i}`, folderId: `gb-${ctx.tag}-f${i}`, ...parent(ctx) }), { needs: [] }),
-  mk('write.create_restore_point', [[2, 0], [10, 1]], (ctx, i) => ctx.mcp('create_restore_point', { graphId: ctx.graphId, label: `gbench ${ctx.tag} ${i}` }), { needs: [] }),
+  mk('write.create_restore_point', [[2, 0], [6, 0]], (ctx, i) => ctx.mcp('create_restore_point', { graphId: ctx.graphId, label: `gbench ${ctx.tag} ${i}` }), { needs: [] }),
 ]
