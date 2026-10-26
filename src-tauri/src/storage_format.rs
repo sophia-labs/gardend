@@ -24,6 +24,11 @@ mod tests {
     const PINNED_AT_FORMAT_1: &[&str] = &[
         "artifact_revisions.rs:SCHEMA_VERSION=1",
         "crdt_engine/block_ops.rs:LEDGER_SCHEMA_VERSION=1.0",
+        // The projection stamp (2026-10-25, perf fence): an additive, advisory file at format 1.
+        // `history/projection-stamp.json` names the sidecar and record by (len, mtime, inode); a
+        // binary that predates it ignores it, and any rewrite of either file by any binary changes
+        // that identity, so a stale stamp can only fail to match, which is the old slow path.
+        "crdt_engine/projection_stamp.rs:STAMP_SCHEMA_VERSION=1",
         "crdt_operation_journal.rs:CRDT_OPERATION_JOURNAL_SCHEMA_VERSION=1",
         "document_history_store.rs:DOCUMENT_TAIL_COMMIT_SCHEMA_VERSION=2",
         "document_history_store.rs:HISTORY_STORE_SCHEMA_VERSION=3",

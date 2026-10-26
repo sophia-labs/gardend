@@ -67,6 +67,10 @@ fn with_env(test: impl FnOnce(&Env)) {
     }
 }
 
+/// The paragraph carries its own `data-block-id`: a `tiptapJson` write owns its
+/// ids, and gardend mints none for it, so an id-less block would be given a
+/// fresh random id by every projection and could never be addressed in the room
+/// (a pre-existing engine gap, filed separately; not what these tests are about).
 fn make_document(env: &Env, document_id: &str, text: &str) {
     run(
         crate::mcp_workspace_crdt_service::mcp_local_create_document(
@@ -79,7 +83,8 @@ fn make_document(env: &Env, document_id: &str, text: &str) {
         env.app.clone(),
         &json!({"graph_id": GRAPH, "document_id": document_id,
         "tiptapJson": {"type": "doc", "content": [
-            {"type": "paragraph", "content": [{"type": "text", "text": text}]}
+            {"type": "paragraph", "attrs": {"data-block-id": format!("block-{document_id}")},
+             "content": [{"type": "text", "text": text}]}
         ]}}),
     ))
     .unwrap();
