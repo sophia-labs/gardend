@@ -15,7 +15,7 @@ use std::collections::HashMap;
 
 use crate::app_runtime::AppHandle;
 use crate::{
-    document_service::read_graph_documents_cold,
+    document_service::{read_graph_document_summaries, read_graph_documents_cold},
     json_utils::json_number,
     mcp_utils::{
         mcp_arg_bool, mcp_arg_string, mcp_arg_usize, mcp_query_terms, mcp_required_graph_id,
@@ -47,10 +47,10 @@ pub(super) fn mcp_local_search_documents(
     let queries = mcp_query_terms(arguments)?;
     let mode = mcp_arg_string(arguments, &["mode"]).unwrap_or_else(|| "auto".to_string());
     let limit = mcp_arg_usize(arguments, &["limit"], 20).clamp(1, 100);
-    let documents = read_graph_documents_cold(&graph_dir)?;
+    let documents = read_graph_document_summaries(&graph_dir)?;
     let mut scored = Vec::new();
 
-    for document in &documents {
+    for document in documents.iter().map(|document| document.as_ref()) {
         let mut best: Option<(f64, &String)> = None;
         for query in &queries {
             let score = document_match_score(&document.title, &document.document_id, query, &mode)?;
@@ -63,7 +63,7 @@ pub(super) fn mcp_local_search_documents(
         // A whiteboard has no blocks to search; its words live in `body` (the
         // outline), so a title miss still finds the board by what is drawn on it.
         if best.is_none() && crate::whiteboard::is_whiteboard(document.document_kind.as_deref()) {
-            let body = document.body.to_lowercase();
+            let body = document.whiteboard_body.to_lowercase();
             if let Some(query) = queries
                 .iter()
                 .find(|query| !query.trim().is_empty() && body.contains(&query.to_lowercase()))
@@ -89,8 +89,8 @@ pub(super) fn mcp_local_search_documents(
                 "title": document.title,
                 "updated_at": document.updated_at,
                 "updatedAt": document.updated_at,
-                "block_count": document.blocks.len(),
-                "blockCount": document.blocks.len(),
+                "block_count": document.block_count,
+                "blockCount": document.block_count,
                 "rdfTripleCount": document.rdf_triple_count,
                 "score": score,
                 "match": query,
