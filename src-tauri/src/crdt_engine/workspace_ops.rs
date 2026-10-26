@@ -392,8 +392,22 @@ pub(super) async fn apply_classified_with_prior_hot_commit(
                         .unwrap_or_else(|| "isWiredTo".to_string()),
                 }),
             )?;
+            // The snippets come from files on disk. Read them here, before the
+            // workspace room's authority lock is taken, not inside its transaction.
+            let snippets = {
+                let _span = tracing::info_span!(target: "gardend_otel", "wire.endpoint_lookup")
+                    .entered();
+                wire_endpoint_snippets(&graph_dir, &graph_id, &source_id, &value)
+            };
             let data = commit_hot!(update_workspace_doc_checked(&room, |_doc, txn| {
-                    create_workspace_wire_in_doc(txn, &graph_dir, &graph_id, &source_id, &value)
+                    create_workspace_wire_in_doc_with(
+                        txn,
+                        &graph_dir,
+                        &graph_id,
+                        &source_id,
+                        &value,
+                        &snippets,
+                    )
                 }));
             let wire_id = data
                 .get("wireId")
@@ -1982,12 +1996,64 @@ fn create_hosted_artifact_response(graph_id: &str, artifact_id: &str, data: &Val
 /// Port of createWorkspaceWire (native-local-runtime.ts:2027). Returns the
 /// wire `data` object (camelCase) plus a `wireId` field; the caller builds the
 /// hosted response from it.
+#[cfg(test)]
 fn create_workspace_wire_in_doc(
     txn: &mut TransactionMut<'_>,
     graph_dir: &Path,
     graph_id: &str,
     source_id: &str,
     value: &JsonMap<String, Value>,
+) -> Result<Value, String> {
+    let snippets = wire_endpoint_snippets(graph_dir, graph_id, source_id, value);
+    create_workspace_wire_in_doc_with(txn, graph_dir, graph_id, source_id, value, &snippets)
+}
+
+/// The display snippets of a new wire's two document ends, which are read from
+/// the documents' files and so do not belong inside the workspace transaction.
+struct WireEndpointSnippets {
+    source: Option<String>,
+    target: Option<String>,
+}
+
+/// Resolve [`WireEndpointSnippets`] by the rule `create_workspace_wire_in_doc_with`
+/// applies: a document end is described, an IRI end is not, and a target in
+/// another graph is not.
+fn wire_endpoint_snippets(
+    graph_dir: &Path,
+    graph_id: &str,
+    source_id: &str,
+    value: &JsonMap<String, Value>,
+) -> WireEndpointSnippets {
+    let source_iri = string_value(pick(value, &["sourceIri", "source_iri"]));
+    let target_iri = string_value(pick(value, &["targetIri", "target_iri"]));
+    let named_target = string_value(pick(value, &["targetDocumentId", "target_document_id"]));
+    let target_graph_id = string_value(pick(value, &["targetGraphId", "target_graph_id"]))
+        .unwrap_or_else(|| graph_id.to_string());
+    let source_block_id = string_value(pick(value, &["sourceBlockId", "source_block_id"]))
+        .filter(|_| source_iri.is_none());
+    let target_block_id = string_value(pick(value, &["targetBlockId", "target_block_id"]))
+        .filter(|_| target_iri.is_none());
+    let source = if source_iri.is_none() {
+        document_snippet(graph_dir, source_id, source_block_id.as_deref())
+    } else {
+        None
+    };
+    let target = match (&target_iri, named_target) {
+        (None, Some(target_document_id)) if target_graph_id == graph_id => {
+            document_snippet(graph_dir, &target_document_id, target_block_id.as_deref())
+        }
+        _ => None,
+    };
+    WireEndpointSnippets { source, target }
+}
+
+fn create_workspace_wire_in_doc_with(
+    txn: &mut TransactionMut<'_>,
+    graph_dir: &Path,
+    graph_id: &str,
+    source_id: &str,
+    value: &JsonMap<String, Value>,
+    snippets: &WireEndpointSnippets,
 ) -> Result<Value, String> {
     let source_iri = string_value(pick(value, &["sourceIri", "source_iri"]));
     let target_iri = string_value(pick(value, &["targetIri", "target_iri"]));
@@ -2036,7 +2102,7 @@ fn create_workspace_wire_in_doc(
     } else {
         (
             lookup_document_title(&*txn, graph_dir, source_id),
-            document_snippet(graph_dir, source_id, source_block_id.as_deref()),
+            snippets.source.clone(),
         )
     };
     let (target_title, target_snippet) = match &target_document_id {
@@ -2046,7 +2112,7 @@ fn create_workspace_wire_in_doc(
         ),
         Some(target_document_id) if target_graph_id == graph_id => (
             lookup_document_title(&*txn, graph_dir, target_document_id),
-            document_snippet(graph_dir, target_document_id, target_block_id.as_deref()),
+            snippets.target.clone(),
         ),
         Some(_) => (None, None),
     };
@@ -2299,12 +2365,42 @@ fn lookup_document_title<T: ReadTxn>(
 /// Port of documentSnippet (native-local-runtime.ts:1964), reading the
 /// document.json record (the runtime's in-memory record cache equivalent).
 fn document_snippet(graph_dir: &Path, document_id: &str, block_id: Option<&str>) -> Option<String> {
+    let manifest_path = graph_dir
+        .join("documents")
+        .join(document_id)
+        .join("document.json");
+    if !manifest_path.is_file() {
+        return None;
+    }
+    // The blocks live in a small side file of their own (`blocks.json`, written
+    // beside every record); a snippet almost always comes from them. Only a
+    // document with no block text falls back to the body, and that needs the
+    // whole record.
+    let side_blocks: Option<Vec<Value>> =
+        crate::storage::read_json(
+            &crate::ydoc_paths::document_ydoc_dir(graph_dir, document_id).join("blocks.json"),
+        )
+            .ok();
+    if let Some(snippet) = side_blocks
+        .as_deref()
+        .and_then(|blocks| block_snippet(blocks, block_id))
+    {
+        return Some(snippet);
+    }
     let record = document_record_json(graph_dir, document_id)?;
     let empty: Vec<Value> = Vec::new();
     let blocks = record
         .get("blocks")
         .and_then(Value::as_array)
         .unwrap_or(&empty);
+    block_snippet(blocks, block_id).or_else(|| {
+        string_value(record.get("body")).map(|text| js_slice(&text, 240))
+    })
+}
+
+/// The snippet a document's blocks give: the named block's text, else the first
+/// block with text; `None` when no block has any.
+fn block_snippet(blocks: &[Value], block_id: Option<&str>) -> Option<String> {
     if let Some(block_id) = block_id {
         let block = blocks.iter().map(object_payload).find(|item| {
             string_value(pick(item, &["id", "blockId", "block_id"])).as_deref() == Some(block_id)
@@ -2315,14 +2411,12 @@ fn document_snippet(graph_dir: &Path, document_id: &str, block_id: Option<&str>)
             }
         }
     }
-    let first_block = blocks
+    blocks
         .iter()
         .map(object_payload)
-        .find(|item| string_value(pick(item, &["content", "text"])).is_some());
-    let fallback = first_block
+        .find(|item| string_value(pick(item, &["content", "text"])).is_some())
         .and_then(|block| string_value(pick(&block, &["content", "text"])))
-        .or_else(|| string_value(record.get("body")));
-    fallback.map(|text| js_slice(&text, 240))
+        .map(|text| js_slice(&text, 240))
 }
 
 pub(crate) fn document_record_json(graph_dir: &Path, document_id: &str) -> Option<Value> {
@@ -3961,6 +4055,148 @@ mod tests {
         })
         .unwrap_err();
         assert_eq!(error, "artifact not found: artifact-1");
+    }
+
+    fn write_snippet_fixture(
+        graph_dir: &Path,
+        document_id: &str,
+        manifest: &str,
+        blocks: Option<&str>,
+    ) {
+        let manifest_dir = graph_dir.join("documents").join(document_id);
+        std::fs::create_dir_all(&manifest_dir).expect("manifest dir");
+        std::fs::write(manifest_dir.join("document.json"), manifest).expect("manifest");
+        if let Some(blocks) = blocks {
+            let ydoc_dir = crate::ydoc_paths::document_ydoc_dir(graph_dir, document_id);
+            std::fs::create_dir_all(&ydoc_dir).expect("ydoc dir");
+            std::fs::write(ydoc_dir.join("blocks.json"), blocks).expect("blocks.json");
+        }
+    }
+
+    #[test]
+    fn wire_snippets_come_from_the_blocks_side_file_without_parsing_the_manifest() {
+        let dir = std::env::temp_dir().join(format!("sophia-snippet-{}", Uuid::new_v4()));
+        let long = "x".repeat(300);
+        // The manifest is not valid JSON: if the snippet parsed it, it would be None.
+        write_snippet_fixture(
+            &dir,
+            "doc-a",
+            "{ this manifest would not parse",
+            Some(&format!(
+                r#"[{{"id":"b1","content":"first text"}},{{"id":"b2","content":"{long}"}},{{"id":"b3"}}]"#
+            )),
+        );
+        assert_eq!(
+            document_snippet(&dir, "doc-a", None).as_deref(),
+            Some("first text")
+        );
+        assert_eq!(
+            document_snippet(&dir, "doc-a", Some("b2")),
+            Some("x".repeat(240)),
+            "a named block, cut at 240 characters"
+        );
+        assert_eq!(
+            document_snippet(&dir, "doc-a", Some("b3")).as_deref(),
+            Some("first text"),
+            "a named block with no text falls back to the first block with text"
+        );
+        assert_eq!(
+            document_snippet(&dir, "doc-a", Some("nope")).as_deref(),
+            Some("first text")
+        );
+
+        // No block has text: the body of the full record is the snippet.
+        write_snippet_fixture(
+            &dir,
+            "doc-b",
+            r#"{"title":"B","body":"the body text","blocks":[{"id":"b1"}]}"#,
+            Some(r#"[{"id":"b1"}]"#),
+        );
+        assert_eq!(
+            document_snippet(&dir, "doc-b", None).as_deref(),
+            Some("the body text")
+        );
+        // No side file at all (a legacy document): the record's own blocks.
+        write_snippet_fixture(
+            &dir,
+            "doc-c",
+            r#"{"title":"C","body":"ignored","blocks":[{"id":"b1","text":"from the record"}]}"#,
+            None,
+        );
+        assert_eq!(
+            document_snippet(&dir, "doc-c", None).as_deref(),
+            Some("from the record")
+        );
+        // No manifest: no snippet, even with a side file.
+        let ydoc_dir = crate::ydoc_paths::document_ydoc_dir(&dir, "doc-d");
+        std::fs::create_dir_all(&ydoc_dir).expect("ydoc dir");
+        std::fs::write(ydoc_dir.join("blocks.json"), r#"[{"id":"b","content":"x"}]"#)
+            .expect("blocks.json");
+        assert_eq!(document_snippet(&dir, "doc-d", None), None);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn precomputed_endpoint_snippets_equal_the_ones_a_wire_would_take_in_the_transaction() {
+        let dir = std::env::temp_dir().join(format!("sophia-wire-snip-{}", Uuid::new_v4()));
+        write_snippet_fixture(
+            &dir,
+            "doc-src",
+            "{}",
+            Some(r#"[{"id":"s1","content":"source words"}]"#),
+        );
+        write_snippet_fixture(
+            &dir,
+            "doc-target",
+            "{}",
+            Some(r#"[{"id":"t1","content":"target one"},{"id":"t2","content":"target two"}]"#),
+        );
+        let doc = Doc::new();
+        with_doc(&doc, |txn| {
+            write_workspace_document(
+                txn,
+                &json!({ "documentId": "doc-src", "title": "Source", "order": 1, "updatedAt": 1 }),
+            )
+        })
+        .expect("source doc");
+        let payload = object_payload(&json!({
+            "wireId": "w-1",
+            "targetDocumentId": "doc-target",
+            "sourceBlockId": "s1",
+            "targetBlockId": "t2",
+            "updatedAt": 1_700_000_000_000i64,
+        }));
+        let snippets = wire_endpoint_snippets(&dir, "graph-a", "doc-src", &payload);
+        assert_eq!(snippets.source.as_deref(), Some("source words"));
+        assert_eq!(snippets.target.as_deref(), Some("target two"));
+        let data = with_doc(&doc, |txn| {
+            create_workspace_wire_in_doc_with(txn, &dir, "graph-a", "doc-src", &payload, &snippets)
+        })
+        .expect("create wire");
+        assert_eq!(data["sourceSnippet"], "source words");
+        assert_eq!(data["targetSnippet"], "target two");
+
+        // An IRI target and a target in another graph take no snippet.
+        let iri = object_payload(&json!({
+            "wireId": "w-2",
+            "targetIri": "https://example.org/x",
+            "updatedAt": 1_700_000_000_000i64,
+        }));
+        assert_eq!(
+            wire_endpoint_snippets(&dir, "graph-a", "doc-src", &iri).target,
+            None
+        );
+        let elsewhere = object_payload(&json!({
+            "wireId": "w-3",
+            "targetDocumentId": "doc-target",
+            "targetGraphId": "graph-b",
+            "updatedAt": 1_700_000_000_000i64,
+        }));
+        assert_eq!(
+            wire_endpoint_snippets(&dir, "graph-a", "doc-src", &elsewhere).target,
+            None
+        );
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
