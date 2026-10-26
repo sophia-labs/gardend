@@ -458,10 +458,19 @@ pub(crate) fn document_content_triples(document: &DocumentRecord) -> Vec<Triple>
 /// is no actual ordering coupling: re-deriving `|document_tree_triples|` is
 /// self-contained, so the face is safe at any position in the face list.
 pub(crate) fn document_projection_meta_triples(document: &DocumentRecord) -> Vec<Triple> {
+    document_projection_meta_triples_for_count(document, document_tree_triples(document).len())
+}
+
+/// [`document_projection_meta_triples`] given the tree face's triple count, so a
+/// caller that has already built `document_tree_triples(document)` (the
+/// reconcile does, for the tree face) does not build it a second time.
+fn document_projection_meta_triples_for_count(
+    document: &DocumentRecord,
+    tree_triple_count: usize,
+) -> Vec<Triple> {
     let subject = &document.rdf_subject;
     let mut raw: Vec<RdfTriple> = Vec::with_capacity(PROJECTION_META_PREDICATES.len());
 
-    let tree_triple_count = document_tree_triples(document).len();
     push_integer_triple(
         &mut raw,
         subject,
@@ -717,7 +726,20 @@ pub(crate) fn reconcile_document_record(
             face,
             &subject,
         )?);
-        desired.extend(face_desired_triples(face, document));
+    }
+    // The tree triples are built once: the tree face projects them and the
+    // projection-meta face only needs their count.
+    let tree_raw = document_tree_triples(document);
+    for &face in Face::ALL {
+        match face {
+            Face::TreeToRdf => desired.extend(projectable_terms(&tree_raw)),
+            Face::ProjectionMetaToRdf => desired.extend(
+                document_projection_meta_triples_for_count(document, tree_raw.len()),
+            ),
+            Face::StorageMetadataToRdf | Face::ContentToRdf => {
+                desired.extend(face_desired_triples(face, document))
+            }
+        }
     }
 
     let diff = diff_triples(&current, &desired);
@@ -1065,6 +1087,25 @@ mod tests {
         assert!(
             triples.iter().all(|(s, _, _)| s == &rec.rdf_subject),
             "content triples land on the bare doc subject"
+        );
+    }
+
+    /// O13: the reconcile builds the tree triples once; the projection-meta face
+    /// fed the tree face's count yields the same triple as the self-contained one.
+    #[test]
+    fn projection_meta_from_a_known_count_equals_the_self_contained_face() {
+        let rec = document_record_with_text("count once");
+        let count = document_tree_triples(&rec).len();
+        assert!(count > 0);
+        let canon = |triples: &[Triple]| -> BTreeSet<(String, String, CanonValue)> {
+            triples
+                .iter()
+                .map(|(s, p, o)| (s.clone(), p.clone(), canon_value(o)))
+                .collect()
+        };
+        assert_eq!(
+            canon(&document_projection_meta_triples_for_count(&rec, count)),
+            canon(&document_projection_meta_triples(&rec))
         );
     }
 
