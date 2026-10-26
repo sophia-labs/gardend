@@ -50,7 +50,18 @@ export function pool(runs, runId) {
     const samples = parts.flatMap((p) => p.samples), s = [...samples].sort((a, b) => a - b), q = (p) => { const pos = (s.length - 1) * p, lo = Math.floor(pos), hi = Math.ceil(pos); return s[lo] + (s[hi] - s[lo]) * (pos - lo) }
     const ms = s.length ? { mean: r2(s.reduce((a, b) => a + b, 0) / s.length), p50: r2(q(0.5)), p95: r2(q(0.95)), p99: r2(q(0.99)), max: r2(s.at(-1)), min: r2(s[0]), mad: 0 } : c.ms
     const fp = parts.map((p) => p.server?.fsyncsPerOp?.p50).filter((v) => v != null), lh = parts.map((p) => p.server?.leaseHoldMs?.p95).filter((v) => v != null)
-    return { ...c, samples, n: samples.length, errors: parts.reduce((a, p) => a + p.errors, 0), ms, server: fp.length ? { fsyncsPerOp: { p50: median(fp) }, leaseHoldMs: { p95: median(lh) } } : null }
+    return { ...c, samples, n: samples.length, errors: parts.reduce((a, p) => a + p.errors, 0), ms, traceIds: undefined, params: { ...c.params, pooledRounds: parts.length },
+      server: fp.length ? { ...parts[0].server, fsyncsPerOp: { ...parts[0].server.fsyncsPerOp, p50: median(fp) }, leaseHoldMs: { ...parts[0].server.leaseHoldMs, p95: median(lh) } } : null }
   })
   return { ...base, runId, cases }
+}
+
+// Make a pooled pseudo-run a publishable run: schema-valid, own target, abSitting/abPartner.
+export function pooledRun(runs, { runId, label, abSitting, abPartner }) {
+  const p = pool(runs, runId)
+  return { ...p, runId, label, abSitting, abPartner, pooledFrom: runs.map((r) => r.runId),
+    startedAt: runs.map((r) => r.startedAt).sort()[0], finishedAt: runs.map((r) => r.finishedAt).sort().at(-1),
+    notes: [...(runs[0].notes ?? []), `pooled from ${runs.length} rounds: ${runs.map((r) => r.runId).join(', ')}`],
+    process: { rssStartMB: Math.max(...runs.map((r) => r.process.rssStartMB)), rssPeakMB: Math.max(...runs.map((r) => r.process.rssPeakMB)), rssEndMB: runs.at(-1).process.rssEndMB, cpuUserS: runs.reduce((a, r) => a + r.process.cpuUserS, 0), cpuSysS: runs.reduce((a, r) => a + r.process.cpuSysS, 0) },
+    env: { ...runs[0].env, loadAfter: runs.at(-1).env.loadAfter } }
 }

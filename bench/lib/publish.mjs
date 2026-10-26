@@ -23,6 +23,7 @@ export function runTriples(run, { baseline = false } = {}) {
   add(runIri, B + 'gitRev', lit(run.target.gitRev)); add(runIri, B + 'version', lit(run.target.version))
   if (run.target.binarySha256) add(runIri, B + 'binarySha256', lit(run.target.binarySha256))
   add(runIri, B + 'host', lit(run.env.host)); add(runIri, B + 'loadBefore1m', dec(run.env.loadBefore[0]))
+  if (run.abSitting) add(runIri, B + 'abSitting', lit(run.abSitting)); if (run.abPartner) add(runIri, B + 'abPartner', lit(run.abPartner))
   add(runIri, B + 'rssPeakMB', int(run.process.rssPeakMB)); add(runIri, B + 'isBaseline', `"${baseline}"^^<${XSD}boolean>`)
   for (const c of run.cases) {
     const caseIri = `urn:sophia:bench:case:${iriEsc(c.caseId)}@v${c.caseVersion}`, crIri = `${runIri}/case/${iriEsc(c.caseId)}`

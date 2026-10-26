@@ -28,7 +28,8 @@ function caseResult({ caseId, kind, caseVersion = CASE_VERSION, params, calls, e
 export async function runBench(o) {
   const lg = (...a) => console.error(new Date().toISOString().slice(11, 19), ...a)
   let release, contention = null
-  if (o.measured) { const t = await takeMeasure({ lane: 'core', label: o.label ?? '', log: lg }); release = t.release; contention = t.contention }
+  if (o.holdsLock) release = () => {} // the caller (ab) holds one measure lock for the whole sitting
+  else if (o.measured) { const t = await takeMeasure({ lane: 'core', label: o.label ?? '', log: lg }); release = t.release; contention = t.contention }
   else release = await registerDev({ lane: 'core', label: o.label ?? '', log: lg })
   try { return await runBenchInner({ ...o, _contention: contention }) } finally { release() }
 }
@@ -68,7 +69,7 @@ async function runBenchInner(o) {
       binInfo = { binary: null, binarySha256: null, version: (await client.json('GET', '/health')).json?.status ? 'attached instance' : 'unknown', gitRev: 'unknown' }
     } else {
       bin = o.bin ?? DEFAULT_BIN; binInfo = binaryInfo(bin)
-      fixture = await ensureFixture({ bin, tier, seed, log })
+      fixture = await ensureFixture({ bin: o.fixtureBin ?? bin, tier, seed, log }) // ab: both sides use the fixture keyed by A's gitRev
       manifest = fixture.manifest; G = manifest.graphId
       log(`cloning fixture ${fixture.dir}`)
       cloneProfile(fixture.profile, clone)
