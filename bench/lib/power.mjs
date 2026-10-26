@@ -78,7 +78,9 @@ export async function powerDuring(fromMs, toMs) {
 
 // Sample everyone else's CPU every `everyMs` while a round runs. `ours()` returns pids to exclude (our gardend(s)).
 // ps %cpu on macOS is a decaying recent average: good enough to say "the machine was busy, and with what".
-export function foreignCpuSampler({ everyMs = 5000, ours = () => [] } = {}) {
+// excludeComm: process names that belong to the bench but are not its descendants (macOS launches WebKit's content and GPU
+// processes through launchd, so a GUI bench's own browser would otherwise count as foreign).
+export function foreignCpuSampler({ everyMs = 5000, ours = () => [], excludeComm = null } = {}) {
   const samples = [], byComm = new Map(), self = new Set([process.pid]), cores = os.cpus().length
   let timer = null, busy = false
   const tick = async () => {
@@ -94,7 +96,7 @@ export function foreignCpuSampler({ everyMs = 5000, ours = () => [] } = {}) {
       let tot = 0, oursPct = 0; const seen = new Map()
       for (const { pid, pct, comm } of rows) {
         if (!pct) continue
-        if (skip.has(pid)) { oursPct += pct; continue }
+        if (skip.has(pid) || (excludeComm && excludeComm.test(path.basename(comm)))) { oursPct += pct; continue }
         tot += pct; const c = path.basename(comm); seen.set(c, (seen.get(c) ?? 0) + pct)
       }
       samples.push({ t: Date.now(), foreignPct: Math.round(tot), oursPct: Math.round(oursPct) })
