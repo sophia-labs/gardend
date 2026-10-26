@@ -93,21 +93,23 @@ pub(super) async fn mcp_local_get_workspace(
 
     let total_eligible = eligible.len();
     let start = cursor.min(total_eligible);
-    let mut page_entries = Vec::new();
-    let mut next_offset = start;
-    for entry in eligible.into_iter().skip(start).take(limit) {
-        let mut candidate = page_entries.clone();
-        candidate.push(entry.clone());
-        let candidate_next = start + candidate.len();
+    // Linear page fitting (R9): the entries' own sizes once, then a bisection
+    // over how many fit (a page never shrinks when an entry is added), instead
+    // of rebuilding the page, with every entry cloned into four places, and
+    // serialising it twice per entry.
+    let candidates: Vec<serde_json::Value> =
+        eligible.into_iter().skip(start).take(limit).collect();
+    let sizes = crate::page_fit::row_sizes(&candidates)?;
+    let fitted = crate::page_fit::largest_fitting_prefix(&sizes, max_bytes, |count| {
         let candidate_value = workspace_page_value(
             &graph,
             &workspace,
             snapshot.is_some(),
             depth,
             root_folder.as_deref(),
-            candidate,
+            candidates[..count].to_vec(),
             total_eligible,
-            candidate_next,
+            start + count,
             limit,
             max_bytes,
             folders.len(),
@@ -115,13 +117,10 @@ pub(super) async fn mcp_local_get_workspace(
             artifacts.len(),
             wires.len(),
         );
-        let (_, candidate_bytes) = finalize_serialized_bytes(candidate_value)?;
-        if candidate_bytes > max_bytes {
-            break;
-        }
-        page_entries.push(entry);
-        next_offset = candidate_next;
-    }
+        finalize_serialized_bytes(candidate_value).map(|(_, bytes)| bytes)
+    })?;
+    let page_entries = candidates[..fitted].to_vec();
+    let next_offset = start + fitted;
 
     let response = workspace_page_value(
         &graph,

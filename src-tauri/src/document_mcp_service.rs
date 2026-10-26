@@ -50,18 +50,23 @@ pub(super) fn mcp_local_list_documents(
         .clamp(MIN_LIST_BYTES, MAX_LIST_BYTES);
     let total = documents.len();
     let start = cursor.min(total);
-    let mut page = Vec::new();
-    for document in documents.iter().skip(start).take(limit) {
-        let mut candidate = page.clone();
-        candidate.push(document.clone());
-        let next = start + candidate.len();
-        let candidate_value = document_list_page(candidate, total, start, next, limit, max_bytes);
-        let (_, candidate_bytes) = finalize_document_list_bytes(candidate_value)?;
-        if candidate_bytes > max_bytes {
-            break;
-        }
-        page.push(document.clone());
-    }
+    // Linear page fitting (R9): the rows' own sizes once, then a bisection over
+    // how many fit, instead of rebuilding and serialising the page per row.
+    let candidates: Vec<serde_json::Value> =
+        documents.iter().skip(start).take(limit).cloned().collect();
+    let sizes = crate::page_fit::row_sizes(&candidates)?;
+    let fitted = crate::page_fit::largest_fitting_prefix(&sizes, max_bytes, |count| {
+        let candidate_value = document_list_page(
+            candidates[..count].to_vec(),
+            total,
+            start,
+            start + count,
+            limit,
+            max_bytes,
+        );
+        finalize_document_list_bytes(candidate_value).map(|(_, bytes)| bytes)
+    })?;
+    let page = candidates[..fitted].to_vec();
     let next = start + page.len();
     let response = document_list_page(page, total, start, next, limit, max_bytes);
     let (response, _) = finalize_document_list_bytes(response)?;
@@ -452,5 +457,56 @@ mod tests {
         let (value, bytes) = finalize_document_list_bytes(value).unwrap();
         assert_eq!(value["page"]["serializedBytes"], bytes);
         assert_eq!(serde_json::to_vec(&value).unwrap().len(), bytes);
+    }
+
+    #[test]
+    fn bisected_page_fit_matches_the_row_by_row_scan_on_real_pages() {
+        let rows: Vec<serde_json::Value> = (0..120)
+            .map(|i| {
+                serde_json::json!({
+                    "documentId": format!("doc-{i}"),
+                    "title": "t".repeat(20 + (i * 13) % 90),
+                    "createdAt": "1700000000000",
+                    "updatedAt": "1700000000001",
+                    "blockCount": i,
+                    "rdfTripleCount": i * 3,
+                    "schemaVersion": 3,
+                })
+            })
+            .collect();
+        for max_bytes in [MIN_LIST_BYTES, 10_000, 25_000, DEFAULT_LIST_BYTES] {
+            for start in [0usize, 17] {
+                let limit = 100;
+                let total = rows.len();
+                // The scan the bisection replaced.
+                let mut scanned = Vec::new();
+                for row in rows.iter().skip(start).take(limit) {
+                    let mut candidate = scanned.clone();
+                    candidate.push(row.clone());
+                    let next = start + candidate.len();
+                    let value = document_list_page(candidate, total, start, next, limit, max_bytes);
+                    let (_, bytes) = finalize_document_list_bytes(value).unwrap();
+                    if bytes > max_bytes {
+                        break;
+                    }
+                    scanned.push(row.clone());
+                }
+                let candidates: Vec<_> = rows.iter().skip(start).take(limit).cloned().collect();
+                let sizes = crate::page_fit::row_sizes(&candidates).unwrap();
+                let fitted = crate::page_fit::largest_fitting_prefix(&sizes, max_bytes, |count| {
+                    let value = document_list_page(
+                        candidates[..count].to_vec(),
+                        total,
+                        start,
+                        start + count,
+                        limit,
+                        max_bytes,
+                    );
+                    finalize_document_list_bytes(value).map(|(_, bytes)| bytes)
+                })
+                .unwrap();
+                assert_eq!(fitted, scanned.len(), "max_bytes {max_bytes}, start {start}");
+            }
+        }
     }
 }
