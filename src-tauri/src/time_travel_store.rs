@@ -1,10 +1,14 @@
 use crate::{
     app_error::{AppError, AppResult},
     storage::{read_json, write_json},
-    storage_file_ops::{read_bytes, remove_dir_all, write_bytes},
+    storage_file_ops::{
+        create_dir_all, link_or_copy_deferred_dir_sync, read_bytes, remove_dir_all, sync_dir,
+        write_bytes, write_bytes_deferred_dir_sync,
+    },
     time_travel_paths::{
-        restore_point_dir, restore_point_index_path, restore_point_manifest_path,
-        restore_point_workspace_bytes_path, restore_point_workspace_snapshot_path,
+        restore_point_dir, restore_point_document_bytes_path, restore_point_documents_dir,
+        restore_point_index_path, restore_point_manifest_path, restore_point_workspace_bytes_path,
+        restore_point_workspace_snapshot_path,
     },
     time_travel_types::{
         RestorePointIndex, RestorePointIndexEntry, RestorePointManifest,
@@ -100,6 +104,77 @@ pub(crate) fn read_document_bytes(
         return Ok(Vec::new());
     }
     crate::storage_file_ops::read_bytes(&path).map_err(AppError::storage)
+}
+
+/// Create the (empty) bundle directories of a restore point about to be written with the `_deferred` writers.
+pub(crate) fn prepare_restore_point_dirs(graph_dir: &Path, restore_point_id: &str) -> AppResult<()> {
+    create_dir_all(&restore_point_documents_dir(graph_dir, restore_point_id))
+}
+
+/// `write_document_bytes` without the per-file directory sync; pair with `sync_restore_point_dirs`.
+pub(crate) fn write_document_bytes_deferred(
+    graph_dir: &Path,
+    restore_point_id: &str,
+    document_id: &str,
+    bytes: &[u8],
+) -> AppResult<()> {
+    let path = restore_point_document_bytes_path(graph_dir, restore_point_id, document_id);
+    write_bytes_deferred_dir_sync(&path, bytes)
+}
+
+/// Give `restore_point_id` a document-bytes file that is a hard link to the same document's bytes in
+/// `source_restore_point_id` (a copy where links are unavailable). Returns whether a link was made. The
+/// shared content is freed only when the last restore point naming it is deleted: the filesystem link count
+/// is the reference count, and `delete_restore_point` only ever unlinks its own names.
+pub(crate) fn link_document_bytes_deferred(
+    graph_dir: &Path,
+    source_restore_point_id: &str,
+    restore_point_id: &str,
+    document_id: &str,
+) -> AppResult<bool> {
+    let source =
+        restore_point_document_bytes_path(graph_dir, source_restore_point_id, document_id);
+    let target = restore_point_document_bytes_path(graph_dir, restore_point_id, document_id);
+    link_or_copy_deferred_dir_sync(&source, &target)
+}
+
+/// `write_workspace_bundle` without the per-file directory syncs; pair with `sync_restore_point_dirs`.
+pub(crate) fn write_workspace_bundle_deferred(
+    graph_dir: &Path,
+    restore_point_id: &str,
+    ydoc_bytes: &[u8],
+    snapshot: &serde_json::Value,
+) -> AppResult<()> {
+    let bytes_path = restore_point_workspace_bytes_path(graph_dir, restore_point_id);
+    write_bytes_deferred_dir_sync(&bytes_path, ydoc_bytes)?;
+    // The bytes `write_json` would write: pretty JSON and a newline.
+    let data = serde_json::to_string_pretty(snapshot)
+        .map_err(|error| AppError::serialization(format!("serialize json: {error}")))?;
+    let snapshot_path = restore_point_workspace_snapshot_path(graph_dir, restore_point_id);
+    write_bytes_deferred_dir_sync(&snapshot_path, format!("{data}\n").as_bytes())
+}
+
+/// The one directory sync pair of a restore point: the documents directory (the document files and links),
+/// then the bundle directory (the workspace files and the documents entry). Call before the manifest is
+/// written, so that a manifest on disk implies a durable bundle.
+pub(crate) fn sync_restore_point_dirs(graph_dir: &Path, restore_point_id: &str) -> AppResult<()> {
+    sync_dir(&restore_point_documents_dir(graph_dir, restore_point_id))?;
+    sync_dir(&restore_point_dir(graph_dir, restore_point_id))
+}
+
+/// The newest restore point in the index (ties by id), if any: the one a new capture dedupes against.
+pub(crate) fn newest_index_entry(
+    graph_dir: &Path,
+    graph_id: &str,
+) -> AppResult<Option<RestorePointIndexEntry>> {
+    Ok(read_index(graph_dir, graph_id)?
+        .entries
+        .into_iter()
+        .max_by(|a, b| {
+            a.created_at
+                .cmp(&b.created_at)
+                .then_with(|| a.restore_point_id.cmp(&b.restore_point_id))
+        }))
 }
 
 pub(crate) fn write_manifest(graph_dir: &Path, manifest: &RestorePointManifest) -> AppResult<()> {

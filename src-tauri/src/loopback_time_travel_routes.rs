@@ -131,9 +131,18 @@ async fn loopback_create_restore_point(
         .label
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
-    match capture_restore_point(&state.app, &graph_id, trigger, label) {
-        Ok(value) => (StatusCode::CREATED, Json(value)).into_response(),
-        Err(error) => loopback_app_error(error),
+    // Off the async workers: the capture blocks on the graph lease and does file I/O per document.
+    let app = state.app.clone();
+    let captured = tokio::task::spawn_blocking(crate::telemetry::blocking(move || {
+        capture_restore_point(&app, &graph_id, trigger, label)
+    }))
+    .await;
+    match captured {
+        Ok(Ok(value)) => (StatusCode::CREATED, Json(value)).into_response(),
+        Ok(Err(error)) => loopback_app_error(error),
+        Err(error) => loopback_app_error(crate::app_error::AppError::internal(format!(
+            "restore point worker: {error}"
+        ))),
     }
 }
 

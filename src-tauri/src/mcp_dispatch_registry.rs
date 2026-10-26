@@ -1079,7 +1079,16 @@ fn tramp_get_restore_point<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpH
 
 fn tramp_create_restore_point<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {
     let app = ctx.app.clone();
-    Box::pin(async move { mcp_local_create_restore_point(app, args) })
+    // The capture reads and hashes every document and blocks on the graph lease per document: off the
+    // async workers, so one slow graph cannot park the runtime that serves every other call.
+    Box::pin(async move {
+        let args = args.clone();
+        tokio::task::spawn_blocking(crate::telemetry::blocking(move || {
+            mcp_local_create_restore_point(app, &args)
+        }))
+        .await
+        .map_err(|error| AppError::internal(format!("restore point worker: {error}")))?
+    })
 }
 
 fn tramp_whiteboard_create<'a>(ctx: &'a McpCallCtx<'a>, args: &'a Value) -> McpHandlerFut<'a> {

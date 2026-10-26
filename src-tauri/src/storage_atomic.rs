@@ -101,6 +101,18 @@ pub(crate) fn write_bytes_atomic(
     write_bytes_atomic_with(path, temp_path, bytes, unix_mode, true)
 }
 
+/// `write_bytes_atomic` without the final parent-directory sync: the file's bytes are durable and the rename is
+/// atomic, but the new directory entry is durable only after the caller syncs the directory itself. For a caller
+/// that writes many files into one directory and syncs it once (restore-point bundles).
+pub(crate) fn write_bytes_atomic_no_dir_sync(
+    path: &Path,
+    temp_path: &Path,
+    bytes: &[u8],
+    unix_mode: Option<u32>,
+) -> Result<(), PersistenceError> {
+    write_bytes_atomic_with(path, temp_path, bytes, unix_mode, false)
+}
+
 /// [`write_bytes_atomic`] with the parent-directory sync made optional. The
 /// directory sync only makes a *new name* durable; replacing an existing
 /// entry by rename needs none for the file to be whole after a power cut (the

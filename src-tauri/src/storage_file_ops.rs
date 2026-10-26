@@ -2,6 +2,7 @@ use crate::{
     app_error::{AppError, AppResult},
     storage_atomic::{
         atomic_temp_path, copy_file_atomic_inner, display_path, sync_parent_dir, write_bytes_atomic,
+        write_bytes_atomic_no_dir_sync,
     },
 };
 use std::{
@@ -54,6 +55,46 @@ fn file_holds_exactly(path: &Path, bytes: &[u8]) -> bool {
         _ => return false,
     }
     fs::read(path).is_ok_and(|existing| existing == bytes)
+}
+
+/// `write_bytes` for a bundle writer that syncs the directory itself, once, with `sync_dir`: the parent must
+/// already exist, the bytes are fsynced and the rename atomic, but the directory entry is not yet durable.
+pub fn write_bytes_deferred_dir_sync(path: &Path, bytes: &[u8]) -> AppResult<()> {
+    let temp_path = atomic_temp_path(path);
+    let result =
+        write_bytes_atomic_no_dir_sync(path, &temp_path, bytes, None).map_err(AppError::from);
+    if result.is_err() {
+        let _ = fs::remove_file(&temp_path);
+    }
+    result
+}
+
+/// Hard-link `source` as `target` (a new name for the same durable bytes, no data written), falling back to a
+/// byte copy where the filesystem refuses links. The target's directory entry is not durable until the caller
+/// syncs the directory. `target` must not exist. Returns whether a link (true) or a copy (false) was made.
+///
+/// Sound only for files that are never rewritten in place: every writer in this crate replaces by
+/// temp-file-plus-rename, which gives the replacement a new inode and leaves other links untouched.
+pub fn link_or_copy_deferred_dir_sync(source: &Path, target: &Path) -> AppResult<bool> {
+    match fs::hard_link(source, target) {
+        Ok(()) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Err(AppError::from(crate::app_error::PersistenceError::io(
+                error,
+                format!("link {} to {}", display_path(source), display_path(target)),
+            )))
+        }
+        Err(_) => {
+            let bytes = read_bytes(source)?;
+            write_bytes_deferred_dir_sync(target, &bytes)?;
+            Ok(false)
+        }
+    }
+}
+
+/// Make the directory's entries (new names, renames) durable.
+pub fn sync_dir(path: &Path) -> AppResult<()> {
+    sync_parent_dir(path).map_err(AppError::from)
 }
 
 pub fn copy_file_atomic(source: &Path, target: &Path) -> AppResult<u64> {

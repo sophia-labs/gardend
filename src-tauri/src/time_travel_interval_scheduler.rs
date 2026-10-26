@@ -90,6 +90,14 @@ fn tick_once(app: &AppHandle) -> Result<TickSummary, String> {
         return Ok(TickSummary::default());
     }
     let graphs = scheduled_graphs(app)?;
+    let tick_span = tracing::info_span!(
+        target: "gardend_otel",
+        "time_travel.interval.tick",
+        sophia.tick.graphs = graphs.len() as u64,
+        sophia.tick.captured = tracing::field::Empty,
+        sophia.tick.skipped_unchanged = tracing::field::Empty,
+    );
+    let _tick_entered = tick_span.enter();
     let mut summary = TickSummary::default();
     for graph in graphs {
         match graph_needs_interval_capture(app, &graph) {
@@ -115,6 +123,8 @@ fn tick_once(app: &AppHandle) -> Result<TickSummary, String> {
             summary.captured += 1;
         }
     }
+    tick_span.record("sophia.tick.captured", summary.captured as u64);
+    tick_span.record("sophia.tick.skipped_unchanged", summary.skipped_unchanged as u64);
     Ok(summary)
 }
 
@@ -198,4 +208,125 @@ fn enforce_interval_retention(app: &AppHandle, graph_id: &str) -> Result<(), Str
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::crdt_queue::{enqueue_crdt_operation, EnqueueCrdtOperationInput};
+    use crate::graph_service::{create_graph_service, CreateGraphInput};
+    use serde_json::json;
+
+    fn write_document(app: &AppHandle, graph_id: &str, document_id: &str, text: &str) {
+        crate::app_runtime::async_runtime::block_on(enqueue_crdt_operation(
+            app.clone(),
+            EnqueueCrdtOperationInput {
+                kind: "document.write".to_string(),
+                graph_id: graph_id.to_string(),
+                document_id: Some(document_id.to_string()),
+                payload: json!({
+                    "documentId": document_id,
+                    "content": text,
+                    "format": "markdown",
+                    "title": document_id,
+                }),
+            },
+        ))
+        .expect("document.write drains through the real engine");
+    }
+
+    /// The 30-minute tick: a graph with nothing new since its last interval point is skipped without
+    /// reading a document, a changed graph gets one point that reuses what did not change, and the point is
+    /// taken without parking the graph's hot-write gate afterwards (a writer proceeds at once).
+    #[test]
+    fn tick_skips_quiet_graphs_and_captures_changed_ones() {
+        let _serial = crate::tauri_runtime::profile_env_serial()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let profile = std::env::temp_dir().join(format!("garden-tt-tick-{nanos}"));
+        std::env::set_var("GARDEN_PROFILE_DIR", &profile);
+
+        let result = std::panic::catch_unwind(|| {
+            let app = crate::tauri_runtime::build_mock_app_for_tests(true);
+            let graph_id = "tt-tick";
+            create_graph_service(
+                &app,
+                CreateGraphInput {
+                    title: "Tick".to_string(),
+                    graph_id: Some(graph_id.to_string()),
+                    description: None,
+                    operation_id: None,
+                },
+            )
+            .expect("create graph");
+            write_document(&app, graph_id, "tick-a", "alpha");
+            write_document(&app, graph_id, "tick-b", "beta");
+            // Let the writes' asynchronous tails land so they cannot bump the graph after the first point.
+            std::thread::sleep(Duration::from_millis(200));
+            let graph_dir = existing_graph_dir(&app, graph_id).expect("graph dir");
+            let interval_points = || {
+                read_index(&graph_dir, graph_id)
+                    .expect("index")
+                    .entries
+                    .into_iter()
+                    .filter(|entry| matches!(entry.trigger, RestorePointTrigger::Interval))
+                    .count()
+            };
+
+            let first = tick_once(&app).expect("first tick");
+            assert_eq!((first.captured, first.skipped_unchanged), (1, 0));
+            assert_eq!(interval_points(), 1);
+
+            std::thread::sleep(Duration::from_millis(50));
+            let quiet = tick_once(&app).expect("quiet tick");
+            assert_eq!(
+                (quiet.captured, quiet.skipped_unchanged),
+                (0, 1),
+                "nothing changed since the last interval point"
+            );
+            assert_eq!(interval_points(), 1);
+
+            std::thread::sleep(Duration::from_millis(5));
+            write_document(&app, graph_id, "tick-a", "alpha, changed");
+            std::thread::sleep(Duration::from_millis(200));
+            let changed = tick_once(&app).expect("changed tick");
+            assert_eq!((changed.captured, changed.skipped_unchanged), (1, 0));
+            assert_eq!(interval_points(), 2);
+
+            // The untouched document is one snapshot in both points; the changed one is not.
+            let mut entries = read_index(&graph_dir, graph_id).expect("index").entries;
+            entries.sort_by_key(|entry| entry.created_at);
+            let older = crate::time_travel_store::read_manifest(&graph_dir, &entries[0].restore_point_id)
+                .expect("older manifest");
+            let newer = crate::time_travel_store::read_manifest(&graph_dir, &entries[1].restore_point_id)
+                .expect("newer manifest");
+            let snapshot_of = |manifest: &crate::time_travel_types::RestorePointManifest, id: &str| {
+                manifest
+                    .documents
+                    .iter()
+                    .find(|doc| doc.document_id == id)
+                    .map(|doc| doc.snapshot_id.clone())
+                    .expect("document in point")
+            };
+            assert_eq!(snapshot_of(&older, "tick-b"), snapshot_of(&newer, "tick-b"));
+            assert_ne!(snapshot_of(&older, "tick-a"), snapshot_of(&newer, "tick-a"));
+
+            // The gate is free once the tick is done: a hot-write lease is granted without waiting.
+            let lease = crate::crdt_engine::persistence_coordinator::acquire_hot_write_blocking_if_managed(
+                &app, graph_id,
+            )
+            .expect("hot-write lease is free after the tick");
+            drop(lease);
+        });
+
+        std::env::remove_var("GARDEN_PROFILE_DIR");
+        let _ = std::fs::remove_dir_all(&profile);
+        if let Err(panic) = result {
+            std::panic::resume_unwind(panic);
+        }
+    }
 }

@@ -3311,6 +3311,7 @@ fn prepare_graph_history(
                 block_count: content.blocks.len() as u64,
                 char_count: content.char_count,
                 ydoc_bytes_path: Some(format!("documents/{doc_id}.bin")),
+                content_fingerprint: None,
             });
             payloads.push(GraphHistoryPayload {
                 snapshot_id,
