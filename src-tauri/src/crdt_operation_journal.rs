@@ -370,10 +370,12 @@ mod tests {
         };
         set_thread_barrier_model(true);
         let path = temp_journal_path("ordered-line");
-        // Creating the journal's directories makes new names durable with full syncs (one per new
-        // directory: a once-per-profile durability point, kept full by design). The steady-state
-        // append is what this test measures, so the directory exists before the count starts.
+        // A journal's FIRST append also creates its directories: the journal's own and the JSONL
+        // lock's `.jsonl-locks/<file>/`. Each new directory makes its name durable with a full sync of
+        // its parent (a once-per-profile durability point, kept full by design). The steady-state append
+        // is what this test measures, so those directories exist before the count starts.
         crate::storage_file_ops::create_dir_all(path.parent().expect("journal dir")).expect("journal dir");
+        drop(crate::jsonl_mutation_lock::acquire_jsonl_mutation_lock(&path).expect("JSONL lock directories"));
         let op = operation("op-ordered");
         let full_before = thread_full_sync_total();
         write_queued(&path, &op, "q1", "1");
