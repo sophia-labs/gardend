@@ -68,18 +68,44 @@ pub(crate) fn capture_restore_point_with_lease(
     let restore_point_id = format!("rp-{}", Uuid::new_v4().simple());
     let created_at = clock::epoch_millis() as i64;
 
+    // Phase spans (target `gardend_otel`): ids, counts and byte sizes only, never titles or content. With
+    // telemetry off each `info_span!` is one failed interest check and a disabled span; the `record` calls
+    // on a disabled span do nothing.
+    let capture_span = tracing::info_span!(
+        target: "gardend_otel",
+        "restore_point.capture",
+        sophia.graph.id = %graph_id,
+        sophia.restore_point.trigger = trigger.as_str(),
+        sophia.restore_point.documents = tracing::field::Empty,
+        sophia.restore_point.documents_reused = tracing::field::Empty,
+        sophia.restore_point.bytes_written = tracing::field::Empty,
+    );
+    let _capture_entered = capture_span.enter();
+    let mut bytes_written: u64 = 0;
+
     // Workspace bytes + JSON snapshot are best-effort: a freshly-created graph
     // may not have either yet. We persist whatever exists so the bundle is
     // recoverable even from an empty graph.
-    let workspace_bytes = read_workspace_ydoc_bytes(&graph_dir)?;
-    let workspace_snapshot = read_workspace_snapshot(&graph_dir)?;
-
-    write_workspace_bundle(
-        &graph_dir,
-        &restore_point_id,
-        &workspace_bytes,
-        &workspace_snapshot,
-    )?;
+    let enumerate_span = tracing::info_span!(
+        target: "gardend_otel",
+        "restore_point.enumerate",
+        sophia.restore_point.workspace_bytes = tracing::field::Empty,
+        sophia.restore_point.documents = tracing::field::Empty,
+    );
+    let (workspace_bytes, workspace_snapshot) = {
+        let _enumerate = enumerate_span.enter();
+        let workspace_bytes = read_workspace_ydoc_bytes(&graph_dir)?;
+        let workspace_snapshot = read_workspace_snapshot(&graph_dir)?;
+        write_workspace_bundle(
+            &graph_dir,
+            &restore_point_id,
+            &workspace_bytes,
+            &workspace_snapshot,
+        )?;
+        enumerate_span.record("sophia.restore_point.workspace_bytes", workspace_bytes.len() as u64);
+        (workspace_bytes, workspace_snapshot)
+    };
+    bytes_written += workspace_bytes.len() as u64;
 
     let workspace_size = workspace_bytes.len() as u64;
     let workspace_ref = WorkspaceSnapshotRef {
@@ -89,6 +115,8 @@ pub(crate) fn capture_restore_point_with_lease(
     };
 
     let document_ids = workspace_document_ids(&workspace_snapshot);
+    enumerate_span.record("sophia.restore_point.documents", document_ids.len() as u64);
+    capture_span.record("sophia.restore_point.documents", document_ids.len() as u64);
     let mut documents = Vec::with_capacity(document_ids.len());
     let mut total_doc_size: u64 = 0;
     let snapshot_label = label
@@ -115,6 +143,14 @@ pub(crate) fn capture_restore_point_with_lease(
             );
             continue;
         }
+        let document_span = tracing::info_span!(
+            target: "gardend_otel",
+            "restore_point.document",
+            sophia.document.id = %document_id,
+            sophia.restore_point.reused = tracing::field::Empty,
+            sophia.restore_point.bytes = tracing::field::Empty,
+        );
+        let _document_entered = document_span.enter();
         let snapshot_meta = current_document_snapshot_with_lease(
             app,
             graph_id,
@@ -197,6 +233,9 @@ pub(crate) fn capture_restore_point_with_lease(
             }
         };
         write_document_bytes(&graph_dir, &restore_point_id, &document_id, &ydoc_bytes)?;
+        document_span.record("sophia.restore_point.reused", false);
+        document_span.record("sophia.restore_point.bytes", ydoc_bytes.len() as u64);
+        bytes_written += ydoc_bytes.len() as u64;
         let doc_size = char_count + payload.tiptap_xml.len() as u64 + ydoc_bytes.len() as u64;
         total_doc_size += doc_size;
         documents.push(DocumentSnapshotRef {
@@ -210,6 +249,10 @@ pub(crate) fn capture_restore_point_with_lease(
         });
     }
 
+    capture_span.record("sophia.restore_point.documents_reused", 0u64);
+    capture_span.record("sophia.restore_point.bytes_written", bytes_written);
+    let manifest_span = tracing::info_span!(target: "gardend_otel", "restore_point.manifest");
+    let _manifest_entered = manifest_span.enter();
     let metadata = RestorePointMetadata {
         folder_count: workspace_array_len(&workspace_snapshot, "folders"),
         document_count: documents.len() as u64,
