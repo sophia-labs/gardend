@@ -233,19 +233,166 @@ pub(super) fn read_graph_documents_cold(graph_dir: &Path) -> Result<Vec<Document
 pub(super) fn read_graph_document_inventory(
     graph_dir: &Path,
 ) -> Result<Vec<DocumentInventoryRecord>, String> {
-    let mut documents = Vec::new();
-    visit_graph_documents_cold(graph_dir, |document| {
-        documents.push(DocumentInventoryRecord::from(document));
-    })?;
     // Keep exactly the former stable, descending updated_at ordering. Count
     // joins relied on the first occurrence for duplicate embedded IDs.
-    documents.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
-    Ok(documents)
+    Ok(read_graph_document_summaries(graph_dir)?
+        .iter()
+        .map(|summary| DocumentInventoryRecord {
+            document_id: summary.document_id.clone(),
+            title: summary.title.clone(),
+            updated_at: summary.updated_at.clone(),
+            block_count: summary.block_count,
+            rdf_triple_count: summary.rdf_triple_count,
+        })
+        .collect())
+}
+
+/// What the inventory reads (`list_documents`, `get_workspace`, title search)
+/// need of a document, and nothing more: no body (except a whiteboard's, which
+/// is its searchable outline), no blocks, no tree, no history.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct DocumentSummary {
+    pub(super) document_id: String,
+    pub(super) title: String,
+    pub(super) created_at: String,
+    pub(super) updated_at: String,
+    pub(super) block_count: usize,
+    pub(super) rdf_triple_count: usize,
+    pub(super) schema_version: u32,
+    pub(super) document_kind: Option<String>,
+    /// Kept only for a whiteboard (its words live in `body`); empty otherwise.
+    pub(super) whiteboard_body: String,
+}
+
+impl From<&DocumentRecord> for DocumentSummary {
+    fn from(document: &DocumentRecord) -> Self {
+        let whiteboard = crate::whiteboard::is_whiteboard(document.document_kind.as_deref());
+        Self {
+            document_id: document.document_id.clone(),
+            title: document.title.clone(),
+            created_at: document.created_at.clone(),
+            updated_at: document.updated_at.clone(),
+            block_count: document.blocks.len(),
+            rdf_triple_count: document.rdf_triple_count,
+            schema_version: document.schema_version,
+            document_kind: document.document_kind.clone(),
+            whiteboard_body: if whiteboard {
+                document.body.clone()
+            } else {
+                String::new()
+            },
+        }
+    }
+}
+
+/// What a manifest looked like when it was parsed. Every writer of
+/// `document.json` replaces the file by an atomic rename (a new inode, a new
+/// mtime), so an unchanged stamp means unchanged bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ManifestStamp {
+    len: u64,
+    modified_nanos: u128,
+    inode: u64,
+}
+
+/// A manifest modified this recently is not cached: a second write within the
+/// filesystem's timestamp grain could leave the stamp unchanged (git's "racily
+/// clean" rule).
+const MANIFEST_SETTLE: std::time::Duration = std::time::Duration::from_secs(2);
+
+fn manifest_stamp(metadata: &fs::Metadata) -> Option<ManifestStamp> {
+    let modified = metadata.modified().ok()?;
+    let age = std::time::SystemTime::now().duration_since(modified).ok()?;
+    if age < MANIFEST_SETTLE {
+        return None;
+    }
+    #[cfg(unix)]
+    let inode = std::os::unix::fs::MetadataExt::ino(metadata);
+    #[cfg(not(unix))]
+    let inode = 0;
+    Some(ManifestStamp {
+        len: metadata.len(),
+        modified_nanos: modified
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()?
+            .as_nanos(),
+        inode,
+    })
+}
+
+type SummaryEntries =
+    std::collections::HashMap<String, (ManifestStamp, std::sync::Arc<DocumentSummary>)>;
+type SummaryCache = std::sync::Mutex<std::collections::HashMap<std::path::PathBuf, SummaryEntries>>;
+
+/// Per graph directory, the summaries of the manifests last parsed, replaced
+/// wholesale by each walk (so a deleted document leaves nothing behind). Holds
+/// a few hundred bytes per document, never content.
+fn summary_cache() -> &'static SummaryCache {
+    static CACHE: std::sync::OnceLock<SummaryCache> = std::sync::OnceLock::new();
+    CACHE.get_or_init(Default::default)
+}
+
+/// The inventory of a graph in `read_graph_documents_cold`'s order (updated_at
+/// descending, ties in directory order), for the cost of one `stat` per
+/// document when no manifest changed since the last walk. A changed, new or
+/// unsettled manifest is parsed (and validated) exactly as the cold reader
+/// does; a vanished one drops out; an invalid one is an error, never cached.
+pub(super) fn read_graph_document_summaries(
+    graph_dir: &Path,
+) -> Result<Vec<std::sync::Arc<DocumentSummary>>, String> {
+    let previous: SummaryEntries = summary_cache()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .get(graph_dir)
+        .cloned()
+        .unwrap_or_default();
+    let mut next = SummaryEntries::new();
+    let mut summaries = Vec::new();
+    visit_graph_manifests(graph_dir, |document_id, manifest_path, metadata| {
+        let stamp = manifest_stamp(metadata);
+        if let (Some(stamp), Some((known, summary))) = (stamp, previous.get(&document_id)) {
+            if *known == stamp {
+                // The manifest is unchanged; the fences outside it are not.
+                crate::document_tombstone_store::require_document_not_tombstoned(
+                    graph_dir,
+                    &document_id,
+                )?;
+                summaries.push(summary.clone());
+                next.insert(document_id, (stamp, summary.clone()));
+                return Ok(());
+            }
+        }
+        let record = read_document_record_cold(graph_dir, manifest_path)?;
+        let summary = std::sync::Arc::new(DocumentSummary::from(&record));
+        if let Some(stamp) = stamp {
+            next.insert(document_id, (stamp, summary.clone()));
+        }
+        summaries.push(summary);
+        Ok(())
+    })?;
+    summary_cache()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .insert(graph_dir.to_path_buf(), next);
+    summaries.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
+    Ok(summaries)
 }
 
 fn visit_graph_documents_cold(
     graph_dir: &Path,
     mut visit: impl FnMut(DocumentRecord),
+) -> Result<(), String> {
+    visit_graph_manifests(graph_dir, |_, manifest_path, _| {
+        visit(read_document_record_cold(graph_dir, manifest_path)?);
+        Ok(())
+    })
+}
+
+/// The live manifests of a graph (not tombstoned, not trashed), with the
+/// metadata of the one `stat` that found them.
+fn visit_graph_manifests(
+    graph_dir: &Path,
+    mut visit: impl FnMut(String, &Path, &fs::Metadata) -> Result<(), String>,
 ) -> Result<(), String> {
     let documents_dir = documents_dir(graph_dir);
     create_dir_all(&documents_dir)?;
@@ -255,7 +402,10 @@ fn visit_graph_documents_cold(
     for entry in entries {
         let entry = entry.map_err(|error| format!("read document entry: {error}"))?;
         let manifest_path = entry.path().join("document.json");
-        if !manifest_path.is_file() {
+        let Ok(metadata) = fs::metadata(&manifest_path) else {
+            continue;
+        };
+        if !metadata.is_file() {
             continue;
         }
         let Some(document_id) = entry.file_name().to_str().map(str::to_string) else {
@@ -268,7 +418,7 @@ fn visit_graph_documents_cold(
         if crate::document_trash_service::document_is_trashed(graph_dir, &document_id) {
             continue;
         }
-        visit(read_document_record_cold(graph_dir, &manifest_path)?);
+        visit(document_id, &manifest_path, &metadata)?;
     }
     Ok(())
 }
@@ -369,6 +519,11 @@ mod tests {
         let manifest_path = document_dir.join("document.json");
         write_json(&manifest_path, document)?;
         Ok(manifest_path)
+    }
+
+    fn write_manifest_only_at(manifest: &Path, document: &DocumentRecord) -> PathBuf {
+        write_json(manifest, document).unwrap();
+        manifest.to_path_buf()
     }
 
     #[test]
@@ -554,6 +709,211 @@ mod tests {
         assert_eq!(inventory[0].document_id, "doc-a");
         assert_eq!(inventory[0].rdf_triple_count, 2);
         assert_eq!(inventory[1].rdf_triple_count, 1);
+        fs::remove_dir_all(graph_dir).unwrap();
+    }
+
+    /// Put a manifest's mtime well in the past, so the summary cache trusts its stamp.
+    fn settle(manifest: &Path) {
+        let old = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+        fs::File::options()
+            .write(true)
+            .open(manifest)
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
+    }
+
+    fn doc_with(graph_dir: &Path, id: &str, title: &str, updated_at: &str) -> DocumentRecord {
+        let mut document = test_document(graph_dir, id);
+        document.title = title.into();
+        document.updated_at = updated_at.into();
+        document.body = format!("body of {id} {}", "x".repeat(2000));
+        document.rdf_triple_count = 7;
+        document
+    }
+
+    /// The cold reader's own listing, shaped like a summary, as the oracle.
+    fn oracle(graph_dir: &Path) -> Vec<(String, String, String, String, usize, usize, u32)> {
+        read_graph_documents_cold(graph_dir)
+            .unwrap()
+            .into_iter()
+            .map(|d| {
+                (
+                    d.document_id,
+                    d.title,
+                    d.created_at,
+                    d.updated_at,
+                    d.blocks.len(),
+                    d.rdf_triple_count,
+                    d.schema_version,
+                )
+            })
+            .collect()
+    }
+
+    fn shape(graph_dir: &Path) -> Vec<(String, String, String, String, usize, usize, u32)> {
+        read_graph_document_summaries(graph_dir)
+            .unwrap()
+            .iter()
+            .map(|d| {
+                (
+                    d.document_id.clone(),
+                    d.title.clone(),
+                    d.created_at.clone(),
+                    d.updated_at.clone(),
+                    d.block_count,
+                    d.rdf_triple_count,
+                    d.schema_version,
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn summaries_equal_the_cold_listing_and_unchanged_manifests_are_not_reparsed() {
+        let graph_dir = temp_graph_dir("sophia-summary-cache");
+        for (id, title, at) in [
+            ("doc-a", "Alpha", "30"),
+            ("doc-b", "Beta", "10"),
+            ("doc-c", "Gamma", "20"),
+        ] {
+            let manifest =
+                write_manifest_only(&graph_dir, &doc_with(&graph_dir, id, title, at)).unwrap();
+            settle(&manifest);
+        }
+        reset_record_read_counts_for_test();
+        let first = shape(&graph_dir);
+        assert_eq!(
+            record_read_counts_for_test().0,
+            3,
+            "first walk parses each manifest"
+        );
+        assert_eq!(
+            first.iter().map(|d| d.0.as_str()).collect::<Vec<_>>(),
+            ["doc-a", "doc-c", "doc-b"]
+        );
+        reset_record_read_counts_for_test();
+        let second = shape(&graph_dir);
+        assert_eq!(
+            record_read_counts_for_test().0,
+            0,
+            "second walk parses nothing"
+        );
+        assert_eq!(second, first);
+        // The oracle itself reads cold (and counts); it must agree field for field.
+        assert_eq!(oracle(&graph_dir), second);
+        // The inventory view is the same walk.
+        let inventory = read_graph_document_inventory(&graph_dir).unwrap();
+        assert_eq!(
+            inventory
+                .iter()
+                .map(|d| (d.document_id.as_str(), d.title.as_str()))
+                .collect::<Vec<_>>(),
+            [("doc-a", "Alpha"), ("doc-c", "Gamma"), ("doc-b", "Beta")]
+        );
+        fs::remove_dir_all(graph_dir).unwrap();
+    }
+
+    #[test]
+    fn a_rewrite_a_new_document_and_a_delete_are_visible_to_the_next_walk() {
+        let graph_dir = temp_graph_dir("sophia-summary-invalidate");
+        for (id, title, at) in [("doc-a", "Alpha", "30"), ("doc-b", "Beta", "10")] {
+            settle(&write_manifest_only(&graph_dir, &doc_with(&graph_dir, id, title, at)).unwrap());
+        }
+        let _ = shape(&graph_dir);
+        // Rename doc-b and make it the newest. The file keeps its byte length (title and
+        // timestamp are the same width) and its mtime is put back into the past, so only
+        // the atomic rewrite's new inode and mtime tell it apart.
+        let manifest =
+            write_manifest_only(&graph_dir, &doc_with(&graph_dir, "doc-b", "Bexa", "99")).unwrap();
+        settle(&manifest);
+        reset_record_read_counts_for_test();
+        let after_rename = shape(&graph_dir);
+        assert_eq!(
+            record_read_counts_for_test().0,
+            1,
+            "only the rewritten manifest is parsed"
+        );
+        assert_eq!(after_rename[0].0, "doc-b");
+        assert_eq!(after_rename[0].1, "Bexa");
+        assert_eq!(after_rename, oracle(&graph_dir));
+        // A new document.
+        settle(
+            &write_manifest_only(&graph_dir, &doc_with(&graph_dir, "doc-c", "Gamma", "50"))
+                .unwrap(),
+        );
+        let with_new = shape(&graph_dir);
+        assert_eq!(
+            with_new.iter().map(|d| d.0.as_str()).collect::<Vec<_>>(),
+            ["doc-b", "doc-c", "doc-a"]
+        );
+        // A delete (tombstone) and a vanished directory.
+        crate::document_tombstone_store::write_document_tombstone_for_operation(
+            &graph_dir, "doc-c", None,
+        )
+        .unwrap();
+        fs::remove_dir_all(documents_dir(&graph_dir).join("doc-a")).unwrap();
+        let after_delete = shape(&graph_dir);
+        assert_eq!(
+            after_delete
+                .iter()
+                .map(|d| d.0.as_str())
+                .collect::<Vec<_>>(),
+            ["doc-b"]
+        );
+        assert_eq!(after_delete, oracle(&graph_dir));
+        fs::remove_dir_all(graph_dir).unwrap();
+    }
+
+    #[test]
+    fn a_manifest_written_just_now_is_never_trusted_from_the_cache() {
+        let graph_dir = temp_graph_dir("sophia-summary-racy");
+        write_manifest_only(&graph_dir, &doc_with(&graph_dir, "doc-a", "Alpha", "10")).unwrap();
+        reset_record_read_counts_for_test();
+        let _ = shape(&graph_dir);
+        let _ = shape(&graph_dir);
+        assert_eq!(
+            record_read_counts_for_test().0,
+            2,
+            "a fresh manifest is parsed on every walk"
+        );
+        fs::remove_dir_all(graph_dir).unwrap();
+    }
+
+    #[test]
+    fn an_invalid_manifest_is_an_error_and_is_not_cached_as_valid() {
+        let graph_dir = temp_graph_dir("sophia-summary-invalid");
+        let manifest =
+            write_manifest_only(&graph_dir, &doc_with(&graph_dir, "doc-a", "Alpha", "10")).unwrap();
+        settle(&manifest);
+        assert_eq!(shape(&graph_dir).len(), 1);
+        let mut bad = doc_with(&graph_dir, "doc-a", "Alpha", "10");
+        bad.document_id = "../escape".into();
+        settle(&write_manifest_only_at(&manifest, &bad));
+        assert!(read_graph_document_summaries(&graph_dir).is_err());
+        fs::remove_dir_all(graph_dir).unwrap();
+    }
+
+    #[test]
+    fn only_a_whiteboard_keeps_its_body_in_the_summary() {
+        let graph_dir = temp_graph_dir("sophia-summary-whiteboard");
+        let mut board = doc_with(&graph_dir, "board-a", "Board", "10");
+        board.document_kind = Some(crate::whiteboard::WHITEBOARD_KIND.to_string());
+        board.body = "words drawn on it".into();
+        settle(&write_manifest_only(&graph_dir, &board).unwrap());
+        settle(
+            &write_manifest_only(&graph_dir, &doc_with(&graph_dir, "doc-a", "Alpha", "5")).unwrap(),
+        );
+        let summaries = read_graph_document_summaries(&graph_dir).unwrap();
+        let by_id = |id: &str| {
+            summaries
+                .iter()
+                .find(|d| d.document_id == id)
+                .unwrap()
+                .clone()
+        };
+        assert_eq!(by_id("board-a").whiteboard_body, "words drawn on it");
+        assert_eq!(by_id("doc-a").whiteboard_body, "");
         fs::remove_dir_all(graph_dir).unwrap();
     }
 

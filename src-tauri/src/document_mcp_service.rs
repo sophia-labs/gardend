@@ -1,9 +1,8 @@
 use crate::app_runtime::AppHandle;
 use crate::{
+    document_record_store::DocumentSummary,
     document_rendering::{document_blocks_for_read, document_markdown},
-    document_service::{
-        read_document, read_document_cold, read_graph_documents_cold, DocumentRecord,
-    },
+    document_service::{read_document, read_document_cold, read_graph_document_summaries},
     mcp_utils::{mcp_arg_string, mcp_arg_usize, mcp_required_document_id, mcp_required_graph_id},
     paths::existing_graph_dir,
 };
@@ -23,9 +22,9 @@ pub(super) fn mcp_local_list_documents(
     arguments: &serde_json::Value,
 ) -> Result<serde_json::Value, String> {
     let graph_dir = existing_graph_dir(&app, &mcp_graph_id_argument(arguments))?;
-    let mut documents: Vec<_> = read_graph_documents_cold(&graph_dir)?
+    let mut documents: Vec<_> = read_graph_document_summaries(&graph_dir)?
         .iter()
-        .map(document_summary)
+        .map(|summary| document_summary(summary.as_ref()))
         .collect();
     for row in crate::document_body_availability::unavailable_documents(&graph_dir)? {
         documents.push(serde_json::json!({"documentId":row["documentId"],
@@ -373,13 +372,13 @@ fn read_document_with_comments(
     Ok(result)
 }
 
-fn document_summary(document: &DocumentRecord) -> serde_json::Value {
+fn document_summary(document: &DocumentSummary) -> serde_json::Value {
     serde_json::json!({
         "documentId": document.document_id,
         "title": document.title.chars().take(512).collect::<String>(),
         "createdAt": document.created_at,
         "updatedAt": document.updated_at,
-        "blockCount": document.blocks.len(),
+        "blockCount": document.block_count,
         "rdfTripleCount": document.rdf_triple_count,
         "schemaVersion": document.schema_version,
     })

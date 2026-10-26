@@ -5,8 +5,8 @@ pub(super) use crate::document_persistence_service::{
     save_document, save_document_ydoc_state, save_workspace, save_workspace_ydoc_state,
 };
 pub(super) use crate::document_record_store::{
-    read_document_record, read_document_record_cold, read_graph_documents_cold,
-    read_workspace_record, write_document_record,
+    read_document_record, read_document_record_cold, read_graph_document_summaries,
+    read_graph_documents_cold, read_workspace_record, write_document_record,
 };
 pub(super) use crate::document_types::{
     BlockSnapshot, CreateDocumentInput, DocumentRecord, InlineMarkSnapshot, SaveDocumentInput,
