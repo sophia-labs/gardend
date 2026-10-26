@@ -2419,28 +2419,24 @@ pub(crate) async fn serve_room_with(
                                 .await;
                             break;
                         }
-                        let _graph_lease = if let Some(coordinator) = app.try_state::<
+                        // A frame needs the graph's shared lifecycle lease, so deletion
+                        // and the other exclusive roots still order against it, and
+                        // nothing more: it never queues behind an API write holding the
+                        // hot-write gate (an agent mid-`insert_blocks` used to stall
+                        // Vera's typing). Operations that need a quiet room (a forward
+                        // restore applies a diff, then verifies the room equals the
+                        // target) raise an explicit frame fence, which waits for frames
+                        // in flight and holds new ones back. Dirty marking is not this
+                        // lease's job: a client frame never touches Oxigraph, and the
+                        // sidecar write marks itself through `write_guard`.
+                        let _frame_lease = if let Some(coordinator) = app.try_state::<
                             super::persistence_coordinator::GraphPersistenceCoordinator,
                         >() {
-                            match coordinator.acquire_hot_write(&graph_id).await {
-                                Ok(lease) => {
-                                    // This lease only linearizes `apply_client_update`
-                                    // (merges into the in-memory Y.Doc and, if changed,
-                                    // rewrites the Y.Doc state file) against concurrent
-                                    // graph deletion. It never reaches Oxigraph directly:
-                                    // any RDF projection it needs is materialized later by
-                                    // a separately-scheduled `crdt.flush` operation, which
-                                    // acquires its own (non-read-only) lease. Most inbound
-                                    // sync/update frames are no-ops (`changed == false`,
-                                    // e.g. awareness/heartbeat traffic) — declaring this
-                                    // read-only stops those from spuriously dirtying the
-                                    // graph's RDF stores.
-                                    lease.declare_rdf_read_only();
-                                    Some(lease)
-                                }
+                            match coordinator.acquire_client_frame(&graph_id).await {
+                                Ok(lease) => Some(lease),
                                 Err(error) => {
                                     log::error!(
-                                        "websocket persistence lease failed for {graph_id}: {error}"
+                                        "websocket frame lease failed for {graph_id}: {error}"
                                     );
                                     continue;
                                 }

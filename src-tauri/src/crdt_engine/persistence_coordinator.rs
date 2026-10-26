@@ -32,7 +32,21 @@ pub(crate) struct GraphPersistenceCoordinator {
     gates: Mutex<HashMap<String, Arc<GraphGate>>>,
 }
 
+/// Admission of client (websocket) update frames, kept apart from the hot-write
+/// gate. A frame only needs the shared lifecycle lease to stay ordered against
+/// deletion; the hot-write gate also serialized it behind every queued API write.
+/// The few operations that need a quiet room (a restore that applies a diff and
+/// then verifies the room equals the target) fence frames explicitly instead:
+/// raising a fence waits for frames already in flight and holds new ones back.
+#[derive(Default)]
+struct FrameGate {
+    fences: AtomicUsize,
+    in_flight: AtomicUsize,
+    changed: Notify,
+}
+
 struct GraphGate {
+    frames: FrameGate,
     lifecycle_writer: AtomicBool,
     lifecycle_readers: AtomicUsize,
     lifecycle_async_notify: Notify,
@@ -71,6 +85,35 @@ pub(crate) struct ExclusiveLease {
     gate: Arc<GraphGate>,
     _trace: LeaseTrace,
     dirty: DirtyLeaseState,
+}
+
+/// One client frame's place in a graph: the shared lifecycle lease (so deletion
+/// and other exclusive roots still wait for it) and a slot in the frame gate
+/// (so a frame fence can wait for it). Many frames hold this at once.
+pub(crate) struct ClientFrameLease {
+    gate: Arc<GraphGate>,
+    _shared: SharedLease,
+}
+
+/// While held, no client frame is admitted and none is in flight on this graph.
+pub(crate) struct ClientFrameFence {
+    gate: Arc<GraphGate>,
+}
+
+impl Drop for ClientFrameLease {
+    fn drop(&mut self) {
+        let previous = self.gate.frames.in_flight.fetch_sub(1, Ordering::SeqCst);
+        debug_assert!(previous > 0, "client frame count underflow");
+        self.gate.frames.changed.notify_waiters();
+    }
+}
+
+impl Drop for ClientFrameFence {
+    fn drop(&mut self) {
+        let previous = self.gate.frames.fences.fetch_sub(1, Ordering::SeqCst);
+        debug_assert!(previous > 0, "client frame fence count underflow");
+        self.gate.frames.changed.notify_waiters();
+    }
 }
 
 struct LeaseHolder {
@@ -356,6 +399,7 @@ impl GraphPersistenceCoordinator {
             return Ok(gate.clone());
         }
         let gate = Arc::new(GraphGate {
+            frames: FrameGate::default(),
             lifecycle_writer: AtomicBool::new(false),
             lifecycle_readers: AtomicUsize::new(0),
             lifecycle_async_notify: Notify::new(),
@@ -386,7 +430,17 @@ impl GraphPersistenceCoordinator {
         graph_id: &str,
         gate: Arc<GraphGate>,
     ) -> Result<SharedLease, String> {
-        let mut trace = LeaseTrace::new(graph_id, "shared", "shared");
+        self.acquire_lifecycle_shared_gate_for(graph_id, gate, "shared")
+            .await
+    }
+
+    async fn acquire_lifecycle_shared_gate_for(
+        &self,
+        graph_id: &str,
+        gate: Arc<GraphGate>,
+        kind: &'static str,
+    ) -> Result<SharedLease, String> {
+        let mut trace = LeaseTrace::new(graph_id, kind, "shared");
         trace
             .observe(&gate, true, async {
                 loop {
@@ -415,6 +469,57 @@ impl GraphPersistenceCoordinator {
             gate,
             _trace: trace,
         })
+    }
+
+    /// Admit one client update frame. Unlike [`Self::acquire_hot_write`] this
+    /// does not queue behind other writers: it waits only for a lifecycle
+    /// exclusive root (deletion and kin) and for an explicit frame fence.
+    pub(crate) async fn acquire_client_frame(
+        &self,
+        graph_id: &str,
+    ) -> Result<ClientFrameLease, String> {
+        let gate = self.gate(graph_id)?;
+        let shared = self
+            .acquire_lifecycle_shared_gate_for(graph_id, gate.clone(), "ws.frame")
+            .await?;
+        loop {
+            // Created before the checks so a release in between still wakes it.
+            let changed = gate.frames.changed.notified();
+            if gate.frames.fences.load(Ordering::SeqCst) == 0 {
+                gate.frames.in_flight.fetch_add(1, Ordering::SeqCst);
+                // Either this sees a fence raised meanwhile, or the fence's
+                // drain sees this frame.
+                if gate.frames.fences.load(Ordering::SeqCst) == 0 {
+                    return Ok(ClientFrameLease {
+                        gate,
+                        _shared: shared,
+                    });
+                }
+                gate.frames.in_flight.fetch_sub(1, Ordering::SeqCst);
+                gate.frames.changed.notify_waiters();
+            }
+            changed.await;
+        }
+    }
+
+    /// Hold client frames off a graph: wait for the ones in flight, then admit
+    /// none until the returned fence drops. The caller should already hold the
+    /// operation's own lease; this never waits for a hot-write holder.
+    pub(crate) async fn fence_client_frames(
+        &self,
+        graph_id: &str,
+    ) -> Result<ClientFrameFence, String> {
+        let gate = self.gate(graph_id)?;
+        gate.frames.fences.fetch_add(1, Ordering::SeqCst);
+        // Owned before the drain wait, so a cancelled wait still lifts it.
+        let fence = ClientFrameFence { gate: gate.clone() };
+        loop {
+            let changed = gate.frames.changed.notified();
+            if gate.frames.in_flight.load(Ordering::SeqCst) == 0 {
+                return Ok(fence);
+            }
+            changed.await;
+        }
     }
 
     #[track_caller]
@@ -1141,6 +1246,153 @@ mod tests {
                 "new hot update was lost"
             );
             let _ = std::fs::remove_dir_all(dir);
+        });
+    }
+
+    const FRAME_WAIT: std::time::Duration = std::time::Duration::from_millis(50);
+
+    #[test]
+    fn client_frames_do_not_queue_behind_a_hot_write_holder() {
+        crate::app_runtime::async_runtime::block_on(async {
+            let coordinator = GraphPersistenceCoordinator::default();
+            // An agent's queued write owns the hot-write gate for as long as it likes.
+            let _writer = coordinator
+                .acquire_hot_write("graph-frames")
+                .await
+                .expect("writer");
+            let first = tokio::time::timeout(
+                std::time::Duration::from_secs(1),
+                coordinator.acquire_client_frame("graph-frames"),
+            )
+            .await
+            .expect("a frame is admitted beside a hot-write holder")
+            .expect("frame lease");
+            // Frames share: a second one is not excluded by the first.
+            let second = tokio::time::timeout(
+                std::time::Duration::from_secs(1),
+                coordinator.acquire_client_frame("graph-frames"),
+            )
+            .await
+            .expect("frames are concurrent")
+            .expect("second frame lease");
+            drop((first, second));
+        });
+    }
+
+    #[test]
+    fn lifecycle_exclusive_roots_still_exclude_client_frames() {
+        crate::app_runtime::async_runtime::block_on(async {
+            let coordinator = Arc::new(GraphPersistenceCoordinator::default());
+            // A frame in flight: deletion (an exclusive root) waits for it.
+            let frame = coordinator
+                .acquire_client_frame("graph-delete")
+                .await
+                .expect("frame lease");
+            let exclusive_coordinator = coordinator.clone();
+            let exclusive = crate::app_runtime::async_runtime::spawn(async move {
+                exclusive_coordinator
+                    .acquire_lifecycle_exclusive("graph-delete")
+                    .await
+                    .map(|_| ())
+            });
+            tokio::task::yield_now().await;
+            tokio::time::sleep(FRAME_WAIT).await;
+            assert!(
+                !exclusive.is_finished(),
+                "an exclusive root entered while a frame was in flight"
+            );
+            drop(frame);
+            tokio::time::timeout(std::time::Duration::from_secs(1), exclusive)
+                .await
+                .expect("exclusive root enters once the frame is done")
+                .expect("task")
+                .expect("exclusive lease");
+
+            // And while an exclusive root is held, no new frame gets in.
+            let held = coordinator
+                .acquire_lifecycle_exclusive("graph-delete")
+                .await
+                .expect("exclusive lease");
+            assert!(
+                tokio::time::timeout(FRAME_WAIT, coordinator.acquire_client_frame("graph-delete"))
+                    .await
+                    .is_err(),
+                "a frame entered during an exclusive root"
+            );
+            drop(held);
+            tokio::time::timeout(
+                std::time::Duration::from_secs(1),
+                coordinator.acquire_client_frame("graph-delete"),
+            )
+            .await
+            .expect("frames resume")
+            .expect("frame lease");
+        });
+    }
+
+    #[test]
+    fn a_frame_fence_drains_frames_in_flight_and_holds_new_ones() {
+        crate::app_runtime::async_runtime::block_on(async {
+            let coordinator = Arc::new(GraphPersistenceCoordinator::default());
+            let in_flight = coordinator
+                .acquire_client_frame("graph-fence")
+                .await
+                .expect("frame lease");
+
+            let fencing = coordinator.clone();
+            let fence = crate::app_runtime::async_runtime::spawn(async move {
+                fencing.fence_client_frames("graph-fence").await
+            });
+            tokio::task::yield_now().await;
+            tokio::time::sleep(FRAME_WAIT).await;
+            assert!(
+                !fence.is_finished(),
+                "the fence was raised while a frame was still in flight"
+            );
+            // The fence is already up for newcomers while it drains.
+            assert!(
+                tokio::time::timeout(FRAME_WAIT, coordinator.acquire_client_frame("graph-fence"))
+                    .await
+                    .is_err(),
+                "a new frame was admitted behind a pending fence"
+            );
+            // A different graph is unaffected.
+            tokio::time::timeout(
+                std::time::Duration::from_secs(1),
+                coordinator.acquire_client_frame("graph-other"),
+            )
+            .await
+            .expect("another graph's frames are not fenced")
+            .expect("frame lease");
+
+            drop(in_flight);
+            let fence = tokio::time::timeout(std::time::Duration::from_secs(1), fence)
+                .await
+                .expect("the fence completes once the frame is done")
+                .expect("task")
+                .expect("fence");
+            assert!(
+                tokio::time::timeout(FRAME_WAIT, coordinator.acquire_client_frame("graph-fence"))
+                    .await
+                    .is_err(),
+                "a frame was admitted while the fence was held"
+            );
+
+            // The held-back frame resumes the moment the fence lifts.
+            let waiting = coordinator.clone();
+            let resumed = crate::app_runtime::async_runtime::spawn(async move {
+                waiting
+                    .acquire_client_frame("graph-fence")
+                    .await
+                    .map(|_| ())
+            });
+            tokio::task::yield_now().await;
+            drop(fence);
+            tokio::time::timeout(std::time::Duration::from_secs(1), resumed)
+                .await
+                .expect("the frame resumes after the fence")
+                .expect("task")
+                .expect("frame lease");
         });
     }
 }
