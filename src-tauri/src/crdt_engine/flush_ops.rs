@@ -8,6 +8,8 @@ use crate::crdt_queue::CrdtOperation;
 use serde_json::{json, Value};
 use std::path::Path;
 use std::sync::Arc;
+#[cfg(not(feature = "frontend-crdt"))]
+use tracing::Instrument;
 #[cfg(feature = "desktop")]
 use tauri::Manager;
 
@@ -65,6 +67,23 @@ async fn flush_document_under_lifecycle(
     Ok(())
 }
 
+/// What one read fence did, counted per call. Cheap plain integers: they are
+/// always kept (the test hook reads them) and only copied onto the `read.fence`
+/// span when telemetry is on.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct FenceCounts {
+    /// Documents the fence considered (listed sidecars plus resident rooms).
+    pub(crate) visited: u64,
+    /// Cold documents proven current without opening a room.
+    pub(crate) skipped_current: u64,
+    /// Resident rooms whose projection already reached their epoch.
+    pub(crate) resident_current: u64,
+    /// Cold documents whose sidecar was decoded into a room.
+    pub(crate) hydrated: u64,
+    /// Documents whose cold projection was re-materialized.
+    pub(crate) projected: u64,
+}
+
 /// MCP consistency boundary. Capture the committed room epoch at read entry
 /// and bring the entire projection tail through it, with a bounded observer
 /// and no hot-write lease. A cold reopen hydrates the authority and starts
@@ -85,62 +104,39 @@ pub(crate) async fn await_document_projections(
         let projection = crate::app_runtime::async_runtime::spawn_blocking(
             crate::telemetry::blocking(move || {
                 crate::app_runtime::async_runtime::block_on(async {
-                    let coordinator =
-                        app.state::<super::persistence_coordinator::GraphPersistenceCoordinator>();
-                    let _lifecycle = coordinator.acquire_lifecycle_shared(&graph_id).await?;
-                    let graph_dir = crate::graph_paths::existing_graph_dir(&app, &graph_id)?;
-                    let registry = app.state::<RoomRegistry>();
-                    let documents = match document_id {
-                        Some(id) => vec![id],
-                        None => {
-                            let mut ids: std::collections::BTreeSet<String> =
-                                persisted_document_sidecars(&graph_id, &graph_dir)?
-                                    .into_iter()
-                                    .map(|(id, _)| id)
-                                    .collect();
-                            ids.extend(
-                                document_rooms(&registry, &format!("doc:{graph_id}:"), None)
-                                    .await
-                                    .into_iter()
-                                    .map(|(id, _)| id),
-                            );
-                            ids.into_iter().collect()
-                        }
-                    };
-                    for id in documents {
-                        if crate::document_tombstone_store::document_is_tombstoned(&graph_dir, &id)?
-                        {
-                            continue;
-                        }
-                        let key = format!("doc:{graph_id}:{id}");
-                        let (room, hydrated) = match registry.peek(&key).await {
-                            Some(room) => (room, false),
-                            None => {
-                                let path = crate::ydoc_paths::checked_document_ydoc_state_path(
-                                    &graph_dir, &id,
-                                )?;
-                                if !path.is_file() {
-                                    continue;
-                                }
-                                (registry.get_or_create(&key, path).await?, true)
-                            }
-                        };
-                        let (epoch, ()) = room.with_doc_version(|_| ()).await;
-                        if !room.projection_reaches(epoch) {
-                            flush_document_under_lifecycle(&app, &graph_id, &id, &room)
-                                .await
-                                .map_err(String::from)?;
-                        }
-                        if hydrated {
-                            registry.evict_repaired_idle_room(&key, &room);
-                        }
-                        if !room.projection_reaches(epoch) {
-                            return Err(format!(
-                                "document projection behind authority: {graph_id}/{id}"
-                            ));
-                        }
-                    }
-                    Ok::<(), String>(())
+                    let fence = tracing::info_span!(target: "gardend_otel", "read.fence",
+                        sophia.graph.id = graph_id.as_str(),
+                        sophia.fence.graph_wide = document_id.is_none(),
+                        sophia.fence.lease_wait_ms = tracing::field::Empty,
+                        sophia.fence.list_ms = tracing::field::Empty,
+                        sophia.fence.docs_visited = tracing::field::Empty,
+                        sophia.fence.docs_skipped_current = tracing::field::Empty,
+                        sophia.fence.docs_resident_current = tracing::field::Empty,
+                        sophia.fence.docs_hydrated = tracing::field::Empty,
+                        sophia.fence.docs_projected = tracing::field::Empty,
+                        sophia.fence.stat_ms = tracing::field::Empty,
+                        sophia.fence.lock_wait_ms = tracing::field::Empty,
+                        sophia.fence.hydrate_ms = tracing::field::Empty,
+                        sophia.fence.project_ms = tracing::field::Empty,
+                        sophia.fence.evict_ms = tracing::field::Empty);
+                    let mut counts = FenceCounts::default();
+                    let result = fence_projections(
+                        &app,
+                        &graph_id,
+                        document_id,
+                        &fence,
+                        &mut counts,
+                    )
+                    .instrument(fence.clone())
+                    .await;
+                    fence.record("sophia.fence.docs_visited", counts.visited);
+                    fence.record("sophia.fence.docs_skipped_current", counts.skipped_current);
+                    fence.record("sophia.fence.docs_resident_current", counts.resident_current);
+                    fence.record("sophia.fence.docs_hydrated", counts.hydrated);
+                    fence.record("sophia.fence.docs_projected", counts.projected);
+                    #[cfg(test)]
+                    record_fence_counts_for_test(&graph_id, counts);
+                    result
                 })
             }),
         );
@@ -149,6 +145,166 @@ pub(crate) async fn await_document_projections(
             .map_err(|_| "document projection read timed out after 30s".to_string())?
             .map_err(|error| format!("document projection read join: {error}"))?
     }
+}
+
+/// Phase totals across the documents of one fence, in milliseconds. `None`
+/// timers (telemetry off) add nothing, so this costs a branch per phase.
+#[cfg(not(feature = "frontend-crdt"))]
+#[derive(Default)]
+struct FencePhases {
+    stat: f64,
+    lock_wait: f64,
+    hydrate: f64,
+    project: f64,
+    evict: f64,
+}
+
+#[cfg(not(feature = "frontend-crdt"))]
+async fn fence_projections(
+    app: &AppHandle,
+    graph_id: &str,
+    document_id: Option<String>,
+    fence: &tracing::Span,
+    counts: &mut FenceCounts,
+) -> Result<(), String> {
+    let mut phases = FencePhases::default();
+    let result = fence_projections_inner(app, graph_id, document_id, fence, counts, &mut phases).await;
+    fence.record("sophia.fence.stat_ms", phases.stat);
+    fence.record("sophia.fence.lock_wait_ms", phases.lock_wait);
+    fence.record("sophia.fence.hydrate_ms", phases.hydrate);
+    fence.record("sophia.fence.project_ms", phases.project);
+    fence.record("sophia.fence.evict_ms", phases.evict);
+    result
+}
+
+#[cfg(not(feature = "frontend-crdt"))]
+async fn fence_projections_inner(
+    app: &AppHandle,
+    graph_id: &str,
+    document_id: Option<String>,
+    fence: &tracing::Span,
+    counts: &mut FenceCounts,
+    phases: &mut FencePhases,
+) -> Result<(), String> {
+    let coordinator = app.state::<super::persistence_coordinator::GraphPersistenceCoordinator>();
+    let lease_timer = crate::telemetry::timer();
+    let _lifecycle = coordinator.acquire_lifecycle_shared(graph_id).await?;
+    fence.record(
+        "sophia.fence.lease_wait_ms",
+        crate::telemetry::elapsed_ms(lease_timer),
+    );
+    let list_timer = crate::telemetry::timer();
+    let graph_dir = crate::graph_paths::existing_graph_dir(app, graph_id)?;
+    let registry = app.state::<RoomRegistry>();
+    let documents = match document_id {
+        Some(id) => vec![id],
+        None => {
+            let mut ids: std::collections::BTreeSet<String> =
+                persisted_document_sidecars(graph_id, &graph_dir)?
+                    .into_iter()
+                    .map(|(id, _)| id)
+                    .collect();
+            ids.extend(
+                document_rooms(&registry, &format!("doc:{graph_id}:"), None)
+                    .await
+                    .into_iter()
+                    .map(|(id, _)| id),
+            );
+            ids.into_iter().collect()
+        }
+    };
+    fence.record(
+        "sophia.fence.list_ms",
+        crate::telemetry::elapsed_ms(list_timer),
+    );
+    for id in documents {
+        counts.visited += 1;
+        let stat_timer = crate::telemetry::timer();
+        if crate::document_tombstone_store::document_is_tombstoned(&graph_dir, &id)? {
+            phases.stat += crate::telemetry::elapsed_ms(stat_timer);
+            continue;
+        }
+        let key = format!("doc:{graph_id}:{id}");
+        let (room, hydrated) = match registry.peek(&key).await {
+            Some(room) => {
+                phases.stat += crate::telemetry::elapsed_ms(stat_timer);
+                (room, false)
+            }
+            None => {
+                let path = crate::ydoc_paths::checked_document_ydoc_state_path(&graph_dir, &id)?;
+                let present = path.is_file();
+                phases.stat += crate::telemetry::elapsed_ms(stat_timer);
+                if !present {
+                    continue;
+                }
+                let hydrate_timer = crate::telemetry::timer();
+                let room = registry
+                    .get_or_create(&key, path)
+                    .instrument(tracing::info_span!(target: "gardend_otel", "read.fence.hydrate",
+                        sophia.graph.id = graph_id, sophia.document.id = id.as_str()))
+                    .await?;
+                phases.hydrate += crate::telemetry::elapsed_ms(hydrate_timer);
+                counts.hydrated += 1;
+                (room, true)
+            }
+        };
+        let lock_timer = crate::telemetry::timer();
+        let (epoch, ()) = room
+            .with_doc_version(|_| ())
+            .instrument(tracing::info_span!(target: "gardend_otel", "read.fence.lock_wait",
+                sophia.graph.id = graph_id, sophia.document.id = id.as_str()))
+            .await;
+        phases.lock_wait += crate::telemetry::elapsed_ms(lock_timer);
+        if !room.projection_reaches(epoch) {
+            let project_timer = crate::telemetry::timer();
+            flush_document_under_lifecycle(app, graph_id, &id, &room)
+                .instrument(tracing::info_span!(target: "gardend_otel", "read.fence.project",
+                    sophia.graph.id = graph_id, sophia.document.id = id.as_str()))
+                .await
+                .map_err(String::from)?;
+            phases.project += crate::telemetry::elapsed_ms(project_timer);
+            counts.projected += 1;
+        } else if !hydrated {
+            counts.resident_current += 1;
+        }
+        if hydrated {
+            let evict_timer = crate::telemetry::timer();
+            registry.evict_repaired_idle_room(&key, &room);
+            phases.evict += crate::telemetry::elapsed_ms(evict_timer);
+        }
+        if !room.projection_reaches(epoch) {
+            return Err(format!(
+                "document projection behind authority: {graph_id}/{id}"
+            ));
+        }
+    }
+    Ok::<(), String>(())
+}
+
+#[cfg(test)]
+static FENCE_COUNTS_FOR_TEST: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::BTreeMap<String, FenceCounts>>,
+> = std::sync::OnceLock::new();
+
+/// Test counter hook: the counts of the most recent fence for `graph_id`.
+#[cfg(test)]
+fn record_fence_counts_for_test(graph_id: &str, counts: FenceCounts) {
+    FENCE_COUNTS_FOR_TEST
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .insert(graph_id.to_string(), counts);
+}
+
+#[cfg(test)]
+pub(crate) fn last_fence_counts_for_test(graph_id: &str) -> FenceCounts {
+    FENCE_COUNTS_FOR_TEST
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .get(graph_id)
+        .copied()
+        .unwrap_or_default()
 }
 
 #[cfg(test)]

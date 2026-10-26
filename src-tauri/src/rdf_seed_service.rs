@@ -289,30 +289,56 @@ fn ensure_graph_store_seeded_core(
     replay_owner: Option<&SeedReplayGuard>,
     allow_walk: bool,
 ) -> Result<bool, String> {
+    // The seed decision, named. Every branch records its outcome on this span
+    // (`process_marker`, `durable_marker`, `stale_no_walk`, `walked`), so a
+    // query's time inside the lease is attributed to the check, the single-
+    // flight wait, the store open, the marker read or the walk itself.
+    let seed_span = tracing::info_span!(target: "gardend_otel", "seed.check",
+        sophia.seed.allow_walk = allow_walk,
+        sophia.seed.outcome = tracing::field::Empty,
+        sophia.seed.graph_read_ms = tracing::field::Empty,
+        sophia.seed.walk_lock_wait_ms = tracing::field::Empty,
+        sophia.seed.store_open_ms = tracing::field::Empty,
+        sophia.seed.marker_read_ms = tracing::field::Empty,
+        sophia.seed.walk_ms = tracing::field::Empty,
+        sophia.seed.documents = tracing::field::Empty,
+        sophia.seed.documents_materialized = tracing::field::Empty);
+    let _seed_entered = seed_span.enter();
     require_seed_not_cancelled(cancellation, "before seed inspection")?;
     let store_path = graph_dir.join("store.oxigraph");
     require_seed_replay_owner(&store_path, replay_owner)?;
+    let graph_timer = crate::telemetry::timer();
     let graph = read_json::<GraphRecord>(&graph_dir.join("graph.json"))?;
     let seed_key = seed_key_for(&graph);
+    seed_span.record("sophia.seed.graph_read_ms", crate::telemetry::elapsed_ms(graph_timer));
 
     // Fast path 1 — process-local marker (no store open, no lock contention).
     if process_seed_marker_matches(&store_path, &seed_key)? {
+        seed_span.record("sophia.seed.outcome", "process_marker");
         return Ok(true);
     }
 
     // Single-flight: exactly one walk per store at a time. Losers of the race
     // block here, then find the winner's markers on the re-check below.
+    let walk_lock_timer = crate::telemetry::timer();
     let walk_lock = seed_walk_lock(&store_path)?;
     let _walk_guard = walk_lock
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
+    seed_span.record(
+        "sophia.seed.walk_lock_wait_ms",
+        crate::telemetry::elapsed_ms(walk_lock_timer),
+    );
     require_seed_not_cancelled(cancellation, "waiting for the seed single-flight lock")?;
     require_seed_replay_owner(&store_path, replay_owner)?;
     if process_seed_marker_matches(&store_path, &seed_key)? {
+        seed_span.record("sophia.seed.outcome", "process_marker");
         return Ok(true);
     }
 
+    let open_timer = crate::telemetry::timer();
     let store = open_graph_store(graph_dir)?;
+    seed_span.record("sophia.seed.store_open_ms", crate::telemetry::elapsed_ms(open_timer));
 
     // Fast path 2 — the durable marker rides INSIDE the Oxigraph store (a
     // quad in the reserved `…:projection:seed` graph), so it travels
@@ -322,7 +348,9 @@ fn ensure_graph_store_seeded_core(
     // which made the first SPARQL query on a fresh pod wholesale
     // re-materialize (and, before the cold-read fix, hydrate the full Y.Doc
     // history of) every document — the fresh-cell OOM.
+    let marker_timer = crate::telemetry::timer();
     let previous_key = read_durable_seed_marker(&store, &graph.graph_id)?;
+    seed_span.record("sophia.seed.marker_read_ms", crate::telemetry::elapsed_ms(marker_timer));
     if previous_key.as_deref() == Some(seed_key.as_str()) {
         log::info!(
             "rdf-seed[{}]: durable in-store marker matches ({seed_key}); restored store is \
@@ -330,10 +358,12 @@ fn ensure_graph_store_seeded_core(
             graph.graph_id
         );
         remember_process_seed_marker(store_path, seed_key)?;
+        seed_span.record("sophia.seed.outcome", "durable_marker");
         return Ok(true);
     }
 
     if !allow_walk {
+        seed_span.record("sophia.seed.outcome", "stale_no_walk");
         // A reader holding only the shared lifecycle lease must not run the
         // walk: it writes the store, and the writers that hold the hot-write
         // lease would race it. Report, and let the caller take the hot-write
@@ -404,6 +434,7 @@ fn ensure_graph_store_seeded_core(
         }
     }
     let document_total = document_manifests.len();
+    seed_span.record("sophia.seed.documents", document_total as u64);
     log::info!(
         "rdf-seed[{}]: document walk starting — documents={document_total} floor={reseed_floor:?}",
         graph.graph_id
@@ -441,6 +472,7 @@ fn ensure_graph_store_seeded_core(
             );
         }
     }
+    seed_span.record("sophia.seed.documents_materialized", materialized_documents);
     #[cfg(test)]
     record_document_materializations(&store_path, materialized_documents);
 
@@ -465,6 +497,8 @@ fn ensure_graph_store_seeded_core(
     crate::cell_durability::mark_rdf_store_written(&store);
 
     remember_process_seed_marker(store_path, seed_key)?;
+    seed_span.record("sophia.seed.outcome", "walked");
+    seed_span.record("sophia.seed.walk_ms", crate::telemetry::elapsed_ms(Some(walk_started)));
 
     Ok(true)
 }
