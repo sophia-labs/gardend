@@ -234,6 +234,10 @@ pub struct RoomRegistry {
     // opener takes this admission mutex before the room map, closing the
     // check-to-open race without evicting existing runtime authority.
     disk_restores: StdMutex<std::collections::HashSet<String>>,
+    // One mutex per room key, held across a cold open's disk read and decode
+    // so concurrent openers of that key do the work once and openers of other
+    // keys never wait on it. Taken before any other registry lock.
+    opening: StdMutex<HashMap<String, Arc<StdMutex<()>>>>,
 }
 
 pub(crate) struct DiskRestoreRoomGuard<'a> {
@@ -375,6 +379,62 @@ fn pause_before_fresh_recheck(state_path: &std::path::Path) {
 #[cfg(not(test))]
 fn pause_before_fresh_recheck(_state_path: &std::path::Path) {}
 
+// A third barrier, inside a cold open's disk read and decode (phase 2): it
+// parks the opener at the point that used to hold the process-wide registry
+// mutex, so a test can prove other rooms are not waiting behind it.
+#[cfg(test)]
+struct OpenDecodeHook {
+    state_path: PathBuf,
+    reached: std::sync::mpsc::Sender<()>,
+    release: std::sync::mpsc::Receiver<()>,
+}
+
+#[cfg(test)]
+static OPEN_DECODE_HOOK: std::sync::OnceLock<StdMutex<Option<OpenDecodeHook>>> =
+    std::sync::OnceLock::new();
+
+#[cfg(test)]
+fn install_open_decode_hook(
+    state_path: PathBuf,
+    reached: std::sync::mpsc::Sender<()>,
+    release: std::sync::mpsc::Receiver<()>,
+) {
+    *OPEN_DECODE_HOOK
+        .get_or_init(|| StdMutex::new(None))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(OpenDecodeHook {
+        state_path,
+        reached,
+        release,
+    });
+}
+
+#[cfg(test)]
+fn pause_during_open_decode(state_path: &std::path::Path) {
+    // Single-fire, and the hook mutex is released before blocking.
+    let hook = {
+        let mut guard = OPEN_DECODE_HOOK
+            .get_or_init(|| StdMutex::new(None))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if guard
+            .as_ref()
+            .is_some_and(|hook| hook.state_path == state_path)
+        {
+            guard.take()
+        } else {
+            None
+        }
+    };
+    if let Some(hook) = hook {
+        let _ = hook.reached.send(());
+        let _ = hook.release.recv();
+    }
+}
+
+#[cfg(not(test))]
+fn pause_during_open_decode(_state_path: &std::path::Path) {}
+
 enum TombstoneOpenPolicy<'a> {
     Reject,
     FreshRecreation(&'a str),
@@ -483,41 +543,78 @@ impl RoomRegistry {
         }
         pause_after_tombstone_precheck(&state_path);
 
-        let restores = self
-            .disk_restores
-            .lock()
-            .map_err(|_| "restore room admission lock poisoned")?;
-        if restores
-            .iter()
-            .any(|graph_id| room_key_belongs_to_graph(key, graph_id))
+        let span = tracing::info_span!(target: "gardend_otel", "room.open",
+            sophia.room.hydrated = tracing::field::Empty,
+            sophia.room.state_bytes = tracing::field::Empty,
+            sophia.room.decode_ms = tracing::field::Empty,
+            sophia.room.slot_wait_ms = tracing::field::Empty,
+            sophia.room.registry_lock_wait_ms = tracing::field::Empty,
+            sophia.room.registry_lock_held_ms = tracing::field::Empty);
+        let _opening = span.enter();
+
+        // Openers of the same key queue here; openers of different keys never
+        // do. The registry map is locked only for the cheap checks below and
+        // for the insert, never across the disk read and the Y.Doc decode: a
+        // multi-megabyte cold open used to freeze every room lookup in the
+        // process for as long as it took.
+        let waiting = crate::telemetry::timer();
+        let slot = self.opening_slot(key);
+        let open_guard = slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        span.record(
+            "sophia.room.slot_wait_ms",
+            crate::telemetry::elapsed_ms(waiting),
+        );
+        let mut lock_wait_ms = 0.0;
+
+        // Phase 1: admission and the cache hit, under the locks.
         {
-            return Err("graph room is unavailable during disk archive restore".into());
-        }
-        let mut rooms = self
-            .rooms
-            .lock()
-            .map_err(|_| "room registry lock poisoned".to_string())?;
-        if let Some(room) = rooms.get(key).cloned() {
-            if !room.is_evicted() && matches!(&policy, TombstoneOpenPolicy::Reject) {
-                drop(rooms);
-                drop(restores);
-                // Pre-existing (cache-hit) room: a recheck error returns Err
-                // but the live room stays — it was live before this call.
-                return self.finish_tombstone_checked_open(key, &state_path, room, &policy, false);
+            let restores = self
+                .disk_restores
+                .lock()
+                .map_err(|_| "restore room admission lock poisoned")?;
+            if restores
+                .iter()
+                .any(|graph_id| room_key_belongs_to_graph(key, graph_id))
+            {
+                return Err("graph room is unavailable during disk archive restore".into());
             }
-            // A hot-authority write failure invalidates the in-memory Doc.
-            // Reopen from the last durable sidecar instead of returning that
-            // partially-mutated incarnation to a new caller.
-            if let Some(removed) = rooms.remove(key) {
-                removed.evict();
+            let waiting = crate::telemetry::timer();
+            let rooms = self
+                .rooms
+                .lock()
+                .map_err(|_| "room registry lock poisoned".to_string())?;
+            lock_wait_ms += crate::telemetry::elapsed_ms(waiting);
+            if let Some(room) = rooms.get(key).cloned() {
+                if !room.is_evicted() && matches!(&policy, TombstoneOpenPolicy::Reject) {
+                    drop(rooms);
+                    drop(restores);
+                    drop(open_guard);
+                    // Pre-existing (cache-hit) room: a recheck error returns Err
+                    // but the live room stays — it was live before this call.
+                    return self.finish_tombstone_checked_open(
+                        key,
+                        &state_path,
+                        room,
+                        &policy,
+                        false,
+                    );
+                }
+                // An evicted or superseded room is replaced below, atomically
+                // with the insert of its successor (no window in which the key
+                // is absent), once the new incarnation is decoded.
             }
         }
+
+        // Phase 2: read and decode with no registry lock held.
+        pause_during_open_decode(&state_path);
+        let decoding = crate::telemetry::timer();
         let doc = Doc::new();
         let mut hydrated = false;
         if matches!(&policy, TombstoneOpenPolicy::Reject) && state_path.exists() {
             let bytes = std::fs::read(&state_path).map_err(|error| {
                 PersistenceError::io(error, format!("read ydoc state {}", state_path.display()))
             })?;
+            span.record("sophia.room.state_bytes", bytes.len() as u64);
             // Two on-disk shapes both mean "no application content yet": the
             // legacy zero-byte sentinel, and `write_ydoc_update`'s canonical
             // encoded-empty-Y.Doc bytes (written so an empty sidecar is still
@@ -554,6 +651,12 @@ impl RoomRegistry {
                 }
             }
         }
+        span.record("sophia.room.hydrated", hydrated);
+        span.record(
+            "sophia.room.decode_ms",
+            crate::telemetry::elapsed_ms(decoding),
+        );
+
         let (tx, _) = broadcast::channel(256);
         let (frames, _) = broadcast::channel(256);
         let room = Arc::new(Room {
@@ -575,9 +678,42 @@ impl RoomRegistry {
             #[cfg(not(feature = "frontend-crdt"))]
             projection_flush: OnceLock::new(),
         });
-        rooms.insert(key.to_string(), room.clone());
-        drop(rooms);
-        drop(restores);
+
+        // Phase 3: admission again (a disk restore may have begun while this
+        // opener was decoding), then swap the entry in.
+        {
+            let restores = self
+                .disk_restores
+                .lock()
+                .map_err(|_| "restore room admission lock poisoned")?;
+            if restores
+                .iter()
+                .any(|graph_id| room_key_belongs_to_graph(key, graph_id))
+            {
+                return Err("graph room is unavailable during disk archive restore".into());
+            }
+            let waiting = crate::telemetry::timer();
+            let mut rooms = self
+                .rooms
+                .lock()
+                .map_err(|_| "room registry lock poisoned".to_string())?;
+            lock_wait_ms += crate::telemetry::elapsed_ms(waiting);
+            let held = crate::telemetry::timer();
+            // A hot-authority write failure invalidates the in-memory Doc.
+            // Reopen from the last durable sidecar instead of returning that
+            // partially-mutated incarnation to a new caller. Only this
+            // function inserts, and it holds the key's opening slot, so what
+            // is here now is what phase 1 saw (or less).
+            if let Some(removed) = rooms.remove(key) {
+                removed.evict();
+            }
+            rooms.insert(key.to_string(), room.clone());
+            span.record(
+                "sophia.room.registry_lock_held_ms",
+                crate::telemetry::elapsed_ms(held),
+            );
+        }
+        span.record("sophia.room.registry_lock_wait_ms", lock_wait_ms);
         // Freshly inserted room: a recheck that cannot even be evaluated must
         // evict it (see below) — the caller gets an Err with no Arc, so
         // nothing else would ever evict the just-decoded room, and every
@@ -585,8 +721,28 @@ impl RoomRegistry {
         // permanent one-room leak per transient tombstone-store error. The
         // eviction is IDENTITY-checked so this cleanup can never destroy a
         // newer live room installed here in the no-lock window (test hook).
+        // The opening slot is released first: the window exists so that other
+        // paths (and the test hook) can open this key again.
+        drop(open_guard);
         pause_before_fresh_recheck(&state_path);
         self.finish_tombstone_checked_open(key, &state_path, room, &policy, true)
+    }
+
+    /// The per-key mutex that serializes cold opens of one room. The map
+    /// itself is held only to fetch or create the entry.
+    fn opening_slot(&self, key: &str) -> Arc<StdMutex<()>> {
+        let mut slots = self
+            .opening
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if slots.len() > 256 {
+            // Idle entries (nobody holds or awaits them) are dead weight.
+            slots.retain(|_, slot| Arc::strong_count(slot) > 1);
+        }
+        slots
+            .entry(key.to_string())
+            .or_insert_with(|| Arc::new(StdMutex::new(())))
+            .clone()
     }
 
     fn finish_tombstone_checked_open(
@@ -3788,5 +3944,103 @@ mod tests {
                 .expect_err("an evicted room delivers nothing");
             assert!(error.contains("evicted"), "{error}");
         });
+    }
+
+    #[test]
+    fn a_slow_open_of_one_room_does_not_block_another_rooms_lookup() {
+        let registry = Arc::new(RoomRegistry::default());
+        let root = std::env::temp_dir().join(format!("garden-room-slow-open-{}", Uuid::new_v4()));
+        let slow_key = "doc:slow-graph:slow-document";
+        let slow_path = root.join("slow/update-v1.bin");
+        let (reached_tx, reached_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        install_open_decode_hook(slow_path.clone(), reached_tx, release_rx);
+
+        let opener_registry = registry.clone();
+        let opener_path = slow_path.clone();
+        let opener = std::thread::spawn(move || {
+            crate::app_runtime::async_runtime::block_on(async {
+                opener_registry.get_or_create(slow_key, opener_path).await
+            })
+        });
+        reached_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("the slow open is parked inside its read and decode");
+
+        // Everything below used to wait on the opener's registry mutex. It
+        // runs on its own thread so a regression fails instead of hanging.
+        let other_registry = registry.clone();
+        let other_root = root.clone();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let outcome = crate::app_runtime::async_runtime::block_on(async {
+                assert!(other_registry.peek("doc:other-graph:other").await.is_none());
+                assert!(other_registry
+                    .existing_room("doc:other-graph:other")
+                    .unwrap()
+                    .is_none());
+                let other = other_registry
+                    .get_or_create(
+                        "doc:other-graph:other",
+                        other_root.join("other/update-v1.bin"),
+                    )
+                    .await
+                    .expect("another graph's room opens meanwhile");
+                assert_eq!(other_registry.evict_graph("unrelated-graph"), 0);
+                assert!(
+                    other_registry
+                        .rooms_with_prefix("doc:other-graph:")
+                        .await
+                        .len()
+                        == 1
+                );
+                other
+            });
+            let _ = done_tx.send(outcome);
+        });
+        let other = done_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("another room's lookup and open are not blocked by the slow open");
+
+        release_tx.send(()).expect("release the slow opener");
+        let slow = opener
+            .join()
+            .expect("opener thread")
+            .expect("the slow open completes");
+        assert!(!Arc::ptr_eq(&slow, &other));
+        crate::app_runtime::async_runtime::block_on(async {
+            assert!(Arc::ptr_eq(
+                &registry.peek(slow_key).await.expect("slow room registered"),
+                &slow
+            ));
+        });
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn concurrent_openers_of_one_key_share_one_room() {
+        let registry = Arc::new(RoomRegistry::default());
+        let root = std::env::temp_dir().join(format!("garden-room-one-key-{}", Uuid::new_v4()));
+        let path = root.join("update-v1.bin");
+        let handles: Vec<_> = (0..4)
+            .map(|_| {
+                let registry = registry.clone();
+                let path = path.clone();
+                std::thread::spawn(move || {
+                    crate::app_runtime::async_runtime::block_on(async {
+                        registry.get_or_create("doc:one-key:document", path).await
+                    })
+                    .expect("open")
+                })
+            })
+            .collect();
+        let rooms: Vec<_> = handles
+            .into_iter()
+            .map(|handle| handle.join().expect("opener"))
+            .collect();
+        for room in &rooms[1..] {
+            assert!(Arc::ptr_eq(&rooms[0], room), "one key, one room");
+        }
+        let _ = std::fs::remove_dir_all(root);
     }
 }
