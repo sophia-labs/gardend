@@ -731,6 +731,7 @@ fn note_title_sweep_parse(graph_dir: &Path) {
     let _ = graph_dir;
 }
 
+#[tracing::instrument(target = "gardend_otel", name = "workspace.title_sync", skip_all, fields(sophia.workspace.docs_scanned = tracing::field::Empty))]
 async fn sync_workspace_document_titles(
     app: &AppHandle,
     graph_id: &str,
@@ -744,9 +745,9 @@ async fn sync_workspace_document_titles(
         .and_then(Value::as_array)
         .map(Vec::as_slice)
         .unwrap_or_default();
-    let _span = tracing::info_span!(target: "gardend_otel", "workspace.title_sync",
-        sophia.workspace.docs_scanned = documents.len() as u64)
-    .entered();
+    // An entered span is not `Send` and this future awaits: the span comes from
+    // `#[instrument]` above, the count is recorded on it.
+    tracing::Span::current().record("sophia.workspace.docs_scanned", documents.len() as u64);
     prune_reconciled_titles(
         graph_dir,
         &documents

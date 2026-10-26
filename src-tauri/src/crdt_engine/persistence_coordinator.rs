@@ -490,6 +490,8 @@ impl GraphPersistenceCoordinator {
                 // Either this sees a fence raised meanwhile, or the fence's
                 // drain sees this frame.
                 if gate.frames.fences.load(Ordering::SeqCst) == 0 {
+                    // `changed` borrows `gate`; end that borrow before moving it.
+                    drop(changed);
                     return Ok(ClientFrameLease {
                         gate,
                         _shared: shared,
