@@ -1792,17 +1792,43 @@ impl Room {
     pub(crate) async fn with_doc_version<T, F: FnOnce(&Doc) -> T>(&self, read: F) -> (u64, T) {
         // A projection (and a read fence) must never run ahead of the sidecar:
         // bring the group-commit tail to disk first, so after a crash the cold
-        // files are at most as new as the authority.
-        if let Err(error) = self.flush_state_if_dirty(false).await {
-            log::warn!(
-                "room state flush before projection failed for {}: {error}",
-                self.state_path.display()
-            );
+        // files are at most as new as the authority. The check is repeated
+        // with the doc mutex held (state_epoch only moves under it, so it is
+        // exact there); a frame that lands between the flush and the lock
+        // sends us around again. After a few rounds of continuous typing the
+        // read proceeds: the lag is then bounded by the commit window.
+        let mut rounds = 0;
+        loop {
+            if let Err(error) = self.flush_state_if_dirty(false).await {
+                log::warn!(
+                    "room state flush before projection failed for {}: {error}",
+                    self.state_path.display()
+                );
+            }
+            let waiting = crate::telemetry::timer();
+            let _authority_guard = self.authority_lock.lock().await;
+            let doc = self.doc.lock().await;
+            rounds += 1;
+            if self.state_is_dirty() && !self.is_evicted() && rounds < 4 {
+                continue;
+            }
+            if let Some(started) = waiting {
+                tracing::Span::current().record(
+                    "sophia.lock.wait_ms",
+                    started.elapsed().as_secs_f64() * 1000.0,
+                );
+            }
+            let held = crate::telemetry::timer();
+            let epoch = self.projection_epoch.load(Ordering::SeqCst);
+            let value = read(&doc);
+            if let Some(started) = held {
+                tracing::Span::current().record(
+                    "sophia.lock.held_ms",
+                    started.elapsed().as_secs_f64() * 1000.0,
+                );
+            }
+            return (epoch, value);
         }
-        let _authority_guard = self.authority_lock.lock().await;
-        let doc = self.doc.lock().await;
-        let epoch = self.projection_epoch.load(Ordering::SeqCst);
-        (epoch, read(&doc))
     }
 
     pub(crate) fn needs_projection_flush(&self) -> bool {
@@ -1846,6 +1872,11 @@ impl Room {
     /// Whether the live Y.Doc holds changes the sidecar does not.
     fn state_is_dirty(&self) -> bool {
         self.state_epoch.load(Ordering::SeqCst) > self.persisted_state_epoch.load(Ordering::SeqCst)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn state_is_dirty_for_test(&self) -> bool {
+        self.state_is_dirty()
     }
 
     /// Remember when the oldest unpersisted change happened. Costs nothing

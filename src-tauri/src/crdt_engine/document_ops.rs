@@ -1419,8 +1419,8 @@ async fn persist_room_document_with_expected_revision(
 }
 
 pub(super) struct MaterializedRoomDocument {
-    projection_epoch: u64,
-    candidate: Value,
+    pub(super) projection_epoch: u64,
+    pub(super) candidate: Value,
     save_input: SaveDocumentInput,
 }
 
@@ -1484,7 +1484,9 @@ pub(crate) async fn resolve_document_kind(
     fields(sophia.graph.id = graph_id, sophia.document.id = document_id,
         sophia.document.blocks = tracing::field::Empty,
         sophia.document.body_bytes = tracing::field::Empty,
-        sophia.ydoc.state_bytes = tracing::field::Empty))]
+        sophia.ydoc.state_bytes = tracing::field::Empty,
+        sophia.lock.wait_ms = tracing::field::Empty,
+        sophia.lock.held_ms = tracing::field::Empty))]
 pub(super) async fn materialize_room_document(
     graph_id: &str,
     document_id: &str,
@@ -1549,15 +1551,30 @@ pub(super) async fn materialize_room_document(
         });
     }
 
-    let (projection_epoch, (snapshot, tiptap_xml, ydoc_state)) = room
+    // Under the room's locks take only the epoch and the encoded state (the
+    // two are read together, so the bytes are exactly that epoch). The
+    // TipTap/tree/blocks/body walk then runs on a scratch Doc built from
+    // those bytes with the locks released, so a keystroke is never queued
+    // behind a whole-document materialization.
+    let (projection_epoch, ydoc_state) = room
         .with_doc_version(|doc| {
-            let snapshot = projection::materialize_ydoc(doc, document_id);
-            let tiptap_xml = projection::ydoc_to_tiptap_xml(doc);
-            let txn = doc.transact();
-            let ydoc_state = txn.encode_state_as_update_v1(&yrs::StateVector::default());
-            (snapshot, tiptap_xml, ydoc_state)
+            doc.transact()
+                .encode_state_as_update_v1(&yrs::StateVector::default())
         })
         .await;
+    let (snapshot, tiptap_xml) = {
+        let scratch = Doc::new();
+        let update = Update::decode_v1(&ydoc_state)
+            .map_err(|error| format!("decode room state for materialization: {error}"))?;
+        scratch
+            .transact_mut()
+            .apply_update(update)
+            .map_err(|error| format!("apply room state for materialization: {error}"))?;
+        (
+            projection::materialize_ydoc(&scratch, document_id),
+            projection::ydoc_to_tiptap_xml(&scratch),
+        )
+    };
     tracing::Span::current().record(
         "sophia.document.blocks",
         snapshot.blocks_json.as_array().map_or(0, Vec::len) as u64,
