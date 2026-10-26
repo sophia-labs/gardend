@@ -21,7 +21,8 @@ const r1 = (x) => Math.round(x * 10) / 10
 
 function caseResult({ caseId, kind, caseVersion = CASE_VERSION, params, calls, extra }) {
   const ok = calls.filter((c) => c.ok), samples = ok.map((c) => r1(c.ms))
-  return { caseId, caseVersion, kind, params, n: samples.length, errors: calls.length - ok.length, ms: summarize(samples), samples, server: null, exemplars: [], ...(extra ?? {}), _calls: calls }
+  const traceIds = ok.map((c) => c.traceId ?? null)
+  return { caseId, caseVersion, kind, params, n: samples.length, errors: calls.length - ok.length, ms: summarize(samples), samples, traceIds, server: null, exemplars: [], ...(extra ?? {}), _calls: calls }
 }
 
 export async function runBench(o) {

@@ -31,13 +31,15 @@ const fsyncEvents = (s) => (s.events ?? []).filter((e) => e.name === 'fsync')
 export function analyzeTrace(spans) {
   const kids = new Map()
   for (const s of spans) { const a = kids.get(s.parent_span_id) ?? []; a.push(s); kids.set(s.parent_span_id, a) }
-  let fsyncs = 0, fsyncMs = 0, leaseWait = 0, leaseHold = 0, queueWait = 0
+  let fsyncs = 0, fsyncMs = 0, leaseWait = 0, leaseHold = 0, queueWait = 0, recovered = 0
   const self = new Map()
   for (const s of spans) {
-    const ev = fsyncEvents(s); fsyncs += ev.length; for (const e of ev) fsyncMs += e.attributes?.['sophia.fsync.ms'] ?? 0
+    const ev = fsyncEvents(s); fsyncs += ev.length; for (const e of ev) fsyncMs += Number(e.attributes?.['sophia.fsync.ms'] ?? 0)
     const a = s.attributes ?? {}
-    if (s.name.startsWith('graph.lease.')) { leaseWait += a['sophia.lease.wait_ms'] ?? 0; leaseHold = Math.max(leaseHold, a['sophia.lease.held_ms'] ?? 0) }
-    if (a['sophia.queue.wait_ms'] != null && a['sophia.operation.recovered'] !== true) queueWait += a['sophia.queue.wait_ms']
+    if (s.name.startsWith('graph.lease.')) { leaseWait += Number(a['sophia.lease.wait_ms'] ?? 0); leaseHold = Math.max(leaseHold, Number(a['sophia.lease.held_ms'] ?? 0)) }
+    // attribute values may arrive as strings: always Number() (string += concatenates). Recovered ops (replayed at boot) are counted, not timed.
+    if (a['sophia.operation.recovered'] === true || a['sophia.operation.recovered'] === 'true') recovered++
+    else if (a['sophia.queue.wait_ms'] != null) queueWait += Number(a['sophia.queue.wait_ms'])
     // self time = duration minus the union of child intervals (children may overlap)
     const cs = (kids.get(s.span_id) ?? []).map((c) => [c.start_unix_nanos, c.end_unix_nanos]).sort((x, y) => x[0] - y[0])
     let covered = 0, curS = null, curE = null
@@ -46,7 +48,7 @@ export function analyzeTrace(spans) {
     const selfMs = Math.max(0, (s.end_unix_nanos - s.start_unix_nanos - covered) / 1e6)
     const e = self.get(s.name) ?? { selfMsTotal: 0, n: 0 }; e.selfMsTotal += selfMs; e.n++; self.set(s.name, e)
   }
-  return { fsyncs, fsyncMs, leaseWait, leaseHold, queueWait, self, nSpans: spans.length }
+  return { fsyncs, fsyncMs, leaseWait, leaseHold, queueWait, recovered, self, nSpans: spans.length }
 }
 
 const KEEP = /^(sophia\.|otel\.|http\.|rpc\.|db\.)/
@@ -78,6 +80,7 @@ export function serverFacts(calls, loaded) {
     fsyncsPerOp: { p50: pq(col((a) => a.fsyncs), 0.5), max: Math.max(...col((a) => a.fsyncs)) },
     fsyncMsPerOp: { p50: rd(pq(col((a) => a.fsyncMs), 0.5)) },
     leaseWaitMs: dist3(col((a) => a.leaseWait)), leaseHoldMs: dist3(col((a) => a.leaseHold)), queueWaitMs: dist3(col((a) => a.queueWait)),
+    recoveredOps: per.reduce((n, p) => n + p.a.recovered, 0),
     topSelfTime: [...selfAgg.entries()].map(([name, v]) => ({ name, selfMsTotal: rd(v.selfMsTotal), n: v.n })).sort((x, y) => y.selfMsTotal - x.selfMsTotal).slice(0, 10),
   }
   const exemplars = per.filter((p) => p.call.ok).sort((x, y) => y.call.ms - x.call.ms).slice(0, 3).map((p) => ({ traceId: p.call.traceId, wallMs: rd(p.call.ms), spans: trimSpans(p.spans) }))
