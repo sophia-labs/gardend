@@ -21,7 +21,7 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::sync::{OnceLock, Weak};
 use std::time::{Duration, Instant};
@@ -46,6 +46,8 @@ pub struct Room {
     /// connection that produced them and whether they carry graph state.
     frames: broadcast::Sender<RoomFrame>,
     next_connection_id: AtomicU64,
+    /// Sockets currently serving this room (see [`ConnectionGuard`]).
+    connections: AtomicUsize,
     /// Where to persist the authoritative Y.Doc state (update-v1.bin).
     state_path: PathBuf,
     /// When the sidecar's directory entry was last fsynced (see
@@ -748,6 +750,7 @@ impl RoomRegistry {
             tx,
             frames,
             next_connection_id: AtomicU64::new(1),
+            connections: AtomicUsize::new(0),
             state_path: state_path.clone(),
             dir_sync: Arc::new(DirSyncCadence::default()),
             // Conservatively materialize a hydrated room once. Its hot-tier
@@ -2373,6 +2376,34 @@ pub(crate) enum RoomAccess {
 /// The close code a refused visitor frame gets (application range).
 pub(crate) const VISITOR_REFUSED_CLOSE: u16 = 4403;
 
+/// Counts one socket in a room. When the last one goes away the room schedules
+/// its projection repair: a room hydrated from its sidecar is marked dirty in
+/// case a prior exit left the cold files stale, and that repair now runs when
+/// nobody is watching instead of when the first client opens the document.
+/// A no-op when the room is clean or has no projection target.
+struct ConnectionGuard {
+    room: Arc<Room>,
+    app: AppHandle,
+}
+
+impl ConnectionGuard {
+    fn new(room: &Arc<Room>, app: &AppHandle) -> Self {
+        room.connections.fetch_add(1, Ordering::SeqCst);
+        Self {
+            room: room.clone(),
+            app: app.clone(),
+        }
+    }
+}
+
+impl Drop for ConnectionGuard {
+    fn drop(&mut self) {
+        if self.room.connections.fetch_sub(1, Ordering::SeqCst) == 1 {
+            self.room.schedule_projection_flush(self.app.clone());
+        }
+    }
+}
+
 /// Drive one client connection through the room (y-websocket protocol).
 pub async fn serve_room(socket: WebSocket, room: Arc<Room>, app: AppHandle, graph_id: String) {
     serve_room_with(socket, room, app, graph_id, RoomAccess::ReadWrite).await
@@ -2389,6 +2420,7 @@ pub(crate) async fn serve_room_with(
     access: RoomAccess,
 ) {
     let connection_id = room.allocate_connection_id();
+    let _connection = ConnectionGuard::new(&room, &app);
     // W6: a visitor's frames that change nothing still cost a copy of the room;
     // a connection gets a few, then it is closed.
     let mut visitor_noop_frames: u32 = 0;
@@ -4385,6 +4417,59 @@ mod tests {
                 timer.armed = false;
             }
             assert!(target.register_update(start + Duration::from_secs(1)));
+        });
+    }
+
+    #[cfg(not(feature = "frontend-crdt"))]
+    #[test]
+    fn the_last_connection_to_close_schedules_the_projection_repair() {
+        crate::app_runtime::async_runtime::block_on(async {
+            let app = crate::tauri_runtime::build_mock_app_for_tests(true);
+            let dir = std::env::temp_dir().join(format!("garden-room-repair-{}", Uuid::new_v4()));
+            let state_path = dir.join("update-v1.bin");
+            let first = RoomRegistry::default()
+                .get_or_create("doc:repair-graph:repair-doc", state_path.clone())
+                .await
+                .expect("create room");
+            first
+                .update_doc(|_doc, txn| {
+                    txn.get_or_insert_map("metadata").insert(txn, "seed", true);
+                    Ok(())
+                })
+                .await
+                .expect("persist a sidecar to hydrate from");
+
+            // Reopened from the sidecar the room is dirty: the cold files may be stale.
+            let room = RoomRegistry::default()
+                .get_or_create("doc:repair-graph:repair-doc", state_path)
+                .await
+                .expect("hydrate room");
+            room.configure_projection_flush(
+                "repair-graph".to_string(),
+                Some("repair-doc".to_string()),
+            )
+            .expect("configure projection target");
+            assert!(room.needs_projection_flush());
+            let target = room.projection_flush.get().expect("target").clone();
+
+            let first_socket = ConnectionGuard::new(&room, &app);
+            let second_socket = ConnectionGuard::new(&room, &app);
+            assert!(
+                target.timer.lock().unwrap().first.is_none(),
+                "opening a room schedules no projection"
+            );
+            drop(first_socket);
+            assert!(
+                target.timer.lock().unwrap().first.is_none(),
+                "a socket closing while another is open schedules nothing"
+            );
+            drop(second_socket);
+            assert!(
+                target.timer.lock().unwrap().first.is_some(),
+                "the last socket closing schedules the repair"
+            );
+            room.evict();
+            let _ = std::fs::remove_dir_all(dir);
         });
     }
 }

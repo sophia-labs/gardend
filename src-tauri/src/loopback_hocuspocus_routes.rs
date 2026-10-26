@@ -437,7 +437,12 @@ async fn doc_room(
     if let Err(error) = room.configure_projection_flush(graph_id.clone(), Some(doc_id.clone())) {
         return loopback_error(StatusCode::INTERNAL_SERVER_ERROR, &error);
     }
-    room.schedule_projection_flush(state.app.clone());
+    // Opening schedules no projection: a room hydrated from its sidecar starts
+    // marked dirty (a crash may have left the cold files stale), but
+    // materializing an unchanged 2,500-block book at the moment the client is
+    // syncing it only competes with the first keystrokes. Reads fence the
+    // projection themselves, an edit schedules it, and the last connection to
+    // close schedules the repair (`serve_room_with`).
     drop(graph_lease);
     let ws = match subprotocol {
         Some(protocol) => ws.protocols([protocol]),
@@ -515,7 +520,7 @@ async fn workspace_room(
     if let Err(error) = room.configure_projection_flush(graph_id.clone(), None) {
         return loopback_error(StatusCode::INTERNAL_SERVER_ERROR, &error);
     }
-    room.schedule_projection_flush(state.app.clone());
+    // As for documents: no projection on open (see `doc_room`).
     drop(graph_lease);
     let ws = match subprotocol {
         Some(protocol) => ws.protocols([protocol]),
