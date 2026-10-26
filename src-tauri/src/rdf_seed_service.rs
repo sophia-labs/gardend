@@ -210,6 +210,102 @@ pub(crate) fn with_invalidated_seed_cache<T>(
     replace()
 }
 
+/// Bump `content_revision` (exactly as `touch_graph_content_revision`) for a
+/// writer that has JUST reconciled its own change into `store`, and carry the
+/// seed marker across the bump when the store was seeded at the revision being
+/// replaced.
+///
+/// Why. Every document save ends by bumping `content_revision`, and the seed
+/// marker keys on it, so the next query used to find a stale marker, take the
+/// hot-write lease, and walk: re-reconcile the graph record and the whole
+/// workspace snapshot, re-read every manifest's stamp, rewrite the documents
+/// newer than the floor (including the one the save had just reconciled), write
+/// the marker, and mark the store dirty so the next checkpoint copied it. A
+/// pure read paid for a write.
+///
+/// What is kept true. The marker moves from K0 to K1 only if (a) the store was
+/// seeded at K0 (process marker or durable marker) and K0 is the key of the
+/// graph record at the instant of the bump, decided inside the graph-record
+/// mutation lock so no other bump can fall between; (b) the caller reconciled
+/// its own change into `store` before calling, which is the contract every
+/// content writer already keeps for the walk's incremental floor; (c) the one
+/// thing the walk would redo for a bump, the graph record projection, whose
+/// `dcterms:modified` follows `updated_at`, is redone here. Anything else (the
+/// walk lock is busy, a source replay owns the store, the store was not seeded
+/// at K0, another bump raced in) falls back to the plain bump and leaves the
+/// marker stale, which sends the next query to the walk, as before. The marker
+/// is never advanced past a bump this function did not itself make.
+pub(crate) fn touch_graph_content_revision_keeping_seed(
+    graph_dir: &Path,
+    store: &Store,
+) -> crate::app_error::AppResult<String> {
+    use crate::graph_record_store::{mutate_graph_record, next_content_revision};
+    let plain = || crate::graph_record_store::touch_graph_content_revision(graph_dir);
+    let store_path = graph_dir.join("store.oxigraph");
+    let Ok(walk_lock) = seed_walk_lock(&store_path) else {
+        return plain();
+    };
+    let _walk_guard = match walk_lock.try_lock() {
+        Ok(guard) => guard,
+        Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+        // A walk (or another advance) is running and owns the markers.
+        Err(std::sync::TryLockError::WouldBlock) => return plain(),
+    };
+    let replaying = SOURCE_REPLAY_STORES
+        .get_or_init(|| Mutex::new(BTreeSet::new()))
+        .lock()
+        .map(|active| active.contains(&store_path))
+        .unwrap_or(true);
+    if replaying {
+        return plain();
+    }
+    let Ok(before) = read_json::<GraphRecord>(&graph_dir.join("graph.json")) else {
+        return plain();
+    };
+    let key_before = seed_key_for(&before);
+    let seeded_at_before = process_seed_marker_matches(&store_path, &key_before).unwrap_or(false)
+        || read_durable_seed_marker(store, &before.graph_id)
+            .ok()
+            .flatten()
+            .as_deref()
+            == Some(key_before.as_str());
+    if !seeded_at_before {
+        return plain();
+    }
+    let (next, advanced) = mutate_graph_record(graph_dir, |graph| {
+        let raced = seed_key_for(graph) != key_before;
+        let next = next_content_revision(graph.content_revision.as_deref())?;
+        graph.updated_at = next.clone();
+        graph.content_revision = Some(next.clone());
+        Ok((next, (!raced).then(|| graph.clone())))
+    })?;
+    if let Some(after) = advanced {
+        let key_after = seed_key_for(&after);
+        let carried = materialize_graph_record(store, &after)
+            .and_then(|()| write_durable_seed_marker(store, &after.graph_id, &key_after))
+            .and_then(|()| {
+                crate::cell_durability::mark_rdf_store_written(store);
+                remember_process_seed_marker(store_path.clone(), key_after.clone())
+            });
+        match carried {
+            Ok(()) => {
+                tracing::info_span!(target: "gardend_otel", "seed.advance",
+                    sophia.graph.id = after.graph_id.as_str())
+                .in_scope(|| ());
+            }
+            Err(error) => {
+                // The marker stays at K0, which no longer matches: the next
+                // query walks. Nothing is lost by the failure.
+                log::warn!(
+                    "rdf-seed[{}]: could not carry the seed marker across a save: {error}",
+                    after.graph_id
+                );
+            }
+        }
+    }
+    Ok(next)
+}
+
 /// Test-only restart simulation: forget the PROCESS-local marker for one
 /// store, exactly as a pod restart does, while the durable in-store marker
 /// (and the store itself) survive. Lets a test prove the hydrated-restore
@@ -310,7 +406,10 @@ fn ensure_graph_store_seeded_core(
     let graph_timer = crate::telemetry::timer();
     let graph = read_json::<GraphRecord>(&graph_dir.join("graph.json"))?;
     let seed_key = seed_key_for(&graph);
-    seed_span.record("sophia.seed.graph_read_ms", crate::telemetry::elapsed_ms(graph_timer));
+    seed_span.record(
+        "sophia.seed.graph_read_ms",
+        crate::telemetry::elapsed_ms(graph_timer),
+    );
 
     // Fast path 1 — process-local marker (no store open, no lock contention).
     if process_seed_marker_matches(&store_path, &seed_key)? {
@@ -338,7 +437,10 @@ fn ensure_graph_store_seeded_core(
 
     let open_timer = crate::telemetry::timer();
     let store = open_graph_store(graph_dir)?;
-    seed_span.record("sophia.seed.store_open_ms", crate::telemetry::elapsed_ms(open_timer));
+    seed_span.record(
+        "sophia.seed.store_open_ms",
+        crate::telemetry::elapsed_ms(open_timer),
+    );
 
     // Fast path 2 — the durable marker rides INSIDE the Oxigraph store (a
     // quad in the reserved `…:projection:seed` graph), so it travels
@@ -350,7 +452,10 @@ fn ensure_graph_store_seeded_core(
     // history of) every document — the fresh-cell OOM.
     let marker_timer = crate::telemetry::timer();
     let previous_key = read_durable_seed_marker(&store, &graph.graph_id)?;
-    seed_span.record("sophia.seed.marker_read_ms", crate::telemetry::elapsed_ms(marker_timer));
+    seed_span.record(
+        "sophia.seed.marker_read_ms",
+        crate::telemetry::elapsed_ms(marker_timer),
+    );
     if previous_key.as_deref() == Some(seed_key.as_str()) {
         log::info!(
             "rdf-seed[{}]: durable in-store marker matches ({seed_key}); restored store is \
@@ -498,7 +603,10 @@ fn ensure_graph_store_seeded_core(
 
     remember_process_seed_marker(store_path, seed_key)?;
     seed_span.record("sophia.seed.outcome", "walked");
-    seed_span.record("sophia.seed.walk_ms", crate::telemetry::elapsed_ms(Some(walk_started)));
+    seed_span.record(
+        "sophia.seed.walk_ms",
+        crate::telemetry::elapsed_ms(Some(walk_started)),
+    );
 
     Ok(true)
 }
@@ -1278,6 +1386,83 @@ mod tests {
         );
 
         crate::rdf_store_service::evict_graph_store(&graph_dir).expect("evict replacement store");
+        let _ = fs::remove_dir_all(&profile_dir);
+    }
+
+    /// A writer that has reconciled its own change and bumps through
+    /// `touch_graph_content_revision_keeping_seed` carries the marker with the
+    /// bump: the next call neither walks nor re-materializes a document, and the
+    /// graph record projection (`dcterms:modified`) follows the bump. The
+    /// control: a plain bump (a writer that did not reconcile) still reseeds.
+    #[test]
+    fn a_keeping_bump_carries_the_seed_marker_and_a_plain_bump_still_walks() {
+        let profile_dir = std::env::temp_dir().join(format!("sophia-seed-keep-{}", Uuid::new_v4()));
+        let graph_dir = profile_dir.join("graphs").join(GID);
+        fs::create_dir_all(&graph_dir).expect("graph dir");
+        write_graph_json(&graph_dir);
+        write_minimal_document(&graph_dir, "doc-1");
+        let store_path = graph_dir.join("store.oxigraph");
+
+        ensure_graph_store_seeded(&graph_dir).expect("boot seed");
+        let walks = reseed_count(&store_path);
+        let materialized = seed_document_materialization_count(&store_path);
+        let store = open_graph_store(&graph_dir).unwrap();
+
+        let next =
+            touch_graph_content_revision_keeping_seed(&graph_dir, &store).expect("keeping bump");
+        let graph = read_json::<GraphRecord>(&graph_dir.join("graph.json")).unwrap();
+        assert_eq!(graph.content_revision.as_deref(), Some(next.as_str()));
+        let key = seed_key_for(&graph);
+        assert!(process_seed_marker_matches(&store_path, &key).unwrap());
+        assert_eq!(
+            read_durable_seed_marker(&store, GID).unwrap().as_deref(),
+            Some(key.as_str()),
+            "the durable marker moved with the bump"
+        );
+        ensure_graph_store_seeded(&graph_dir).expect("seed after keeping bump");
+        assert_eq!(
+            reseed_count(&store_path),
+            walks,
+            "no walk after a keeping bump"
+        );
+        assert_eq!(
+            seed_document_materialization_count(&store_path),
+            materialized,
+            "no document was re-materialized"
+        );
+        // The projection of the graph record is the one the walk would write.
+        let modified = oxigraph::sparql::SparqlEvaluator::new()
+            .parse_query(&format!(
+                "SELECT ?m WHERE {{ GRAPH ?g {{ <{}> <http://purl.org/dc/terms/modified> ?m }} }}",
+                graph_subject(GID)
+            ))
+            .unwrap()
+            .on_store(&store)
+            .execute()
+            .unwrap();
+        let modified = match modified {
+            QueryResults::Solutions(solutions) => solutions
+                .map(|row| row.unwrap().get("m").unwrap().to_string())
+                .collect::<Vec<_>>(),
+            _ => panic!("SELECT expected"),
+        };
+        assert!(
+            modified.contains(&format!("\"{next}\"")),
+            "dcterms:modified follows the bump: {modified:?}"
+        );
+
+        // Control: a bump nobody reconciled for (plain) leaves the marker behind.
+        touch_graph_content_revision(&graph_dir).expect("plain bump");
+        // And a keeping bump after a stale marker must NOT paper over it.
+        touch_graph_content_revision_keeping_seed(&graph_dir, &store).expect("keeping bump 2");
+        ensure_graph_store_seeded(&graph_dir).expect("seed after plain bump");
+        assert_eq!(
+            reseed_count(&store_path),
+            walks + 1,
+            "a bump the store was not reconciled for still walks"
+        );
+
+        crate::rdf_store_service::evict_graph_store(&graph_dir).expect("evict store");
         let _ = fs::remove_dir_all(&profile_dir);
     }
 }

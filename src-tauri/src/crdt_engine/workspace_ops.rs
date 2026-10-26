@@ -612,7 +612,8 @@ pub(super) fn persist_materialized_workspace(
     )?;
     let store = crate::rdf_service::open_graph_store(graph_dir)?;
     crate::rdf_service::reconcile_workspace_snapshot(&store, graph_id, snapshot)?;
-    crate::graph_record_store::touch_graph_content_revision(graph_dir)?;
+    // The snapshot's RDF is in `store`: carry the seed marker across the bump.
+    crate::rdf_seed_service::touch_graph_content_revision_keeping_seed(graph_dir, &store)?;
     Ok(())
 }
 

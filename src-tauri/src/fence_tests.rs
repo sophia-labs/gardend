@@ -426,3 +426,49 @@ fn a_resident_room_that_is_clean_is_not_projected_again() {
         assert_eq!(second.skipped_current, 1, "{second:?}");
     });
 }
+
+/// O2: a save carries the seed marker with its bump, so a read after a save
+/// neither walks the workspace and documents again nor marks the store dirty
+/// for the next checkpoint. Before, every read after a save did both.
+#[test]
+fn a_read_after_a_save_neither_walks_nor_dirties_the_store() {
+    with_env(|env| {
+        let graph_dir = crate::paths::existing_graph_dir(&env.app, GRAPH).unwrap();
+        let store_path = graph_dir.join("store.oxigraph");
+        let durable = env.profile.with_file_name(format!(
+            "{}-durable",
+            env.profile.file_name().unwrap().to_string_lossy()
+        ));
+        std::fs::create_dir_all(&durable).unwrap();
+
+        create(env, "seeded");
+        write_document(env, "seeded", "first text");
+        assert!(ask(env, "first text"), "the first query seeds the store");
+
+        // A clean baseline: everything written so far is checkpointed.
+        crate::cell_durability::flush(&env.profile, &durable).expect("baseline checkpoint");
+        let walks = crate::rdf_seed_service::reseed_count(&store_path);
+
+        // A save: the block lands in the room, the fence projects it (record,
+        // RDF, history tail, content_revision bump).
+        insert_block(env, "seeded", "second text");
+        fence(&env.app);
+        // What the save itself wrote is checkpointed...
+        crate::cell_durability::flush(&env.profile, &durable).expect("checkpoint after the save");
+
+        // ...and a pure read after it finds the marker current.
+        assert!(ask(env, "second text"), "the saved text is visible");
+        assert_eq!(
+            crate::rdf_seed_service::reseed_count(&store_path),
+            walks,
+            "no seed walk for a read after a save"
+        );
+        let after_read =
+            crate::cell_durability::flush(&env.profile, &durable).expect("checkpoint after read");
+        assert!(
+            !after_read.published,
+            "a pure read left the store clean: nothing to publish"
+        );
+        let _ = std::fs::remove_dir_all(&durable);
+    });
+}

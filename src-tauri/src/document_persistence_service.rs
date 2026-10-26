@@ -115,7 +115,11 @@ pub(crate) fn ensure_document_persistence_tail_with_tombstone_fence(
     } else {
         ensure_document_snapshot_for_revision_with_tombstone_fence(graph_dir, document, None)?
     };
-    let graph_content_revision = touch_graph_content_revision(graph_dir)?;
+    // The document's RDF faces were just reconciled into `store` above, so the
+    // bump may carry the seed marker with it (see the function's contract); a
+    // following read then neither walks nor dirties the store.
+    let graph_content_revision =
+        crate::rdf_seed_service::touch_graph_content_revision_keeping_seed(graph_dir, &store)?;
     write_document_tail_commit(
         graph_dir,
         &LocalDocumentTailCommit {
