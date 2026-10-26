@@ -38,7 +38,9 @@ pub(super) use crate::rdf_seed_service::{
     ensure_graph_store_seeded_without_walk,
 };
 pub(super) use crate::rdf_store_service::open_graph_store;
-pub(super) use crate::rdf_workspace_store_materializer::reconcile_workspace_snapshot;
+pub(super) use crate::rdf_workspace_store_materializer::{
+    reconcile_workspace_snapshot, reconcile_workspace_snapshot_remembering,
+};
 pub(super) use crate::rdf_workspace_terms::{snapshot_array, wire_predicate_uri};
 
 #[derive(Debug, Deserialize)]

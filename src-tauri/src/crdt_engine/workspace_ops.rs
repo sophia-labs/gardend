@@ -625,7 +625,11 @@ pub(super) fn persist_materialized_workspace(
         snapshot,
     )?;
     let store = crate::rdf_service::open_graph_store(graph_dir)?;
-    crate::rdf_service::reconcile_workspace_snapshot(&store, graph_id, snapshot)?;
+    // Only the entities this save changed are reconciled when the previous
+    // snapshot is known; otherwise the whole workspace is.
+    crate::rdf_service::reconcile_workspace_snapshot_remembering(
+        &store, graph_dir, graph_id, snapshot,
+    )?;
     // The snapshot's RDF is in `store`: carry the seed marker across the bump.
     crate::rdf_seed_service::touch_graph_content_revision_keeping_seed(graph_dir, &store)?;
     Ok(())
@@ -693,6 +697,7 @@ pub(crate) fn forget_reconciled_title(graph_dir: &Path, document_id: &str) {
 
 /// Every title of this graph needs re-checking (a restore rewrote the workspace).
 pub(crate) fn forget_reconciled_titles(graph_dir: &Path) {
+    crate::rdf_workspace_store_materializer::forget_known_workspace_snapshot(graph_dir);
     title_ledger().remove(graph_dir);
 }
 

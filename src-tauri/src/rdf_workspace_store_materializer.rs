@@ -9,7 +9,11 @@ use crate::{
     runtime_config::{DCTERMS_NS, MDOC_NS, NFO_NS, NIE_NS, RDF_TYPE, WIRE_NS},
 };
 use oxigraph::{sparql::SparqlEvaluator, store::Store};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 /// The OLD wholesale teardown-and-rebuild path (type-keyed DELETE of every
 /// Folder/Artifact/Wire/TipTapDocument span, then full re-INSERT of
@@ -291,6 +295,9 @@ pub(super) fn reconcile_workspace_snapshot(
     graph_id: &str,
     snapshot: &serde_json::Value,
 ) -> Result<TripleDiff, String> {
+    // Any whole-workspace reconcile may change what a remembered snapshot says the
+    // store holds, so it ends every remembered snapshot (see `KNOWN_SNAPSHOTS`).
+    FULL_RECONCILES.fetch_add(1, Ordering::SeqCst);
     // (1) Ontology block — once-at-seed idempotent INSERT (never reconciled).
     seed_ontology_block(store, graph_id)?;
 
@@ -311,6 +318,226 @@ pub(super) fn reconcile_workspace_snapshot(
     // once-blocker oracle (`workspace_described_document_conforms`) now proves the
     // described-document projection CONFORMS — the observe-seam is honest.
     reconcile_classes_validated(store, &scopes_desireds, Some(workspace_vocabulary()))
+}
+
+// ============================================================================
+// INCREMENTAL WORKSPACE RECONCILE — a workspace op costs O(changed entities).
+//
+// The full reconcile surveys ten classes over the whole projection, validates the
+// whole desired union with SHACL and diffs both whole sets: ~250 ms on a 400
+// document workspace, to apply about ten triples. When the snapshot the store was
+// last reconciled to is known, the entities that differ between it and the new
+// snapshot name the only subjects whose triples can differ, so the survey, the
+// SHACL pass and the diff run on those subjects alone.
+//
+// Why scoped SHACL is complete: every shape of the workspace contract is a closed
+// per-subject shape (datatype, nodeKind, maxCount, closedness). No constraint
+// reaches from one subject to another (no `sh:class` / `sh:node` / `sh:sparql`),
+// so a subject's verdict depends only on that subject's triples, and the changed
+// subjects are validated with ALL their desired triples. A subject that did not
+// change was validated when it last changed. The test
+// `workspace_contract_has_only_per_subject_shapes` fails if the contract grows a
+// constraint that reaches across subjects, which is the point to revisit this.
+// ============================================================================
+
+/// The entity arrays of a workspace snapshot, in the order the projection reads them.
+const WORKSPACE_ENTITY_KEYS: [&str; 4] = ["folders", "documents", "artifacts", "wires"];
+
+/// More changed subjects than this and the whole-workspace reconcile is cheaper
+/// than a long `VALUES` survey (a bulk import, a restore).
+const INCREMENTAL_MAX_SUBJECTS: usize = 256;
+
+/// How long a remembered snapshot is trusted after the last whole-workspace
+/// reconcile. The next op after that does a full one, which repairs any drift
+/// something outside this process introduced.
+const KNOWN_SNAPSHOT_TRUST: Duration = Duration::from_secs(300);
+
+/// Counts whole-workspace reconciles, from any caller and for any graph. A
+/// remembered snapshot is valid only while this has not moved since it was made.
+static FULL_RECONCILES: AtomicU64 = AtomicU64::new(0);
+
+struct KnownSnapshot {
+    snapshot: serde_json::Value,
+    epoch: u64,
+    full_at: Instant,
+}
+
+/// The snapshot each graph directory's workspace projection was last reconciled
+/// to, and the `FULL_RECONCILES` value it was made at. An entry is TAKEN by the
+/// caller that uses it and put back only on success, so a failed or concurrent
+/// reconcile leaves nothing to trust.
+static KNOWN_SNAPSHOTS: Mutex<Vec<(PathBuf, KnownSnapshot)>> = Mutex::new(Vec::new());
+
+const KNOWN_SNAPSHOT_CAP: usize = 16;
+
+fn take_known_snapshot(graph_dir: &Path) -> Option<KnownSnapshot> {
+    let mut known = KNOWN_SNAPSHOTS.lock().unwrap_or_else(|p| p.into_inner());
+    let index = known.iter().position(|(dir, _)| dir == graph_dir)?;
+    Some(known.swap_remove(index).1)
+}
+
+fn remember_snapshot(graph_dir: &Path, entry: KnownSnapshot) {
+    let mut known = KNOWN_SNAPSHOTS.lock().unwrap_or_else(|p| p.into_inner());
+    known.retain(|(dir, _)| dir != graph_dir);
+    if known.len() >= KNOWN_SNAPSHOT_CAP {
+        if let Some(oldest) = (0..known.len()).min_by_key(|&i| known[i].1.full_at) {
+            known.swap_remove(oldest);
+        }
+    }
+    known.push((graph_dir.to_path_buf(), entry));
+}
+
+/// Forget the remembered snapshot of a graph directory (its workspace was rewritten
+/// from outside the save path, e.g. a restore): the next save reconciles in full.
+pub(crate) fn forget_known_workspace_snapshot(graph_dir: &Path) {
+    let _ = take_known_snapshot(graph_dir);
+}
+
+/// The entities of `next` that are not in `previous` and the entities of `previous`
+/// that are not in `next`, compared by value (an edited entity is in both lists).
+fn entity_delta(
+    previous: &[serde_json::Value],
+    next: &[serde_json::Value],
+) -> (Vec<serde_json::Value>, Vec<serde_json::Value>) {
+    let mut unmatched: HashMap<String, Vec<usize>> = HashMap::new();
+    for (index, entity) in next.iter().enumerate() {
+        unmatched.entry(entity.to_string()).or_default().push(index);
+    }
+    let mut removed = Vec::new();
+    for entity in previous {
+        let matched = unmatched
+            .get_mut(&entity.to_string())
+            .and_then(Vec::pop)
+            .is_some();
+        if !matched {
+            removed.push(entity.clone());
+        }
+    }
+    let mut added_indexes: Vec<usize> = unmatched.into_values().flatten().collect();
+    added_indexes.sort_unstable();
+    let added = added_indexes.into_iter().map(|i| next[i].clone()).collect();
+    (removed, added)
+}
+
+/// Every subject whose projected triples can differ between `previous` and
+/// `snapshot`: the subjects of the entities that were removed, added or edited,
+/// in either snapshot (a scene child of an edited artifact is its own subject).
+fn changed_workspace_subjects(
+    graph_id: &str,
+    previous: &serde_json::Value,
+    snapshot: &serde_json::Value,
+) -> BTreeSet<String> {
+    let mut subjects = BTreeSet::new();
+    for key in WORKSPACE_ENTITY_KEYS {
+        let (removed, added) = entity_delta(
+            crate::rdf_workspace_terms::snapshot_array(previous, key),
+            crate::rdf_workspace_terms::snapshot_array(snapshot, key),
+        );
+        for entities in [removed, added] {
+            if entities.is_empty() {
+                continue;
+            }
+            let part = serde_json::json!({ key: entities });
+            subjects.extend(workspace_desired(graph_id, &part).into_iter().map(|t| t.0));
+        }
+    }
+    subjects
+}
+
+/// Reconcile ONLY `changed` subjects of the workspace projection to `snapshot`:
+/// survey them (`VALUES`), validate their complete desired triples, diff, apply.
+/// The ontology block is not touched; the store was seeded by the full reconcile
+/// that made the remembered snapshot.
+fn reconcile_changed_workspace_subjects(
+    store: &Store,
+    graph_id: &str,
+    snapshot: &serde_json::Value,
+    changed: &BTreeSet<String>,
+) -> Result<TripleDiff, String> {
+    let desired: Vec<Triple> = workspace_desired(graph_id, snapshot)
+        .into_iter()
+        .filter(|triple| changed.contains(&triple.0))
+        .collect();
+    reconcile_scoped_desired(store, graph_id, desired, changed)
+}
+
+/// Survey, validate, diff and apply `desired` (the complete desired triples of
+/// the `changed` subjects) against exactly those subjects of the store.
+fn reconcile_scoped_desired(
+    store: &Store,
+    graph_id: &str,
+    desired: Vec<Triple>,
+    changed: &BTreeSet<String>,
+) -> Result<TripleDiff, String> {
+    if changed.is_empty() {
+        return Ok(TripleDiff::default());
+    }
+    let subsets = partition_workspace_desired(&desired);
+    let scopes = workspace_scopes(graph_id).map(|mut scope| {
+        scope.subjects = Some(changed.clone());
+        scope
+    });
+    let scopes_desireds: Vec<(ClassScope, Vec<Triple>)> = scopes.into_iter().zip(subsets).collect();
+    reconcile_classes_validated(store, &scopes_desireds, Some(workspace_vocabulary()))
+}
+
+/// Reconcile the projection from `previous` (what the store holds) to `snapshot`
+/// touching only the entities that differ. The result is the same projection the
+/// whole-workspace reconcile reaches, provided the store holds `previous`.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(super) fn reconcile_workspace_snapshot_incremental(
+    store: &Store,
+    graph_id: &str,
+    previous: &serde_json::Value,
+    snapshot: &serde_json::Value,
+) -> Result<TripleDiff, String> {
+    let changed = changed_workspace_subjects(graph_id, previous, snapshot);
+    reconcile_changed_workspace_subjects(store, graph_id, snapshot, &changed)
+}
+
+/// The workspace save path's reconcile. Incremental when this process knows the
+/// snapshot the store was last reconciled to (no other whole-workspace reconcile
+/// since, trusted for [`KNOWN_SNAPSHOT_TRUST`]) and the change is small; otherwise
+/// the whole-workspace reconcile, which also (re)establishes that knowledge.
+pub(super) fn reconcile_workspace_snapshot_remembering(
+    store: &Store,
+    graph_dir: &Path,
+    graph_id: &str,
+    snapshot: &serde_json::Value,
+) -> Result<(), String> {
+    let epoch = FULL_RECONCILES.load(Ordering::SeqCst);
+    let known = take_known_snapshot(graph_dir)
+        .filter(|k| k.epoch == epoch && k.full_at.elapsed() < KNOWN_SNAPSHOT_TRUST);
+    if let Some(known) = known {
+        let changed = changed_workspace_subjects(graph_id, &known.snapshot, snapshot);
+        if changed.len() <= INCREMENTAL_MAX_SUBJECTS {
+            reconcile_changed_workspace_subjects(store, graph_id, snapshot, &changed)?;
+            if FULL_RECONCILES.load(Ordering::SeqCst) == epoch {
+                remember_snapshot(
+                    graph_dir,
+                    KnownSnapshot {
+                        snapshot: snapshot.clone(),
+                        epoch,
+                        full_at: known.full_at,
+                    },
+                );
+            }
+            return Ok(());
+        }
+    }
+    reconcile_workspace_snapshot(store, graph_id, snapshot)?;
+    // Remember only if no other whole-workspace reconcile ran besides this one.
+    if FULL_RECONCILES.load(Ordering::SeqCst) == epoch + 1 {
+        remember_snapshot(
+            graph_dir,
+            KnownSnapshot {
+                snapshot: snapshot.clone(),
+                epoch: epoch + 1,
+                full_at: Instant::now(),
+            },
+        );
+    }
+    Ok(())
 }
 
 // ============================================================================
@@ -1467,5 +1694,357 @@ mod shacl_workspace_conformance_oracle {
             validate_desired(&projection, workspace_vocabulary()).is_ok(),
             "the entity projection still conforms after the idempotent re-seed"
         );
+    }
+}
+
+// ============================================================================
+// INCREMENTAL RECONCILE ORACLE — after every step of a sequence of workspace ops,
+// the projection the incremental reconcile leaves equals what the whole-workspace
+// reconcile builds on a fresh store. Real stores, real SHACL, no mocks.
+// ============================================================================
+#[cfg(test)]
+mod incremental_workspace_reconcile {
+    use super::*;
+    use crate::rdf_query_service::execute_sparql_query;
+    use serde_json::{json, Value};
+
+    const GID: &str = "graph-ws-incr";
+
+    fn projection_set(store: &Store) -> BTreeSet<String> {
+        let g = workspace_projection_graph_iri(GID);
+        execute_sparql_query(
+            store,
+            &format!("SELECT ?s ?p ?o WHERE {{ GRAPH <{g}> {{ ?s ?p ?o }} }}"),
+        )
+        .expect("query workspace graph")
+        .rows
+        .iter()
+        .map(|row| format!("{} {} {}", row["s"], row["p"], row["o"]))
+        .collect()
+    }
+
+    fn fresh_full(snapshot: &Value) -> BTreeSet<String> {
+        let store = Store::new().expect("fresh store");
+        reconcile_workspace_snapshot(&store, GID, snapshot).expect("full reconcile");
+        projection_set(&store)
+    }
+
+    fn folder(id: &str, name: &str, parent: Option<&str>, order: f64) -> Value {
+        let mut f = json!({ "id": id, "name": name, "order": order,
+            "createdAt": "1700000000000", "updatedAt": "1700000001000" });
+        if let Some(parent) = parent {
+            f["parentId"] = json!(parent);
+        }
+        f
+    }
+
+    fn document(id: &str, title: &str, parent: Option<&str>, order: f64) -> Value {
+        let mut d = json!({ "id": id, "title": title, "order": order,
+            "createdAt": "1700000000000", "updatedAt": "1700000001000" });
+        if let Some(parent) = parent {
+            d["parentId"] = json!(parent);
+        }
+        d
+    }
+
+    fn scene_artifact(id: &str, parent: &str, note: &str) -> Value {
+        json!({
+            "id": id, "name": "Map.excalidraw", "mimeType": "application/vnd.excalidraw+json",
+            "status": "ready", "order": 1.0, "parentId": parent,
+            "sceneProjection": {
+                "projectedAt": "2026-06-04T12:00:00.000Z",
+                "searchText": "x",
+                "anchors": [], "frames": [{ "sceneElementId": "frame-1", "title": "Cluster" }],
+                "text": [{ "sceneElementId": "note-1", "text": note, "frameId": "frame-1" }],
+                "wireCandidates": [], "diagnostics": []
+            }
+        })
+    }
+
+    fn snapshot(
+        folders: Vec<Value>,
+        documents: Vec<Value>,
+        artifacts: Vec<Value>,
+        wires: Vec<Value>,
+    ) -> Value {
+        json!({ "folders": folders, "documents": documents, "artifacts": artifacts, "wires": wires })
+    }
+
+    /// The op sequence: nested folders, rename, move documents between folders,
+    /// scene edit, wire add, delete, re-create the same id, reorder.
+    fn sequence() -> Vec<Value> {
+        let a = folder("fold-a", "A", None, 0.0);
+        let b = folder("fold-b", "B", Some("fold-a"), 1.0);
+        let wire = json!({ "id": "w1", "sourceDocumentId": "doc-1", "targetDocumentId": "doc-2",
+            "predicate": "supports" });
+        vec![
+            snapshot(vec![a.clone()], vec![], vec![], vec![]),
+            // nested folder + two documents
+            snapshot(
+                vec![a.clone(), b.clone()],
+                vec![
+                    document("doc-1", "One", Some("fold-a"), 0.0),
+                    document("doc-2", "Two", Some("fold-b"), 1.0),
+                ],
+                vec![scene_artifact("art-1", "fold-b", "first")],
+                vec![],
+            ),
+            // rename a folder
+            snapshot(
+                vec![folder("fold-a", "A renamed", None, 0.0), b.clone()],
+                vec![
+                    document("doc-1", "One", Some("fold-a"), 0.0),
+                    document("doc-2", "Two", Some("fold-b"), 1.0),
+                ],
+                vec![scene_artifact("art-1", "fold-b", "first")],
+                vec![],
+            ),
+            // move doc-2 to the other folder; edit the scene (its text child changes)
+            snapshot(
+                vec![folder("fold-a", "A renamed", None, 0.0), b.clone()],
+                vec![
+                    document("doc-1", "One", Some("fold-a"), 0.0),
+                    document("doc-2", "Two", Some("fold-a"), 1.0),
+                ],
+                vec![scene_artifact("art-1", "fold-b", "second")],
+                vec![wire.clone()],
+            ),
+            // delete the nested folder with its artifact
+            snapshot(
+                vec![folder("fold-a", "A renamed", None, 0.0)],
+                vec![
+                    document("doc-1", "One", Some("fold-a"), 0.0),
+                    document("doc-2", "Two", Some("fold-a"), 1.0),
+                ],
+                vec![],
+                vec![wire.clone()],
+            ),
+            // re-create the same folder id with other content, and the artifact id too
+            snapshot(
+                vec![
+                    folder("fold-a", "A renamed", None, 0.0),
+                    folder("fold-b", "B again", None, 5.0),
+                ],
+                vec![
+                    document("doc-1", "One", Some("fold-a"), 0.0),
+                    document("doc-2", "Two", Some("fold-a"), 1.0),
+                ],
+                vec![scene_artifact("art-1", "fold-a", "third")],
+                vec![wire.clone()],
+            ),
+            // reorder (documents swap order values and array positions)
+            snapshot(
+                vec![
+                    folder("fold-b", "B again", None, 5.0),
+                    folder("fold-a", "A renamed", None, 0.0),
+                ],
+                vec![
+                    document("doc-2", "Two", Some("fold-a"), 0.0),
+                    document("doc-1", "One", Some("fold-a"), 1.0),
+                ],
+                vec![scene_artifact("art-1", "fold-a", "third")],
+                vec![wire.clone()],
+            ),
+            // delete the wire and every document
+            snapshot(
+                vec![folder("fold-a", "A renamed", None, 0.0)],
+                vec![],
+                vec![scene_artifact("art-1", "fold-a", "third")],
+                vec![],
+            ),
+            // empty workspace
+            snapshot(vec![], vec![], vec![], vec![]),
+        ]
+    }
+
+    #[test]
+    fn incremental_equals_full_reconcile_after_every_op() {
+        let steps = sequence();
+        let store = Store::new().expect("store");
+        let mut previous = snapshot(vec![], vec![], vec![], vec![]);
+        reconcile_workspace_snapshot(&store, GID, &previous).expect("seed");
+        for (n, next) in steps.iter().enumerate() {
+            reconcile_workspace_snapshot_incremental(&store, GID, &previous, next)
+                .unwrap_or_else(|e| panic!("step {n}: incremental reconcile: {e}"));
+            let got = projection_set(&store);
+            let want = fresh_full(next);
+            let missing: Vec<_> = want.difference(&got).collect();
+            let extra: Vec<_> = got.difference(&want).collect();
+            assert!(
+                missing.is_empty() && extra.is_empty(),
+                "step {n}: incremental projection differs from the full reconcile\n\
+                 missing: {missing:#?}\nextra: {extra:#?}"
+            );
+            previous = next.clone();
+        }
+    }
+
+    /// The remembering entry point (what the save path calls) reaches the same
+    /// projection through the same sequence, whichever way it reconciles each step.
+    #[test]
+    fn remembering_entry_point_equals_full_reconcile_after_every_op() {
+        let dir = std::env::temp_dir().join(format!("incr-ws-{}", std::process::id()));
+        let store = Store::new().expect("store");
+        forget_known_workspace_snapshot(&dir);
+        for (n, next) in sequence().iter().enumerate() {
+            reconcile_workspace_snapshot_remembering(&store, &dir, GID, next)
+                .unwrap_or_else(|e| panic!("step {n}: {e}"));
+            assert_eq!(
+                projection_set(&store),
+                fresh_full(next),
+                "step {n}: remembering reconcile differs from the full reconcile"
+            );
+        }
+        forget_known_workspace_snapshot(&dir);
+    }
+
+    /// The point of the change: the incremental reconcile looks only at the
+    /// entities that changed. A triple planted on an UNRELATED subject (drift the
+    /// full reconcile would reclaim) is left alone, while the changed subject is
+    /// reconciled. Also: an unchanged snapshot touches nothing.
+    #[test]
+    fn incremental_touches_only_changed_subjects() {
+        let before = snapshot(
+            vec![folder("fold-a", "A", None, 0.0), folder("fold-b", "B", None, 1.0)],
+            vec![],
+            vec![],
+            vec![],
+        );
+        let after = snapshot(
+            vec![folder("fold-a", "A2", None, 0.0), folder("fold-b", "B", None, 1.0)],
+            vec![],
+            vec![],
+            vec![],
+        );
+        let store = Store::new().expect("store");
+        reconcile_workspace_snapshot(&store, GID, &before).expect("seed");
+        let g = workspace_projection_graph_iri(GID);
+        let stray = format!("urn:mnemosyne:local:graph:{GID}:folder:fold-b");
+        let update = format!(
+            "INSERT DATA {{ GRAPH <{g}> {{ <{stray}> <{NFO_NS}fileName> \"drifted\" }} }}"
+        );
+        SparqlEvaluator::new()
+            .parse_update(&update)
+            .expect("parse")
+            .on_store(&store)
+            .execute()
+            .expect("plant drift");
+
+        let none = reconcile_workspace_snapshot_incremental(&store, GID, &after, &after)
+            .expect("unchanged");
+        assert_eq!(none.op_count(), 0, "an unchanged snapshot does no work");
+
+        let diff = reconcile_workspace_snapshot_incremental(&store, GID, &before, &after)
+            .expect("rename");
+        assert!(diff.op_count() > 0, "the renamed folder is reconciled");
+        let set = projection_set(&store);
+        assert!(
+            set.contains(&format!("<{stray}> <{NFO_NS}fileName> \"drifted\"")),
+            "the unchanged subject was not surveyed or rewritten"
+        );
+        assert!(
+            set.iter().any(|t| t.contains("\"A2\"")),
+            "the changed subject carries the new name"
+        );
+        assert!(
+            !set.iter().any(|t| t.ends_with("\"A\"")),
+            "the changed subject lost the old name"
+        );
+
+        // The full reconcile (boot and repair) still reclaims the drift.
+        reconcile_workspace_snapshot(&store, GID, &after).expect("repair");
+        assert_eq!(projection_set(&store), fresh_full(&after));
+    }
+
+    /// Scoping must not hide a violation: a changed subject whose projection
+    /// breaks the workspace contract is refused, and nothing is written.
+    #[test]
+    fn scoped_validation_still_rejects_a_nonconforming_change() {
+        let before = snapshot(vec![folder("fold-a", "A", None, 0.0)], vec![], vec![], vec![]);
+        let mut bad_doc = document("doc-bad", "Bad", None, 0.0);
+        bad_doc["sf_sizeBytes"] = json!("not-a-number");
+        let after = snapshot(
+            vec![folder("fold-a", "A", None, 0.0)],
+            vec![bad_doc],
+            vec![],
+            vec![],
+        );
+        // The premise: the whole-workspace reconcile refuses this snapshot.
+        let reference = Store::new().expect("reference");
+        let full = reconcile_workspace_snapshot(&reference, GID, &after);
+        assert!(
+            full.as_ref().is_err_and(|e| e.starts_with("SHACL:")),
+            "premise: the full reconcile rejects the snapshot, got {full:?}"
+        );
+
+        let store = Store::new().expect("store");
+        reconcile_workspace_snapshot(&store, GID, &before).expect("seed");
+        let seeded = projection_set(&store);
+        let scoped = reconcile_workspace_snapshot_incremental(&store, GID, &before, &after);
+        assert!(
+            scoped.as_ref().is_err_and(|e| e.starts_with("SHACL:")),
+            "the scoped reconcile refuses it too, got {scoped:?}"
+        );
+        assert_eq!(projection_set(&store), seeded, "a refused change writes nothing");
+    }
+
+    /// The same refusal at the scoped-desired seam, with a rogue predicate on a
+    /// changed subject (closed-shape violation), independent of the emitter.
+    #[test]
+    fn scoped_desired_with_a_rogue_predicate_is_rejected() {
+        let store = Store::new().expect("store");
+        let snap = snapshot(vec![folder("fold-a", "A", None, 0.0)], vec![], vec![], vec![]);
+        reconcile_workspace_snapshot(&store, GID, &snap).expect("seed");
+        let seeded = projection_set(&store);
+        let subject = format!("urn:mnemosyne:local:graph:{GID}:folder:fold-a");
+        let changed: BTreeSet<String> = [subject.clone()].into_iter().collect();
+        let mut desired: Vec<Triple> = workspace_desired(GID, &snap)
+            .into_iter()
+            .filter(|t| t.0 == subject)
+            .collect();
+        desired.push((
+            subject,
+            "http://example.org/not-in-the-workspace-contract".to_string(),
+            crate::emporium::terms::Term::Lit(oxigraph::model::Literal::new_simple_literal(
+                "rogue",
+            )),
+        ));
+        let result = reconcile_scoped_desired(&store, GID, desired, &changed);
+        assert!(result.is_err_and(|e| e.starts_with("SHACL:")));
+        assert_eq!(projection_set(&store), seeded);
+    }
+
+    /// The scoping argument rests on the workspace contract holding only
+    /// per-subject constraints. If it ever gains a reference to another subject's
+    /// class or a raw SHACL block, scoped validation must be reconsidered.
+    #[test]
+    fn workspace_contract_has_only_per_subject_shapes() {
+        use crate::emporium::contract::{workspace_vocabulary, Datatype};
+        let contract = workspace_vocabulary();
+        assert!(
+            contract.raw_shacl_shapes.is_none(),
+            "raw shapes (sh:sparql) can reach across subjects"
+        );
+        for (class, spec) in &contract.classes {
+            for (name, pred) in &spec.predicates {
+                assert!(
+                    pred.datatype != Datatype::object && pred.class.is_none(),
+                    "{class}.{name} references another class: scoped validation is no longer complete"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn entity_delta_matches_by_value_and_counts_duplicates() {
+        let a = json!({ "id": "a" });
+        let b = json!({ "id": "b" });
+        let b2 = json!({ "id": "b", "x": 1 });
+        let (removed, added) = entity_delta(&[a.clone(), b.clone()], &[b2.clone(), a.clone()]);
+        assert_eq!(removed, vec![b]);
+        assert_eq!(added, vec![b2]);
+        let (removed, added) = entity_delta(&[a.clone(), a.clone()], &[a.clone()]);
+        assert_eq!(removed, vec![a]);
+        assert!(added.is_empty());
     }
 }
