@@ -2158,7 +2158,7 @@ impl Room {
             sync_dir,
             Durability::Ordered,
         )
-            .map_err(|error| error.with_context(format!("room persist {}", state_path.display())))
+        .map_err(|error| error.with_context(format!("room persist {}", state_path.display())))
     }
 
     /// Make the sidecar's directory entry durable if a rename since the last

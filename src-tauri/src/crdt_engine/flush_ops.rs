@@ -111,9 +111,8 @@ struct Pass {
 }
 
 #[cfg(not(feature = "frontend-crdt"))]
-static PASSES: std::sync::OnceLock<
-    std::sync::Mutex<std::collections::HashMap<String, Arc<Pass>>>,
-> = std::sync::OnceLock::new();
+static PASSES: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, Arc<Pass>>>> =
+    std::sync::OnceLock::new();
 
 #[cfg(not(feature = "frontend-crdt"))]
 fn passes() -> std::sync::MutexGuard<'static, std::collections::HashMap<String, Arc<Pass>>> {

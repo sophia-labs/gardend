@@ -52,7 +52,8 @@ fn with_env(test: impl FnOnce(&Env)) {
     let previous = std::env::var_os("GARDEN_PROFILE_DIR");
     let profile = std::env::temp_dir().join(format!("garden-idless-{}", uuid::Uuid::new_v4()));
     std::env::set_var("GARDEN_PROFILE_DIR", &profile);
-    let jobs_dir = std::env::temp_dir().join(format!("garden-idless-jobs-{}", uuid::Uuid::new_v4()));
+    let jobs_dir =
+        std::env::temp_dir().join(format!("garden-idless-jobs-{}", uuid::Uuid::new_v4()));
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let app = crate::tauri_runtime::build_mock_app_for_tests(true);
         crate::graph_service::create_graph_service(
@@ -88,8 +89,11 @@ fn para(text: &str) -> Value {
 #[test]
 fn idless_tiptap_blocks_keep_their_ids_across_saves_and_take_comments() {
     with_env(|env| {
-        env.call("create_document", json!({"documentId": "alpha", "title": "alpha"}))
-            .unwrap();
+        env.call(
+            "create_document",
+            json!({"documentId": "alpha", "title": "alpha"}),
+        )
+        .unwrap();
         env.call(
             "write_document",
             json!({"documentId": "alpha", "tiptapJson": {"type": "doc", "content": [
@@ -97,7 +101,11 @@ fn idless_tiptap_blocks_keep_their_ids_across_saves_and_take_comments() {
         )
         .unwrap();
         let first = env.ids("alpha");
-        assert_eq!(first, env.ids("alpha"), "two reads agree: no id is invented per read");
+        assert_eq!(
+            first,
+            env.ids("alpha"),
+            "two reads agree: no id is invented per read"
+        );
 
         env.call(
             "insert_blocks",
@@ -105,7 +113,11 @@ fn idless_tiptap_blocks_keep_their_ids_across_saves_and_take_comments() {
         )
         .unwrap();
         let second = env.ids("alpha");
-        assert_eq!(second.first(), first.first(), "the first block's id survived a save");
+        assert_eq!(
+            second.first(),
+            first.first(),
+            "the first block's id survived a save"
+        );
         assert!(second.len() > first.len());
 
         // A second tiptapJson write of the same id-less block, plus one more.
@@ -116,7 +128,11 @@ fn idless_tiptap_blocks_keep_their_ids_across_saves_and_take_comments() {
         )
         .unwrap();
         let third = env.ids("alpha");
-        assert_eq!(third.first(), first.first(), "a rewrite keeps the matched block's id");
+        assert_eq!(
+            third.first(),
+            first.first(),
+            "a rewrite keeps the matched block's id"
+        );
 
         env.call(
             "edit_comment",
@@ -131,8 +147,11 @@ fn idless_tiptap_blocks_keep_their_ids_across_saves_and_take_comments() {
 #[test]
 fn caller_given_ids_are_preserved_beside_minted_ones() {
     with_env(|env| {
-        env.call("create_document", json!({"documentId": "beta", "title": "beta"}))
-            .unwrap();
+        env.call(
+            "create_document",
+            json!({"documentId": "beta", "title": "beta"}),
+        )
+        .unwrap();
         env.call(
             "write_document",
             json!({"documentId": "beta", "tiptapJson": {"type": "doc", "content": [
@@ -154,8 +173,11 @@ fn caller_given_ids_are_preserved_beside_minted_ones() {
 #[test]
 fn nested_idless_blocks_get_ids_the_room_holds() {
     with_env(|env| {
-        env.call("create_document", json!({"documentId": "gamma", "title": "gamma"}))
-            .unwrap();
+        env.call(
+            "create_document",
+            json!({"documentId": "gamma", "title": "gamma"}),
+        )
+        .unwrap();
         env.call(
             "write_document",
             json!({"documentId": "gamma", "tiptapJson": {"type": "doc", "content": [

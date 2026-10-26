@@ -82,7 +82,13 @@ thread_local! {
 /// Syncs of any kind labelled `what` on this thread.
 #[cfg(test)]
 pub(crate) fn thread_sync_count(what: &str) -> usize {
-    THREAD_SYNCS.with(|syncs| syncs.borrow().iter().filter(|(label, _)| *label == what).count())
+    THREAD_SYNCS.with(|syncs| {
+        syncs
+            .borrow()
+            .iter()
+            .filter(|(label, _)| *label == what)
+            .count()
+    })
 }
 
 /// Syncs of one kind labelled `what` on this thread.
@@ -338,7 +344,14 @@ pub(crate) fn write_bytes_atomic_with(
     unix_mode: Option<u32>,
     sync_dir: bool,
 ) -> Result<(), PersistenceError> {
-    write_bytes_atomic_durable(path, temp_path, bytes, unix_mode, sync_dir, Durability::Full)
+    write_bytes_atomic_durable(
+        path,
+        temp_path,
+        bytes,
+        unix_mode,
+        sync_dir,
+        Durability::Full,
+    )
 }
 
 /// [`write_bytes_atomic_with`] at a chosen [`Durability`]. The order never changes: write the temp file, sync it,
@@ -416,10 +429,9 @@ pub fn display_path(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        atomic_temp_path, flush_now, flushed_generation, owed_generation,
-        set_thread_barrier_model, sync_parent_dir, thread_full_sync_total, thread_sync_count_kind,
-        traced_sync, write_bytes_atomic, write_bytes_atomic_durable, Durability, SyncKind,
-        FULL_FLUSH_PERIOD,
+        atomic_temp_path, flush_now, flushed_generation, owed_generation, set_thread_barrier_model,
+        sync_parent_dir, thread_full_sync_total, thread_sync_count_kind, traced_sync,
+        write_bytes_atomic, write_bytes_atomic_durable, Durability, SyncKind, FULL_FLUSH_PERIOD,
     };
     use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -430,7 +442,6 @@ mod tests {
             .as_nanos();
         std::env::temp_dir().join(format!("mnemosyne-atomic-{name}-{suffix}"))
     }
-
 
     fn ordered_write(dir: &std::path::Path, name: &str, durability: Durability) {
         let path = dir.join(name);

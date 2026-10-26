@@ -426,7 +426,10 @@ async fn doc_room(
     // A public reader (or visitor) does not open a document in the Trash: it is
     // the owner's to see (W6, sealed exam C1). A hosted Viewer sees what an
     // Editor sees, the Trash included.
-    if matches!(access, RoomAccess::ReadOnly { .. } | RoomAccess::Fenced { .. }) {
+    if matches!(
+        access,
+        RoomAccess::ReadOnly { .. } | RoomAccess::Fenced { .. }
+    ) {
         if let Ok(trashed) = crate::visitor_fence::trashed_documents(&state.app, &graph_id).await {
             if trashed.contains(doc_id.as_str()) {
                 return loopback_error(StatusCode::NOT_FOUND, "document not found");

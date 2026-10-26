@@ -110,8 +110,10 @@ fn with_cell(name: &str, test: impl FnOnce(&std::path::Path)) {
     let _serial = crate::tauri_runtime::profile_env_serial()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let root =
-        std::env::temp_dir().join(format!("garden-viewer-rooms-{name}-{}", uuid::Uuid::new_v4()));
+    let root = std::env::temp_dir().join(format!(
+        "garden-viewer-rooms-{name}-{}",
+        uuid::Uuid::new_v4()
+    ));
     let profile = root.join("profile");
     std::fs::create_dir_all(&profile).unwrap();
     let previous = std::env::var_os("GARDEN_PROFILE_DIR");
@@ -418,9 +420,10 @@ fn a_viewer_reads_both_rooms_and_its_frames_change_nothing() {
                 "a Viewer reads the tree"
             );
             let before = room_state(&state, &workspace_key).await;
-            let closed =
-                send_change(&mut socket, &tree, |doc| rename_folder(doc, "RENAMED BY A VIEWER"))
-                    .await;
+            let closed = send_change(&mut socket, &tree, |doc| {
+                rename_folder(doc, "RENAMED BY A VIEWER")
+            })
+            .await;
             assert_eq!(closed, Some(VISITOR_REFUSED_CLOSE));
             assert_eq!(
                 before,
@@ -613,7 +616,10 @@ fn a_viewer_never_creates_on_open() {
             let _ = std::fs::remove_file(&published);
             let mut socket = connect(&base, &path, (VIEWER, "viewer")).await.unwrap();
             sync(&mut socket, &Doc::new()).await;
-            assert!(!published.exists(), "a Viewer's open published an incarnation");
+            assert!(
+                !published.exists(),
+                "a Viewer's open published an incarnation"
+            );
             let mut socket = connect(&base, &path, (EDITOR, "editor")).await.unwrap();
             sync(&mut socket, &Doc::new()).await;
             assert!(

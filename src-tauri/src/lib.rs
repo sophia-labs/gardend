@@ -292,6 +292,8 @@ mod fence_tests;
 mod forward_restore_store_tests;
 mod graph_incarnation_admission;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
+mod idless_blocks_tests;
+#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod json_text_face_store_tests;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod markdown_fidelity_store_tests;
@@ -360,8 +362,6 @@ mod rdf_workspace_materializer;
 mod rdf_workspace_store_materializer;
 mod rdf_workspace_terms;
 mod rdf_workspace_values;
-#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
-mod idless_blocks_tests;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod read_cold_paths_tests;
 mod request_actor;

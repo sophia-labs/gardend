@@ -3,12 +3,12 @@ use std::{fs, path::Path};
 
 use crate::app_error::{AppError, AppResult};
 pub use crate::storage_atomic::display_path;
-use crate::storage_file_ops::{
-    write_bytes_if_changed_ordered, write_bytes_ordered, write_secret_bytes,
-};
 pub use crate::storage_file_ops::{
     append_secret_line, append_secret_line_unsynced, copy_file_atomic, create_dir_all, read_bytes,
     remove_dir_all, remove_file_if_exists, write_bytes,
+};
+use crate::storage_file_ops::{
+    write_bytes_if_changed_ordered, write_bytes_ordered, write_secret_bytes,
 };
 
 pub fn read_json<T>(path: &Path) -> AppResult<T>

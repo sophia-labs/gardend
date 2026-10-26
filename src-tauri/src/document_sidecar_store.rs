@@ -74,8 +74,11 @@ pub(super) fn write_document_projection_files(
     let ydoc_dir = document_ydoc_dir(graph_dir, &document.document_id);
     create_dir_all(&ydoc_dir)?;
     if !document.tiptap_xml.is_empty() {
-        write_bytes_if_changed_ordered(&ydoc_dir.join("tiptap.xml"), document.tiptap_xml.as_bytes())
-            .map_err(|error| PersistenceError::from(error).with_context("write TipTap XML"))?;
+        write_bytes_if_changed_ordered(
+            &ydoc_dir.join("tiptap.xml"),
+            document.tiptap_xml.as_bytes(),
+        )
+        .map_err(|error| PersistenceError::from(error).with_context("write TipTap XML"))?;
     }
     // Derived projections: parsed by every reader, never read by eye, so compact;
     // and a flush that changed none of them (a comment edit, an identical re-save)

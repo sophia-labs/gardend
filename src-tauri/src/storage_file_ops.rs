@@ -62,11 +62,7 @@ pub(crate) fn write_bytes_if_changed_ordered(path: &Path, bytes: &[u8]) -> AppRe
     write_bytes_if_changed_at(path, bytes, Durability::Ordered)
 }
 
-fn write_bytes_if_changed_at(
-    path: &Path,
-    bytes: &[u8],
-    durability: Durability,
-) -> AppResult<bool> {
+fn write_bytes_if_changed_at(path: &Path, bytes: &[u8], durability: Durability) -> AppResult<bool> {
     if file_holds_exactly(path, bytes) {
         tracing::info!(target: "gardend_otel", { sophia.files.skipped_unchanged = 1_u64, sophia.files.bytes = bytes.len() as u64 }, "file unchanged");
         return Ok(false);
@@ -262,15 +258,11 @@ fn append_line(path: &Path, line: &str, sync: AppendSync) -> AppResult<()> {
     record.extend_from_slice(line.as_bytes());
     record.push(b'\n');
     file.write_all(&record)
-        .and_then(|_| {
-            match sync {
-                AppendSync::None => Ok(()),
-                AppendSync::Full => crate::storage_atomic::traced_sync(&file, "file"),
-                AppendSync::Ordered => crate::storage_atomic::traced_sync_with(
-                    &file,
-                    "file",
-                    Durability::Ordered,
-                ),
+        .and_then(|_| match sync {
+            AppendSync::None => Ok(()),
+            AppendSync::Full => crate::storage_atomic::traced_sync(&file, "file"),
+            AppendSync::Ordered => {
+                crate::storage_atomic::traced_sync_with(&file, "file", Durability::Ordered)
             }
         })
         .map_err(|error| {

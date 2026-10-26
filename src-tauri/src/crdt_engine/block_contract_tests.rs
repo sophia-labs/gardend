@@ -1260,8 +1260,16 @@ fn minting_is_deterministic_for_an_operation_id() {
         minted_ids(&nodes, &mut ids);
         ids
     };
-    assert_eq!(run("op-replay"), run("op-replay"), "a replay mints the same ids");
-    assert_ne!(run("op-replay"), run("op-other"), "another operation mints other ids");
+    assert_eq!(
+        run("op-replay"),
+        run("op-replay"),
+        "a replay mints the same ids"
+    );
+    assert_ne!(
+        run("op-replay"),
+        run("op-other"),
+        "another operation mints other ids"
+    );
 }
 
 #[test]

@@ -1905,13 +1905,19 @@ mod incremental_workspace_reconcile {
     #[test]
     fn incremental_touches_only_changed_subjects() {
         let before = snapshot(
-            vec![folder("fold-a", "A", None, 0.0), folder("fold-b", "B", None, 1.0)],
+            vec![
+                folder("fold-a", "A", None, 0.0),
+                folder("fold-b", "B", None, 1.0),
+            ],
             vec![],
             vec![],
             vec![],
         );
         let after = snapshot(
-            vec![folder("fold-a", "A2", None, 0.0), folder("fold-b", "B", None, 1.0)],
+            vec![
+                folder("fold-a", "A2", None, 0.0),
+                folder("fold-b", "B", None, 1.0),
+            ],
             vec![],
             vec![],
             vec![],
@@ -1920,9 +1926,8 @@ mod incremental_workspace_reconcile {
         reconcile_workspace_snapshot(&store, GID, &before).expect("seed");
         let g = workspace_projection_graph_iri(GID);
         let stray = format!("urn:mnemosyne:local:graph:{GID}:folder:fold-b");
-        let update = format!(
-            "INSERT DATA {{ GRAPH <{g}> {{ <{stray}> <{NFO_NS}fileName> \"drifted\" }} }}"
-        );
+        let update =
+            format!("INSERT DATA {{ GRAPH <{g}> {{ <{stray}> <{NFO_NS}fileName> \"drifted\" }} }}");
         SparqlEvaluator::new()
             .parse_update(&update)
             .expect("parse")
@@ -1934,8 +1939,8 @@ mod incremental_workspace_reconcile {
             .expect("unchanged");
         assert_eq!(none.op_count(), 0, "an unchanged snapshot does no work");
 
-        let diff = reconcile_workspace_snapshot_incremental(&store, GID, &before, &after)
-            .expect("rename");
+        let diff =
+            reconcile_workspace_snapshot_incremental(&store, GID, &before, &after).expect("rename");
         assert!(diff.op_count() > 0, "the renamed folder is reconciled");
         let set = projection_set(&store);
         assert!(
@@ -1960,7 +1965,12 @@ mod incremental_workspace_reconcile {
     /// breaks the workspace contract is refused, and nothing is written.
     #[test]
     fn scoped_validation_still_rejects_a_nonconforming_change() {
-        let before = snapshot(vec![folder("fold-a", "A", None, 0.0)], vec![], vec![], vec![]);
+        let before = snapshot(
+            vec![folder("fold-a", "A", None, 0.0)],
+            vec![],
+            vec![],
+            vec![],
+        );
         let mut bad_doc = document("doc-bad", "Bad", None, 0.0);
         bad_doc["sf_sizeBytes"] = json!("not-a-number");
         let after = snapshot(
@@ -1985,7 +1995,11 @@ mod incremental_workspace_reconcile {
             scoped.as_ref().is_err_and(|e| e.starts_with("SHACL:")),
             "the scoped reconcile refuses it too, got {scoped:?}"
         );
-        assert_eq!(projection_set(&store), seeded, "a refused change writes nothing");
+        assert_eq!(
+            projection_set(&store),
+            seeded,
+            "a refused change writes nothing"
+        );
     }
 
     /// The same refusal at the scoped-desired seam, with a rogue predicate on a
@@ -1993,7 +2007,12 @@ mod incremental_workspace_reconcile {
     #[test]
     fn scoped_desired_with_a_rogue_predicate_is_rejected() {
         let store = Store::new().expect("store");
-        let snap = snapshot(vec![folder("fold-a", "A", None, 0.0)], vec![], vec![], vec![]);
+        let snap = snapshot(
+            vec![folder("fold-a", "A", None, 0.0)],
+            vec![],
+            vec![],
+            vec![],
+        );
         reconcile_workspace_snapshot(&store, GID, &snap).expect("seed");
         let seeded = projection_set(&store);
         let subject = format!("urn:mnemosyne:local:graph:{GID}:folder:fold-a");
