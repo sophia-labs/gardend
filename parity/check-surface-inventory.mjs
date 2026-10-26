@@ -407,7 +407,10 @@ function assertRouteScopeShape(route, knownScopes) {
     }
   }
   const bearerOnly = mode === 'bearer-token'
-  if ((mode === 'public' || bearerOnly) && route.scopes.length > 0) {
+  // A bearer-token route checks no token scope, so the scopes it names (the
+  // rooms') state only its role floor in a hosted cell
+  // (`minimum_role_for_effect` in `cell_graph_boundary.rs`).
+  if (mode === 'public' && route.scopes.length > 0) {
     throw new Error(`${context} uses ${mode} mode but declares granular scopes`)
   }
   if (mode !== 'public' && !bearerOnly && route.scopes.length === 0) {
@@ -589,8 +592,10 @@ const specialHandlerScopes = new Map([
   ['objects_delete_handler', ['rdf.update']],
   ['get_vocab_openapi_populated', ['rdf.query']],
   ['get_workflow_openapi_populated', ['rdf.query']],
-  ['doc_room', []],
-  ['workspace_room', []],
+  // The rooms authenticate in `authorize_ws`; their declared read scopes are
+  // the hosted cell's Viewer floor (a Viewer lease reads, never writes).
+  ['doc_room', ['documents.read']],
+  ['workspace_room', ['workspace.read']],
   // Service facade handlers delegate authorization to this common helper.
   ['proxy_service_path', ['services.proxy']],
   ['loopback_mcp', ['mcp.tools.read', 'mcp.tools.call']],

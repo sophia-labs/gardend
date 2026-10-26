@@ -1520,14 +1520,14 @@
       "method": "GET",
       "path": "/hocuspocus/docs/{graph_id}/{doc_id}",
       "status": "implemented-websocket",
-      "scopes": [],
+      "scopes": ["documents.read"],
       "scopeMode": "bearer-token"
     },
     {
       "method": "GET",
       "path": "/hocuspocus/workspace/{graph_id}",
       "status": "implemented-websocket",
-      "scopes": [],
+      "scopes": ["workspace.read"],
       "scopeMode": "bearer-token"
     }
   ],

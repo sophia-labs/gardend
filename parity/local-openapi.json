@@ -13584,7 +13584,9 @@
         "summary": "GET /hocuspocus/docs/{graph_id}/{doc_id}",
         "description": "Local native loopback route. Surface status: implemented-websocket. Scope mode: bearer-token.",
         "x-sophia-status": "implemented-websocket",
-        "x-sophia-required-scopes": [],
+        "x-sophia-required-scopes": [
+          "documents.read"
+        ],
         "x-sophia-scope-mode": "bearer-token",
         "parameters": [
           {
@@ -13652,7 +13654,9 @@
         "summary": "GET /hocuspocus/workspace/{graph_id}",
         "description": "Local native loopback route. Surface status: implemented-websocket. Scope mode: bearer-token.",
         "x-sophia-status": "implemented-websocket",
-        "x-sophia-required-scopes": [],
+        "x-sophia-required-scopes": [
+          "workspace.read"
+        ],
         "x-sophia-scope-mode": "bearer-token",
         "parameters": [
           {
