@@ -591,7 +591,7 @@ pub(crate) async fn rebuild_workspace_projection(
     let (projection_epoch, snapshot) = materialize_workspace(room, graph_id).await?;
     {
         let _durability_guard = crate::cell_durability::write_guard();
-        crate::storage::write_json(
+        crate::storage::write_json_ordered(
             &crate::ydoc_paths::workspace_snapshot_path(graph_dir),
             &snapshot,
         )?;
@@ -620,7 +620,7 @@ pub(super) fn persist_materialized_workspace(
     snapshot: &Value,
 ) -> Result<(), PersistenceError> {
     let _durability_guard = crate::cell_durability::write_guard();
-    crate::storage::write_json(
+    crate::storage::write_json_ordered(
         &crate::ydoc_paths::workspace_snapshot_path(graph_dir),
         snapshot,
     )?;

@@ -312,9 +312,12 @@ fn write_document_record_inner(
     }
     // The manifest is parsed by every reader; compact, and untouched when nothing in
     // the record changed (an identical re-save keeps the file, and its mtime).
-    crate::storage::write_json_compact_if_changed(&document_dir.join("document.json"), document)
-        .map(|_| ())
-        .map_err(Into::into)
+    crate::storage::write_json_compact_if_changed_ordered(
+        &document_dir.join("document.json"),
+        document,
+    )
+    .map(|_| ())
+    .map_err(Into::into)
 }
 
 #[cfg(test)]
@@ -661,6 +664,41 @@ mod tests {
             .expect_err("invalid embedded graph id must be rejected");
         assert!(error.contains("graph_id"), "{error}");
         assert!(!document_ydoc_state_path(&graph_dir, "safe-route").exists());
+        fs::remove_dir_all(graph_dir).unwrap();
+    }
+
+    /// The window: re-saving a document's projections (the hot path of every document write) issues barriers
+    /// and no full flush on the op's thread where barriers exist, and writes exactly the bytes it always did.
+    #[test]
+    fn a_projection_write_issues_no_full_flush_where_barriers_exist() {
+        use crate::storage_atomic::{
+            set_thread_barrier_model, thread_full_sync_total, thread_sync_count_kind, SyncKind,
+        };
+        set_thread_barrier_model(true);
+        let graph_dir = temp_graph_dir("sophia-document-window");
+        let mut document = test_document(&graph_dir, "doc-w");
+        document.tiptap_xml = "<doc><p>one</p></doc>".to_string();
+        document.ydoc_update_base64 = BASE64_STANDARD.encode(b"ydoc-state");
+        // The first write makes the directories (new entries are full syncs, as before).
+        write_document_projection_record(&graph_dir, &document).unwrap();
+
+        document.tiptap_xml = "<doc><p>two</p></doc>".to_string();
+        let full_before = thread_full_sync_total();
+        let barriers_before = thread_sync_count_kind("atomic.file", SyncKind::Barrier);
+        write_document_projection_record(&graph_dir, &document).unwrap();
+        assert_eq!(
+            thread_full_sync_total(),
+            full_before,
+            "a projection write issued a full flush"
+        );
+        assert!(
+            thread_sync_count_kind("atomic.file", SyncKind::Barrier) > barriers_before,
+            "the changed projection was ordered"
+        );
+        assert_eq!(
+            fs::read_to_string(document_ydoc_dir(&graph_dir, "doc-w").join("tiptap.xml")).unwrap(),
+            "<doc><p>two</p></doc>"
+        );
         fs::remove_dir_all(graph_dir).unwrap();
     }
 
