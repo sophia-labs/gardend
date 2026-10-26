@@ -13,7 +13,7 @@
 
 use crate::app_error::PersistenceError;
 use crate::app_runtime::AppHandle;
-use crate::storage_atomic::{atomic_temp_path, write_bytes_atomic};
+use crate::storage_atomic::{atomic_temp_path, sync_parent_dir, write_bytes_atomic_with};
 use axum::extract::ws::{Message as WsMessage, WebSocket};
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
@@ -24,7 +24,7 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::sync::{OnceLock, Weak};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 #[cfg(feature = "desktop")]
 use tauri::Manager;
 use tokio::sync::{broadcast, Mutex, Notify};
@@ -48,6 +48,9 @@ pub struct Room {
     next_connection_id: AtomicU64,
     /// Where to persist the authoritative Y.Doc state (update-v1.bin).
     state_path: PathBuf,
+    /// When the sidecar's directory entry was last fsynced (see
+    /// [`DirSyncCadence`]).
+    dir_sync: Arc<DirSyncCadence>,
     /// Monotonic version of the live Y.Doc state that still needs to reach the
     /// cold document/workspace projections. The Y.Doc remains authoritative;
     /// these epochs only prevent redundant materialization work.
@@ -89,6 +92,49 @@ struct RoomFrame {
     origin: Option<ConnectionId>,
     kind: FrameKind,
     payload: Vec<u8>,
+}
+
+/// The room sidecar is replaced by rename, so after the first write its name
+/// already exists: the file's own fsync makes the new content whole, and a
+/// power cut leaves the old or the new complete file, never a torn one. The
+/// directory fsync would only matter for a brand-new name, yet it cost as much
+/// as the file's (stress round 2: 94% of all fsyncs). It now runs for a new
+/// name, at most once per `ROOM_DIR_SYNC_INTERVAL` otherwise, and when a
+/// connection closes or the process flushes for shutdown, so a rename that was
+/// skipped is made durable within about a second. The loss it allows is the
+/// accepted window: a power cut may resurrect the previous complete sidecar.
+const ROOM_DIR_SYNC_INTERVAL: Duration = Duration::from_secs(1);
+
+#[derive(Default)]
+struct DirSyncCadence {
+    last: StdMutex<Option<Instant>>,
+    /// A rename since the last directory sync has not been made durable.
+    pending: AtomicBool,
+}
+
+impl DirSyncCadence {
+    /// Whether the write about to happen must fsync the directory.
+    fn due_at(&self, now: Instant, target_existed: bool, force: bool) -> bool {
+        let mut last = self.last.lock().unwrap_or_else(|error| error.into_inner());
+        let due = force
+            || !target_existed
+            || last.map_or(true, |at| {
+                now.saturating_duration_since(at) >= ROOM_DIR_SYNC_INTERVAL
+            });
+        if due {
+            *last = Some(now);
+            self.pending.store(false, Ordering::SeqCst);
+        } else {
+            self.pending.store(true, Ordering::SeqCst);
+        }
+        due
+    }
+
+    /// The directory sync was done elsewhere (a close-time settle).
+    fn settled_at(&self, now: Instant) {
+        *self.last.lock().unwrap_or_else(|error| error.into_inner()) = Some(now);
+        self.pending.store(false, Ordering::SeqCst);
+    }
 }
 
 #[derive(Clone)]
@@ -667,6 +713,7 @@ impl RoomRegistry {
             frames,
             next_connection_id: AtomicU64::new(1),
             state_path: state_path.clone(),
+            dir_sync: Arc::new(DirSyncCadence::default()),
             // Conservatively materialize a hydrated room once. Its hot-tier
             // authority may be newer than (or have outlived) the cold files.
             projection_epoch: AtomicU64::new(u64::from(hydrated)),
@@ -1644,9 +1691,14 @@ impl Room {
         // cell. The guard is `!Send` by design: acquired and released entirely
         // inside the closure, only owned data crosses in.
         let state_path = self.state_path.clone();
+        let cadence = self.dir_sync.clone();
         tracing::Span::current().record("sophia.ydoc.state_bytes", bytes.len() as u64);
         let persisted = crate::app_runtime::async_runtime::spawn_blocking(
-            crate::telemetry::blocking(move || Room::persist_state_bytes_at(&state_path, &bytes)),
+            crate::telemetry::blocking(move || {
+                let existed = state_path.exists();
+                let sync_dir = cadence.due_at(Instant::now(), existed, false);
+                Room::persist_state_bytes_with(&state_path, &bytes, sync_dir)
+            }),
         )
         .await
         .map_err(|error| format!("room persist join: {error}"))?;
@@ -1657,10 +1709,19 @@ impl Room {
         Ok(())
     }
 
-    #[tracing::instrument(target = "gardend_otel", name = "ydoc.state.write", skip_all, fields(sophia.ydoc.state_bytes = bytes.len() as u64))]
     fn persist_state_bytes_at(
         state_path: &std::path::Path,
         bytes: &[u8],
+    ) -> Result<(), PersistenceError> {
+        Room::persist_state_bytes_with(state_path, bytes, true)
+    }
+
+    #[tracing::instrument(target = "gardend_otel", name = "ydoc.state.write", skip_all,
+        fields(sophia.ydoc.state_bytes = bytes.len() as u64, sophia.fsync.dir = sync_dir))]
+    fn persist_state_bytes_with(
+        state_path: &std::path::Path,
+        bytes: &[u8],
+        sync_dir: bool,
     ) -> Result<(), PersistenceError> {
         crate::document_body_availability::require_state_path_available(state_path)
             .map_err(PersistenceError::permanent)?;
@@ -1675,8 +1736,40 @@ impl Room {
             })?;
         }
         let temp_path = atomic_temp_path(state_path);
-        write_bytes_atomic(state_path, &temp_path, bytes, None)
+        write_bytes_atomic_with(state_path, &temp_path, bytes, None, sync_dir)
             .map_err(|error| error.with_context(format!("room persist {}", state_path.display())))
+    }
+
+    /// Make the sidecar's directory entry durable if a rename since the last
+    /// directory sync skipped it. Called when a connection closes.
+    async fn settle_state_dir(&self) {
+        if !self.dir_sync.pending.load(Ordering::SeqCst) {
+            return;
+        }
+        let Some(parent) = self.state_path.parent().map(std::path::Path::to_path_buf) else {
+            return;
+        };
+        let cadence = self.dir_sync.clone();
+        let settled = crate::app_runtime::async_runtime::spawn_blocking(
+            crate::telemetry::blocking(move || {
+                let _durability_guard = crate::cell_durability::write_guard();
+                let result = sync_parent_dir(&parent);
+                if result.is_ok() {
+                    cadence.settled_at(Instant::now());
+                }
+                result
+            }),
+        )
+        .await;
+        match settled {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => log::warn!(
+                "room sidecar directory sync failed for {}: {}",
+                self.state_path.display(),
+                String::from(error)
+            ),
+            Err(error) => log::warn!("room sidecar directory sync join: {error}"),
+        }
     }
 
     #[cfg(test)]
@@ -2467,6 +2560,7 @@ pub(crate) async fn serve_room_with(
         }
     }
 
+    room.settle_state_dir().await;
     if let Some(removal) = room.remove_awareness_for_connection(connection_id).await {
         // Other subscribers receive the synthetic removals even when this
         // transport disappeared without a graceful Awareness null.
@@ -4042,5 +4136,81 @@ mod tests {
             assert!(Arc::ptr_eq(&rooms[0], room), "one key, one room");
         }
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn room_sidecar_directory_sync_is_bounded_to_one_per_interval() {
+        let cadence = DirSyncCadence::default();
+        let t0 = Instant::now();
+        assert!(
+            cadence.due_at(t0, false, false),
+            "a new name is always synced"
+        );
+        assert!(!cadence.due_at(t0 + Duration::from_millis(100), true, false));
+        assert!(cadence.pending.load(Ordering::SeqCst));
+        assert!(!cadence.due_at(t0 + Duration::from_millis(900), true, false));
+        assert!(cadence.due_at(t0 + ROOM_DIR_SYNC_INTERVAL, true, false));
+        assert!(!cadence.pending.load(Ordering::SeqCst));
+        assert!(
+            cadence.due_at(
+                t0 + ROOM_DIR_SYNC_INTERVAL + Duration::from_millis(1),
+                true,
+                true
+            ),
+            "a forced sync (close, shutdown) is always due"
+        );
+    }
+
+    #[test]
+    fn skipped_directory_sync_is_settled_and_the_state_is_whole() {
+        crate::app_runtime::async_runtime::block_on(async {
+            let room = presence_test_room("dir-sync-settle").await;
+            room.update_doc(|_doc, txn| {
+                txn.get_or_insert_map("metadata").insert(txn, "first", true);
+                Ok(())
+            })
+            .await
+            .expect("first write creates the sidecar and syncs its new name");
+            assert!(!room.dir_sync.pending.load(Ordering::SeqCst));
+
+            // Pretend the directory was synced just now: the next rename skips it.
+            room.dir_sync
+                .settled_at(Instant::now() + Duration::from_secs(3600));
+            room.update_doc(|_doc, txn| {
+                txn.get_or_insert_map("metadata")
+                    .insert(txn, "second", true);
+                Ok(())
+            })
+            .await
+            .expect("second write replaces the sidecar by rename");
+            assert!(
+                room.dir_sync.pending.load(Ordering::SeqCst),
+                "the rename skipped its directory sync"
+            );
+
+            room.settle_state_dir().await;
+            assert!(!room.dir_sync.pending.load(Ordering::SeqCst));
+
+            // The skipped sync never costs integrity: the sidecar is the whole
+            // state, and no temp file is left behind.
+            let reopened = RoomRegistry::default()
+                .get_or_create("doc:dir-sync:settle", room.state_path.clone())
+                .await
+                .expect("reopen from the sidecar");
+            reopened
+                .with_doc(|doc| {
+                    let txn = doc.transact();
+                    let metadata = txn.get_map("metadata").expect("metadata map");
+                    assert!(metadata.contains_key(&txn, "first"));
+                    assert!(metadata.contains_key(&txn, "second"));
+                })
+                .await;
+            let leftovers = std::fs::read_dir(room.state_path.parent().unwrap())
+                .unwrap()
+                .filter_map(Result::ok)
+                .filter(|entry| entry.file_name().to_string_lossy().contains(".tmp-"))
+                .count();
+            assert_eq!(leftovers, 0);
+        });
     }
 }
