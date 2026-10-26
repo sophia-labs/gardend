@@ -3,7 +3,8 @@ use crate::{
     clock::timestamp,
     crdt_operation_types::{CompleteCrdtOperationInput, CrdtOperation},
     profile_paths::profile_dir,
-    storage::{append_secret_line, append_secret_line_unsynced, display_path},
+    storage::{append_secret_line_unsynced, display_path},
+    storage_file_ops::append_secret_line_ordered,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -155,7 +156,9 @@ fn append_journal_event_with(
         .map_err(|error| format!("serialize CRDT operation journal event: {error}"))?;
     let _jsonl_guard = crate::jsonl_mutation_lock::acquire_jsonl_mutation_lock(path)?;
     if forced {
-        append_secret_line(path, &line).map_err(Into::into)
+        // The journal is authority, but its loss window is the ratified ~1 s: order the line (a barrier on
+        // macOS, a full flush owed within the window); the compaction rewrite below keeps the full sync.
+        append_secret_line_ordered(path, &line).map_err(Into::into)
     } else {
         append_secret_line_unsynced(path, &line).map_err(Into::into)
     }
@@ -354,6 +357,43 @@ mod tests {
             enqueue_timestamp: "0".to_string(),
             trace_context: Default::default(),
         }
+    }
+
+    /// The window: with write barriers, a forced journal line (the queued line, a failure) is ordered, not fully
+    /// flushed, on the op's thread; a durability flush picks up what it owes. Without barriers it is the full
+    /// sync it always was.
+    #[test]
+    fn a_journal_append_orders_the_line_without_a_full_flush_where_barriers_exist() {
+        use crate::storage_atomic::{
+            flush_now, flushed_generation, owed_generation, set_thread_barrier_model,
+            thread_full_sync_total, thread_sync_count_kind, SyncKind,
+        };
+        set_thread_barrier_model(true);
+        let path = temp_journal_path("ordered-line");
+        let op = operation("op-ordered");
+        let full_before = thread_full_sync_total();
+        write_queued(&path, &op, "q1", "1");
+        assert_eq!(thread_sync_count_kind("file", SyncKind::Barrier), 1);
+        assert_eq!(
+            thread_full_sync_total(),
+            full_before,
+            "the journal append issued no full flush"
+        );
+        let owed = owed_generation();
+        flush_now().expect("durability flush");
+        assert!(flushed_generation() >= owed);
+        // The line is a whole, parseable record: ordering changed nothing about what is journaled.
+        assert_eq!(
+            pending_crdt_operations_from_journal(&path)
+                .expect("pending")
+                .len(),
+            1
+        );
+
+        set_thread_barrier_model(false);
+        write_queued(&path, &operation("op-full"), "q2", "2");
+        assert_eq!(thread_sync_count_kind("file", SyncKind::Full), 1);
+        let _ = fs::remove_dir_all(path.parent().expect("journal parent"));
     }
 
     /// W3: an unforced `done` line is a complete, parseable event that settles its

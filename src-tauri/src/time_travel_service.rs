@@ -15,10 +15,10 @@ use crate::{
         RESTORE_POINT_WORKSPACE_BYTES_FILE, RESTORE_POINT_WORKSPACE_SNAPSHOT_FILE,
     },
     time_travel_store::{
-        delete_restore_point, link_document_bytes_deferred, list_index_page, newest_index_entry,
-        prepare_restore_point_dirs, read_manifest, read_workspace_bundle, remove_index_entry,
-        sync_restore_point_dirs, upsert_index_entry, write_document_bytes_deferred, write_manifest,
-        write_workspace_bundle_deferred, ListPage,
+        delete_restore_point, finish_restore_point_durably, link_document_bytes_deferred,
+        list_index_page, newest_index_entry, prepare_restore_point_dirs, read_manifest,
+        read_workspace_bundle, remove_index_entry, sync_restore_point_dirs, upsert_index_entry,
+        write_document_bytes_deferred, write_manifest, write_workspace_bundle_deferred, ListPage,
     },
     time_travel_types::{
         DocumentSnapshotRef, RestorePointIndexEntry, RestorePointManifest, RestorePointMetadata,
@@ -508,6 +508,7 @@ fn capture_restore_point_inner(
 
     let entry = manifest_to_index_entry(&manifest);
     upsert_index_entry(&graph_dir, graph_id, entry.clone())?;
+    finish_restore_point_durably()?;
 
     Ok(restore_point_summary_json(&entry, true))
 }

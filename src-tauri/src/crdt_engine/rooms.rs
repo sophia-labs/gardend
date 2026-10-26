@@ -13,7 +13,9 @@
 
 use crate::app_error::PersistenceError;
 use crate::app_runtime::AppHandle;
-use crate::storage_atomic::{atomic_temp_path, sync_parent_dir, write_bytes_atomic_with};
+use crate::storage_atomic::{
+    atomic_temp_path, sync_parent_dir, write_bytes_atomic_durable, Durability,
+};
 use axum::extract::ws::{Message as WsMessage, WebSocket};
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
@@ -1082,6 +1084,15 @@ impl RoomRegistry {
             }
             room.settle_state_dir().await;
         }
+        // Shutdown is a durability point: the ordered writes above (and any the flusher still owes) reach the
+        // media with a full flush, synchronously, before the caller goes on to exit.
+        match crate::app_runtime::async_runtime::spawn_blocking(crate::storage_atomic::flush_now)
+            .await
+        {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => log::error!("shutdown full flush failed: {error}"),
+            Err(error) => log::error!("shutdown full flush join: {error}"),
+        }
         written
     }
 
@@ -2137,7 +2148,16 @@ impl Room {
             })?;
         }
         let temp_path = atomic_temp_path(state_path);
-        write_bytes_atomic_with(state_path, &temp_path, bytes, None, sync_dir)
+        // Room state is authority, persisted on the group-commit window: ordered (a barrier on macOS), with a
+        // full flush owed within the durability window. Shutdown and restore capture flush it fully.
+        write_bytes_atomic_durable(
+            state_path,
+            &temp_path,
+            bytes,
+            None,
+            sync_dir,
+            Durability::Ordered,
+        )
             .map_err(|error| error.with_context(format!("room persist {}", state_path.display())))
     }
 

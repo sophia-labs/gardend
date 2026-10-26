@@ -3,10 +3,12 @@ use std::{fs, path::Path};
 
 use crate::app_error::{AppError, AppResult};
 pub use crate::storage_atomic::display_path;
-use crate::storage_file_ops::write_secret_bytes;
+use crate::storage_file_ops::{
+    write_bytes_if_changed_ordered, write_bytes_ordered, write_secret_bytes,
+};
 pub use crate::storage_file_ops::{
     append_secret_line, append_secret_line_unsynced, copy_file_atomic, create_dir_all, read_bytes,
-    remove_dir_all, remove_file_if_exists, write_bytes, write_bytes_if_changed,
+    remove_dir_all, remove_file_if_exists, write_bytes,
 };
 
 pub fn read_json<T>(path: &Path) -> AppResult<T>
@@ -32,9 +34,21 @@ where
     write_bytes(path, format!("{data}\n").as_bytes())
 }
 
+/// [`write_json`] inside the durability window (see `storage_file_ops::write_bytes_ordered`): for `workspace.json`,
+/// `graph.json` content touches and the like, which a room's or the journal's authority can regenerate or replay.
+pub(crate) fn write_json_ordered<T>(path: &Path, value: &T) -> AppResult<()>
+where
+    T: Serialize,
+{
+    let data = serde_json::to_string_pretty(value)
+        .map_err(|error| AppError::serialization(format!("serialize json: {error}")))?;
+    write_bytes_ordered(path, format!("{data}\n").as_bytes())
+}
+
 /// Compact JSON (one line and a newline), written only when the file's bytes would
 /// change. For derived projection files that are only ever parsed, never read by
 /// eye or diffed. Returns whether the file was written.
+#[cfg(test)]
 pub fn write_json_compact_if_changed<T>(path: &Path, value: &T) -> AppResult<bool>
 where
     T: Serialize,
@@ -42,7 +56,18 @@ where
     let mut data = serde_json::to_vec(value)
         .map_err(|error| AppError::serialization(format!("serialize json: {error}")))?;
     data.push(b'\n');
-    write_bytes_if_changed(path, &data)
+    crate::storage_file_ops::write_bytes_if_changed(path, &data)
+}
+
+/// [`write_json_compact_if_changed`] inside the durability window.
+pub(crate) fn write_json_compact_if_changed_ordered<T>(path: &Path, value: &T) -> AppResult<bool>
+where
+    T: Serialize,
+{
+    let mut data = serde_json::to_vec(value)
+        .map_err(|error| AppError::serialization(format!("serialize json: {error}")))?;
+    data.push(b'\n');
+    write_bytes_if_changed_ordered(path, &data)
 }
 
 pub fn write_secret_json<T>(path: &Path, value: &T) -> AppResult<()>
