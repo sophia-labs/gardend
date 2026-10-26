@@ -134,6 +134,12 @@ fn spawn_fence_task(
 ) -> tokio::task::JoinHandle<Result<(), String>> {
     crate::app_runtime::async_runtime::spawn_blocking(crate::telemetry::blocking(move || {
         crate::app_runtime::async_runtime::block_on(async {
+            // A panic must not leave a pass nobody finishes: every reader would
+            // wait out its deadline on it.
+            let _guard = progress.clone().map(|pass| PassGuard {
+                graph_id: graph_id.clone(),
+                pass,
+            });
             #[cfg(test)]
             hold_pass_for_test(&graph_id).await;
             let fence = tracing::info_span!(target: "gardend_otel", "read.fence",
@@ -186,6 +192,35 @@ fn spawn_fence_task(
             result
         })
     }))
+}
+
+/// Fails a pass that ended without reporting (a panic) and frees its slot.
+#[cfg(not(feature = "frontend-crdt"))]
+struct PassGuard {
+    graph_id: String,
+    pass: Arc<Pass>,
+}
+
+#[cfg(not(feature = "frontend-crdt"))]
+impl Drop for PassGuard {
+    fn drop(&mut self) {
+        {
+            let mut map = passes();
+            if map
+                .get(&self.graph_id)
+                .is_some_and(|p| Arc::ptr_eq(p, &self.pass))
+            {
+                map.remove(&self.graph_id);
+            }
+        }
+        self.pass.finished.send_if_modified(|value| {
+            if value.is_some() {
+                return false;
+            }
+            *value = Some(Err("document projection pass ended without a result".into()));
+            true
+        });
+    }
 }
 
 /// Join the graph's pass in flight, or start one. The bool is true when this
