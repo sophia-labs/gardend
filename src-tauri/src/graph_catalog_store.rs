@@ -2,11 +2,47 @@ use crate::{
     app_error::{AppError, AppResult},
     graph_record_store::GraphRecord,
     ids::validate_local_id,
-    profile_metadata_db::{text_column, with_profile_metadata_connection},
+    profile_metadata_db::{
+        profile_metadata_identity, text_column, with_profile_metadata_connection,
+        with_profile_metadata_worker,
+    },
     runtime_config::GRAPH_STATUS_DELETED,
 };
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    sync::{Mutex, OnceLock},
+};
 use turso::{params, Connection};
+
+/// The last record JSON each worker committed for `(profile, graph)`, with the
+/// identity of the catalogue file it was committed to. Written only by the
+/// profile's catalogue worker, after the upsert succeeded, so its order is the
+/// database's order; read by callers to skip an upsert that would rewrite the
+/// row it already holds. A replaced or removed catalogue file has another
+/// identity, so its entries are never trusted.
+type UpsertedKey = (PathBuf, String);
+static UPSERTED: OnceLock<Mutex<HashMap<UpsertedKey, (u64, String)>>> = OnceLock::new();
+
+fn upserted() -> std::sync::MutexGuard<'static, HashMap<UpsertedKey, (u64, String)>> {
+    UPSERTED
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Whether the catalogue already holds exactly this record, as committed by this
+/// process. A stat and a string compare; no worker, no write guard.
+fn catalog_row_is_current(profile_dir: &Path, graph: &GraphRecord, record_json: &str) -> bool {
+    let Some(identity) = profile_metadata_identity(profile_dir) else {
+        return false;
+    };
+    upserted()
+        .get(&(profile_dir.to_path_buf(), graph.graph_id.clone()))
+        .is_some_and(|(committed_identity, committed)| {
+            *committed_identity == identity && committed == record_json
+        })
+}
 
 pub(crate) fn load_cached_profile_graph_records(
     profile_dir: &Path,
@@ -32,9 +68,27 @@ pub(crate) fn upsert_cached_profile_graph_record(
     profile_dir: &Path,
     graph: &GraphRecord,
 ) -> AppResult<()> {
+    // `graph.json` is canonical and this row is its cache. A hot write path reads
+    // the record on every enqueue; when the cache already holds these exact
+    // bytes there is nothing to write, and nothing to wait for.
+    let record_json = serde_json::to_string(graph).map_err(|error| {
+        AppError::serialization(format!("serialize cached graph record: {error}"))
+    })?;
+    let _span = tracing::info_span!(target: "gardend_otel", "graph.catalog.upsert",
+        sophia.graph.id = %graph.graph_id)
+    .entered();
+    if catalog_row_is_current(profile_dir, graph, &record_json) {
+        tracing::info!(target: "gardend_otel", { sophia.catalog.skipped_unchanged = true }, "catalog row current");
+        return Ok(());
+    }
     let graph = graph.clone();
-    with_profile_metadata_connection(profile_dir, move |conn| async move {
-        upsert_graph_record_with_connection(&conn, &graph).await
+    let key_dir = profile_dir.to_path_buf();
+    with_profile_metadata_worker(profile_dir, move |ctx| {
+        let conn = ctx.connection()?;
+        let identity = ctx.identity()?;
+        ctx.block_on(upsert_graph_record_with_connection(&conn, &graph))??;
+        upserted().insert((key_dir, graph.graph_id.clone()), (identity, record_json));
+        Ok(())
     })
 }
 
@@ -44,13 +98,18 @@ pub(crate) fn delete_cached_profile_graph_record(
 ) -> AppResult<()> {
     validate_local_id(graph_id, "graph_id").map_err(AppError::validation)?;
     let graph_id = graph_id.to_string();
-    with_profile_metadata_connection(profile_dir, move |conn| async move {
-        conn.execute(
-            "DELETE FROM graph_records WHERE graph_id = ?1",
-            params![graph_id],
-        )
-        .await
-        .map_err(|error| AppError::database(format!("delete cached graph record: {error}")))?;
+    let key_dir = profile_dir.to_path_buf();
+    with_profile_metadata_worker(profile_dir, move |ctx| {
+        let conn = ctx.connection()?;
+        upserted().remove(&(key_dir, graph_id.clone()));
+        ctx.block_on(async {
+            conn.execute(
+                "DELETE FROM graph_records WHERE graph_id = ?1",
+                params![graph_id],
+            )
+            .await
+            .map_err(|error| AppError::database(format!("delete cached graph record: {error}")))
+        })??;
         Ok(())
     })
 }
@@ -210,6 +269,80 @@ mod tests {
         assert_eq!(active_records.len(), 1);
         assert_eq!(active_records[0].graph_id, "graph-a");
 
+        let _ = std::fs::remove_dir_all(profile_dir);
+    }
+
+    #[test]
+    fn catalog_worker_opens_the_database_once_for_a_burst_of_reads_and_writes() {
+        use crate::profile_metadata_db::profile_metadata_open_count;
+        let profile_dir = temp_profile_dir("opens-once");
+        let mut record = graph_record("graph-a", "Graph A", GRAPH_STATUS_ACTIVE, "2000");
+
+        for step in 0..25 {
+            // The same record again and again (what every enqueue does), and a
+            // changed one now and then (what every content write does).
+            if step % 5 == 0 {
+                record.updated_at = format!("{}", 2000 + step);
+            }
+            upsert_cached_profile_graph_record(&profile_dir, &record).unwrap();
+            let loaded = load_cached_profile_graph_records(&profile_dir, true).unwrap();
+            assert_eq!(loaded.len(), 1);
+            assert_eq!(loaded[0].updated_at, record.updated_at);
+        }
+        assert_eq!(
+            profile_metadata_open_count(&profile_dir),
+            1,
+            "one database open (and one DDL pass) for the whole burst"
+        );
+
+        // A removed row is written again even though the record bytes are the
+        // ones last committed: the skip cache must not outlive the delete.
+        delete_cached_profile_graph_record(&profile_dir, "graph-a").unwrap();
+        assert!(load_cached_profile_graph_records(&profile_dir, true)
+            .unwrap()
+            .is_empty());
+        upsert_cached_profile_graph_record(&profile_dir, &record).unwrap();
+        assert_eq!(
+            load_cached_profile_graph_records(&profile_dir, true)
+                .unwrap()
+                .len(),
+            1
+        );
+
+        // A replaced catalogue file (restore, deleted profile) is noticed: the
+        // worker reopens and the row is committed to the new file.
+        std::fs::remove_dir_all(&profile_dir).unwrap();
+        upsert_cached_profile_graph_record(&profile_dir, &record).unwrap();
+        assert_eq!(
+            load_cached_profile_graph_records(&profile_dir, true)
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(profile_metadata_open_count(&profile_dir), 2);
+
+        let _ = std::fs::remove_dir_all(profile_dir);
+    }
+
+    #[test]
+    fn unchanged_upsert_does_not_touch_the_catalogue() {
+        let profile_dir = temp_profile_dir("skip");
+        let record = graph_record("graph-a", "Graph A", GRAPH_STATUS_ACTIVE, "2000");
+        upsert_cached_profile_graph_record(&profile_dir, &record).unwrap();
+        let db_file = profile_dir.join("metadata.turso");
+        let before = std::fs::metadata(&db_file).unwrap().modified().unwrap();
+        let wal = profile_dir.join("metadata.turso-wal");
+        let wal_before = std::fs::metadata(&wal).ok().map(|m| (m.len(), m.modified().ok()));
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        for _ in 0..10 {
+            upsert_cached_profile_graph_record(&profile_dir, &record).unwrap();
+        }
+        assert_eq!(std::fs::metadata(&db_file).unwrap().modified().unwrap(), before);
+        assert_eq!(
+            std::fs::metadata(&wal).ok().map(|m| (m.len(), m.modified().ok())),
+            wal_before,
+            "an unchanged record writes nothing"
+        );
         let _ = std::fs::remove_dir_all(profile_dir);
     }
 
