@@ -53,6 +53,21 @@ pub struct Room {
     /// When the sidecar's directory entry was last fsynced (see
     /// [`DirSyncCadence`]).
     dir_sync: Arc<DirSyncCadence>,
+    /// Bumped, with the doc mutex held, by every change to the live Y.Doc.
+    /// `persisted_state_epoch` is the newest epoch whose bytes are in the
+    /// sidecar; the difference is the room's unpersisted tail (group commit).
+    state_epoch: AtomicU64,
+    persisted_state_epoch: AtomicU64,
+    /// A group-commit task is waiting out its window.
+    persist_armed: AtomicBool,
+    /// Serializes sidecar writes (group commit, API write, flushes) so an
+    /// older encode can never be renamed over a newer one.
+    persist_gate: Mutex<()>,
+    /// Set by the websocket host. Only a room with a scope defers its
+    /// persistence; every other caller persists before it returns.
+    persist_scope: OnceLock<PersistScope>,
+    /// When the oldest unpersisted change happened (telemetry only).
+    dirty_since: StdMutex<Option<Instant>>,
     /// Monotonic version of the live Y.Doc state that still needs to reach the
     /// cold document/workspace projections. The Y.Doc remains authoritative;
     /// these epochs only prevent redundant materialization work.
@@ -95,6 +110,21 @@ struct RoomFrame {
     kind: FrameKind,
     payload: Vec<u8>,
 }
+
+/// Where a room's deferred persistence runs: the graph whose lifecycle lease it
+/// takes around a write (so deletion stays ordered against it) and the app that
+/// owns the coordinator.
+#[derive(Clone)]
+struct PersistScope {
+    app: AppHandle,
+    graph_id: String,
+}
+
+/// Longest an acknowledged websocket edit waits before the room state reaches
+/// the sidecar. The edit is broadcast at once; within this window the sidecar
+/// lags the live room by at most one group commit (Vera's accepted loss on a
+/// power cut is about one second, never corruption).
+const ROOM_PERSIST_WINDOW: Duration = Duration::from_millis(250);
 
 /// The room sidecar is replaced by rename, so after the first write its name
 /// already exists: the file's own fsync makes the new content whole, and a
@@ -753,6 +783,12 @@ impl RoomRegistry {
             connections: AtomicUsize::new(0),
             state_path: state_path.clone(),
             dir_sync: Arc::new(DirSyncCadence::default()),
+            state_epoch: AtomicU64::new(0),
+            persisted_state_epoch: AtomicU64::new(0),
+            persist_armed: AtomicBool::new(false),
+            persist_gate: Mutex::new(()),
+            persist_scope: OnceLock::new(),
+            dirty_since: StdMutex::new(None),
             // Conservatively materialize a hydrated room once. Its hot-tier
             // authority may be newer than (or have outlived) the cold files.
             projection_epoch: AtomicU64::new(u64::from(hydrated)),
@@ -962,6 +998,7 @@ impl RoomRegistry {
                 Arc::ptr_eq(room, expected)
                     && Arc::strong_count(room) == 2
                     && !room.needs_projection_flush()
+                    && !room.state_is_dirty()
             }) {
                 if let Some(room) = rooms.remove(key) {
                     room.evict();
@@ -984,6 +1021,68 @@ impl RoomRegistry {
             .collect();
         matches.sort_by(|(left, _), (right, _)| left.cmp(right));
         matches
+    }
+
+    fn live_rooms_for_graph(&self, graph_id: &str) -> Vec<Arc<Room>> {
+        let workspace_key = format!("workspace:{graph_id}");
+        let document_prefix = format!("doc:{graph_id}:");
+        let Ok(rooms) = self.rooms.lock() else {
+            return Vec::new();
+        };
+        rooms
+            .iter()
+            .filter(|(key, room)| {
+                (**key == workspace_key || key.starts_with(&document_prefix))
+                    && !room.is_evicted()
+                    && room.state_is_dirty()
+            })
+            .map(|(_, room)| room.clone())
+            .collect()
+    }
+
+    /// Write every dirty room of `graph_id` to its sidecar. For callers that
+    /// read sidecar bytes directly and hold the graph's lease (source pull).
+    pub(crate) async fn flush_graph_rooms(&self, graph_id: &str) -> Result<(), PersistenceError> {
+        for room in self.live_rooms_for_graph(graph_id) {
+            room.flush_state_if_dirty(false).await?;
+        }
+        Ok(())
+    }
+
+    /// [`Self::flush_graph_rooms`] for synchronous callers that already hold
+    /// the graph's lease (restore-point capture).
+    pub(crate) fn flush_graph_rooms_blocking(
+        &self,
+        graph_id: &str,
+    ) -> Result<(), PersistenceError> {
+        for room in self.live_rooms_for_graph(graph_id) {
+            room.flush_state_blocking()?;
+        }
+        Ok(())
+    }
+
+    /// Shutdown: every dirty room reaches disk, directory entry included.
+    /// Returns the number of rooms written. A failure is logged and does not
+    /// stop the remaining rooms.
+    pub(crate) async fn flush_dirty_rooms(&self) -> usize {
+        let dirty: Vec<Arc<Room>> = match self.rooms.lock() {
+            Ok(rooms) => rooms
+                .values()
+                .filter(|room| !room.is_evicted() && room.state_is_dirty())
+                .cloned()
+                .collect(),
+            Err(_) => Vec::new(),
+        };
+        let mut written = 0;
+        for room in dirty {
+            match room.flush_state_under_lifecycle(true).await {
+                Ok(true) => written += 1,
+                Ok(false) => {}
+                Err(error) => log::error!("shutdown room flush failed: {error}"),
+            }
+            room.settle_state_dir().await;
+        }
+        written
     }
 
     /// Remove every hosted room for a graph and synchronously cancel its
@@ -1443,6 +1542,7 @@ impl Room {
                     let update = txn.encode_update_v1();
                     if update.len() > 3 {
                         self.projection_epoch.fetch_add(1, Ordering::SeqCst);
+                        self.state_epoch.fetch_add(1, Ordering::SeqCst);
                     }
                     Ok((result, update))
                 }
@@ -1564,7 +1664,7 @@ impl Room {
             sophia.ydoc.changed = tracing::field::Empty,
             otel.status_code = tracing::field::Empty))]
     pub(crate) async fn apply_client_update(&self, update: &[u8]) -> Result<bool, String> {
-        let result = self.apply_client_update_inner(update, None).await;
+        let result = self.apply_client_update_inner(update, None, false).await;
         if result.is_err() {
             tracing::Span::current().record("otel.status_code", "ERROR");
         }
@@ -1597,7 +1697,11 @@ impl Room {
         app: AppHandle,
         origin: Option<ConnectionId>,
     ) -> Result<bool, String> {
-        let changed = match self.apply_client_update_inner(update, origin).await {
+        // Only a websocket frame on a room the host bound defers its sidecar
+        // write. Source sync and every other caller of the plain path still
+        // return only after their change is on disk.
+        let defer = origin.is_some() && self.persist_scope.get().is_some();
+        let changed = match self.apply_client_update_inner(update, origin, defer).await {
             Ok(changed) => changed,
             Err(error) => {
                 tracing::Span::current().record("otel.status_code", "ERROR");
@@ -1605,15 +1709,21 @@ impl Room {
             }
         };
         if changed {
+            if defer {
+                self.arm_state_persist();
+            }
             self.schedule_projection_flush(app);
         }
         Ok(changed)
     }
 
+    /// `defer`: broadcast without persisting; the caller arms the group commit
+    /// (`arm_state_persist`) that makes the change durable within the window.
     async fn apply_client_update_inner(
         &self,
         update: &[u8],
         origin: Option<ConnectionId>,
+        defer: bool,
     ) -> Result<bool, String> {
         let waiting = crate::telemetry::timer();
         let _authority_guard = self.authority_lock.lock().await;
@@ -1638,6 +1748,7 @@ impl Room {
                     let changed = applied.len() > 3;
                     if changed {
                         self.projection_epoch.fetch_add(1, Ordering::SeqCst);
+                        self.state_epoch.fetch_add(1, Ordering::SeqCst);
                     }
                     Ok(changed)
                 }
@@ -1656,7 +1767,11 @@ impl Room {
         };
         tracing::Span::current().record("sophia.ydoc.changed", changed);
         if changed {
-            self.persist().await?;
+            if defer {
+                self.note_state_dirty();
+            } else {
+                self.persist().await?;
+            }
             let rebroadcast = Message::Sync(SyncMessage::Update(update.to_vec())).encode_v1();
             self.publish(origin, FrameKind::State, rebroadcast);
         }
@@ -1675,6 +1790,15 @@ impl Room {
     /// epoch, so marking this snapshot persisted cannot accidentally clear a
     /// newer dirty state.
     pub(crate) async fn with_doc_version<T, F: FnOnce(&Doc) -> T>(&self, read: F) -> (u64, T) {
+        // A projection (and a read fence) must never run ahead of the sidecar:
+        // bring the group-commit tail to disk first, so after a crash the cold
+        // files are at most as new as the authority.
+        if let Err(error) = self.flush_state_if_dirty(false).await {
+            log::warn!(
+                "room state flush before projection failed for {}: {error}",
+                self.state_path.display()
+            );
+        }
         let _authority_guard = self.authority_lock.lock().await;
         let doc = self.doc.lock().await;
         let epoch = self.projection_epoch.load(Ordering::SeqCst);
@@ -1709,22 +1833,83 @@ impl Room {
             .fetch_max(epoch, Ordering::SeqCst);
     }
 
-    /// Persist the full authoritative state. Called after applied updates;
-    /// cheap for M1-scale docs (full-state write, atomic rename).
+    /// Persist the full authoritative state before returning. API writes
+    /// (`update_doc`) and every non-websocket caller acknowledge on this.
     async fn persist(&self) -> Result<(), String> {
         self.persist_classified().await.map_err(Into::into)
     }
 
-    #[tracing::instrument(target = "gardend_otel", name = "ydoc.state.persist", skip_all,
-        fields(sophia.ydoc.state_bytes = tracing::field::Empty))]
     async fn persist_classified(&self) -> Result<(), PersistenceError> {
-        let bytes = async {
+        self.persist_state(false, false).await.map(|_| ())
+    }
+
+    /// Whether the live Y.Doc holds changes the sidecar does not.
+    fn state_is_dirty(&self) -> bool {
+        self.state_epoch.load(Ordering::SeqCst) > self.persisted_state_epoch.load(Ordering::SeqCst)
+    }
+
+    /// Remember when the oldest unpersisted change happened. Costs nothing
+    /// unless telemetry is on.
+    fn note_state_dirty(&self) {
+        if crate::telemetry::enabled() {
+            self.dirty_since
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .get_or_insert_with(Instant::now);
+        }
+    }
+
+    /// Write the room's whole state to the sidecar (atomic rename, file fsync).
+    /// `only_if_dirty`: skip when nothing changed since the last write (group
+    /// commit and flushes); an API write persists unconditionally.
+    /// `force_dir_sync`: also make the directory entry durable now (close,
+    /// shutdown). Returns whether a write happened. On failure the room is
+    /// evicted: it is not a faithful picture of the disk, and a reconnecting
+    /// client re-pushes whatever the sidecar lacks.
+    #[tracing::instrument(target = "gardend_otel", name = "ydoc.state.persist", skip_all,
+        fields(sophia.ydoc.state_bytes = tracing::field::Empty,
+            sophia.ydoc.batch_updates = tracing::field::Empty,
+            sophia.ydoc.dirty_lag_ms = tracing::field::Empty))]
+    async fn persist_state(
+        &self,
+        only_if_dirty: bool,
+        force_dir_sync: bool,
+    ) -> Result<bool, PersistenceError> {
+        let _gate = self.persist_gate.lock().await;
+        if only_if_dirty && (!self.state_is_dirty() || self.is_evicted()) {
+            return Ok(false);
+        }
+        let (bytes, epoch) = async {
             let doc = self.doc.lock().await;
+            // Read with the doc mutex held: no change can land between the
+            // epoch and the bytes it names.
+            let epoch = self.state_epoch.load(Ordering::SeqCst);
             let txn = doc.transact();
-            txn.encode_state_as_update_v1(&yrs::StateVector::default())
+            (
+                txn.encode_state_as_update_v1(&yrs::StateVector::default()),
+                epoch,
+            )
         }
         .instrument(tracing::info_span!(target: "gardend_otel", "ydoc.state.encode"))
         .await;
+        if crate::telemetry::enabled() {
+            let span = tracing::Span::current();
+            span.record(
+                "sophia.ydoc.batch_updates",
+                epoch.saturating_sub(self.persisted_state_epoch.load(Ordering::SeqCst)),
+            );
+            if let Some(since) = self
+                .dirty_since
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .take()
+            {
+                span.record(
+                    "sophia.ydoc.dirty_lag_ms",
+                    since.elapsed().as_secs_f64() * 1000.0,
+                );
+            }
+        }
         // The commit section runs on a blocking thread: `write_guard()` takes
         // a blocking read of the flush gate, and parking a tokio worker on it
         // starves the runtime once a few persists stack up behind a flush —
@@ -1737,7 +1922,7 @@ impl Room {
         let persisted = crate::app_runtime::async_runtime::spawn_blocking(
             crate::telemetry::blocking(move || {
                 let existed = state_path.exists();
-                let sync_dir = cadence.due_at(Instant::now(), existed, false);
+                let sync_dir = cadence.due_at(Instant::now(), existed, force_dir_sync);
                 Room::persist_state_bytes_with(&state_path, &bytes, sync_dir)
             }),
         )
@@ -1747,7 +1932,134 @@ impl Room {
             self.evict();
             return Err(error);
         }
-        Ok(())
+        self.persisted_state_epoch
+            .fetch_max(epoch, Ordering::SeqCst);
+        Ok(true)
+    }
+
+    /// Write the state if the sidecar lags the room (no-op otherwise).
+    pub(crate) async fn flush_state_if_dirty(
+        &self,
+        force_dir_sync: bool,
+    ) -> Result<bool, PersistenceError> {
+        if !self.state_is_dirty() || self.is_evicted() {
+            return Ok(false);
+        }
+        self.persist_state(true, force_dir_sync).await
+    }
+
+    /// [`Self::flush_state_if_dirty`] for a caller that holds no graph lease
+    /// (a socket closing, the shutdown flush): the write happens under the
+    /// graph's shared lifecycle lease, so deletion cannot purge the directory
+    /// and have this write recreate the sidecar behind it.
+    pub(crate) async fn flush_state_under_lifecycle(
+        &self,
+        force_dir_sync: bool,
+    ) -> Result<bool, PersistenceError> {
+        if !self.state_is_dirty() || self.is_evicted() {
+            return Ok(false);
+        }
+        let _lifecycle = match self.persist_scope.get() {
+            Some(scope) => match scope
+                .app
+                .try_state::<super::persistence_coordinator::GraphPersistenceCoordinator>(
+            ) {
+                Some(coordinator) => Some(
+                    coordinator
+                        .acquire_lifecycle_shared(&scope.graph_id)
+                        .await?,
+                ),
+                None => None,
+            },
+            None => None,
+        };
+        self.flush_state_if_dirty(force_dir_sync).await
+    }
+
+    /// [`Self::flush_state_if_dirty`] for synchronous callers that already hold
+    /// the graph's lease (restore-point capture). Polls the room's async locks
+    /// instead of nesting a runtime; the holders it waits for (a group commit,
+    /// one frame's apply) are milliseconds.
+    pub(crate) fn flush_state_blocking(&self) -> Result<(), PersistenceError> {
+        let started = Instant::now();
+        loop {
+            if !self.state_is_dirty() || self.is_evicted() {
+                return Ok(());
+            }
+            if let Ok(_gate) = self.persist_gate.try_lock() {
+                // Re-check under the gate: a group commit may just have run.
+                if !self.state_is_dirty() {
+                    return Ok(());
+                }
+                let snapshot = self.doc.try_lock().map(|doc| {
+                    let epoch = self.state_epoch.load(Ordering::SeqCst);
+                    let bytes = doc
+                        .transact()
+                        .encode_state_as_update_v1(&yrs::StateVector::default());
+                    (bytes, epoch)
+                });
+                if let Ok((bytes, epoch)) = snapshot {
+                    let existed = self.state_path.exists();
+                    let sync_dir = self.dir_sync.due_at(Instant::now(), existed, true);
+                    if let Err(error) =
+                        Room::persist_state_bytes_with(&self.state_path, &bytes, sync_dir)
+                    {
+                        self.evict();
+                        return Err(error);
+                    }
+                    self.persisted_state_epoch
+                        .fetch_max(epoch, Ordering::SeqCst);
+                    return Ok(());
+                }
+            }
+            if started.elapsed() > Duration::from_secs(10) {
+                return Err(PersistenceError::from(
+                    "timed out waiting for the room to flush its state",
+                ));
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+
+    /// Let the websocket host defer this room's sidecar writes to the group
+    /// commit, under `graph_id`'s lifecycle lease.
+    fn bind_persist_scope(&self, app: &AppHandle, graph_id: &str) {
+        let _ = self.persist_scope.set(PersistScope {
+            app: app.clone(),
+            graph_id: graph_id.to_string(),
+        });
+    }
+
+    /// Make sure a group commit is coming for the change just broadcast. At
+    /// most one task per room is waiting at a time; it clears `persist_armed`
+    /// *before* it encodes, so a change that lands after that arms the next
+    /// task and one that landed before is in this commit: no change is left
+    /// without a pending commit. The task holds a background lifecycle lease
+    /// so idle drain and shutdown wait for it.
+    fn arm_state_persist(self: &Arc<Self>) {
+        if self.persist_armed.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        #[cfg(test)]
+        let lifecycle_lease: Option<crate::cell_lifecycle::BackgroundLease> = None;
+        #[cfg(not(test))]
+        let lifecycle_lease = crate::cell_lifecycle::process_lifecycle()
+            .and_then(|lifecycle| lifecycle.begin_background("room-state-persist").ok());
+        let room = self.clone();
+        crate::app_runtime::async_runtime::spawn(
+            async move {
+                let _lifecycle_lease = lifecycle_lease;
+                tokio::time::sleep(ROOM_PERSIST_WINDOW).await;
+                room.persist_armed.store(false, Ordering::SeqCst);
+                if let Err(error) = room.flush_state_under_lifecycle(false).await {
+                    log::warn!(
+                        "room state commit failed for {} (room evicted; clients re-push on reconnect): {error}",
+                        room.state_path.display()
+                    );
+                }
+            }
+            .with_current_subscriber(),
+        );
     }
 
     fn persist_state_bytes_at(
@@ -2421,6 +2733,9 @@ pub(crate) async fn serve_room_with(
 ) {
     let connection_id = room.allocate_connection_id();
     let _connection = ConnectionGuard::new(&room, &app);
+    // From here the room's websocket frames are broadcast first and made
+    // durable by the group commit (within ROOM_PERSIST_WINDOW).
+    room.bind_persist_scope(&app, &graph_id);
     // W6: a visitor's frames that change nothing still cost a copy of the room;
     // a connection gets a few, then it is closed.
     let mut visitor_noop_frames: u32 = 0;
@@ -2690,6 +3005,11 @@ pub(crate) async fn serve_room_with(
         }
     }
 
+    // The socket is gone: bring the room's unpersisted tail to disk now, with
+    // the directory entry, rather than waiting out the window.
+    if let Err(error) = room.flush_state_under_lifecycle(true).await {
+        log::warn!("room state flush at close failed for {graph_id}: {error}");
+    }
     room.settle_state_dir().await;
     if let Some(removal) = room.remove_awareness_for_connection(connection_id).await {
         // Other subscribers receive the synthetic removals even when this
@@ -4167,6 +4487,198 @@ mod tests {
                 .await
                 .expect_err("an evicted room delivers nothing");
             assert!(error.contains("evicted"), "{error}");
+        });
+    }
+
+    fn typed_update(key: &str) -> Vec<u8> {
+        let remote = Doc::new();
+        {
+            let mut txn = remote.transact_mut();
+            txn.get_or_insert_map("metadata")
+                .insert(&mut txn, key, true);
+        }
+        let update = remote
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        update
+    }
+
+    /// Whether the sidecar on disk holds `metadata.<key>`.
+    fn sidecar_has(room: &Room, key: &str) -> bool {
+        let Ok(bytes) = std::fs::read(&room.state_path) else {
+            return false;
+        };
+        let doc = Doc::new();
+        let update = Update::decode_v1(&bytes).expect("sidecar decodes");
+        doc.transact_mut().apply_update(update).expect("apply");
+        let txn = doc.transact();
+        txn.get_map("metadata")
+            .is_some_and(|map| map.get(&txn, key).is_some())
+    }
+
+    async fn deferred_room(label: &str) -> (Arc<Room>, AppHandle) {
+        let app = crate::tauri_runtime::build_mock_app_for_tests(true);
+        let room = presence_test_room(label).await;
+        room.bind_persist_scope(&app, "deferred-graph");
+        (room, app)
+    }
+
+    #[test]
+    fn a_dirty_room_is_persisted_within_the_window() {
+        crate::app_runtime::async_runtime::block_on(async {
+            let (room, app) = deferred_room("group-commit").await;
+            for key in ["a", "b", "c"] {
+                assert!(room
+                    .apply_client_frame(&typed_update(key), app.clone(), Some(1))
+                    .await
+                    .expect("client frame"));
+            }
+            // Broadcast already happened; the sidecar lags until the window.
+            assert!(room.state_is_dirty());
+            assert!(!sidecar_has(&room, "a"), "persistence is deferred");
+            tokio::time::sleep(ROOM_PERSIST_WINDOW * 3).await;
+            assert!(!room.state_is_dirty(), "the group commit ran");
+            for key in ["a", "b", "c"] {
+                assert!(sidecar_has(&room, key), "{key} reached the sidecar");
+            }
+            assert!(
+                !room.persist_armed.load(Ordering::SeqCst),
+                "the commit task has finished"
+            );
+        });
+    }
+
+    #[test]
+    fn a_change_after_a_commit_arms_the_next_commit() {
+        crate::app_runtime::async_runtime::block_on(async {
+            let (room, app) = deferred_room("group-commit-twice").await;
+            room.apply_client_frame(&typed_update("first"), app.clone(), Some(1))
+                .await
+                .expect("first");
+            tokio::time::sleep(ROOM_PERSIST_WINDOW * 3).await;
+            assert!(sidecar_has(&room, "first"));
+            room.apply_client_frame(&typed_update("second"), app.clone(), Some(1))
+                .await
+                .expect("second");
+            tokio::time::sleep(ROOM_PERSIST_WINDOW * 3).await;
+            assert!(sidecar_has(&room, "second"), "no change is left unarmed");
+        });
+    }
+
+    #[test]
+    fn closing_flushes_a_dirty_room_at_once_and_shutdown_flushes_every_room() {
+        crate::app_runtime::async_runtime::block_on(async {
+            let (room, app) = deferred_room("close-flush").await;
+            room.apply_client_frame(&typed_update("tail"), app.clone(), Some(1))
+                .await
+                .expect("frame");
+            assert!(!sidecar_has(&room, "tail"));
+            assert!(room
+                .flush_state_under_lifecycle(true)
+                .await
+                .expect("close flush"));
+            assert!(sidecar_has(&room, "tail"), "flushed without waiting");
+            assert!(!room.state_is_dirty());
+            assert!(
+                !room
+                    .flush_state_under_lifecycle(true)
+                    .await
+                    .expect("clean flush"),
+                "a clean room writes nothing"
+            );
+
+            // Registry-wide shutdown flush over two dirty rooms.
+            let registry = RoomRegistry::default();
+            let root =
+                std::env::temp_dir().join(format!("garden-room-shutdown-{}", Uuid::new_v4()));
+            let mut rooms = Vec::new();
+            for name in ["one", "two"] {
+                let room = registry
+                    .get_or_create(
+                        &format!("doc:deferred-graph:{name}"),
+                        root.join(name).join("update-v1.bin"),
+                    )
+                    .await
+                    .expect("room");
+                room.bind_persist_scope(&app, "deferred-graph");
+                room.apply_client_frame(&typed_update(name), app.clone(), Some(1))
+                    .await
+                    .expect("frame");
+                rooms.push((name, room));
+            }
+            assert_eq!(registry.flush_dirty_rooms().await, 2);
+            for (name, room) in &rooms {
+                assert!(sidecar_has(room, name), "{name} was flushed at shutdown");
+            }
+            assert_eq!(registry.flush_dirty_rooms().await, 0);
+        });
+    }
+
+    #[test]
+    fn a_blocking_flush_writes_the_tail_for_a_restore_point() {
+        crate::app_runtime::async_runtime::block_on(async {
+            let (room, app) = deferred_room("blocking-flush").await;
+            room.apply_client_frame(&typed_update("tail"), app.clone(), Some(1))
+                .await
+                .expect("frame");
+            let flusher = room.clone();
+            crate::app_runtime::async_runtime::spawn_blocking(move || {
+                flusher.flush_state_blocking()
+            })
+            .await
+            .expect("join")
+            .expect("blocking flush");
+            assert!(sidecar_has(&room, "tail"));
+            assert!(!room.state_is_dirty());
+        });
+    }
+
+    #[test]
+    fn an_evicted_room_is_never_written_by_the_group_commit() {
+        crate::app_runtime::async_runtime::block_on(async {
+            let (room, app) = deferred_room("evicted-no-write").await;
+            room.apply_client_frame(&typed_update("lost"), app.clone(), Some(1))
+                .await
+                .expect("frame");
+            room.evict();
+            tokio::time::sleep(ROOM_PERSIST_WINDOW * 3).await;
+            assert!(
+                !room.state_path.exists(),
+                "a deleted graph's room must not recreate its sidecar"
+            );
+        });
+    }
+
+    #[test]
+    fn a_failed_group_commit_evicts_the_room() {
+        crate::app_runtime::async_runtime::block_on(async {
+            let (room, app) = deferred_room("failed-commit").await;
+            // A directory where the sidecar file belongs makes the rename fail.
+            std::fs::create_dir_all(&room.state_path).expect("block the sidecar path");
+            room.apply_client_frame(&typed_update("x"), app.clone(), Some(1))
+                .await
+                .expect("the frame itself is accepted and broadcast");
+            assert!(!room.is_evicted());
+            tokio::time::sleep(ROOM_PERSIST_WINDOW * 3).await;
+            assert!(
+                room.is_evicted(),
+                "the room no longer matches the disk; clients re-push on reconnect"
+            );
+        });
+    }
+
+    #[test]
+    fn api_writes_still_persist_before_they_return_on_a_bound_room() {
+        crate::app_runtime::async_runtime::block_on(async {
+            let (room, _app) = deferred_room("api-inline").await;
+            room.update_doc(|_doc, txn| {
+                txn.get_or_insert_map("metadata").insert(txn, "api", true);
+                Ok(())
+            })
+            .await
+            .expect("api write");
+            assert!(sidecar_has(&room, "api"), "acknowledged means on disk");
+            assert!(!room.state_is_dirty());
         });
     }
 
