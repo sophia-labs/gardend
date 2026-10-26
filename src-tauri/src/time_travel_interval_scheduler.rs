@@ -90,6 +90,14 @@ fn tick_once(app: &AppHandle) -> Result<TickSummary, String> {
         return Ok(TickSummary::default());
     }
     let graphs = scheduled_graphs(app)?;
+    let tick_span = tracing::info_span!(
+        target: "gardend_otel",
+        "time_travel.interval.tick",
+        sophia.tick.graphs = graphs.len() as u64,
+        sophia.tick.captured = tracing::field::Empty,
+        sophia.tick.skipped_unchanged = tracing::field::Empty,
+    );
+    let _tick_entered = tick_span.enter();
     let mut summary = TickSummary::default();
     for graph in graphs {
         match graph_needs_interval_capture(app, &graph) {
@@ -115,6 +123,8 @@ fn tick_once(app: &AppHandle) -> Result<TickSummary, String> {
             summary.captured += 1;
         }
     }
+    tick_span.record("sophia.tick.captured", summary.captured as u64);
+    tick_span.record("sophia.tick.skipped_unchanged", summary.skipped_unchanged as u64);
     Ok(summary)
 }
 
@@ -255,6 +265,8 @@ mod tests {
             .expect("create graph");
             write_document(&app, graph_id, "tick-a", "alpha");
             write_document(&app, graph_id, "tick-b", "beta");
+            // Let the writes' asynchronous tails land so they cannot bump the graph after the first point.
+            std::thread::sleep(Duration::from_millis(200));
             let graph_dir = existing_graph_dir(&app, graph_id).expect("graph dir");
             let interval_points = || {
                 read_index(&graph_dir, graph_id)
@@ -269,7 +281,7 @@ mod tests {
             assert_eq!((first.captured, first.skipped_unchanged), (1, 0));
             assert_eq!(interval_points(), 1);
 
-            std::thread::sleep(Duration::from_millis(5));
+            std::thread::sleep(Duration::from_millis(50));
             let quiet = tick_once(&app).expect("quiet tick");
             assert_eq!(
                 (quiet.captured, quiet.skipped_unchanged),
@@ -280,6 +292,7 @@ mod tests {
 
             std::thread::sleep(Duration::from_millis(5));
             write_document(&app, graph_id, "tick-a", "alpha, changed");
+            std::thread::sleep(Duration::from_millis(200));
             let changed = tick_once(&app).expect("changed tick");
             assert_eq!((changed.captured, changed.skipped_unchanged), (1, 0));
             assert_eq!(interval_points(), 2);
