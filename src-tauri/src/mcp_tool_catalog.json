@@ -1257,7 +1257,7 @@
     },
     {
       "name": "read_document",
-      "description": "Read a bounded character page from a local document projection. Use offset/nextOffset for continuation or read_blocks for structural pagination. When the document has comments (people's notes and highlights, yours too), the result carries them as `comments` (id, text, quotedText, author, claimedAuthor, blockId, resolved, kind, color, anchor, createdAt) with `commentCount`; pass includeComments:false to leave them out. A comment of kind \"highlight\" is a mark the reader made, usually with no note.",
+      "description": "Read a bounded character page from a local document projection. Use offset/nextOffset for continuation or read_blocks for structural pagination. When the document has comments (people's notes and highlights, yours too), the result carries them as `comments` (id, text, quotedText, author, claimedAuthor, blockId, resolved, kind, color, anchor, createdAt) with `commentCount` (the document's total). `comments` holds those anchored in the blocks of the returned page, and the unanchored ones on the first page (offset 0), so page on to see the rest; pass includeComments:false to leave them out. A comment of kind \"highlight\" is a mark the reader made, usually with no note.",
       "inputSchema": {
         "type": "object",
         "required": [],
@@ -1289,7 +1289,7 @@
           "includeComments": {
             "type": "boolean",
             "default": true,
-            "description": "Include the document's comments (notes and highlights) in the result. Default true; omitted when the document has none."
+            "description": "Include the document's comments (notes and highlights) in the result: those of the returned page, plus `commentCount` for the whole document. Default true; omitted when the document has none."
           },
           "cursor": {
             "type": [

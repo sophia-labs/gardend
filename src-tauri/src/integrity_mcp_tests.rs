@@ -1003,6 +1003,40 @@ fn read_document_hands_an_agent_the_notes() {
 }
 
 #[test]
+fn read_document_pages_carry_the_comments_of_their_blocks_and_the_total_count() {
+    with_gardend("reader-read-paged", |state| {
+        crate::app_runtime::async_runtime::block_on(async {
+            let block = book(&state).await;
+            tool(&state, MASTER, "edit_comment", reader_args(json!({
+                "commentId": "p-note", "text": "anchored", "blockId": block, "find": "royal road",
+            }))).await.unwrap();
+            let first = tool(
+                &state,
+                MASTER,
+                "read_document",
+                json!({ "graphId": GRAPH, "documentId": "book" }),
+            )
+            .await
+            .unwrap();
+            assert_eq!(first["commentCount"], 1, "{first}");
+            assert_eq!(first["comments"].as_array().map(Vec::len), Some(1), "{first}");
+            // A page past the block that opens the comment's anchor: the
+            // document-level count stays, the comment is not repeated.
+            let past = tool(
+                &state,
+                MASTER,
+                "read_document",
+                json!({ "graphId": GRAPH, "documentId": "book", "offset": 1_000_000 }),
+            )
+            .await
+            .unwrap();
+            assert_eq!(past["commentCount"], 1, "{past}");
+            assert!(past.get("comments").is_none(), "{past}");
+        });
+    });
+}
+
+#[test]
 fn edit_comment_block_aliases_anchor_without_find_and_refuse_wrong_blocks() {
     with_gardend("comment-block-constraint", |state| {
         crate::app_runtime::async_runtime::block_on(async {

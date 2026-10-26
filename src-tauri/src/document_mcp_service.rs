@@ -243,10 +243,29 @@ pub(super) fn mcp_local_read_document(
             .or_else(|| arguments.get("include_comments")),
         Some(serde_json::Value::Bool(false))
     );
-    let comments = if include_comments {
+    // R6: the comments of THIS page, plus the document-level count. The whole
+    // list used to ride on every page of a long document.
+    let all_comments = if include_comments {
         crate::document_comments_read::comments_for_read(&document)
     } else {
         Vec::new()
+    };
+    let comment_total = all_comments.len();
+    let comments = if all_comments.is_empty() {
+        all_comments
+    } else {
+        crate::document_comments_read::comments_for_page(
+            all_comments,
+            &content,
+            &visible_content,
+            offset,
+            |block_id| {
+                blocks
+                    .iter()
+                    .find(|block| block.id == block_id)
+                    .map(|block| block.content.clone())
+            },
+        )
     };
 
     let mut result = serde_json::json!({
@@ -268,11 +287,15 @@ pub(super) fn mcp_local_read_document(
         "rdfTripleCount": document.rdf_triple_count,
         "schemaVersion": document.schema_version,
     });
-    if !comments.is_empty() {
+    if comment_total > 0 {
         // People's notes and highlights on this document (resolved ones
-        // included, flagged). Pass includeComments:false to leave them out.
-        result["commentCount"] = serde_json::json!(comments.len());
-        result["comments"] = serde_json::Value::Array(comments);
+        // included, flagged). `commentCount` is the document's total; `comments`
+        // are those anchored in this page's blocks (the unanchored ones come on
+        // the first page). Pass includeComments:false to leave them out.
+        result["commentCount"] = serde_json::json!(comment_total);
+        if !comments.is_empty() {
+            result["comments"] = serde_json::Value::Array(comments);
+        }
     }
     Ok(result)
 }
