@@ -106,3 +106,33 @@ whiteboard (`{tool}: a whiteboard is drawn, not written: use whiteboard_apply`).
   title}`.
 * A promoted arrow carries `customData.mnemosyneWire = {wireId, predicate, strokeWas, labelFromPredicate}`; the
   `wire` move gives it the accent stroke (`#326f4c`) and, when it had no label, the predicate as its label.
+
+## Layout (the `layout` move and the app's Lay out)
+
+Gardend's `whiteboard_apply` move `{op:"layout", ids?, style?, direction?, spacing?}` and Shrubbery's Lay out action run
+the same engine, ELK (`elkjs` 0.12.0: `src-tauri/vendor/elkjs/` on QuickJS here, a Web Worker in the app), with the
+same options (`src-tauri/src/elk/presets.json`, copied verbatim into Shrubbery), by the same rules, and lay the shared
+fixture `tests/fixtures/whiteboard/elk-fixture-board.excalidraw` out to the same elements (within 0.01 px).
+
+* **Styles:** `flow` (default; ELK layered, orthogonal routes, direction `right` by default), `tree` (ELK mrtree,
+  direction `down` by default), `grid` (ELK rectpacking; no direction, arrows are not routed). Radial is not offered:
+  ELK's radial layout is for trees and stacks the rest of a board on one spot. `spacing` tight / normal / loose
+  multiplies the spacing options by 0.6 / 1 / 1.6.
+* **The set:** the named shapes (default every live shape). An arrow names nothing, text inside a container means the
+  container, a frame brings its children, a grouped shape brings its outermost group (`groupIds`' last entry).
+* **Units** (what ELK moves as one node): an outermost group (always top-level, its members keep their offsets), a
+  frame with children (a compound node, padding `[top=56,left=24,bottom=24,right=24]`), any other shape. An arrow is
+  never a unit or a group member.
+* **Edges:** an arrow bound at both ends to two different units. Its bound text is the ELK edge label. Model order:
+  nodes by their centre (rounded half away from zero; across the flow first, then along it), then id; edges by their
+  ends' places in the graph as written (pre-order), then arrow id.
+* **Writing the answer:** the drawing keeps its top-left corner (the minimum over every unit's box). An edge takes
+  ELK's route: `x, y` its first point, `points` relative to it, `roundness: null`; a `flow` route with three or more
+  points, all at right angles, makes an elbow arrow (`elbowed: true`, `fixedSegments: []`, `startIsSpecial` and
+  `endIsSpecial` false). An end bound to one member of a group is moved onto that member's box. Bindings are
+  `{elementId, mode: "orbit", fixedPoint}` with the fixed point where the route meets the shape (clamped to [0, 1];
+  a ratio within 1e-4 of 0.5 is written 0.5001, as the pinned Excalidraw stores it). A label sits on ELK's label box
+  (`flow`), else halfway along the route. An arrow with one end outside the set, both ends on one unit, or no route
+  from ELK is re-routed straight, as `move` does. Only elements that actually change are written.
+* **Limits:** 1000 nodes and 4000 edges per layout, 4 layout moves per call, 20 s per layout. ELK never runs inside
+  a room transaction: the call lays each graph out first and the write only applies the answers.
