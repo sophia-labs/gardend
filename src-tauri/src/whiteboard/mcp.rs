@@ -278,6 +278,17 @@ pub(crate) async fn mcp_local_whiteboard_apply(
         return Err(format!("at most {MAX_MOVES} moves in one call"));
     }
     let rationale = mcp_arg_string(arguments, &["rationale"]);
+    let layout_moves = moves
+        .iter()
+        .filter(|mv| mv.get("op").and_then(Value::as_str) == Some("layout"))
+        .count();
+    let limits = crate::elk::limits();
+    if layout_moves > limits.layout_moves_per_call {
+        return Err(format!(
+            "at most {} layout moves in one call",
+            limits.layout_moves_per_call
+        ));
+    }
     let board = open_board(&app, &graph_id, &document_id).await?;
 
     // Titles of the documents a link or card move names, and the typed objects they name by IRI. Both are resolved
@@ -309,23 +320,54 @@ pub(crate) async fn mcp_local_whiteboard_apply(
     let actor = actor_name();
     let now = now_ms();
     let seed = (uuid::Uuid::new_v4().as_u128() as u64) ^ now;
-    let computed = board
-        .room
-        .with_doc(|doc| {
-            let mut scene = ops::scene_of_doc(doc);
-            let mut ctx = Ctx {
-                actor: &actor,
-                now,
-                rng: Rng(seed),
-                graph_id: &graph_id,
-                document_id: &document_id,
-                titles: &titles,
-                objects: &objects,
-                wires: Vec::new(),
-            };
-            apply_moves(&mut scene, moves, &mut ctx).map(|created| (scene, created))
-        })
-        .await?;
+    // ELK never runs inside a room transaction. A `layout` move with no answer yet stops the pass and hands back its
+    // graph; it is laid out here, with nothing held, and the pass runs again with the answer, until every layout
+    // move has one. The write transaction below only applies answers.
+    let mut layouts: BTreeMap<usize, Value> = BTreeMap::new();
+    let mut layout_report: Vec<Value> = Vec::new();
+    let computed = loop {
+        let (attempt, pending) = board
+            .room
+            .with_doc(|doc| {
+                let mut scene = ops::scene_of_doc(doc);
+                let mut ctx = Ctx {
+                    actor: &actor,
+                    now,
+                    rng: Rng(seed),
+                    graph_id: &graph_id,
+                    document_id: &document_id,
+                    titles: &titles,
+                    objects: &objects,
+                    wires: Vec::new(),
+                    layouts: &layouts,
+                    pending_layout: None,
+                };
+                let attempt =
+                    apply_moves(&mut scene, moves, &mut ctx).map(|created| (scene, created));
+                (attempt, ctx.pending_layout.take())
+            })
+            .await;
+        let Some(pending) = pending else {
+            break attempt?;
+        };
+        if layouts.contains_key(&pending.index) || layouts.len() >= limits.layout_moves_per_call {
+            return Err(format!("move {}: layout did not settle", pending.index + 1));
+        }
+        let (nodes, edges) = crate::elk::count(&pending.graph);
+        let started = std::time::Instant::now();
+        let answer = crate::elk::layout(pending.graph, limits.deadline)
+            .await
+            .map_err(|error| format!("move {}: {error}", pending.index + 1))?;
+        layout_report.push(json!({
+            "move": pending.index + 1,
+            "nodes": nodes,
+            "edges": edges,
+            "style": pending.style,
+            "direction": pending.direction,
+            "ms": started.elapsed().as_millis() as u64,
+        }));
+        layouts.insert(pending.index, answer);
+    };
     let (mut scene, mut created) = computed;
     let mut wires: Vec<SceneWireDraft> = Vec::new();
     if !scene.dirty.is_empty() {
@@ -354,6 +396,8 @@ pub(crate) async fn mcp_local_whiteboard_apply(
                     titles: &titles,
                     objects: &objects,
                     wires: Vec::new(),
+                    layouts: &layouts,
+                    pending_layout: None,
                 };
                 let applied = apply_moves(&mut live, moves, &mut ctx);
                 let drafted = std::mem::take(&mut ctx.wires);
@@ -393,6 +437,8 @@ pub(crate) async fn mcp_local_whiteboard_apply(
                             titles: &titles,
                             objects: &objects,
                             wires: Vec::new(),
+                            layouts: &layouts,
+                            pending_layout: None,
                         };
                         unmark_wires(&mut live, &mut ctx, &arrows);
                         ops::write_dirty(txn, &live);
@@ -442,6 +488,9 @@ pub(crate) async fn mcp_local_whiteboard_apply(
     );
     result["changed"] = json!(scene.dirty.len());
     result["wires"] = wires_json(&wires);
+    if !layout_report.is_empty() {
+        result["layouts"] = Value::Array(layout_report);
+    }
     if let Some(rationale) = rationale {
         result["rationale"] = json!(rationale);
     }

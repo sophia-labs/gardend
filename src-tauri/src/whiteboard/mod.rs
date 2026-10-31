@@ -6,6 +6,9 @@ pub(crate) mod blocks;
 pub(crate) mod lane;
 #[cfg(test)]
 mod lane_tests;
+pub(crate) mod layout;
+#[cfg(test)]
+mod layout_tests;
 pub(crate) mod links;
 pub(crate) mod mcp;
 pub(crate) mod ops;

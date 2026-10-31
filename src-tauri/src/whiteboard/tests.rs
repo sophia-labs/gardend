@@ -905,6 +905,8 @@ fn pure_ctx<'a>(
         titles,
         objects,
         wires: Vec::new(),
+        layouts: Box::leak(Box::new(BTreeMap::new())),
+        pending_layout: None,
     }
 }
 
@@ -1643,5 +1645,80 @@ fn wire_move_failure_unmarks_the_arrow() {
             json!([{"op":"wire","arrow":e,"predicate":"supports"}]),
         )
         .expect("wires once the end is sound");
+    });
+}
+
+// ============================================================ ELK: the layout move through the tool
+
+#[test]
+fn layout_through_the_tool_draws_a_diagram_in_one_call_and_reports_it() {
+    with_profile("wb-layout", || {
+        let h = Harness::new("wb-layout");
+        let doc = h.create("Dream-work");
+        let out = h
+            .apply(
+                &doc,
+                json!([
+                    {"op":"add","ref":"w","shape":"box","text":"the dream-work"},
+                    {"op":"add","ref":"c","shape":"note","text":"condensation"},
+                    {"op":"add","ref":"d","shape":"note","text":"displacement"},
+                    {"op":"add","ref":"m","shape":"ellipse","text":"manifest content"},
+                    {"op":"connect","from":"w","to":"c"},
+                    {"op":"connect","from":"w","to":"d","label":"displaces"},
+                    {"op":"connect","from":"c","to":"m"},
+                    {"op":"connect","from":"d","to":"m"},
+                    {"op":"layout"}
+                ]),
+            )
+            .expect("draw and lay out in one call");
+        let report = &out["layouts"][0];
+        assert_eq!(report["move"], 9);
+        assert_eq!(report["nodes"], 4);
+        assert_eq!(report["edges"], 4);
+        assert_eq!(report["style"], "flow");
+        assert_eq!(report["direction"], "right");
+        assert!(report["ms"].is_u64(), "{report}");
+
+        let raw = h.elements(&doc);
+        let elements = raw["elements"].as_array().unwrap();
+        let arrows: Vec<&Value> = elements.iter().filter(|e| e["type"] == "arrow").collect();
+        assert_eq!(arrows.len(), 4);
+        for arrow in &arrows {
+            let (x, y) = (arrow["x"].as_f64().unwrap(), arrow["y"].as_f64().unwrap());
+            let pts: Vec<(f64, f64)> = arrow["points"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|p| (x + p[0].as_f64().unwrap(), y + p[1].as_f64().unwrap()))
+                .collect();
+            for w in pts.windows(2) {
+                assert!(
+                    (w[1].0 - w[0].0).abs() <= 0.01 || (w[1].1 - w[0].1).abs() <= 0.01,
+                    "a laid-out arrow runs at right angles: {arrow}"
+                );
+            }
+            assert_eq!(arrow["startBinding"]["mode"], "orbit");
+            assert_eq!(arrow["endBinding"]["mode"], "orbit");
+        }
+        // The outline still reads the four shapes, at their new places.
+        let read = h.read(&doc);
+        assert_eq!(read["shapes"].as_array().unwrap().len(), 4);
+
+        let too_many = h
+            .apply(&doc, json!([{"op":"layout"},{"op":"layout"},{"op":"layout"},{"op":"layout"},{"op":"layout"}]))
+            .unwrap_err();
+        assert!(too_many.contains("at most 4 layout moves"), "{too_many}");
+
+        let revision = h.read(&doc)["revision"].clone();
+        let w = out["created"]["w"].as_str().unwrap();
+        let refused = h
+            .apply(&doc, json!([{"op":"move","id":w,"by":{"dx":40,"dy":0}},{"op":"layout","style":"spiral"}]))
+            .unwrap_err();
+        assert!(refused.contains("move 2: style is one of"), "{refused}");
+        assert_eq!(
+            h.read(&doc)["revision"],
+            revision,
+            "a refused call writes nothing"
+        );
     });
 }

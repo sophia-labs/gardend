@@ -417,7 +417,25 @@ pub(crate) struct Ctx<'a> {
     /// OUTPUT: the wires the `wire` moves of this call decided on, in move order. The caller stores them with
     /// `scene_wire::create_scene_wires` after the scene is written. The pure core never touches the store.
     pub wires: Vec<SceneWireDraft>,
+    /// ELK's answers for this call's `layout` moves, by move index (0-based), computed by the caller outside any
+    /// room transaction. A `layout` move with no answer here asks for one through `pending_layout`.
+    pub layouts: &'a BTreeMap<usize, Value>,
+    /// OUTPUT: the graph the first unanswered `layout` move needs laid out. The move stops the call with
+    /// [`LAYOUT_PENDING`]; the caller lays the graph out, adds the answer to `layouts` and runs the moves again.
+    pub pending_layout: Option<PendingLayout>,
 }
+
+/// A `layout` move waiting for ELK.
+#[derive(Clone, Debug)]
+pub(crate) struct PendingLayout {
+    pub index: usize,
+    pub graph: Value,
+    pub style: String,
+    pub direction: Option<String>,
+}
+
+/// The error a `layout` move stops the call with while its graph is out with ELK (see `Ctx::pending_layout`).
+pub(crate) const LAYOUT_PENDING: &str = "layout pending";
 
 /// What the caller learned about a typed object before the pure core runs: the snapshot a link or card keeps.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -605,7 +623,7 @@ fn insert_element(scene: &mut Scene, el: Element) -> String {
     id
 }
 
-fn touch(ctx: &mut Ctx, scene: &mut Scene, id: &str, edit: impl FnOnce(&mut Element)) {
+pub(crate) fn touch(ctx: &mut Ctx, scene: &mut Scene, id: &str, edit: impl FnOnce(&mut Element)) {
     if let Some(mut el) = scene.elements.remove(id) {
         edit(&mut el);
         ctx.stamp(&mut el);
@@ -687,7 +705,7 @@ fn apply_color(el: &mut Element, name: &str) {
 
 // ------------------------------------------------------------------ routing
 
-fn exit_point(kind: &str, r: &Rect, toward: (f64, f64)) -> (f64, f64) {
+pub(crate) fn exit_point(kind: &str, r: &Rect, toward: (f64, f64)) -> (f64, f64) {
     let (cx, cy) = (r.cx(), r.cy());
     let (dx, dy) = (toward.0 - cx, toward.1 - cy);
     if dx == 0.0 && dy == 0.0 {
@@ -755,7 +773,7 @@ fn absolute_point(arrow: &Element, index: usize) -> (f64, f64) {
 
 /// Re-route one arrow from its bound shapes (a straight edge-to-edge segment).
 /// An unbound end keeps its absolute position. Moves the arrow's label too.
-fn reroute(ctx: &mut Ctx, scene: &mut Scene, arrow_id: &str) {
+pub(crate) fn reroute(ctx: &mut Ctx, scene: &mut Scene, arrow_id: &str) {
     let Some(arrow) = scene.elements.get(arrow_id).cloned() else {
         return;
     };
@@ -928,6 +946,14 @@ enum Move {
         arrow: String,
         predicate: String,
     },
+    /// Arrange shapes with ELK and route the arrows between them (`whiteboard::layout`): `ids` (default the whole
+    /// board), `style` flow|tree|grid, `direction` right|down|left|up, `spacing` tight|normal|loose.
+    Layout {
+        ids: Option<Vec<String>>,
+        style: Option<String>,
+        direction: Option<String>,
+        spacing: Option<String>,
+    },
 }
 
 struct Refs(BTreeMap<String, String>);
@@ -970,7 +996,7 @@ pub(crate) fn apply_moves(
     let mut refs = Refs(BTreeMap::new());
     let mut created: Vec<(String, String)> = Vec::new();
     for (i, mv) in parsed.into_iter().enumerate() {
-        run_move(scene, mv, ctx, &mut refs, &mut created)
+        run_move(scene, mv, i, ctx, &mut refs, &mut created)
             .map_err(|e| format!("move {}: {e}", i + 1))?;
     }
     Ok(created)
@@ -979,6 +1005,7 @@ pub(crate) fn apply_moves(
 fn run_move(
     scene: &mut Scene,
     mv: Move,
+    index: usize,
     ctx: &mut Ctx,
     refs: &mut Refs,
     created: &mut Vec<(String, String)>,
@@ -1277,6 +1304,54 @@ fn run_move(
             created.push((name, id));
         }
         Move::Wire { arrow, predicate } => promote_arrow(scene, ctx, refs, &arrow, &predicate)?,
+        Move::Layout {
+            ids,
+            style,
+            direction,
+            spacing,
+        } => {
+            let choice =
+                crate::elk::choose(style.as_deref(), direction.as_deref(), spacing.as_deref())?;
+            let answer = ctx.layouts.get(&index).cloned();
+            let ids = match ids {
+                None => None,
+                Some(list) => {
+                    let mut out = Vec::new();
+                    for raw in &list {
+                        let bound = scene
+                            .elements
+                            .get(raw)
+                            .is_some_and(|e| !is_deleted(e) && is_bound_text(e));
+                        match if bound {
+                            Ok(raw.clone())
+                        } else {
+                            refs.resolve(scene, raw)
+                        } {
+                            Ok(id) => out.push(id),
+                            Err(error) if answer.is_none() => return Err(error),
+                            // The board changed since ELK answered: what is gone stays gone.
+                            Err(_) => {}
+                        }
+                    }
+                    Some(out)
+                }
+            };
+            let plan = super::layout::plan(scene, ids.as_deref(), &choice)?;
+            match answer {
+                Some(answer) => super::layout::apply(scene, ctx, &plan, &answer),
+                None => {
+                    let graph = plan.graph(scene);
+                    crate::elk::check_limits(&graph)?;
+                    ctx.pending_layout = Some(PendingLayout {
+                        index,
+                        graph,
+                        style: choice.style,
+                        direction: choice.direction,
+                    });
+                    return Err(LAYOUT_PENDING.into());
+                }
+            }
+        }
     }
     Ok(())
 }
