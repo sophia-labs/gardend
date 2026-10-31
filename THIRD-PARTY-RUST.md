@@ -1,8 +1,8 @@
 # Third-Party Rust Dependencies — Headless Engine Closure
 
-This inventory covers the **`src-tauri` crate built for the headless engine** — the exact dependency closure of `cargo build --release --no-default-features --features headless --example gardend`, filtered to the `x86_64-unknown-linux-gnu` target used by `Dockerfile.gardend`. It does **not** cover the desktop (`--features desktop`) build, the `frontend/` npm dependency tree, or any Shrubbery-owned code — those are outside the public source-available boundary (see `EXPORT-MANIFEST.md`).
+This inventory covers the **`src-tauri` crate built for the headless engine** — the exact dependency closure of `cargo build --release --no-default-features --features headless --example gardend`, filtered to the `x86_64-unknown-linux-gnu` target used by `Dockerfile.gardend`. It does **not** cover the desktop (`--features desktop`) build, the `frontend/` npm dependency tree, or any Shrubbery-owned code — those are outside the public source-available boundary (see `docs/headless-engine.md`).
 
-Generated 580 third-party crate entries from `cargo metadata` via `scripts/gen-third-party-rust.py` (neither `cargo-about` nor `cargo-license` was installed in the generating environment, so this table was built with a small script over `cargo metadata --format-version=1 --no-default-features --features headless --filter-platform x86_64-unknown-linux-gnu`, walking the resolved dependency graph from the `garden` package over normal + build edges and excluding dev-dependencies). Prefer running a real `cargo-about` or `cargo-license` pass instead when either is available, and regenerate whenever `src-tauri/Cargo.lock` changes.
+Generated 609 third-party crate entries from `cargo metadata` via `scripts/gen-third-party-rust.py` (neither `cargo-about` nor `cargo-license` was installed in the generating environment, so this table was built with a small script over `cargo metadata --format-version=1 --no-default-features --features headless --filter-platform x86_64-unknown-linux-gnu`, walking the resolved dependency graph from the `garden` package over normal + build edges and excluding dev-dependencies). Prefer running a real `cargo-about` or `cargo-license` pass instead when either is available, and regenerate whenever `src-tauri/Cargo.lock` changes.
 
 | Crate | Version | License | Source |
 |---|---|---|---|
@@ -74,6 +74,7 @@ Generated 580 third-party crate entries from `cargo metadata` via `scripts/gen-t
 | `bytemuck` | 1.25.0 | Zlib OR Apache-2.0 OR MIT | https://github.com/Lokathor/bytemuck |
 | `bytemuck_derive` | 1.10.2 | Zlib OR Apache-2.0 OR MIT | https://github.com/Lokathor/bytemuck |
 | `byteorder` | 1.5.0 | Unlicense OR MIT | https://github.com/BurntSushi/byteorder |
+| `byteorder-lite` | 0.1.0 | Unlicense OR MIT | https://github.com/image-rs/byteorder-lite |
 | `bytes` | 1.11.1 | MIT | https://github.com/tokio-rs/bytes |
 | `bytes-utils` | 0.1.4 | Apache-2.0/MIT | https://github.com/vorner/bytes-utils |
 | `bzip2` | 0.6.1 | MIT OR Apache-2.0 | https://github.com/trifectatechfoundation/bzip2-rs |
@@ -160,6 +161,7 @@ Generated 580 third-party crate entries from `cargo metadata` via `scripts/gen-t
 | `fastbloom` | 0.14.1 | MIT OR Apache-2.0 | https://github.com/tomtomwombat/fastbloom/ |
 | `fastembed` | 5.13.4 | Apache-2.0 | https://github.com/Anush008/fastembed-rs |
 | `fastrand` | 2.4.1 | Apache-2.0 OR MIT | https://github.com/smol-rs/fastrand |
+| `fdeflate` | 0.3.7 | MIT OR Apache-2.0 | https://github.com/image-rs/fdeflate |
 | `filetime` | 0.2.29 | MIT/Apache-2.0 | https://github.com/alexcrichton/filetime |
 | `find-msvc-tools` | 0.1.9 | MIT OR Apache-2.0 | https://github.com/rust-lang/cc-rs |
 | `fixedbitset` | 0.5.7 | MIT OR Apache-2.0 | https://github.com/petgraph/fixedbitset |
@@ -175,6 +177,7 @@ Generated 580 third-party crate entries from `cargo metadata` via `scripts/gen-t
 | `funty` | 2.0.0 | MIT | https://github.com/myrrlyn/funty |
 | `futures-channel` | 0.3.32 | MIT OR Apache-2.0 | https://github.com/rust-lang/futures-rs |
 | `futures-core` | 0.3.32 | MIT OR Apache-2.0 | https://github.com/rust-lang/futures-rs |
+| `futures-executor` | 0.3.32 | MIT OR Apache-2.0 | https://github.com/rust-lang/futures-rs |
 | `futures-io` | 0.3.32 | MIT OR Apache-2.0 | https://github.com/rust-lang/futures-rs |
 | `futures-macro` | 0.3.32 | MIT OR Apache-2.0 | https://github.com/rust-lang/futures-rs |
 | `futures-sink` | 0.3.32 | MIT OR Apache-2.0 | https://github.com/rust-lang/futures-rs |
@@ -234,6 +237,7 @@ Generated 580 third-party crate entries from `cargo metadata` via `scripts/gen-t
 | `ident_case` | 1.0.1 | MIT/Apache-2.0 | https://github.com/TedDriggs/ident_case |
 | `idna` | 1.1.0 | MIT OR Apache-2.0 | https://github.com/servo/rust-url/ |
 | `idna_adapter` | 1.2.2 | Apache-2.0 OR MIT | https://github.com/hsivonen/idna_adapter |
+| `image` | 0.25.10 | MIT OR Apache-2.0 | https://github.com/image-rs/image |
 | `indexmap` | 2.14.0 | Apache-2.0 OR MIT | https://github.com/indexmap-rs/indexmap |
 | `indicatif` | 0.18.4 | MIT | https://github.com/console-rs/indicatif |
 | `indoc` | 2.0.7 | MIT OR Apache-2.0 | https://github.com/dtolnay/indoc |
@@ -275,6 +279,7 @@ Generated 580 third-party crate entries from `cargo metadata` via `scripts/gen-t
 | `matchers` | 0.2.0 | MIT | https://github.com/hawkw/matchers |
 | `matchit` | 0.8.4 | MIT AND BSD-3-Clause | https://github.com/ibraheemdev/matchit |
 | `matrixmultiply` | 0.3.10 | MIT/Apache-2.0 | https://github.com/bluss/matrixmultiply/ |
+| `maybe-owned` | 0.3.4 | MIT OR Apache-2.0 | https://github.com/rustonaut/maybe-owned |
 | `md-5` | 0.10.6 | MIT OR Apache-2.0 | https://github.com/RustCrypto/hashes |
 | `memchr` | 2.8.0 | Unlicense OR MIT | https://github.com/BurntSushi/memchr |
 | `memmap2` | 0.9.10 | MIT OR Apache-2.0 | https://github.com/RazrFalcon/memmap2-rs |
@@ -288,6 +293,7 @@ Generated 580 third-party crate entries from `cargo metadata` via `scripts/gen-t
 | `mio` | 1.2.0 | MIT | https://github.com/tokio-rs/mio |
 | `monostate` | 0.1.18 | MIT OR Apache-2.0 | https://github.com/dtolnay/monostate |
 | `monostate-impl` | 0.1.18 | MIT OR Apache-2.0 | https://github.com/dtolnay/monostate |
+| `moxcms` | 0.8.1 | BSD-3-Clause OR Apache-2.0 | https://github.com/awxkee/moxcms.git |
 | `multer` | 3.1.0 | MIT | https://github.com/rwf2/multer |
 | `native-tls` | 0.2.18 | MIT OR Apache-2.0 | https://github.com/rust-native-tls/rust-native-tls |
 | `ndarray` | 0.17.2 | MIT OR Apache-2.0 | https://github.com/rust-ndarray/ndarray |
@@ -308,6 +314,11 @@ Generated 580 third-party crate entries from `cargo metadata` via `scripts/gen-t
 | `openssl-macros` | 0.1.1 | MIT/Apache-2.0 | crates.io |
 | `openssl-probe` | 0.2.1 | MIT OR Apache-2.0 | https://github.com/rustls/openssl-probe |
 | `openssl-sys` | 0.9.114 | MIT | https://github.com/rust-openssl/rust-openssl |
+| `opentelemetry` | 0.31.0 | Apache-2.0 | https://github.com/open-telemetry/opentelemetry-rust/tree/main/opentelemetry |
+| `opentelemetry-http` | 0.31.0 | Apache-2.0 | https://github.com/open-telemetry/opentelemetry-rust/tree/main/opentelemetry-http |
+| `opentelemetry-otlp` | 0.31.1 | Apache-2.0 | https://github.com/open-telemetry/opentelemetry-rust/tree/main/opentelemetry-otlp |
+| `opentelemetry-proto` | 0.31.0 | Apache-2.0 | https://github.com/open-telemetry/opentelemetry-rust/tree/main/opentelemetry-proto |
+| `opentelemetry_sdk` | 0.31.0 | Apache-2.0 | https://github.com/open-telemetry/opentelemetry-rust/tree/main/opentelemetry-sdk |
 | `option-ext` | 0.2.0 | MPL-2.0 | https://github.com/soc/option-ext.git |
 | `ort` | 2.0.0-rc.12 | MIT OR Apache-2.0 | https://github.com/pykeio/ort |
 | `ort-sys` | 2.0.0-rc.12 | MIT OR Apache-2.0 | https://github.com/pykeio/ort |
@@ -331,6 +342,7 @@ Generated 580 third-party crate entries from `cargo metadata` via `scripts/gen-t
 | `paste` | 1.0.15 | MIT OR Apache-2.0 | https://github.com/dtolnay/paste |
 | `pastey` | 0.2.2 | MIT OR Apache-2.0 | https://github.com/as1100k/pastey |
 | `pbkdf2` | 0.13.0 | MIT OR Apache-2.0 | https://github.com/RustCrypto/password-hashes |
+| `pdfium-render` | 0.9.4 | MIT OR Apache-2.0 | https://github.com/ajrcarey/pdfium-render |
 | `peg` | 0.8.5 | MIT | https://github.com/kevinmehall/rust-peg |
 | `peg-macros` | 0.8.5 | MIT | https://github.com/kevinmehall/rust-peg |
 | `peg-runtime` | 0.8.5 | MIT | https://github.com/kevinmehall/rust-peg |
@@ -342,9 +354,13 @@ Generated 580 third-party crate entries from `cargo metadata` via `scripts/gen-t
 | `phf_generator` | 0.13.1 | MIT | https://github.com/rust-phf/rust-phf |
 | `phf_macros` | 0.13.1 | MIT | https://github.com/rust-phf/rust-phf |
 | `phf_shared` | 0.13.1 | MIT | https://github.com/rust-phf/rust-phf |
+| `pin-project` | 1.1.13 | Apache-2.0 OR MIT | https://github.com/taiki-e/pin-project |
+| `pin-project-internal` | 1.1.13 | Apache-2.0 OR MIT | https://github.com/taiki-e/pin-project |
 | `pin-project-lite` | 0.2.17 | Apache-2.0 OR MIT | https://github.com/taiki-e/pin-project-lite |
 | `pin-utils` | 0.1.0 | MIT OR Apache-2.0 | https://github.com/rust-lang-nursery/pin-utils |
+| `piston-float` | 1.0.1 | MIT | https://github.com/pistondevelopers/float.git |
 | `pkg-config` | 0.3.33 | MIT OR Apache-2.0 | https://github.com/rust-lang/pkg-config-rs |
+| `png` | 0.18.1 | MIT OR Apache-2.0 | https://github.com/image-rs/image-png |
 | `polling` | 3.11.0 | Apache-2.0 OR MIT | https://github.com/smol-rs/polling |
 | `polyval` | 0.6.2 | Apache-2.0 OR MIT | https://github.com/RustCrypto/universal-hashes |
 | `portable-atomic` | 1.13.1 | Apache-2.0 OR MIT | https://github.com/taiki-e/portable-atomic |
@@ -367,6 +383,7 @@ Generated 580 third-party crate entries from `cargo metadata` via `scripts/gen-t
 | `pulldown-cmark` | 0.13.4 | MIT | https://github.com/raphlinus/pulldown-cmark |
 | `pulp` | 0.22.2 | MIT | https://github.com/sarah-quinones/pulp/ |
 | `pulp-wasm-simd-flag` | 0.1.0 | MIT | https://github.com/sarah-quinones/pulp/ |
+| `pxfm` | 0.1.30 | BSD-3-Clause OR Apache-2.0 | https://github.com/awxkee/pxfm |
 | `quick-error` | 1.2.3 | MIT/Apache-2.0 | http://github.com/tailhook/quick-error |
 | `quick-xml` | 0.37.5 | MIT | https://github.com/tafia/quick-xml |
 | `quinn` | 0.11.9 | MIT OR Apache-2.0 | https://github.com/quinn-rs/quinn |
@@ -393,6 +410,7 @@ Generated 580 third-party crate entries from `cargo metadata` via `scripts/gen-t
 | `regex-automata` | 0.4.14 | MIT OR Apache-2.0 | https://github.com/rust-lang/regex |
 | `regex-lite` | 0.1.9 | MIT OR Apache-2.0 | https://github.com/rust-lang/regex |
 | `regex-syntax` | 0.8.11 | MIT OR Apache-2.0 | https://github.com/rust-lang/regex |
+| `relative-path` | 2.0.3 | MIT OR Apache-2.0 | https://github.com/udoprog/relative-path |
 | `rend` | 0.4.2 | MIT | https://github.com/djkoloski/rend |
 | `reqwest` | 0.12.28 | MIT OR Apache-2.0 | https://github.com/seanmonstar/reqwest |
 | `ring` | 0.17.14 | Apache-2.0 AND ISC | https://github.com/briansmith/ring |
@@ -400,6 +418,9 @@ Generated 580 third-party crate entries from `cargo metadata` via `scripts/gen-t
 | `rkyv_derive` | 0.7.46 | MIT | https://github.com/rkyv/rkyv |
 | `roaring` | 0.11.4 | MIT OR Apache-2.0 | https://github.com/RoaringBitmap/roaring-rs |
 | `roxmltree` | 0.21.1 | MIT OR Apache-2.0 | https://github.com/RazrFalcon/roxmltree |
+| `rquickjs` | 0.14.0 | MIT | https://github.com/DelSkayn/rquickjs.git |
+| `rquickjs-core` | 0.14.0 | MIT | https://github.com/DelSkayn/rquickjs.git |
+| `rquickjs-sys` | 0.14.0 | MIT | https://github.com/DelSkayn/rquickjs.git |
 | `rudof_rdf` | 0.2.12 | MIT OR Apache-2.0 | https://github.com/rudof-project/rudof |
 | `rust_decimal` | 1.41.0 | MIT | https://github.com/paupino/rust-decimal |
 | `rustc-hash` | 1.1.0 | Apache-2.0/MIT | https://github.com/rust-lang-nursery/rustc-hash |
@@ -495,6 +516,7 @@ Generated 580 third-party crate entries from `cargo metadata` via `scripts/gen-t
 | `tokio-macros` | 2.7.0 | MIT | https://github.com/tokio-rs/tokio |
 | `tokio-native-tls` | 0.3.1 | MIT | https://github.com/tokio-rs/tls |
 | `tokio-rustls` | 0.26.4 | MIT OR Apache-2.0 | https://github.com/rustls/tokio-rustls |
+| `tokio-stream` | 0.1.19 | MIT | https://github.com/tokio-rs/tokio |
 | `tokio-tungstenite` | 0.29.0 | MIT | https://github.com/snapview/tokio-tungstenite |
 | `tokio-util` | 0.7.18 | MIT | https://github.com/tokio-rs/tokio |
 | `toml` | 0.9.12+spec-1.1.0 | MIT OR Apache-2.0 | https://github.com/toml-rs/toml |
@@ -503,6 +525,8 @@ Generated 580 third-party crate entries from `cargo metadata` via `scripts/gen-t
 | `toml_edit` | 0.25.11+spec-1.1.0 | MIT OR Apache-2.0 | https://github.com/toml-rs/toml |
 | `toml_parser` | 1.1.2+spec-1.1.0 | MIT OR Apache-2.0 | https://github.com/toml-rs/toml |
 | `toml_writer` | 1.1.1+spec-1.1.0 | MIT OR Apache-2.0 | https://github.com/toml-rs/toml |
+| `tonic` | 0.14.6 | MIT | https://github.com/hyperium/tonic |
+| `tonic-prost` | 0.14.6 | MIT | https://github.com/hyperium/tonic |
 | `tower` | 0.5.3 | MIT | https://github.com/tower-rs/tower |
 | `tower-http` | 0.6.8 | MIT | https://github.com/tower-rs/tower-http |
 | `tower-layer` | 0.3.3 | MIT | https://github.com/tower-rs/tower |
@@ -512,6 +536,7 @@ Generated 580 third-party crate entries from `cargo metadata` via `scripts/gen-t
 | `tracing-attributes` | 0.1.31 | MIT | https://github.com/tokio-rs/tracing |
 | `tracing-core` | 0.1.36 | MIT | https://github.com/tokio-rs/tracing |
 | `tracing-log` | 0.2.0 | MIT | https://github.com/tokio-rs/tracing |
+| `tracing-opentelemetry` | 0.32.1 | MIT | https://github.com/tokio-rs/tracing-opentelemetry |
 | `tracing-subscriber` | 0.3.23 | MIT | https://github.com/tokio-rs/tracing |
 | `try-lock` | 0.2.5 | MIT | https://github.com/seanmonstar/try-lock |
 | `tungstenite` | 0.29.0 | MIT OR Apache-2.0 | https://github.com/snapview/tungstenite-rs |
@@ -546,11 +571,13 @@ Generated 580 third-party crate entries from `cargo metadata` via `scripts/gen-t
 | `url` | 2.5.8 | MIT OR Apache-2.0 | https://github.com/servo/rust-url |
 | `urlencoding` | 2.1.3 | MIT | https://github.com/kornelski/rust_urlencoding |
 | `utf-8` | 0.7.6 | MIT OR Apache-2.0 | https://github.com/SimonSapin/rust-utf8 |
+| `utf16string` | 0.2.0 | MIT OR Apache-2.0 | https://github.com/getsentry/utf16string |
 | `utf8-zero` | 0.8.1 | MIT OR Apache-2.0 | https://github.com/algesten/utf8-zero |
 | `utf8_iter` | 1.0.4 | Apache-2.0 OR MIT | https://github.com/hsivonen/utf8_iter |
 | `utf8parse` | 0.2.2 | Apache-2.0 OR MIT | https://github.com/alacritty/vte |
 | `uuid` | 1.23.1 | Apache-2.0 OR MIT | https://github.com/uuid-rs/uuid |
 | `vcpkg` | 0.2.15 | MIT/Apache-2.0 | https://github.com/mcgoo/vcpkg-rs |
+| `vecmath` | 1.0.0 | MIT | https://github.com/pistondevelopers/vecmath.git |
 | `version_check` | 0.9.5 | MIT/Apache-2.0 | https://github.com/SergioBenitez/version_check |
 | `vsimd` | 0.8.0 | MIT | https://github.com/Nugine/simd |
 | `vte` | 0.14.1 | Apache-2.0 OR MIT | https://github.com/alacritty/vte |
@@ -586,4 +613,6 @@ Generated 580 third-party crate entries from `cargo metadata` via `scripts/gen-t
 | `zstd` | 0.13.3 | MIT | https://github.com/gyscos/zstd-rs |
 | `zstd-safe` | 7.2.4 | MIT OR Apache-2.0 | https://github.com/gyscos/zstd-rs |
 | `zstd-sys` | 2.0.16+zstd.1.5.7 | MIT/Apache-2.0 | https://github.com/gyscos/zstd-rs |
+| `zune-core` | 0.5.3 | MIT OR Apache-2.0 OR Zlib | https://github.com/etemesi254/zune-image |
+| `zune-jpeg` | 0.5.15 | MIT OR Apache-2.0 OR Zlib | https://github.com/etemesi254/zune-image/tree/dev/crates/zune-jpeg |
 
