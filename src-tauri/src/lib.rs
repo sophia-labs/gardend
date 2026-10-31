@@ -91,6 +91,8 @@ mod document_tombstone_store;
 mod document_trash_service;
 mod document_types;
 mod document_ydoc_projection;
+/// The board layout engine (ELK on QuickJS), used by the whiteboard's `layout` move.
+mod elk;
 mod emporium;
 mod emporium_mcp_surface;
 mod entity_embedder;

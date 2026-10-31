@@ -138,6 +138,8 @@ tower-http = { version = "0.6", features = ["cors"] }
 turso = { version = "0.6.0-pre.26", default-features = false }
 uuid = { version = "1", features = ["v4"] }
 yrs = "0.27.0"
+# The board layout engine: ELK (elkjs, vendored in vendor/elkjs) runs on QuickJS, one dedicated thread (src/elk/).
+rquickjs = "0.14"
 futures-util = "0.3.32"
 pulldown-cmark = { version = "0.13.4", default-features = false }
 roxmltree = "0.21.1"

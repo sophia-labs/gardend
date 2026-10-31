@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "elkjs": "0.12.0",
+  "common": {
+    "elk.json.shapeCoords": "ROOT",
+    "elk.json.edgeCoords": "ROOT",
+    "elk.randomSeed": 1,
+    "elk.hierarchyHandling": "INCLUDE_CHILDREN"
+  },
+  "styles": {
+    "flow": {
+      "elk.algorithm": "layered",
+      "elk.edgeRouting": "ORTHOGONAL",
+      "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES",
+      "elk.edgeLabels.placement": "CENTER",
+      "elk.spacing.nodeNode": 40,
+      "elk.layered.spacing.nodeNodeBetweenLayers": 72,
+      "elk.spacing.edgeNode": 24,
+      "elk.spacing.edgeEdge": 16,
+      "elk.spacing.edgeLabel": 6
+    },
+    "tree": {
+      "elk.algorithm": "mrtree",
+      "elk.spacing.nodeNode": 40
+    },
+    "grid": {
+      "elk.algorithm": "rectpacking",
+      "elk.spacing.nodeNode": 32
+    }
+  },
+  "defaultStyle": "flow",
+  "directions": { "right": "RIGHT", "down": "DOWN", "left": "LEFT", "up": "UP" },
+  "defaultDirection": { "flow": "right", "tree": "down", "grid": "right" },
+  "directional": ["flow", "tree"],
+  "spacing": { "tight": 0.6, "normal": 1, "loose": 1.6 },
+  "spacingKeys": [
+    "elk.spacing.nodeNode",
+    "elk.layered.spacing.nodeNodeBetweenLayers",
+    "elk.spacing.edgeNode",
+    "elk.spacing.edgeEdge"
+  ],
+  "framePadding": { "top": 56, "left": 24, "bottom": 24, "right": 24 },
+  "limits": { "nodes": 1000, "edges": 4000, "layoutMovesPerCall": 4, "deadlineMs": 20000 }
+}

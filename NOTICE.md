@@ -26,6 +26,12 @@ packaged into every `gardend` container image at
 Regenerate it with `scripts/gen-third-party-rust.py` whenever
 `src-tauri/Cargo.lock` changes.
 
+**Vendored JavaScript in the headless engine.** `src-tauri/vendor/elkjs/elk.bundled.js` is
+[elkjs](https://github.com/kieler/elkjs) 0.12.0, the Eclipse Layout Kernel compiled to JavaScript,
+unmodified, licensed EPL-2.0 OR GPL-3.0-or-later (`src-tauri/vendor/elkjs/LICENSE.md`). It is
+embedded in `gardend` and run on QuickJS (the `rquickjs` crate, MIT) to lay out whiteboards; its
+source is the vendored file itself and the upstream repository.
+
 **Still open, internal-only:** a dependency license review for the desktop
 build (the `--features desktop` Cargo closure, i.e. Tauri/wry/GUI plugins)
 and for the `frontend/`/Shrubbery npm dependency tree, plus attributions for
