@@ -194,6 +194,7 @@ async function runBenchInner(o) {
   if (machine.health.clean === false) { notes.push(`NOT CLEAN, not a judge: ${machine.health.why.join('; ')}`); log(`machine not clean: ${machine.health.why.join('; ')}`) }
 
   // ---- join spans
+  spanFiles = spanFiles.filter((f) => existsSync(f)) // a gardend stopped before its first span never created its file
   const hasSpans = !attach && spanFiles.length > 0
   let spanJoin = null
   const allCalls = results.flatMap((r) => r._calls.filter((c) => c.traceId))
