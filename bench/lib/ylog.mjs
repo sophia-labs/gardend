@@ -58,3 +58,22 @@ export function send(client, state) {
 export function onAwareness(client, cb) { client._listeners.add(cb); return () => client._listeners.delete(cb) }
 export const encodeAwareness = (client, ids = [client.ydoc.clientID]) => L.aw.encodeAwarenessUpdate(client.awareness, ids)
 export const decodeAwareness = (client, bytes, origin = 'remote') => L.aw.applyAwarenessUpdate(client.awareness, bytes, origin)
+
+// Seed a log room with plain-JSON events without going through the write lane. For each chunk, one Y transaction pushes the events onto
+// ydoc.getArray('events'); the transaction's update goes out as one y-protocols sync UPDATE message on the ws (connect()'s update handler
+// encodes it, so it is not sent twice here). meta ({graphId, vocab, origin}) is set once on ydoc.getMap('meta') as {v:1, ...} if absent.
+// Waits for the socket's send buffer between chunks; returns after the last send has drained.
+export async function pushEvents(client, events, { chunk = 2000, meta = null, drainMs = 120_000 } = {}) {
+  if (!L) throw new Error('yjs / y-protocols not installed (pnpm install in bench/)')
+  const { ydoc, ws } = client, arr = ydoc.getArray('events'), m = ydoc.getMap('meta')
+  if (typeof ws.bufferedAmount !== 'number') throw new Error('ws.bufferedAmount unavailable: no backpressure possible')
+  const drain = async () => { const t0 = performance.now(); while (ws.readyState === 1 && ws.bufferedAmount > 0) { if (performance.now() - t0 > drainMs) throw new Error('log room send buffer did not drain'); await new Promise((r) => setTimeout(r, 5)) } }
+  for (let s = 0; s < events.length; s += chunk) {
+    if (ws.readyState !== 1) throw new Error('log room socket not open')
+    ydoc.transact(() => {
+      if (meta && !m.has('v')) { m.set('v', 1); for (const [k, v] of Object.entries(meta)) m.set(k, v) }
+      arr.push(events.slice(s, s + chunk))
+    })
+    await drain()
+  }
+}
