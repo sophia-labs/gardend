@@ -137,3 +137,10 @@ export function ntriples(n, seed, ns = 'urn:gbench:rdf') {
 
 // ---- parts descriptor (for the runner's fixture-parts hook, whose exact shape was still open when this was written) -------------
 export const part = { id: 'rich', provides: ['board', 'objects', 'pdf', 'rdf'], note: 'The rich.* cases seed their own data in setup(); these generators are the shared source.' }
+
+// ---- emporium log: n Gizmo events as batches of <= 100 records (one emporium_write call = one log event each), numbered from `start` ------
+export function logEvents(n, seed, start = 0) {
+  const out = []
+  for (let s = 0; s < n; s += 100) out.push(gizmoRecords(Math.min(100, n - s), seed, start + s))
+  return out
+}

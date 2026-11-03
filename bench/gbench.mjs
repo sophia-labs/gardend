@@ -10,17 +10,18 @@ import { takeMeasure } from './lib/lock.mjs'
 import { holdAwake, powerDuring, roundHealth } from './lib/power.mjs'
 import { publish } from './lib/publish.mjs'
 
+const BOOL = new Set(['twin', 'measured', 'force', 'baseline'])
 function parseArgs(argv) {
   const pos = [], o = {}
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
-    if (a.startsWith('--')) { const k = a.slice(2); const nxt = argv[i + 1]; if (nxt === undefined || nxt.startsWith('--')) o[k] = true; else { o[k] = nxt; i++ } } else pos.push(a)
+    if (a.startsWith('--')) { const k = a.slice(2); const nxt = argv[i + 1]; if (BOOL.has(k) || nxt === undefined || nxt.startsWith('--')) o[k] = true; else { o[k] = nxt; i++ } } else pos.push(a)
   }
   return { pos, o }
 }
 const USAGE = `gbench <cmd>
   fixture --tier s|m|l --seed N [--bin <gardend>] [--force]
-  run --bin <gardend> --suite smoke|standard --tier s|m|l --label <l> --out <dir> [--seed N] [--cases <regex>] [--measured]
+  run --bin <gardend> --suite smoke|standard --tier s|m|l --label <l> --out <dir> [--seed N] [--cases <regex>] [--measured] [--twin]   (--twin: a second gardend on its own fixture clone, origins cell-a/cell-b, for cases that need 'twin')
   run --attach <url> --key-file <path> [--suite ..] [--tier s] [--label ..] [--out ..]      (never against an instance you care about without reading PROTOCOL.md)
   run|ab ... --real-profile <backup profile dir> --graph <id> --suite real   (reads on an APFS clone of real data; never ~/sophia)
   compare <runDirA> <runDirB> [--out <dir>]

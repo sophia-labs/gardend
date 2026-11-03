@@ -44,7 +44,7 @@ async function runBenchInner(o) {
   const only = o.cases ? new RegExp(o.cases) : null
   const want = (id) => !only || only.test(id)
   const results = []
-  let gard = null, bin = null, binInfo = null, fixture = null, manifest = null, spanFiles = [], pids = [], client, G, url, cpuU = 0, cpuS = 0, rssPeak = 0, rssStart = 0, rssEnd = 0, sampler = null
+  let gard = null, twin = null, twinApi = null, twinClone = null, bin = null, binInfo = null, fixture = null, manifest = null, spanFiles = [], pids = [], client, G, url, cpuU = 0, cpuS = 0, rssPeak = 0, rssStart = 0, rssEnd = 0, sampler = null
   const clone = path.join(CACHE_ROOT, 'runs', runId, 'profile')
 
   let failure = null
@@ -53,10 +53,27 @@ async function runBenchInner(o) {
   const awake = o.holdsAwake ? null : holdAwake(log), power0 = await powerNow(), foreign = foreignCpuSampler({ ours: () => pids })
   foreign.start()
   let startN = 0
+  const twinFlag = !!o.twin
+  if (twinFlag && (attach || o['real-profile'])) throw new Error('--twin needs a spawned fixture run (not --attach, not --real-profile)')
   const startGardend = async () => {
     const spansFile = path.join(runDir, `spans-${++startN}.jsonl`); spanFiles.push(spansFile)
-    const g = new Gardend({ bin, profile: clone, port: gard?.port ?? await freePort(7790), spansFile, logFile: path.join(runDir, 'gardend.log') })
+    const g = new Gardend({ bin, profile: clone, port: gard?.port ?? await freePort(7790), spansFile, logFile: path.join(runDir, 'gardend.log'), env: twinFlag ? { GARDEN_LOG_ORIGIN: 'cell-a' } : {} })
     const pid = g.start(); pids.push(pid); return g
+  }
+  // --twin: a second gardend on its own clone of the same fixture profile (same graph ids), log origin 'cell-b'. Started lazily by the first case that needs 'twin'.
+  const startTwin = async () => {
+    if (!fixture?.profile) throw new Error('--twin needs a spawned fixture profile')
+    twinClone = path.join(CACHE_ROOT, 'runs', runId, 'twin-profile'); cloneProfile(fixture.profile, twinClone)
+    const spansFile = path.join(runDir, `spans-twin-${++startN}.jsonl`); spanFiles.push(spansFile)
+    const g = new Gardend({ bin, profile: twinClone, port: await freePort((gard?.port ?? 7790) + 1), spansFile, logFile: path.join(runDir, 'gardend-twin.log'), env: { GARDEN_LOG_ORIGIN: 'cell-b' } })
+    const pid = g.start(); pids.push(pid); try { await g.waitHealthy() } catch (e) { try { await g.stop() } catch {} ; throw e }
+    const tc = g.client()
+    twinApi = {
+      get url() { return g.url }, get key() { return tc.key }, get c() { return tc }, process: g,
+      http: (m, p, b) => tc.http(m, p, b, { trace: newTrace() }).then((r) => { let j = null; try { j = JSON.parse(r.text) } catch {} return { ...r, json: j } }),
+      mcp: async (tool, args = {}) => { const r = await tc.call(tool, args, { trace: newTrace() }); if (!r.ok) throw new Error(`twin ${tool}: ${r.error}`); return r.payload },
+    }
+    return g
   }
   const sampleRss = () => { if (!gard?.child || gard.child.exitCode !== null) return; const kb = gard.rssKB(); if (kb) { rssPeak = Math.max(rssPeak, kb); rssEnd = kb; if (!rssStart) rssStart = kb } }
 
@@ -92,7 +109,7 @@ async function runBenchInner(o) {
     }
     const lex = lexicon(seed)
     const base = { mode: attach ? 'attach' : 'spawn', graphId: G, tag, lex, fixture: manifest, runDir, shared: {}, rng: mulberry32(seed ^ 0xabcdef), log: (o) => log(JSON.stringify(o)),
-      get url() { return client.url }, get key() { return client.key }, get c() { return client } }
+      get url() { return client.url }, get key() { return client.key }, get c() { return client }, get twin() { return twinApi } }
     base.proc = attach ? null : {
       start: async () => { gard = await startGardend(); client = gard.client(); return gard },
       stop: async () => { if (gard?.child && gard.child.exitCode === null) { const c = gard.cpu(); cpuU += c.user; cpuS += c.sys; await gard.stop() } },
@@ -112,7 +129,7 @@ async function runBenchInner(o) {
     for (const f of mods.sort()) { const m = await import(pathToFileURL(f).href); for (const c of m.cases ?? []) defs.push(c) }
     const ORDER = ['boot', 'read', 'write', 'burst', 'scale', 'ws', 'rich', 'gui']
     defs = defs.filter((d) => (d.suites ?? []).includes(suite) && want(d.id)).sort((a, b) => ORDER.indexOf(a.kind) - ORDER.indexOf(b.kind))
-    const parts = new Set(['book', 'small', 'proc', ...(manifest.parts ?? []), ...Object.keys(manifest)])
+    const parts = new Set(['book', 'small', 'proc', ...(manifest.parts ?? []), ...Object.keys(manifest), ...(twinFlag ? ['twin'] : [])])
     const sharedByFamily = new Map()
     let started = !!gard
     for (const def of defs) {
@@ -120,6 +137,7 @@ async function runBenchInner(o) {
       if (missing.length) { notes.push(`skipped ${def.id}: needs ${missing.join(',')}`); log(`  skip ${def.id} (needs ${missing.join(',')})`); continue }
       if (def.kind !== 'boot' && !started && !attach) { if (!gard || gard.child.exitCode !== null) { gard = await startGardend(); await gard.waitHealthy(); client = gard.client() } started = true }
       if (def.kind !== 'boot' && !sampler) { sampler = setInterval(sampleRss, 1000); sampleRss() }
+      if ((def.needs ?? []).includes('twin') && !twin) twin = await startTwin()
       const sk = def.id.split('.')[0], shared = sharedByFamily.get(sk) ?? {}; sharedByFamily.set(sk, shared)
       const params = { ...def.params, ...(def.params?.[suite] ?? {}) }; delete params.smoke; delete params.standard
       const ctx = mkCtx(params, base.shared); ctx.shared = def.kind === 'boot' ? base.shared : shared
@@ -164,6 +182,8 @@ async function runBenchInner(o) {
   } finally {
     if (sampler) clearInterval(sampler)
     if (gard && gard.child && gard.child.exitCode === null) { log('stopping our gardend (SIGINT, final flush)'); await gard.stop(); if (gard.stopMs) notes.push(`final flush on SIGINT took ${Math.round(gard.stopMs)} ms`) }
+    if (twin?.child && twin.child.exitCode === null) { log('stopping the twin gardend'); await twin.stop() }
+    if (twinClone) rmSync(path.dirname(twinClone) === path.join(CACHE_ROOT, 'runs', runId) ? twinClone : '/nonexistent-twin', { recursive: true, force: true })
   }
 
   // ---- what the machine did meanwhile (the power log read costs ~5 s of CPU: after our gardend stopped, never during)
