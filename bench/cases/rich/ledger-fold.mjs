@@ -144,9 +144,9 @@ async function writeRun(ctx, recordsPerRequest) {
   const keep = (rows) => rows.slice(ctx.params.warmup).filter(Boolean)
   const p50 = (rows, k) => { const v = rows.map((r) => r[k]).filter((x) => typeof x === 'number').sort((a, b) => a - b); return v.length ? r2(v[Math.floor((v.length - 1) / 2)]) : null }
   const t = keep(timings), cy = cycles.slice(Math.max(0, cycles.length - Math.max(1, t.length)))
-  const split = { ackMsP50: p50(t, 'ackMs'), validateMsP50: p50(t, 'validateMs'), appendMsP50: p50(t, 'appendMs'), barrierMsP50: p50(t, 'barrierMs'), foldWaitMsP50: p50(t, 'foldWaitMs'),
+  const split = { ackMsP50: p50(t, 'ackMs'), validateMsP50: p50(t, 'validateMs'), roomMsP50: p50(t, 'roomMs'), gateMsP50: p50(t, 'gateMs'), appendMsP50: p50(t, 'appendMs'), barrierMsP50: p50(t, 'barrierMs'), foldWaitMsP50: p50(t, 'foldWaitMs'),
     cycle: { persistMsP50: p50(cy, 'persist_ms'), eventsSinceMsP50: p50(cy, 'events_since_ms'), planMsP50: p50(cy, 'plan_ms'), applyMsP50: p50(cy, 'apply_ms'), deltaMsP50: p50(cy, 'delta_ms'), commitMsP50: p50(cy, 'commit_ms') } }
-  const note = `split (server-side p50 ms): ack ${split.ackMsP50} = validate ${split.validateMsP50} + append ${split.appendMsP50} + barrier ${split.barrierMsP50}; fold wait ${split.foldWaitMsP50}; fold cycle: persist ${split.cycle.persistMsP50}, events_since ${split.cycle.eventsSinceMsP50}, plan ${split.cycle.planMsP50}, apply ${split.cycle.applyMsP50} (delta ${split.cycle.deltaMsP50} + commit ${split.cycle.commitMsP50})`
+  const note = `split (server-side p50 ms): ack ${split.ackMsP50} = validate ${split.validateMsP50} + room ${split.roomMsP50} + gate ${split.gateMsP50} + append ${split.appendMsP50} + barrier ${split.barrierMsP50}; fold wait ${split.foldWaitMsP50}; fold cycle: persist ${split.cycle.persistMsP50}, events_since ${split.cycle.eventsSinceMsP50}, plan ${split.cycle.planMsP50}, apply ${split.cycle.applyMsP50} (delta ${split.cycle.deltaMsP50} + commit ${split.cycle.commitMsP50})`
   return { calls: out.calls, ...meta(ctx, { recordsPerRequest, waitFolded: true, split, notes: [`actual n ${ctx.L.n} ${ctx.L.nUnit} (tier ${tierOf(ctx)})`, ...ctx.L.notes, `timed: one commit of ${recordsPerRequest} record(s) with ?wait=folded; the body is built untimed`, note, IRI_NOTE] }) }
 }
 async function replayRun(ctx, into, { timeoutMs = 900_000, requireEqual = true } = {}) {
