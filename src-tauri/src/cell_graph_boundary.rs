@@ -42,6 +42,9 @@ use std::{
 const POLICY_JSON: &str = include_str!("cell_graph_boundary_policy.json");
 
 #[cfg(all(test, feature = "headless"))]
+#[path = "commit_routes_cell_tests.rs"]
+mod commit_routes_cell_tests;
+#[cfg(all(test, feature = "headless"))]
 #[path = "create_document_refusal_cell_tests.rs"]
 mod create_document_refusal_cell_tests;
 #[cfg(all(test, feature = "headless"))]
