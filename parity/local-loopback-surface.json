@@ -1505,6 +1505,36 @@
       "scopes": ["rdf.update"]
     },
     {
+      "method": "POST",
+      "path": "/emporium/commit/{graph_id}/{vocab}",
+      "status": "implemented-local-emporium",
+      "scopes": ["rdf.update"]
+    },
+    {
+      "method": "GET",
+      "path": "/emporium/commit/{graph_id}/{vocab}/watermark",
+      "status": "implemented-local-emporium",
+      "scopes": ["rdf.query"]
+    },
+    {
+      "method": "GET",
+      "path": "/emporium/fold/{graph_id}/{vocab}/heads",
+      "status": "implemented-local-emporium",
+      "scopes": ["rdf.query"]
+    },
+    {
+      "method": "POST",
+      "path": "/emporium/fold/{graph_id}/{vocab}/replay",
+      "status": "implemented-local-emporium",
+      "scopes": ["rdf.query", "rdf.update"]
+    },
+    {
+      "method": "GET",
+      "path": "/emporium/fold/{graph_id}/{vocab}/status",
+      "status": "implemented-local-emporium",
+      "scopes": ["rdf.query"]
+    },
+    {
       "method": "GET",
       "path": "/g/{graph_id}/vocab/sophia-api/openapi",
       "status": "implemented-local-emporium",

@@ -9974,7 +9974,7 @@
       "get": {
         "operationId": "getBacklinksGraphId",
         "tags": [
-          "wires"
+          "backlinks"
         ],
         "summary": "GET /backlinks/{graph_id}",
         "description": "Local native loopback route. Surface status: implemented-workspace-snapshot. Scope mode: all.",
@@ -9988,30 +9988,6 @@
             "name": "graph_id",
             "in": "path",
             "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "documentId",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "iri",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "blockId",
-            "in": "query",
-            "required": false,
             "schema": {
               "type": "string"
             }
@@ -13405,6 +13381,357 @@
           },
           {
             "name": "address",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonObject"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Rejected request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Missing, invalid, or forbidden local loopback bearer token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/emporium/commit/{graph_id}/{vocab}": {
+      "post": {
+        "operationId": "postEmporiumCommitGraphIdVocab",
+        "tags": [
+          "emporium"
+        ],
+        "summary": "POST /emporium/commit/{graph_id}/{vocab}",
+        "description": "Local native loopback route. Surface status: implemented-local-emporium. Scope mode: all.",
+        "x-sophia-status": "implemented-local-emporium",
+        "x-sophia-required-scopes": [
+          "rdf.update"
+        ],
+        "x-sophia-scope-mode": "all",
+        "parameters": [
+          {
+            "name": "graph_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "vocab",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonObject"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Rejected request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Missing, invalid, or forbidden local loopback bearer token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/emporium/commit/{graph_id}/{vocab}/watermark": {
+      "get": {
+        "operationId": "getEmporiumCommitGraphIdVocabWatermark",
+        "tags": [
+          "emporium"
+        ],
+        "summary": "GET /emporium/commit/{graph_id}/{vocab}/watermark",
+        "description": "Local native loopback route. Surface status: implemented-local-emporium. Scope mode: all.",
+        "x-sophia-status": "implemented-local-emporium",
+        "x-sophia-required-scopes": [
+          "rdf.query"
+        ],
+        "x-sophia-scope-mode": "all",
+        "parameters": [
+          {
+            "name": "graph_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "vocab",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonObject"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Rejected request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Missing, invalid, or forbidden local loopback bearer token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/emporium/fold/{graph_id}/{vocab}/heads": {
+      "get": {
+        "operationId": "getEmporiumFoldGraphIdVocabHeads",
+        "tags": [
+          "emporium"
+        ],
+        "summary": "GET /emporium/fold/{graph_id}/{vocab}/heads",
+        "description": "Local native loopback route. Surface status: implemented-local-emporium. Scope mode: all.",
+        "x-sophia-status": "implemented-local-emporium",
+        "x-sophia-required-scopes": [
+          "rdf.query"
+        ],
+        "x-sophia-scope-mode": "all",
+        "parameters": [
+          {
+            "name": "graph_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "vocab",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonObject"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Rejected request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Missing, invalid, or forbidden local loopback bearer token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/emporium/fold/{graph_id}/{vocab}/replay": {
+      "post": {
+        "operationId": "postEmporiumFoldGraphIdVocabReplay",
+        "tags": [
+          "emporium"
+        ],
+        "summary": "POST /emporium/fold/{graph_id}/{vocab}/replay",
+        "description": "Local native loopback route. Surface status: implemented-local-emporium. Scope mode: all.",
+        "x-sophia-status": "implemented-local-emporium",
+        "x-sophia-required-scopes": [
+          "rdf.query",
+          "rdf.update"
+        ],
+        "x-sophia-scope-mode": "all",
+        "parameters": [
+          {
+            "name": "graph_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "vocab",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonObject"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Rejected request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Missing, invalid, or forbidden local loopback bearer token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/emporium/fold/{graph_id}/{vocab}/status": {
+      "get": {
+        "operationId": "getEmporiumFoldGraphIdVocabStatus",
+        "tags": [
+          "emporium"
+        ],
+        "summary": "GET /emporium/fold/{graph_id}/{vocab}/status",
+        "description": "Local native loopback route. Surface status: implemented-local-emporium. Scope mode: all.",
+        "x-sophia-status": "implemented-local-emporium",
+        "x-sophia-required-scopes": [
+          "rdf.query"
+        ],
+        "x-sophia-scope-mode": "all",
+        "parameters": [
+          {
+            "name": "graph_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "vocab",
             "in": "path",
             "required": true,
             "schema": {

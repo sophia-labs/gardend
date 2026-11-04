@@ -598,6 +598,8 @@ const specialHandlerScopes = new Map([
   ['workspace_room', ['workspace.read']],
   // The ledger room writes (a peer's frames land in it): admission needs the CRDT write scope, ReadWrite only.
   ['ledger_room_ws', ['workspace.write.crdt']],
+  // The fold replay route: `into=oracle` needs rdf.query, `into=live` rdf.update (chosen at runtime); declare the union.
+  ['loopback_fold_replay', ['rdf.query', 'rdf.update']],
   // Service facade handlers delegate authorization to this common helper.
   ['proxy_service_path', ['services.proxy']],
   ['loopback_mcp', ['mcp.tools.read', 'mcp.tools.call']],

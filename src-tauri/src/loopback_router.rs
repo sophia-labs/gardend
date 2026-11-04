@@ -2,10 +2,11 @@
 use crate::loopback_capture_identity::capture_identity_middleware;
 use crate::{
     cell_graph_boundary::cell_graph_boundary_middleware,
-    emporium::loopback_emporium_router,
+    emporium::{ledger_fold::fold_routes::ledger_fold_router, loopback_emporium_router},
     loopback_ai_routes::loopback_ai_router,
     loopback_artifact_routes::loopback_artifact_router,
     loopback_backlinks_routes::loopback_backlinks_router,
+    loopback_commit_routes::loopback_commit_router,
     loopback_core_routes::loopback_core_router,
     loopback_crdt_routes::loopback_crdt_router,
     loopback_document_routes::loopback_document_router,
@@ -112,6 +113,8 @@ pub(super) fn loopback_router(state: Arc<LoopbackState>) -> Router {
         .merge(loopback_crdt_router())
         .merge(loopback_hocuspocus_router())
         .merge(loopback_ledger_router())
+        .merge(loopback_commit_router())
+        .merge(ledger_fold_router())
         .merge(loopback_time_travel_router())
         .merge(loopback_restore_router())
         .merge(loopback_emporium_router())
