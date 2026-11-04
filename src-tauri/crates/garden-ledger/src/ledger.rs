@@ -159,10 +159,41 @@ pub struct Draft {
 }
 
 /// A directory of per-origin streams with one local (writable) origin.
+///
+/// The ledger holds every stream open (and so locked: see [`Stream::open`]) for its life. It ships a
+/// frame to a peer only once a full flush covers it, and every shipped chunk repeats the peer's tip
+/// frame, so a replica that lost and re-minted a frame its peer already held is found, loudly, by
+/// the first sync that follows (see [`Ledger::diff`] and [`LedgerError::Fork`]).
 pub struct Ledger {
     dir: PathBuf,
     streams: BTreeMap<OriginId, Stream>,
     local: OriginId,
+    /// Redact frames whose target is not held yet, `(target origin, target seq)` to the target's id:
+    /// the target is zeroed the moment it lands, so a redaction that outran its target never leaves
+    /// the payload on disk and shippable.
+    pending_redactions: BTreeMap<(String, u64), Id>,
+}
+
+/// Compare the ids a peer sent for positions we hold with the ids we hold there.
+///
+/// `held` must cover exactly the peer's overlap, one id per position: a different count means our own
+/// walk came up short and some overlap frames would go unchecked, which is damage on our side
+/// (`Corrupt`), never a pass. A different id at a position is a [`LedgerError::Fork`].
+fn check_overlap(origin: &OriginId, overlap: &[(u64, Id)], held: &[Id]) -> Result<(), LedgerError> {
+    if overlap.len() != held.len() {
+        return Err(LedgerError::Stream(StreamError::Corrupt { offset: 0 }));
+    }
+    for ((seq, theirs), mine) in overlap.iter().zip(held) {
+        if mine != theirs {
+            return Err(LedgerError::Fork {
+                origin: origin.clone(),
+                seq: *seq,
+                ours: *mine,
+                theirs: *theirs,
+            });
+        }
+    }
+    Ok(())
 }
 
 /// True when `s` matches `[A-Za-z0-9._-]{1,128}`.
@@ -189,7 +220,9 @@ pub fn sync_dir_once(dir: &Path) -> io::Result<()> {
 }
 
 impl Ledger {
-    /// Open every `*.log` in `dir` (create dir if missing); recover each; report recoveries.
+    /// Open every `*.log` in `dir` (create dir if missing); recover each; report recoveries. Every
+    /// stream file is locked and fsynced (see [`Stream::open`]): a second `Ledger` or `Stream` on the
+    /// same directory fails with [`StreamError::Locked`].
     ///
     /// Recovery is two-phase because a redaction can name a frame in another origin's stream. Every
     /// file is read first (no writes); then every `redact` frame's target is re-zeroed if it is not
@@ -235,6 +268,10 @@ impl Ledger {
             scans.push(scan_file(dir, &OriginId(name))?);
         }
         repair_redactions(&mut scans)?;
+        let redactions: Vec<RedactPayload> = scans
+            .iter()
+            .flat_map(|s| s.redactions().iter().cloned())
+            .collect();
         let mut streams = BTreeMap::new();
         let mut recoveries = Vec::new();
         for scan in scans {
@@ -246,11 +283,23 @@ impl Ledger {
         if created {
             sync_dir_once(dir)?;
         }
+        let mut pending_redactions = BTreeMap::new();
+        for r in redactions {
+            let Ok(id) = r.id() else { continue };
+            let held = r.target_seq == 0
+                || streams
+                    .get(&OriginId(r.target_origin.clone()))
+                    .is_some_and(|s| r.target_seq < s.next_seq());
+            if !held {
+                pending_redactions.insert((r.target_origin, r.target_seq), id);
+            }
+        }
         Ok((
             Ledger {
                 dir: dir.to_path_buf(),
                 streams,
                 local,
+                pending_redactions,
             },
             recoveries,
         ))
@@ -316,9 +365,22 @@ impl Ledger {
         Ok(stream.append_event(&event)?)
     }
 
-    /// Frames another replica lacks: for each origin where ours > theirs, raw chunks after their seq.
-    /// Only frames a barrier has covered are shipped (see [`Stream::raw_after`]), so call
-    /// `sync_barrier` first if freshly appended frames should go.
+    /// Frames another replica lacks, for each origin where we have at least as many as `since`: raw
+    /// chunks that start at their tip (seq `since[o]`, when it is above 0) and run on past it.
+    ///
+    /// Two rules close the one way a version-vector sync could go silently wrong:
+    ///
+    /// * **Shipped only once it cannot be lost.** Only frames below a stream's [`Stream::durable_len`]
+    ///   go out, so the host must `sync_full` (it is eager when a peer waits, about 20 ms coalesced)
+    ///   before a frame appended or applied here is offered. A barrier alone does not ship.
+    /// * **A one-frame overlap.** The chunk repeats the peer's tip frame, so [`Ledger::apply`] compares
+    ///   its id. If an origin ever re-mints a seq its peer already holds, the first sync after it is
+    ///   [`LedgerError::Fork`]; no version vector can hide it, because the vectors are equal exactly
+    ///   when the forked frame is the tip. Cost: one repeated frame per origin per sync, so even two
+    ///   replicas in step exchange one frame per origin and `apply` reports 0 new.
+    ///
+    /// When we hold fewer frames than `since` there is nothing to offer; the peer's own diff against
+    /// our vector carries the tip comparison the other way.
     pub fn diff(
         &self,
         since: &VersionVector,
@@ -328,8 +390,8 @@ impl Ledger {
         for (o, s) in &self.streams {
             let ours = s.next_seq().saturating_sub(1);
             let theirs = since.get(o);
-            if ours > theirs {
-                let chunk = s.raw_after(theirs, max_bytes)?;
+            if ours >= theirs {
+                let chunk = s.raw_after_with_tip(theirs, max_bytes)?;
                 if !chunk.bytes.is_empty() {
                     out.push((o.clone(), chunk));
                 }
@@ -342,14 +404,19 @@ impl Ledger {
     ///
     /// Every frame must decode with both crcs and carry `origin`, and the chunk's seqs must be
     /// consecutive and start at or below our next seq (else [`LedgerError::Gap`]). Frames at positions
-    /// we already hold are compared by id: a different id is a [`LedgerError::Fork`] and nothing is
-    /// written; the same id is a duplicate and is skipped. The rest are appended. Nothing is written
-    /// unless every frame validates. Returns how many frames were new.
+    /// we already hold are compared by id: a different id is a [`LedgerError::Fork`] (a hard error that
+    /// can only mean a bug or tampering, since [`Ledger::diff`] ships nothing that can be lost) and
+    /// nothing is written; the same id is a duplicate and is skipped. The rest are appended. Nothing is
+    /// written unless every frame validates. Returns how many frames were new: a chunk from `diff`
+    /// between replicas in step carries just the tip frame and returns 0.
+    ///
+    /// Appended frames are not shippable onward until the host `sync_full`s them.
     ///
     /// `origin` may be the local origin: that is how a replica gets back its own frames that a crash cut
     /// from its tail but a peer kept (they extend our tail contiguously and match on any overlap).
     /// New `redact` frames zero the local copy of their target, after a barrier on the stream they were
-    /// appended to.
+    /// appended to. A redact frame whose target is not held yet is remembered, and the target is zeroed
+    /// the moment it lands (also across a reopen, which re-reads the redact frames).
     pub fn apply(&mut self, origin: &OriginId, raw: &[u8]) -> Result<usize, LedgerError> {
         if !origin_is_valid(&origin.0) {
             return Err(LedgerError::BadOrigin(origin.0.clone()));
@@ -362,7 +429,7 @@ impl Ledger {
 
         // Pass 1: decode and validate every frame, check the seq chain, collect what overlaps.
         let mut overlap: Vec<(u64, Id)> = Vec::new();
-        let mut fresh: Vec<(std::ops::Range<usize>, Header)> = Vec::new();
+        let mut fresh: Vec<(std::ops::Range<usize>, Header, Id)> = Vec::new();
         let mut redactions: Vec<RedactPayload> = Vec::new();
         let mut pos = 0usize;
         let mut prev: Option<u64> = None;
@@ -397,7 +464,7 @@ impl Ledger {
                         redactions.push(r);
                     }
                 }
-                fresh.push((pos..end, d.header));
+                fresh.push((pos..end, d.header, d.id));
             }
             pos = end;
         }
@@ -409,15 +476,17 @@ impl Ledger {
                 .get(origin)
                 .ok_or_else(|| LedgerError::BadOrigin(origin.0.clone()))?;
             let held = stream.ids_range(first, last)?;
-            for ((seq, theirs), mine) in overlap.iter().zip(&held) {
-                if mine != theirs {
-                    return Err(LedgerError::Fork {
-                        origin: origin.clone(),
-                        seq: *seq,
-                        ours: *mine,
-                        theirs: *theirs,
-                    });
-                }
+            if let Err(e) = check_overlap(origin, &overlap, &held) {
+                return Err(match e {
+                    // A short walk is damage in our own file, not the peer's doing.
+                    LedgerError::Stream(StreamError::Corrupt { .. }) => {
+                        let offset = stream
+                            .locate(first)?
+                            .map_or_else(|| stream.len(), |l| l.offset);
+                        LedgerError::Stream(StreamError::Corrupt { offset })
+                    }
+                    other => other,
+                });
             }
         }
         if fresh.is_empty() {
@@ -435,7 +504,7 @@ impl Ledger {
             .streams
             .get_mut(origin)
             .ok_or_else(|| LedgerError::BadOrigin(origin.0.clone()))?;
-        for (range, header) in &fresh {
+        for (range, header, _) in &fresh {
             stream.append(&raw[range.clone()], header)?;
         }
         if created {
@@ -445,24 +514,62 @@ impl Ledger {
             // The redact frames must be durable before any target is touched.
             self.streams[origin].sync_barrier()?;
             for r in &redactions {
-                self.zero_target(r)?;
+                if !self.zero_target(r)? {
+                    if let Ok(id) = r.id() {
+                        self.pending_redactions
+                            .insert((r.target_origin.clone(), r.target_seq), id);
+                    }
+                }
+            }
+        }
+        // Frames that landed under a redact frame that arrived first.
+        if !self.pending_redactions.is_empty() {
+            let landed: Vec<u64> = fresh
+                .iter()
+                .filter(|(_, h, id)| {
+                    self.pending_redactions.get(&(origin.0.clone(), h.seq)) == Some(id)
+                })
+                .map(|(_, h, _)| h.seq)
+                .collect();
+            if !landed.is_empty() {
+                // Every redact frame that is waiting must be ordered before its target is touched.
+                self.sync_barrier()?;
+                for seq in landed {
+                    let Some(id) = self.pending_redactions.remove(&(origin.0.clone(), seq)) else {
+                        continue;
+                    };
+                    if let Some(stream) = self.streams.get_mut(origin) {
+                        if let Some(loc) = stream.locate(seq)? {
+                            if loc.id == id {
+                                stream.redact_at(loc.offset)?;
+                            }
+                        }
+                    }
+                }
             }
         }
         Ok(fresh.len())
     }
 
     /// Zero the payload of the frame a `redact` payload names, when we hold it and its id matches.
-    fn zero_target(&mut self, r: &RedactPayload) -> Result<(), LedgerError> {
-        let Ok(id) = r.id() else { return Ok(()) };
-        let Some(stream) = self.streams.get_mut(&OriginId(r.target_origin.clone())) else {
-            return Ok(());
-        };
-        if let Some(loc) = stream.locate(r.target_seq)? {
-            if loc.id == id {
-                stream.redact_at(loc.offset)?;
-            }
+    /// Returns false when the frame is not held yet (the caller remembers the redaction).
+    fn zero_target(&mut self, r: &RedactPayload) -> Result<bool, LedgerError> {
+        let Ok(id) = r.id() else { return Ok(true) };
+        if r.target_seq == 0 {
+            return Ok(true);
         }
-        Ok(())
+        let Some(stream) = self.streams.get_mut(&OriginId(r.target_origin.clone())) else {
+            return Ok(false);
+        };
+        match stream.locate(r.target_seq)? {
+            Some(loc) => {
+                if loc.id == id {
+                    stream.redact_at(loc.offset)?;
+                }
+                Ok(true)
+            }
+            None => Ok(false),
+        }
     }
 
     /// Iterate one origin's frames from a byte offset (0 = all).
@@ -547,8 +654,9 @@ impl Ledger {
         Ok(appended)
     }
 
-    /// Ordered-durability barrier on every stream appended to since the last barrier. Each stream that
-    /// had writes then owes a full flush (see [`Stream::full_owed`]).
+    /// Ordered-durability barrier on every stream appended to since the last barrier: the writer's ack.
+    /// Each stream that had writes then owes a full flush (see [`Stream::full_owed`]). A barrier does
+    /// not make frames shippable; only [`Ledger::sync_full`] does.
     pub fn sync_barrier(&self) -> io::Result<()> {
         for s in self.streams.values() {
             if s.dirty_since_barrier() {
@@ -559,7 +667,9 @@ impl Ledger {
     }
 
     /// Full flush on every stream that appended or redacted since its last full flush: the ones that
-    /// owe one after a barrier, and the ones never barriered at all.
+    /// owe one after a barrier, and the ones never barriered at all. This is what makes frames
+    /// shippable: [`Ledger::diff`] offers only what a full flush has covered, so call it (eagerly when a
+    /// peer is waiting) after appends and applies.
     pub fn sync_full(&self) -> io::Result<()> {
         for s in self.streams.values() {
             if s.full_owed() || s.dirty_since_barrier() {
@@ -584,6 +694,40 @@ mod tests {
         assert!(!origin_is_valid(""));
         assert!(!origin_is_valid("a/b"));
         assert!(!origin_is_valid(&"x".repeat(129)));
+    }
+
+    #[test]
+    fn overlap_check_refuses_a_short_walk_and_names_a_fork() {
+        let origin = o("x");
+        let overlap = vec![(4u64, [1u8; 32]), (5, [2; 32]), (6, [3; 32])];
+        assert!(check_overlap(&origin, &overlap, &[[1; 32], [2; 32], [3; 32]]).is_ok());
+        // A walk that stopped early leaves frames unchecked: that is Corrupt, not a pass.
+        for short in [0usize, 1, 2] {
+            let held: Vec<Id> = overlap.iter().take(short).map(|(_, id)| *id).collect();
+            assert!(
+                matches!(
+                    check_overlap(&origin, &overlap, &held),
+                    Err(LedgerError::Stream(StreamError::Corrupt { .. }))
+                ),
+                "held {short} of 3"
+            );
+        }
+        let long: Vec<Id> = vec![[1; 32], [2; 32], [3; 32], [4; 32]];
+        assert!(matches!(
+            check_overlap(&origin, &overlap, &long),
+            Err(LedgerError::Stream(StreamError::Corrupt { .. }))
+        ));
+        match check_overlap(&origin, &overlap, &[[1; 32], [9; 32], [3; 32]]) {
+            Err(LedgerError::Fork {
+                seq: 5,
+                ours,
+                theirs,
+                ..
+            }) => {
+                assert_eq!((ours, theirs), ([9; 32], [2; 32]));
+            }
+            other => panic!("expected Fork at 5, got {other:?}"),
+        }
     }
 
     #[test]

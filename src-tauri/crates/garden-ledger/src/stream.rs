@@ -2,8 +2,26 @@
 //!
 //! A stream owns a single writer identity. Frames are appended with one `write_all` on a file opened
 //! `O_APPEND`; nothing is cached except a sparse `seq -> offset` index (every 64th frame) rebuilt by the
-//! open-time scan. The stream never syncs by itself: `sync_barrier` / `sync_full` belong to the host's
-//! cadence, and two flags tell the ledger what each stream still owes (see [`Stream::dirty_since_barrier`]).
+//! open-time scan. The stream never syncs by itself after open: `sync_barrier` / `sync_full` belong to the
+//! host's cadence, and two flags tell the ledger what each stream still owes (see
+//! [`Stream::dirty_since_barrier`]).
+//!
+//! # One writer, enforced
+//!
+//! `Stream::open` takes an exclusive advisory `flock` on the stream file and the `Stream` holds it until it
+//! is dropped. A second open of the same file, in this process or another, fails with
+//! [`StreamError::Locked`] naming the path. The append path truncates a half-written frame by its in-memory
+//! length, which is only sound with a single writer; the lock is what makes that true rather than hoped.
+//!
+//! # Shipped only once it cannot be lost
+//!
+//! A frame may be shipped to a peer only after a full flush (`sync_full`) covers it. A barrier orders
+//! writes but on macOS does not make them durable; a peer that held a frame its origin then lost in a
+//! crash would see the origin mint a different event at the same seq, and the replicas would disagree
+//! forever. So the stream keeps [`Stream::durable_len`], advanced only by a successful `sync_full` (and
+//! at open, by an fsync of the recovered file; until that fsync it is 0), and [`Stream::raw_after`] and
+//! [`Stream::raw_after_with_tip`] never read past it. The writer's ack rides the barrier; the ship rides
+//! the full flush.
 //!
 //! # Recovery on open
 //!
@@ -28,7 +46,9 @@ use crate::frame::{
     decode, encode, inspect, redact_body, Decoded, Event, FrameError, Header, Id, Mode, OriginId,
     RedactPayload, LEN_PREFIX, MAX_BODY,
 };
-use crate::sync::{sync_barrier as fs_sync_barrier, sync_dir, sync_full as fs_sync_full};
+use crate::sync::{
+    sync_barrier as fs_sync_barrier, sync_dir, sync_full as fs_sync_full, try_lock_exclusive,
+};
 
 /// Every `INDEX_EVERY`th frame (seq 1, 65, 129, ...) is remembered in the sparse index.
 const INDEX_EVERY: u64 = 64;
@@ -80,6 +100,12 @@ pub enum StreamError {
     },
     /// An offset that is past the end of the stream.
     BadOffset(u64),
+    /// The stream file is already open for writing (a second `Stream` in this process, or another
+    /// process): one writer per stream.
+    Locked {
+        /// The stream file that is locked.
+        path: PathBuf,
+    },
 }
 
 impl fmt::Display for StreamError {
@@ -105,6 +131,11 @@ impl fmt::Display for StreamError {
                 write!(f, "origin mismatch: expected {expected}, found {found}")
             }
             StreamError::BadOffset(o) => write!(f, "offset {o} is past the end of the stream"),
+            StreamError::Locked { path } => write!(
+                f,
+                "stream {} is locked: it is already open for writing (one writer per stream)",
+                path.display()
+            ),
         }
     }
 }
@@ -180,8 +211,10 @@ pub struct Located {
 
 /// A run of raw frames, what sync ships.
 ///
-/// An empty chunk (nothing after the requested seq) has empty `bytes`, `from_seq == to_seq == seq`
-/// (the seq asked for) and `more == false`.
+/// An empty chunk (nothing shippable after the requested seq) has empty `bytes`,
+/// `from_seq == to_seq == seq` (the seq asked for) and `more == false`. A chunk made by
+/// [`Stream::raw_after_with_tip`] starts at the peer's tip frame, so `from_seq` is the seq asked for
+/// and the receiver compares that frame's id before it appends the rest.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RawChunk {
     /// Concatenated raw frames.
@@ -190,7 +223,7 @@ pub struct RawChunk {
     pub from_seq: u64,
     /// Seq of the last frame in `bytes`.
     pub to_seq: u64,
-    /// True when frames remain after `to_seq` (below the synced length).
+    /// True when frames remain after `to_seq` (below the durable length).
     pub more: bool,
 }
 
@@ -209,7 +242,11 @@ pub struct Stream {
     /// A barrier has covered writes that no full flush has yet.
     full_owed: AtomicBool,
     /// Bytes of the file covered by the last successful barrier or full flush (or present at open).
+    /// Barrier bookkeeping only: nothing ships on the strength of it.
     synced_len: AtomicU64,
+    /// Bytes of the file a successful full flush has covered, the only bound sync ships below. 0 until
+    /// open has fsynced the recovered file.
+    durable_len: AtomicU64,
 }
 
 enum Raw {
@@ -370,7 +407,12 @@ fn resync_finds_frame(
             if hlen < 2 || hdr_end + 4 > buf.len() {
                 continue;
             }
-            if buf[y + 6] != b'{' || buf[hdr_end - 1] != b'}' {
+            // A cheap prefilter; the crc below decides. Whitespace around the object is allowed so a
+            // writer that pads its header is still recognised as company for a damaged frame.
+            let hdr = &buf[y + 6..hdr_end];
+            if hdr.trim_ascii_start().first() != Some(&b'{')
+                || hdr.trim_ascii_end().last() != Some(&b'}')
+            {
                 continue;
             }
             let stored = u32::from_le_bytes([
@@ -399,6 +441,8 @@ fn resync_finds_frame(
 /// The result of reading a stream file front to back, before any repair or cut.
 pub(crate) struct Scan {
     path: PathBuf,
+    /// The append handle, locked exclusively for the life of the stream it becomes.
+    file: File,
     origin: OriginId,
     file_len: u64,
     /// Seq the next frame must carry.
@@ -422,9 +466,14 @@ impl Scan {
     pub(crate) fn origin(&self) -> &OriginId {
         &self.origin
     }
+
+    /// The redact frames found in this file.
+    pub(crate) fn redactions(&self) -> &[RedactPayload] {
+        &self.redactions
+    }
 }
 
-/// Open (creating if missing) and read one stream file. Writes nothing but the empty file.
+/// Open (creating if missing), lock and read one stream file. Writes nothing but the empty file.
 pub(crate) fn scan_file(dir: &Path, origin: &OriginId) -> Result<Scan, StreamError> {
     if !valid_origin(origin) {
         return Err(StreamError::Io(io::Error::new(
@@ -434,18 +483,19 @@ pub(crate) fn scan_file(dir: &Path, origin: &OriginId) -> Result<Scan, StreamErr
     }
     std::fs::create_dir_all(dir)?;
     let path = dir.join(format!("{}.log", origin.0));
-    if !path.exists() {
-        OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(false)
-            .open(&path)?;
+    let existed = path.exists();
+    let file = OpenOptions::new().create(true).append(true).open(&path)?;
+    if !existed {
         sync_dir(dir)?;
+    }
+    if !try_lock_exclusive(&file)? {
+        return Err(StreamError::Locked { path });
     }
     let file_len = std::fs::metadata(&path)?.len();
     let mut reader = BufReader::new(File::open(&path)?);
     let mut s = Scan {
         path,
+        file,
         origin: origin.clone(),
         file_len,
         next_seq: 1,
@@ -572,8 +622,16 @@ fn zero_target(path: &Path, l: &Located) -> Result<bool, StreamError> {
 }
 
 impl Scan {
-    /// Judge the suspects, cut what must be cut, and open the stream for appending.
-    pub(crate) fn finish(mut self) -> Result<(Stream, Recovery), StreamError> {
+    /// Judge the suspects, cut what must be cut, fsync the recovered file, and open the stream for
+    /// appending. Only after that fsync does the stream count its bytes as durable (shippable).
+    pub(crate) fn finish(self) -> Result<(Stream, Recovery), StreamError> {
+        let (stream, recovery) = self.finish_unsynced()?;
+        stream.sync_full()?;
+        Ok((stream, recovery))
+    }
+
+    /// `finish` without the closing fsync: `durable_len` is 0, so nothing ships until `sync_full`.
+    pub(crate) fn finish_unsynced(mut self) -> Result<(Stream, Recovery), StreamError> {
         let mut bad: Vec<u64> = Vec::new();
         if !self.suspects.is_empty() {
             let mut f = File::open(&self.path)?;
@@ -617,11 +675,10 @@ impl Scan {
             },
             None => Recovery::Clean,
         };
-        let file = OpenOptions::new().append(true).open(&self.path)?;
         Ok((
             Stream {
                 path: self.path,
-                file,
+                file: self.file,
                 origin: self.origin,
                 next_seq: self.next_seq,
                 len: self.end,
@@ -630,6 +687,7 @@ impl Scan {
                 dirty_since_barrier: AtomicBool::new(self.repaired > 0),
                 full_owed: AtomicBool::new(false),
                 synced_len: AtomicU64::new(self.end),
+                durable_len: AtomicU64::new(0),
             },
             recovery,
         ))
@@ -637,9 +695,12 @@ impl Scan {
 }
 
 impl Stream {
-    /// Open (create if missing), scan every frame, recover (see the module docs), and leave the file
-    /// positioned for `O_APPEND`. Redact frames in this file repair targets in this file; a ledger
-    /// repairs targets across its streams in `Ledger::open`.
+    /// Open (create if missing), lock, scan every frame, recover (see the module docs), fsync the
+    /// recovered file, and leave it positioned for `O_APPEND`. Redact frames in this file repair
+    /// targets in this file; a ledger repairs targets across its streams in `Ledger::open`.
+    ///
+    /// The caller must be the only writer: the file is locked exclusively until the `Stream` is dropped,
+    /// and a second open fails with [`StreamError::Locked`].
     pub fn open(dir: &Path, origin: &OriginId) -> Result<(Stream, Recovery), StreamError> {
         let mut scans = [scan_file(dir, origin)?];
         repair_redactions(&mut scans)?;
@@ -684,9 +745,16 @@ impl Stream {
     }
 
     /// Bytes of the file covered by the last successful barrier or full flush (everything that was on
-    /// disk at open). Sync ships only frames below this.
+    /// disk at open). Ordering bookkeeping only: a barrier does not make bytes durable on every
+    /// platform, so sync does not ship on this; see [`Stream::durable_len`].
     pub fn synced_len(&self) -> u64 {
         self.synced_len.load(Ordering::Acquire)
+    }
+
+    /// Bytes of the file a successful full flush has covered (at open: after the recovered file was
+    /// fsynced). Sync ships only frames below this, so a peer never holds a frame its origin can lose.
+    pub fn durable_len(&self) -> u64 {
+        self.durable_len.load(Ordering::Acquire)
     }
 
     /// Path of the stream file.
@@ -801,23 +869,38 @@ impl Stream {
 
     /// Raw frame bytes from a seq (exclusive) onward: what sync ships. Chunked by `max_bytes`.
     ///
-    /// Only frames below [`Stream::synced_len`] are shipped: a frame no barrier has covered may yet be
-    /// lost in a crash, and a peer that held it would see the origin reuse its seq (a fork).
+    /// Only frames below [`Stream::durable_len`] are shipped: a frame no full flush has covered may yet
+    /// be lost in a crash, and a peer that held it would see the origin reuse its seq (a fork).
     /// At least one frame is returned when any shippable ones exist after `seq`, even if it alone
     /// exceeds `max_bytes`, so a caller looping on `more` always makes progress.
     pub fn raw_after(&self, seq: u64, max_bytes: usize) -> Result<RawChunk, StreamError> {
+        self.chunk(seq, false, max_bytes)
+    }
+
+    /// Like [`Stream::raw_after`], but when `seq > 0` the chunk also starts with frame `seq` itself, the
+    /// peer's tip, so the receiver compares its id before appending anything (`Ledger::apply` turns a
+    /// mismatch into `Fork`). The tip does not count against `max_bytes`, and it is shipped only when it
+    /// is itself durable. With nothing new to ship the chunk is the tip alone (`from_seq == to_seq ==
+    /// seq`, `more == false`): that is how two replicas that are in step still check each other.
+    pub fn raw_after_with_tip(&self, seq: u64, max_bytes: usize) -> Result<RawChunk, StreamError> {
+        self.chunk(seq, true, max_bytes)
+    }
+
+    fn chunk(&self, seq: u64, tip: bool, max_bytes: usize) -> Result<RawChunk, StreamError> {
+        let tip = tip && seq > 0;
         let empty = RawChunk {
             bytes: Vec::new(),
             from_seq: seq,
             to_seq: seq,
             more: false,
         };
-        if seq.saturating_add(1) >= self.next_seq {
+        // First seq the chunk may contain.
+        let first = if tip { seq } else { seq.saturating_add(1) };
+        if first >= self.next_seq {
             return Ok(empty);
         }
-        let limit = self.synced_len();
-        let want = seq + 1;
-        let pos = self.index.partition_point(|&(s, _)| s <= want);
+        let limit = self.durable_len();
+        let pos = self.index.partition_point(|&(s, _)| s <= first);
         let (mut cur_seq, start) = if pos == 0 {
             (1, 0)
         } else {
@@ -828,6 +911,7 @@ impl Stream {
         reader.seek(SeekFrom::Start(start))?;
         let mut offset = start;
         let mut bytes: Vec<u8> = Vec::new();
+        let mut tip_bytes = 0usize;
         let mut from_seq = 0u64;
         let mut to_seq = 0u64;
         let mut more = false;
@@ -839,13 +923,18 @@ impl Stream {
                 Raw::Frame(raw) => raw,
             };
             let flen = raw.len() as u64;
-            if cur_seq > seq {
-                if !bytes.is_empty() && bytes.len().saturating_add(raw.len()) > max_bytes {
+            if cur_seq >= first {
+                let is_tip = cur_seq <= seq;
+                let new_bytes = bytes.len() - tip_bytes;
+                if !is_tip && new_bytes > 0 && new_bytes.saturating_add(raw.len()) > max_bytes {
                     more = true;
                     break;
                 }
                 if bytes.is_empty() {
                     from_seq = cur_seq;
+                }
+                if is_tip {
+                    tip_bytes = raw.len();
                 }
                 to_seq = cur_seq;
                 bytes.extend_from_slice(&raw);
@@ -912,7 +1001,8 @@ impl Stream {
         }
     }
 
-    /// Full flush to stable storage (the host's cadence): clears both flags on success.
+    /// Full flush to stable storage (the host's cadence): clears both flags on success and is the only
+    /// thing that advances [`Stream::durable_len`], the bound sync ships below.
     ///
     /// The redact path writes through its own handle, so the barrier/full here is issued on the append
     /// handle of the same inode, which covers those pages as well on the platforms we target.
@@ -923,6 +1013,7 @@ impl Stream {
         match fs_sync_full(&self.file) {
             Ok(()) => {
                 self.synced_len.fetch_max(covered, Ordering::AcqRel);
+                self.durable_len.fetch_max(covered, Ordering::AcqRel);
                 Ok(())
             }
             Err(e) => {
@@ -1285,7 +1376,7 @@ mod tests {
         let o = origin("a");
         let (mut s, _) = Stream::open(dir.path(), &o).unwrap();
         fill(&mut s, 130);
-        s.sync_barrier().unwrap();
+        s.sync_full().unwrap();
 
         let all = s.raw_after(0, usize::MAX).unwrap();
         assert_eq!((all.from_seq, all.to_seq, all.more), (1, 130, false));
@@ -1326,21 +1417,206 @@ mod tests {
     }
 
     #[test]
-    fn raw_after_ships_only_what_a_barrier_covered() {
+    fn raw_after_ships_only_what_a_full_flush_covered() {
         let dir = tempfile::tempdir().unwrap();
         let o = origin("a");
         let (mut s, _) = Stream::open(dir.path(), &o).unwrap();
         fill(&mut s, 3);
-        assert_eq!(s.synced_len(), 0);
+        assert_eq!(s.durable_len(), 0);
         assert!(s.raw_after(0, usize::MAX).unwrap().bytes.is_empty());
+        // A barrier orders the writes (the writer's ack) but does not make them shippable.
         s.sync_barrier().unwrap();
+        assert_eq!(s.synced_len(), s.len());
+        assert_eq!(s.durable_len(), 0);
+        assert!(s.raw_after(0, usize::MAX).unwrap().bytes.is_empty());
+        assert!(s
+            .raw_after_with_tip(0, usize::MAX)
+            .unwrap()
+            .bytes
+            .is_empty());
+        s.sync_full().unwrap();
+        let third_end = s.len();
+        assert_eq!(s.durable_len(), third_end);
         let fourth = s.append_event(&event(&o, 4, b"unsynced")).unwrap();
+        s.sync_barrier().unwrap();
         let chunk = s.raw_after(0, usize::MAX).unwrap();
         assert_eq!((chunk.from_seq, chunk.to_seq, chunk.more), (1, 3, false));
         assert_eq!(chunk.bytes.len() as u64, fourth.offset);
-        assert_eq!(s.synced_len(), fourth.offset);
+        assert_eq!(s.durable_len(), fourth.offset);
         s.sync_full().unwrap();
         assert_eq!(s.raw_after(0, usize::MAX).unwrap().to_seq, 4);
+    }
+
+    #[test]
+    fn open_counts_nothing_as_durable_until_the_recovered_file_is_fsynced() {
+        let dir = tempfile::tempdir().unwrap();
+        let o = origin("a");
+        let (mut s, _) = Stream::open(dir.path(), &o).unwrap();
+        fill(&mut s, 3);
+        drop(s);
+
+        // Recovery done, fsync not yet: nothing ships, and a barrier does not change that.
+        let (s2, rec) = scan_file(dir.path(), &o)
+            .unwrap()
+            .finish_unsynced()
+            .unwrap();
+        assert_eq!(rec, Recovery::Clean);
+        assert_eq!(s2.durable_len(), 0);
+        assert!(s2.raw_after(0, usize::MAX).unwrap().bytes.is_empty());
+        assert!(s2
+            .raw_after_with_tip(2, usize::MAX)
+            .unwrap()
+            .bytes
+            .is_empty());
+        s2.sync_barrier().unwrap();
+        assert!(s2.raw_after(0, usize::MAX).unwrap().bytes.is_empty());
+        s2.sync_full().unwrap();
+        assert_eq!(s2.raw_after(0, usize::MAX).unwrap().to_seq, 3);
+        drop(s2);
+
+        // The real open does the fsync itself: what was recovered is shippable at once, what is
+        // appended after it is not until the next full flush.
+        let (mut s3, _) = Stream::open(dir.path(), &o).unwrap();
+        assert_eq!(s3.durable_len(), s3.len());
+        assert_eq!(s3.raw_after(0, usize::MAX).unwrap().to_seq, 3);
+        let fourth = s3.append_event(&event(&o, 4, b"after open")).unwrap();
+        s3.sync_barrier().unwrap();
+        assert_eq!(s3.raw_after(0, usize::MAX).unwrap().to_seq, 3);
+        assert_eq!(s3.durable_len(), fourth.offset);
+    }
+
+    #[test]
+    fn the_tip_rides_free_and_ships_only_when_durable() {
+        let dir = tempfile::tempdir().unwrap();
+        let o = origin("a");
+        let (mut s, _) = Stream::open(dir.path(), &o).unwrap();
+        let ap = fill(&mut s, 10);
+        s.sync_full().unwrap();
+
+        // In step: the tip alone, one frame, nothing more.
+        let tip = s.raw_after_with_tip(10, usize::MAX).unwrap();
+        assert_eq!((tip.from_seq, tip.to_seq, tip.more), (10, 10, false));
+        assert_eq!(tip.bytes.len() as u64, s.len() - ap[9].offset);
+        // Peer ahead of us: nothing. Peer at zero: the plain stream, no tip.
+        assert!(s
+            .raw_after_with_tip(11, usize::MAX)
+            .unwrap()
+            .bytes
+            .is_empty());
+        let all = s.raw_after_with_tip(0, usize::MAX).unwrap();
+        assert_eq!((all.from_seq, all.to_seq), (1, 10));
+        assert_eq!(all, s.raw_after(0, usize::MAX).unwrap());
+        // Behind: the tip, then the rest.
+        let rest = s.raw_after_with_tip(7, usize::MAX).unwrap();
+        assert_eq!((rest.from_seq, rest.to_seq, rest.more), (7, 10, false));
+        assert_eq!(rest.bytes.len() as u64, s.len() - ap[6].offset);
+
+        // The budget counts new frames only, and at least one new frame always rides with the tip,
+        // so a loop that applies each chunk and asks again always advances.
+        let zero = s.raw_after_with_tip(7, 0).unwrap();
+        assert_eq!((zero.from_seq, zero.to_seq, zero.more), (7, 8, true));
+        let two = s
+            .raw_after_with_tip(7, (ap[9].offset - ap[7].offset) as usize)
+            .unwrap();
+        assert_eq!((two.from_seq, two.to_seq, two.more), (7, 9, true));
+
+        // A tip beyond what is durable is not shipped.
+        let eleventh = s.append_event(&event(&o, 11, b"unflushed")).unwrap();
+        s.sync_barrier().unwrap();
+        assert!(s
+            .raw_after_with_tip(11, usize::MAX)
+            .unwrap()
+            .bytes
+            .is_empty());
+        let still = s.raw_after_with_tip(9, usize::MAX).unwrap();
+        assert_eq!((still.from_seq, still.to_seq), (9, 10));
+        assert_eq!(still.bytes.len() as u64, eleventh.offset - ap[8].offset);
+        s.sync_full().unwrap();
+        let now = s.raw_after_with_tip(10, usize::MAX).unwrap();
+        assert_eq!((now.from_seq, now.to_seq), (10, 11));
+    }
+
+    #[test]
+    fn a_second_open_of_the_same_stream_is_locked_and_names_the_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let o = origin("a");
+        let (mut first, _) = Stream::open(dir.path(), &o).unwrap();
+        fill(&mut first, 2);
+        let path = dir.path().join("a.log");
+        match Stream::open(dir.path(), &o) {
+            Err(e @ StreamError::Locked { .. }) => {
+                let StreamError::Locked { path: named } = &e else {
+                    unreachable!()
+                };
+                assert_eq!(named, &path);
+                assert!(e.to_string().contains(&path.display().to_string()), "{e}");
+            }
+            Err(other) => panic!("expected Locked, got {other}"),
+            Ok(_) => panic!("a second writer was admitted"),
+        }
+        // The refusal touched nothing: the first stream still appends where it was.
+        let third = first.append_event(&event(&o, 3, b"still mine")).unwrap();
+        assert_eq!(third.seq, 3);
+        // Another origin in the same directory is its own stream.
+        assert!(Stream::open(dir.path(), &origin("b")).is_ok());
+        // Dropping the holder frees the file, and the frames are all there.
+        drop(first);
+        let (again, rec) = Stream::open(dir.path(), &o).unwrap();
+        assert_eq!(rec, Recovery::Clean);
+        assert_eq!(again.next_seq(), 4);
+    }
+
+    #[test]
+    fn a_failed_open_releases_its_lock() {
+        let dir = tempfile::tempdir().unwrap();
+        let o = origin("a");
+        let (mut s, _) = Stream::open(dir.path(), &o).unwrap();
+        let ap = fill(&mut s, 3);
+        drop(s);
+        let path = dir.path().join("a.log");
+        let mut b = std::fs::read(&path).unwrap();
+        b[ap[1].offset as usize + 20] ^= 1;
+        std::fs::write(&path, &b).unwrap();
+        assert!(matches!(
+            Stream::open(dir.path(), &o),
+            Err(StreamError::Corrupt { .. })
+        ));
+        // Corrupt is reported again, not Locked: the failed open let go.
+        assert!(matches!(
+            Stream::open(dir.path(), &o),
+            Err(StreamError::Corrupt { .. })
+        ));
+    }
+
+    #[test]
+    fn resync_recognises_a_whitespace_padded_header_as_company() {
+        use crate::frame::{assemble, canonical_header_bytes};
+        let dir = tempfile::tempdir().unwrap();
+        let o = origin("a");
+        let (mut s, _) = Stream::open(dir.path(), &o).unwrap();
+        let ap = fill(&mut s, 2);
+        let len = s.len();
+        drop(s);
+        // Frame 3 as a future writer might store it: a valid header with spaces around the object.
+        let ev = event(&o, 3, b"padded");
+        let canon = canonical_header_bytes(&ev.header).unwrap();
+        let mut padded = b"  ".to_vec();
+        padded.extend_from_slice(&canon);
+        padded.extend_from_slice(b"\n ");
+        let third = assemble(&padded, &ev.payload).unwrap();
+        let path = dir.path().join("a.log");
+        let mut bytes = std::fs::read(&path).unwrap();
+        // Damage frame 2's header, so the first unacceptable frame has the padded one after it.
+        bytes[ap[1].offset as usize + 8] ^= 1;
+        assert!(ap[1].offset + 8 < len);
+        bytes.extend_from_slice(&third);
+        std::fs::write(&path, &bytes).unwrap();
+        assert!(matches!(
+            Stream::open(dir.path(), &o),
+            Err(StreamError::Corrupt { offset }) if offset == ap[1].offset
+        ));
+        // Refusing is not cutting: every byte is still there.
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
     }
 
     #[test]
