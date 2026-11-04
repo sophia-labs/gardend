@@ -433,24 +433,35 @@ pub(crate) fn op_from_json(index: usize, v: &Value) -> Result<Op, FoldError> {
 }
 
 fn op_inner(v: &Value) -> Result<Op, String> {
+    op_inner_in(v, None)
+}
+
+/// [`op_inner`] for an op that may sit in a subject group (W7b item 9): then `subject` and `class`
+/// come from the group (`Some((subject, class))`) and the op may not carry its own.
+fn op_inner_in(v: &Value, group: Option<(&str, &str)>) -> Result<Op, String> {
     let m = v.as_object().ok_or("an op must be an object")?;
     let kind = m
         .get("op")
         .and_then(Value::as_str)
         .ok_or("an op needs a string \"op\"")?;
-    let allowed: &[&str] = match kind {
-        "set" => &["op", "subject", "class", "predicate", "value"],
-        "add" | "remove" => &["op", "subject", "class", "predicate", "values"],
-        "retract" => &["op", "subject", "class"],
-        other => return Err(format!("unknown op {other:?}")),
+    let allowed: &[&str] = match (kind, group.is_some()) {
+        ("set", false) => &["op", "subject", "class", "predicate", "value"],
+        ("add" | "remove", false) => &["op", "subject", "class", "predicate", "values"],
+        ("retract", false) => &["op", "subject", "class"],
+        ("set", true) => &["op", "predicate", "value"],
+        ("add" | "remove", true) => &["op", "predicate", "values"],
+        ("retract", true) => &["op"],
+        (other, _) => return Err(format!("unknown op {other:?}")),
     };
     for k in m.keys() {
         if !allowed.contains(&k.as_str()) {
             return Err(format!("op {kind:?} does not take {k:?}"));
         }
     }
-    let subject = iri_field(m, "subject")?;
-    let class = iri_field(m, "class")?;
+    let (subject, class) = match group {
+        Some((subject, class)) => (subject.to_string(), class.to_string()),
+        None => (iri_field(m, "subject")?, iri_field(m, "class")?),
+    };
     if kind == "retract" {
         return Ok(Op::Retract { subject, class });
     }
@@ -522,12 +533,46 @@ pub(crate) fn op_to_json(op: &Op) -> Value {
 }
 
 /// `{"ops": [...]}` as a JSON value.
+///
+/// **Stored form (W7b item 9).** A run of two or more consecutive ops on one (subject, class) is
+/// written once as `{"subject": S, "class": C, "ops": [{"op": .., "predicate": .., ..}, ..]}`, with
+/// the subject and class stated once instead of on every op; a single op stays in its plain form
+/// (so a one-op frame is byte-identical to the original shape). Order is untouched: only
+/// *consecutive* ops are grouped. [`ops_from_value`] reads both shapes, mixed or not.
 pub(crate) fn ops_to_value(ops: &[Op]) -> Value {
+    let mut out: Vec<Value> = Vec::with_capacity(ops.len());
+    let mut at = 0;
+    while at < ops.len() {
+        let key = (ops[at].subject(), ops[at].class());
+        let mut end = at + 1;
+        while end < ops.len() && (ops[end].subject(), ops[end].class()) == key {
+            end += 1;
+        }
+        if end - at == 1 {
+            out.push(op_to_json(&ops[at]));
+        } else {
+            let mut group = Map::new();
+            group.insert("subject".into(), Value::String(key.0.to_string()));
+            group.insert("class".into(), Value::String(key.1.to_string()));
+            let inner = ops[at..end]
+                .iter()
+                .map(|op| {
+                    let mut m = match op_to_json(op) {
+                        Value::Object(m) => m,
+                        other => return other,
+                    };
+                    m.remove("subject");
+                    m.remove("class");
+                    Value::Object(m)
+                })
+                .collect();
+            group.insert("ops".into(), Value::Array(inner));
+            out.push(Value::Object(group));
+        }
+        at = end;
+    }
     let mut m = Map::new();
-    m.insert(
-        "ops".into(),
-        Value::Array(ops.iter().map(op_to_json).collect()),
-    );
+    m.insert("ops".into(), Value::Array(out));
     Value::Object(m)
 }
 
@@ -558,10 +603,40 @@ pub(crate) fn ops_from_value(v: &Value) -> Result<Vec<Op>, FoldError> {
         .get("ops")
         .and_then(Value::as_array)
         .ok_or_else(|| FoldError::Payload("payload needs an \"ops\" array".to_string()))?;
-    arr.iter()
-        .enumerate()
-        .map(|(i, o)| op_from_json(i, o))
-        .collect()
+    let mut out = Vec::with_capacity(arr.len());
+    for entry in arr {
+        let index = out.len();
+        match entry.as_object() {
+            Some(g) if g.contains_key("ops") && !g.contains_key("op") => {
+                read_group(g, &mut out).map_err(|message| FoldError::Op { index, message })?
+            }
+            _ => out.push(op_from_json(index, entry)?),
+        }
+    }
+    Ok(out)
+}
+
+/// Read one subject group (`{"subject", "class", "ops": [..]}`, see [`ops_to_value`]) into `out`.
+/// The error names the first bad op by its position inside the group.
+fn read_group(g: &Map<String, Value>, out: &mut Vec<Op>) -> Result<(), String> {
+    for k in g.keys() {
+        if !matches!(k.as_str(), "subject" | "class" | "ops") {
+            return Err(format!("an op group does not take {k:?}"));
+        }
+    }
+    let subject = iri_field(g, "subject")?;
+    let class = iri_field(g, "class")?;
+    let inner = g
+        .get("ops")
+        .and_then(Value::as_array)
+        .filter(|inner| !inner.is_empty())
+        .ok_or("an op group needs a non-empty \"ops\" array")?;
+    for (i, op) in inner.iter().enumerate() {
+        out.push(
+            op_inner_in(op, Some((&subject, &class))).map_err(|e| format!("group op {i}: {e}"))?,
+        );
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -811,6 +886,100 @@ mod tests {
         let ops = ops_from_payload(&all_ops_payload()).unwrap();
         let again = ops_from_payload(&ops_to_payload(&ops)).unwrap();
         assert_eq!(ops, again);
+    }
+
+    /// W7b item 9. Consecutive ops on one (subject, class) are stored once under it; a lone op keeps
+    /// its plain form; order is exactly the order of the ops; the reader takes both shapes, mixed.
+    /// Mutation: group non-consecutive ops (a `BTreeMap` by subject) and the order assertion goes
+    /// red; read only plain ops and the grouped and mixed cases go red.
+    #[test]
+    fn consecutive_ops_on_a_subject_are_stored_grouped_and_both_shapes_read() {
+        let plain = ops_from_payload(&all_ops_payload()).unwrap();
+        assert_eq!(plain.len(), 5);
+        let value = ops_to_value(&plain);
+        let stored = value["ops"].as_array().unwrap();
+        assert_eq!(
+            stored.len(),
+            2,
+            "four ops on id=1 in one group, the retract of id=9 plain"
+        );
+        assert_eq!(stored[0]["subject"], "urn:ao:term/id=1");
+        assert_eq!(stored[0]["class"], "urn:ao:term");
+        let inner = stored[0]["ops"].as_array().unwrap();
+        assert_eq!(inner.len(), 4);
+        assert!(inner
+            .iter()
+            .all(|o| o.get("subject").is_none() && o.get("class").is_none()));
+        assert_eq!(stored[1]["op"], "retract");
+        assert!(stored[1].get("ops").is_none());
+        assert_eq!(ops_from_payload(&ops_to_payload(&plain)).unwrap(), plain);
+
+        // Not consecutive: the same subject again after another is a second group, never merged.
+        let (a, b) = (plain[0].clone(), plain[4].clone());
+        let mut again = plain[..2].to_vec();
+        again.push(b.clone());
+        again.extend_from_slice(&plain[2..4]);
+        again.push(a);
+        let stored = ops_to_value(&again);
+        let kinds: Vec<_> = stored["ops"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|o| o.get("ops").map_or(1, |g| g.as_array().unwrap().len()))
+            .collect();
+        assert_eq!(kinds, vec![2, 1, 3]);
+        assert_eq!(ops_from_value(&stored).unwrap(), again);
+
+        // A one-op frame is byte-identical to the original shape.
+        let one = vec![plain[4].clone()];
+        assert_eq!(
+            ops_to_value(&one),
+            json!({"ops": [{"op": "retract", "subject": "urn:ao:term/id=9", "class": "urn:ao:term"}]})
+        );
+
+        // Mixed: a plain op, a group, a plain op, in one payload.
+        let mixed = json!({"ops": [
+            {"op": "retract", "subject": "urn:a", "class": "urn:c"},
+            {"subject": "urn:b", "class": "urn:c", "ops": [
+                {"op": "set", "predicate": "urn:p", "value": 1},
+                {"op": "add", "predicate": "urn:q", "values": ["x"]}]},
+            {"op": "retract", "subject": "urn:d", "class": "urn:c"}]});
+        let ops = ops_from_value(&mixed).unwrap();
+        assert_eq!(ops.len(), 4);
+        assert_eq!(ops[1].subject(), "urn:b");
+        assert_eq!(ops[2].subject(), "urn:b");
+        assert_eq!(ops[2].class(), "urn:c");
+    }
+
+    #[test]
+    fn a_malformed_group_is_an_error_naming_where() {
+        let bad = [
+            json!({"ops": [{"subject": "urn:b", "class": "urn:c", "ops": []}]}),
+            json!({"ops": [{"subject": "urn:b", "ops": [{"op": "retract"}]}]}),
+            json!({"ops": [{"subject": "urn:b", "class": "urn:c", "extra": 1,
+                            "ops": [{"op": "retract"}]}]}),
+            json!({"ops": [{"subject": "urn:b", "class": "urn:c",
+                            "ops": [{"op": "retract", "subject": "urn:other"}]}]}),
+            json!({"ops": [{"subject": "urn:b", "class": "urn:c",
+                            "ops": [{"op": "set", "predicate": "urn:p", "value": "ok"},
+                                    {"op": "set", "value": "no predicate"}]}]}),
+            json!({"ops": [{"subject": "no iri", "class": "urn:c", "ops": [{"op": "retract"}]}]}),
+        ];
+        for payload in bad {
+            assert!(ops_from_value(&payload).is_err(), "{payload}");
+        }
+        // A group whose second op is bad is reported at the group's flat position (here 1).
+        let payload = json!({"ops": [
+            {"op": "retract", "subject": "urn:a", "class": "urn:c"},
+            {"subject": "urn:b", "class": "urn:c", "ops": [
+                {"op": "set", "predicate": "urn:p", "value": "ok"}, {"op": "bogus"}]}]});
+        match ops_from_value(&payload) {
+            Err(FoldError::Op { index, message }) => {
+                assert_eq!(index, 1);
+                assert!(message.contains("group op 1"), "{message}");
+            }
+            other => panic!("expected an op error, got {other:?}"),
+        }
     }
 
     #[test]
