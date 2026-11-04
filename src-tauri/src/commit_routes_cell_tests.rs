@@ -493,9 +493,8 @@ fn a_txn_without_commit_stays_open_and_a_later_commit_closes_it() {
 }
 
 /// The witness is the frame's witness and the origin stays the cell's own; the payload is exactly
-/// what lane F's reader decodes (it refuses any key but `ops`). The caller's writer is validated and
-/// echoed; it is not in the frame until the crate's `Draft` carries a header `extra` (see
-/// `build_drafts`), and this test says so, so the day it lands this assertion is the one to flip.
+/// what lane F's reader decodes (it refuses any key but `ops`). The caller's writer is validated,
+/// echoed, and recorded in the header's `extra.writer` (W7b F2); the response frames carry the hlc.
 #[test]
 fn the_witness_lands_in_the_frame_and_the_payload_is_what_the_fold_reads() {
     with_cell("writer", |profile| {
@@ -539,12 +538,54 @@ fn the_witness_lands_in_the_frame_and_the_payload_is_what_the_fold_reads() {
             let ops = crate::emporium::ledger_fold::ops_from_payload(&frame.payload)
                 .expect("the fold reads what the route wrote");
             assert_eq!(ops.len(), 1);
-            assert!(
-                frame.header.extra.get("writer").is_none() || {
-                    // Once Draft carries `extra`, the writer is here.
-                    frame.header.extra["writer"] == "nidra-worker-1"
-                }
+            // W7b F2: the writer is in the header, the hlc in the response is the header's.
+            assert_eq!(frame.header.extra["writer"], "nidra-worker-1");
+            assert_eq!(frame.header.extra.len(), 1);
+            assert_eq!(
+                body["frames"][0]["hlc"],
+                json!({"ms": frame.header.hlc.ms, "count": frame.header.hlc.count}),
+                "the response names the frame's hlc"
             );
+            assert_eq!(
+                body["frames"][0]["id"],
+                garden_ledger::frame::to_hex(&frame.id)
+            );
+
+            // A request without a writer leaves the header's extra empty; a txn carries the writer
+            // onto its commit frame too.
+            let (status, plain) = commit(
+                &state,
+                AO,
+                "",
+                json!({"witness": "user-42", "ops": [set_name("urn:ao:term/id=2", "Order")]}),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{plain}");
+            assert!(plain.get("writer").is_none());
+            let (status, closed) = commit(
+                &state,
+                AO,
+                "",
+                json!({"witness": "user-42", "writer": "nidra-worker-2", "txn": "w-1", "commit": true,
+                       "ops": [set_name("urn:ao:term/id=3", "Rental")]}),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{closed}");
+            let frames = frames_of(&state, AO).await;
+            assert_eq!(frames.len(), 4);
+            assert!(frames[1].header.extra.is_empty());
+            assert_eq!(frames[2].header.extra["writer"], "nidra-worker-2");
+            assert_eq!(frames[3].header.mode, Mode::Commit);
+            assert_eq!(frames[3].header.extra["writer"], "nidra-worker-2");
+            let stamps: Vec<_> = frames.iter().map(|f| f.header.hlc).collect();
+            for (frame, hlc) in closed["frames"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .zip(&stamps[2..])
+            {
+                assert_eq!(frame["hlc"], json!({"ms": hlc.ms, "count": hlc.count}));
+            }
         });
     });
 }
@@ -647,6 +688,280 @@ fn wait_folded_returns_once_the_sink_holds_the_frame() {
             assert_eq!(status, StatusCode::OK, "{mark}");
             assert_eq!(mark["folded"], true, "{mark}");
             assert_eq!(mark["lagFrames"], 0, "{mark}");
+        });
+    });
+}
+
+/// W7b F1. A transaction left open and idle no longer blocks a stranger, whose frame then breaks the
+/// run; the late continuation and the late commit are both refused 409 `txnBroken` with the seq of
+/// the frame that broke it, and nothing is appended by either. Mutation: skip `check_run_intact` in
+/// `commit_inner` and the commit-only request is acked `committed: true` over a run that closes
+/// nothing (the F1 finding).
+#[test]
+fn a_stranger_after_the_idle_breaks_a_txn_and_the_late_commit_is_refused() {
+    with_cell("broken", |profile| {
+        block_on(async {
+            create_fixture_graph();
+            let state = state_for(profile);
+
+            let (status, opened) = commit(
+                &state,
+                AO,
+                "",
+                json!({"witness": "w", "txn": "import-9", "ops": [set_name("urn:ao:term/id=1", "a")]}),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{opened}");
+            assert_eq!(opened["committed"], false);
+
+            // Past the idle window the open transaction blocks nobody.
+            tokio::time::sleep(
+                crate::loopback_commit_routes::txn_idle() + Duration::from_millis(250),
+            )
+            .await;
+            let (status, stranger) = commit(
+                &state,
+                AO,
+                "",
+                json!({"witness": "w", "ops": [set_name("urn:ao:term/id=9", "intruder")]}),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{stranger}");
+            assert_eq!(stranger["frames"][0]["seq"], 2);
+
+            // The commit-only request is refused, and says which frame broke the run.
+            let (status, refused) = commit(
+                &state,
+                AO,
+                "",
+                json!({"witness": "w", "txn": "import-9", "commit": true}),
+            )
+            .await;
+            assert_eq!(status, StatusCode::CONFLICT, "{refused}");
+            assert_eq!(refused["ok"], false);
+            assert_eq!(refused["code"], "txnBroken");
+            assert_eq!(refused["txn"], "import-9");
+            assert_eq!(refused["broken_by_seq"], 2);
+            assert_eq!(
+                seq_of(&version(&state, AO).await),
+                2,
+                "a commit was appended"
+            );
+
+            // So is a continuation, with or without commit.
+            for commit_flag in [false, true] {
+                let (status, refused) = commit(
+                    &state,
+                    AO,
+                    "",
+                    json!({"witness": "w", "txn": "import-9", "commit": commit_flag,
+                           "ops": [set_name("urn:ao:term/id=2", "b")]}),
+                )
+                .await;
+                assert_eq!(status, StatusCode::CONFLICT, "{refused}");
+                assert_eq!(refused["code"], "txnBroken");
+                assert_eq!(seq_of(&version(&state, AO).await), 2);
+            }
+
+            let frames = frames_of(&state, AO).await;
+            assert_eq!(frames.len(), 2);
+            assert!(frames.iter().all(|f| f.header.mode != Mode::Commit));
+
+            // The write can be redone under a new txn, and ordinary requests still pass.
+            let (status, redone) = commit(
+                &state,
+                AO,
+                "",
+                json!({"witness": "w", "txn": "import-10", "commit": true,
+                       "ops": [set_name("urn:ao:term/id=1", "a")]}),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{redone}");
+            assert_eq!(redone["committed"], true);
+        });
+    });
+}
+
+/// W7b F1. A restart forgets the gate. The first request to the ledger reads the runs it already
+/// holds: an intact open run can be committed (once), a broken one cannot, and a commit-only request
+/// for a transaction that was never opened has nothing to close. Mutation: start every process with
+/// an empty record (no `sync_gate` scan) and the broken run is committed over a stranger's frame.
+#[test]
+fn a_cold_gate_learns_the_runs_the_ledger_already_holds() {
+    with_cell("cold", |profile| {
+        block_on(async {
+            create_fixture_graph();
+            let state = state_for(profile);
+
+            // Two open runs: t-intact is the last thing written, t-broken is followed by a stranger.
+            let open = |txn: &str, id: u32| json!({"witness": "w", "txn": txn, "ops": [set_name(&format!("urn:ao:term/id={id}"), "x")]});
+            assert_eq!(
+                commit(&state, AO, "", open("t-broken", 1)).await.0,
+                StatusCode::OK
+            );
+            crate::loopback_commit_routes::forget_gates_for_test();
+            // Cold: nothing blocks, so a stranger goes in and breaks t-broken.
+            let (status, stranger) = commit(
+                &state,
+                AO,
+                "",
+                json!({"witness": "w", "ops": [set_name("urn:ao:term/id=9", "intruder")]}),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{stranger}");
+            assert_eq!(
+                commit(&state, AO, "", open("t-intact", 2)).await.0,
+                StatusCode::OK
+            );
+            assert_eq!(seq_of(&version(&state, AO).await), 3);
+
+            // The restart.
+            crate::loopback_commit_routes::forget_gates_for_test();
+
+            let (status, refused) = commit(
+                &state,
+                AO,
+                "",
+                json!({"witness": "w", "txn": "t-broken", "commit": true}),
+            )
+            .await;
+            assert_eq!(status, StatusCode::CONFLICT, "{refused}");
+            assert_eq!(refused["code"], "txnBroken");
+            assert_eq!(refused["broken_by_seq"], 2);
+            assert_eq!(seq_of(&version(&state, AO).await), 3);
+
+            let (status, closed) = commit(
+                &state,
+                AO,
+                "",
+                json!({"witness": "w", "txn": "t-intact", "commit": true}),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{closed}");
+            assert_eq!(closed["committed"], true);
+            assert_eq!(closed["frames"][0]["seq"], 4);
+
+            // A second commit finds the transaction closed (W7b-2 c); a transaction nobody opened
+            // has no run to close.
+            let (status, again) = commit(
+                &state,
+                AO,
+                "",
+                json!({"witness": "w", "txn": "t-intact", "commit": true}),
+            )
+            .await;
+            assert_eq!(status, StatusCode::CONFLICT, "{again}");
+            assert_eq!(again["code"], "txnClosed");
+            for txn in ["t-never"] {
+                let (status, refused) = commit(
+                    &state,
+                    AO,
+                    "",
+                    json!({"witness": "w", "txn": txn, "commit": true}),
+                )
+                .await;
+                assert_eq!(status, StatusCode::CONFLICT, "{txn}: {refused}");
+                assert_eq!(refused["code"], "txnBroken");
+                assert!(refused["broken_by_seq"].is_null());
+            }
+            assert_eq!(seq_of(&version(&state, AO).await), 4);
+        });
+    });
+}
+
+/// W7b F5. The replay mode is `?into=` or the body `{into}`; they must agree; an unknown body is 400.
+#[test]
+fn replay_takes_its_mode_from_the_query_or_the_body() {
+    with_cell("replay", |profile| {
+        block_on(async {
+            create_fixture_graph();
+            let state = state_for(profile);
+            let (status, body) = commit(
+                &state,
+                AO,
+                "?wait=folded",
+                json!({"witness": "w", "ops": [set_name("urn:ao:term/id=1", "Customer")]}),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{body}");
+            async fn replay(
+                state: &Arc<LoopbackState>,
+                query: &str,
+                body: &str,
+            ) -> (StatusCode, Value) {
+                send(
+                    state,
+                    "POST",
+                    &format!("/emporium/fold/{GRAPH}/{AO}/replay{query}"),
+                    body.as_bytes().to_vec(),
+                )
+                .await
+            }
+
+            let (status, report) = replay(&state, "", r#"{"into":"oracle"}"#).await;
+            assert_eq!(status, StatusCode::OK, "{report}");
+            assert_eq!(report["into"], "oracle");
+            assert_eq!(report["equal"], true);
+            let (status, report) = replay(&state, "?into=oracle", "").await;
+            assert_eq!(status, StatusCode::OK, "{report}");
+            assert_eq!(report["into"], "oracle");
+            let (status, report) = replay(&state, "", r#"{"into":"live"}"#).await;
+            assert_eq!(status, StatusCode::OK, "{report}");
+            assert_eq!(report["into"], "live");
+            let (status, report) = replay(&state, "?into=live", r#"{"into":"live"}"#).await;
+            assert_eq!(status, StatusCode::OK, "{report}");
+
+            for (query, body) in [
+                ("?into=live", r#"{"into":"oracle"}"#),
+                ("?into=sideways", ""),
+                ("", r#"{"into":"sideways"}"#),
+                ("", r#"{"mode":"live"}"#),
+                ("", "not json"),
+            ] {
+                let (status, refused) = replay(&state, query, body).await;
+                assert_eq!(status, StatusCode::BAD_REQUEST, "{query} {body}: {refused}");
+            }
+        });
+    });
+}
+
+/// W7b-2 c. A retry of `ops + txn + commit:true` after a lost response must not append a second run
+/// under the same txn: the ledger holds a commit frame for it, so the retry (and a commit-only
+/// retry) is `409 txnClosed {txn}` with nothing appended, warm and after a restart. Mutation: drop
+/// the `closed` test in `check_run_intact` and the retry appends a second run (the doc's old claim).
+#[test]
+fn a_retry_after_a_lost_response_of_a_committed_txn_is_refused_txn_closed() {
+    with_cell("retry", |profile| {
+        block_on(async {
+            create_fixture_graph();
+            let state = state_for(profile);
+            let request = json!({"witness": "w", "txn": "import-1", "commit": true,
+                                 "ops": [set_name("urn:ao:term/id=1", "a")]});
+            let (status, first) = commit(&state, AO, "", request.clone()).await;
+            assert_eq!(status, StatusCode::OK, "{first}");
+            assert_eq!(first["committed"], true);
+            let after_first = seq_of(&version(&state, AO).await);
+
+            for restart in [false, true] {
+                if restart {
+                    crate::loopback_commit_routes::forget_gates_for_test();
+                }
+                for body in [
+                    request.clone(),
+                    json!({"witness": "w", "txn": "import-1", "commit": true}),
+                ] {
+                    let (status, refused) = commit(&state, AO, "", body).await;
+                    assert_eq!(status, StatusCode::CONFLICT, "restart {restart}: {refused}");
+                    assert_eq!(refused["ok"], false);
+                    assert_eq!(refused["code"], "txnClosed");
+                    assert_eq!(refused["txn"], "import-1");
+                    assert_eq!(seq_of(&version(&state, AO).await), after_first);
+                }
+            }
+            // A different txn is unaffected.
+            let mut next = request.clone();
+            next["txn"] = json!("import-2");
+            assert_eq!(commit(&state, AO, "", next).await.0, StatusCode::OK);
         });
     });
 }

@@ -18,15 +18,25 @@
 //!
 //! Shape: [`crate::loopback_ledger_routes`] (same scope helpers, same graph check, admission through
 //! [`RoomRegistry::open_ledger`]). Origin is the cell (decision 1.8): the server appends only as its
-//! own writer; the caller's `writer` is validated and echoed, and recorded once the crate's `Draft`
-//! carries a header `extra` (see [`build_drafts`]).
+//! own writer; the caller's `writer` is validated, echoed, and recorded in the header's
+//! `extra.writer` of every frame the request appends (see [`build_drafts`]).
 //!
 //! Transactions. A transaction run is consecutive frames of this origin sharing a `txn`, closed by a
 //! `commit` frame ([`garden_ledger::Ledger::txn_runs`]); any other frame of the origin in between ends
 //! the run. So while a caller's `txn` is open on a ledger, a request of a different transaction (or
 //! none) to the same ledger waits [`txn_wait`] and then is refused 409; an open transaction that sees
-//! no request for [`TXN_IDLE`] is given up on (its run stays open in the ledger, listed as abandoned,
-//! never folded). The gate is in memory: a restart forgets it, as a dead writer's run is forgotten.
+//! no request for [`TXN_IDLE`] no longer blocks anyone.
+//!
+//! **A run is only ever continued or committed while it is intact** (W7b F1). The gate remembers, per
+//! open transaction, the seq of the last frame it appended for it. Under the gate's mutex and before
+//! any frame of transaction T is appended (a continuation or a commit-only request), the gate
+//! compares that seq with the room's newest local seq: any frame in between (a stranger that passed
+//! the idle gate) means the run is broken, and the request is `409 txnBroken {txn, broken_by_seq}`
+//! with nothing appended. A commit-only request for a transaction with no open run is refused the
+//! same way: a commit is never appended for a run that is not there. The gate is in memory, so after
+//! a restart it is cold; the first request to a ledger in this process therefore learns the runs
+//! the ledger already holds ([`LedgerRoom::local_txn_runs`]) before it decides anything. A restart
+//! forgets that a transaction was recently active (it blocks no one), never that it is broken.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -53,7 +63,9 @@ use crate::crdt_engine::convergent::{ConvergeError, Convergent};
 use crate::crdt_engine::ledger_room::LedgerRoom;
 use crate::crdt_engine::rooms::{LedgerAdmissionError, RoomRegistry};
 use crate::emporium::chamber_ontology::resolve_ingest_contract;
-use crate::emporium::ledger_fold::{check_term_lexical, op_from_json, op_to_json, FoldError, Op};
+use crate::emporium::ledger_fold::{
+    check_term_lexical, op_from_json, op_to_json, ops_to_value, FoldError, Op,
+};
 use crate::emporium::shacl_validator::{validate_desired_structured, violations_to_halt_string};
 use crate::emporium::terms::{Term, Triple};
 use crate::graph_paths::existing_graph_dir;
@@ -85,6 +97,13 @@ const MAX_IRI_BYTES: usize = 4096;
 const FOLD_WAIT: Duration = Duration::from_secs(10);
 /// A transaction that has seen no request for this long no longer blocks other writers.
 const TXN_IDLE: Duration = Duration::from_secs(60);
+pub(crate) fn txn_idle() -> Duration {
+    if cfg!(test) {
+        Duration::from_millis(1000)
+    } else {
+        TXN_IDLE
+    }
+}
 /// How long a request waits behind another caller's open transaction before it is refused 409.
 fn txn_wait() -> Duration {
     if cfg!(test) {
@@ -117,6 +136,10 @@ pub(crate) struct CommitError {
     pub(crate) message: String,
     pub(crate) violations: Option<Value>,
     pub(crate) open_txn: Option<String>,
+    /// `Some((txn, broken_by_seq))` for a 409 `txnBroken` (W7b F1).
+    pub(crate) broken_txn: Option<(String, Option<u64>)>,
+    /// `Some(txn)` for a 409 `txnClosed`: the ledger already holds a commit frame for it (W7b-2 c).
+    pub(crate) closed_txn: Option<String>,
 }
 
 impl CommitError {
@@ -126,6 +149,29 @@ impl CommitError {
             message: message.into(),
             violations: None,
             open_txn: None,
+            broken_txn: None,
+            closed_txn: None,
+        }
+    }
+
+    fn txn_closed(txn: &str) -> Self {
+        CommitError {
+            closed_txn: Some(txn.to_string()),
+            ..Self::new(
+                StatusCode::CONFLICT,
+                format!(
+                    "transaction {txn:?} is already committed on this ledger; nothing was appended. \
+                     A retry after a lost response must read the outcome (the fold status or the \
+                     version), not send the write again"
+                ),
+            )
+        }
+    }
+
+    fn txn_broken(txn: &str, broken_by_seq: Option<u64>, message: String) -> Self {
+        CommitError {
+            broken_txn: Some((txn.to_string(), broken_by_seq)),
+            ..Self::new(StatusCode::CONFLICT, message)
         }
     }
 
@@ -140,7 +186,11 @@ impl CommitError {
 
 impl IntoResponse for CommitError {
     fn into_response(self) -> Response {
-        if self.violations.is_none() && self.open_txn.is_none() {
+        if self.violations.is_none()
+            && self.open_txn.is_none()
+            && self.broken_txn.is_none()
+            && self.closed_txn.is_none()
+        {
             return loopback_error(self.status, &self.message);
         }
         let mut body = json!({ "ok": false, "error": self.message });
@@ -149,6 +199,15 @@ impl IntoResponse for CommitError {
         }
         if let Some(txn) = self.open_txn {
             body["openTxn"] = Value::String(txn);
+        }
+        if let Some(txn) = self.closed_txn {
+            body["code"] = Value::String("txnClosed".to_string());
+            body["txn"] = Value::String(txn);
+        }
+        if let Some((txn, broken_by_seq)) = self.broken_txn {
+            body["code"] = Value::String("txnBroken".to_string());
+            body["txn"] = Value::String(txn);
+            body["broken_by_seq"] = broken_by_seq.map_or(Value::Null, |seq| json!(seq));
         }
         (self.status, Json(body)).into_response()
     }
@@ -371,20 +430,13 @@ impl Desired {
     }
 }
 
-/// `{"ops":[...]}` assembled from canonical pieces (the key order is trivially canonical with one
-/// key). Lane F's reader refuses any other payload key, so nothing else may ride here.
-fn assemble_payload(ops: &[Vec<u8>]) -> Vec<u8> {
-    let size: usize = ops.iter().map(|o| o.len() + 1).sum::<usize>() + 16;
-    let mut out = Vec::with_capacity(size);
-    out.extend_from_slice(b"{\"ops\":[");
-    for (i, op) in ops.iter().enumerate() {
-        if i > 0 {
-            out.push(b',');
-        }
-        out.extend_from_slice(op);
-    }
-    out.extend_from_slice(b"]}");
-    out
+/// `{"ops":[...]}` in the fold's stored form, canonicalized. Lane F's reader refuses any other
+/// payload key, so nothing else may ride here.
+fn assemble_payload(ops: &[Op]) -> Result<Vec<u8>, CommitError> {
+    // W7b item 9: consecutive ops on one (subject, class) are stored once under a subject group
+    // (`ops_to_value`), which is what takes the per-op subject and class out of the payload.
+    serde_json_canonicalizer::to_vec(&ops_to_value(ops))
+        .map_err(|e| CommitError::internal(format!("payload canonical form: {e}")))
 }
 
 /// Validate a request and cut it into frames. Pure: no I/O, so it is the unit under test.
@@ -425,7 +477,7 @@ pub(crate) fn plan_commit(body: CommitBody, limits: &Limits) -> Result<CommitPla
 
     let mut classes: BTreeMap<String, String> = BTreeMap::new();
     let mut desired = Desired::default();
-    let mut encoded: Vec<(Vec<u8>, Subject, bool)> = Vec::with_capacity(body.ops.len());
+    let mut encoded: Vec<(Op, usize, Subject, bool)> = Vec::with_capacity(body.ops.len());
     for (index, raw) in body.ops.iter().enumerate() {
         let at = |message: String| CommitError::bad(format!("ops[{index}]: {message}"));
         // Lane F's reader is the arbiter of what the fold can decode: a request that passes here is
@@ -459,32 +511,35 @@ pub(crate) fn plan_commit(body: CommitBody, limits: &Limits) -> Result<CommitPla
                 ),
             ));
         }
+        let is_retract = matches!(op, Op::Retract { .. });
         encoded.push((
-            bytes,
+            op,
+            bytes.len(),
             Subject {
                 subject,
                 class,
                 parents: Vec::new(),
             },
-            matches!(op, Op::Retract { .. }),
+            is_retract,
         ));
     }
 
     // Cut into frames by payload size and by header subjects.
     let mut frames: Vec<PlannedFrame> = Vec::new();
-    let mut current: Vec<Vec<u8>> = Vec::new();
+    let mut current: Vec<Op> = Vec::new();
     let mut subjects: Vec<Subject> = Vec::new();
     let mut seen: BTreeSet<(String, String)> = BTreeSet::new();
     let mut payload_len = 0usize;
     let mut header_len = 0usize;
     let mut all_retract = true;
-    let flush = |current: &mut Vec<Vec<u8>>,
+    let flush = |current: &mut Vec<Op>,
                  subjects: &mut Vec<Subject>,
                  seen: &mut BTreeSet<(String, String)>,
                  all_retract: &mut bool,
-                 frames: &mut Vec<PlannedFrame>| {
+                 frames: &mut Vec<PlannedFrame>|
+     -> Result<(), CommitError> {
         if current.is_empty() {
-            return;
+            return Ok(());
         }
         frames.push(PlannedFrame {
             mode: if *all_retract {
@@ -493,18 +548,19 @@ pub(crate) fn plan_commit(body: CommitBody, limits: &Limits) -> Result<CommitPla
                 Mode::Assert
             },
             subjects: std::mem::take(subjects),
-            payload: assemble_payload(current),
+            payload: assemble_payload(current)?,
         });
         current.clear();
         seen.clear();
         *all_retract = true;
+        Ok(())
     };
-    for (bytes, subject, is_retract) in encoded {
+    for (op, op_len, subject, is_retract) in encoded {
         let key = (subject.subject.clone(), subject.class.clone());
         let full_cost = subject.subject.len() + subject.class.len() + SUBJECT_ENTRY_OVERHEAD;
         let cost_now = if seen.contains(&key) { 0 } else { full_cost };
         if !current.is_empty()
-            && (payload_len + bytes.len() + 1 > limits.frame_payload
+            && (payload_len + op_len + 1 > limits.frame_payload
                 || header_len + cost_now > limits.header_subjects)
         {
             flush(
@@ -513,7 +569,7 @@ pub(crate) fn plan_commit(body: CommitBody, limits: &Limits) -> Result<CommitPla
                 &mut seen,
                 &mut all_retract,
                 &mut frames,
-            );
+            )?;
             payload_len = 0;
             header_len = 0;
         }
@@ -521,9 +577,9 @@ pub(crate) fn plan_commit(body: CommitBody, limits: &Limits) -> Result<CommitPla
             subjects.push(subject);
             header_len += full_cost;
         }
-        payload_len += bytes.len() + 1;
+        payload_len += op_len + 1;
         all_retract &= is_retract;
-        current.push(bytes);
+        current.push(op);
     }
     flush(
         &mut current,
@@ -531,7 +587,7 @@ pub(crate) fn plan_commit(body: CommitBody, limits: &Limits) -> Result<CommitPla
         &mut seen,
         &mut all_retract,
         &mut frames,
-    );
+    )?;
 
     // One frame is its own atomic unit; several need a run, so the request stays all-or-nothing.
     let (txn, close, committed) = match body.txn {
@@ -559,13 +615,15 @@ pub(crate) fn plan_commit(body: CommitBody, limits: &Limits) -> Result<CommitPla
 
 /// The drafts to append, in order.
 ///
-/// **The caller's `writer` is not recorded in the frame yet.** W7.md decision 1.8 puts it in the
-/// header's `extra.writer`, but [`Draft`] has no `extra` slot, and lane F's payload reader refuses any
-/// payload key but `ops`, so the writer cannot ride the payload either. The route validates it and
-/// echoes it in the response; to persist it, add `pub extra: BTreeMap<String, Value>` to `Draft`
-/// (`Ledger::append` copies it into the `Header` it builds, where `extra: BTreeMap::new()` is today)
-/// and set `extra = {"writer": ...}` on the drafts below. This is the only place that changes.
+/// The caller's `writer` (when it sent one) is recorded in the header's `extra.writer` of every frame
+/// the request appends, the `commit` frame included (W7.md decision 1.8; W7b F2). It is not the
+/// ledger origin, which is always the cell. The fold's payload reader is untouched: the writer rides
+/// the header, never the payload.
 pub(crate) fn build_drafts(plan: &CommitPlan, vocab: &str) -> Vec<Draft> {
+    let with_writer = |draft: Draft| match &plan.writer {
+        Some(writer) => draft.with_extra("writer", Value::String(writer.clone())),
+        None => draft,
+    };
     let mut drafts: Vec<Draft> = plan
         .frames
         .iter()
@@ -576,15 +634,17 @@ pub(crate) fn build_drafts(plan: &CommitPlan, vocab: &str) -> Vec<Draft> {
             mode: frame.mode.clone(),
             payload: frame.payload.clone(),
             txn: plan.txn.clone(),
+            extra: Default::default(),
         })
+        .map(with_writer)
         .collect();
     if plan.close {
         if let Some(txn) = &plan.txn {
-            drafts.push(
+            drafts.push(with_writer(
                 Draft::commit(txn.clone())
                     .with_witness(plan.witness.clone())
                     .with_vocab(vocab),
-            );
+            ));
         }
     }
     drafts
@@ -594,16 +654,39 @@ pub(crate) fn build_drafts(plan: &CommitPlan, vocab: &str) -> Vec<Draft> {
 // Transaction gate
 // ---------------------------------------------------------------------------------------------
 
-#[derive(Debug)]
-struct OpenTxn {
-    txn: String,
-    since: Instant,
+/// What the gate knows of one transaction run that has no commit frame yet.
+#[derive(Debug, Clone)]
+struct RunRec {
+    /// Seq of the last frame of this cell's stream that belongs to the run.
+    last_seq: u64,
+    /// When a request of the transaction last passed the gate; `None` for a run learned from the
+    /// ledger (a restart forgot it was active), which blocks nobody.
+    since: Option<Instant>,
 }
 
-/// Per ledger: the transaction left open by an earlier request, if any. The async mutex is held
-/// across a request's appends, so two requests' frames never interleave.
+impl RunRec {
+    /// True while the transaction's caller is presumed to be still writing it.
+    fn blocks(&self) -> bool {
+        self.since.is_some_and(|since| since.elapsed() < txn_idle())
+    }
+}
+
+/// Per ledger: the open runs this cell's stream holds, as far as the gate has seen them.
+#[derive(Debug, Default)]
+struct GateState {
+    /// The local origin the records were made under. Another origin (a ledger created anew under the
+    /// same key) drops them and scans the new ledger.
+    origin: Option<garden_ledger::OriginId>,
+    runs: BTreeMap<String, RunRec>,
+    /// Transactions the ledger holds a commit frame for: learned from the first scan, and added when
+    /// this process commits one. A request naming one is refused `txnClosed` (W7b-2 c).
+    closed: BTreeSet<String>,
+}
+
+/// Per ledger. The async mutex is held across a request's appends, so two requests' frames never
+/// interleave, and the intact-run check below is made against a tip nobody else can move.
 struct CommitGate {
-    open: AsyncMutex<Option<OpenTxn>>,
+    open: AsyncMutex<GateState>,
 }
 
 static GATES: OnceLock<StdMutex<BTreeMap<String, Arc<CommitGate>>>> = OnceLock::new();
@@ -615,10 +698,18 @@ fn gate_for(key: &str) -> Arc<CommitGate> {
         .entry(key.to_string())
         .or_insert_with(|| {
             Arc::new(CommitGate {
-                open: AsyncMutex::new(None),
+                open: AsyncMutex::new(GateState::default()),
             })
         })
         .clone()
+}
+
+/// Forget every gate, as a process restart does.
+#[cfg(test)]
+pub(crate) fn forget_gates_for_test() {
+    if let Some(gates) = GATES.get() {
+        gates.lock().unwrap_or_else(|p| p.into_inner()).clear();
+    }
 }
 
 /// Take the gate for a request of transaction `txn` (or none). Another caller's open transaction
@@ -626,16 +717,15 @@ fn gate_for(key: &str) -> Arc<CommitGate> {
 async fn enter_gate<'a>(
     gate: &'a CommitGate,
     txn: Option<&str>,
-) -> Result<tokio::sync::MutexGuard<'a, Option<OpenTxn>>, String> {
+) -> Result<tokio::sync::MutexGuard<'a, GateState>, String> {
     let deadline = Instant::now() + txn_wait();
     loop {
         let guard = gate.open.lock().await;
-        let blocker = match &*guard {
-            Some(open) if txn != Some(open.txn.as_str()) && open.since.elapsed() < TXN_IDLE => {
-                Some(open.txn.clone())
-            }
-            _ => None,
-        };
+        let blocker = guard
+            .runs
+            .iter()
+            .find(|(open, rec)| txn != Some(open.as_str()) && rec.blocks())
+            .map(|(open, _)| open.clone());
         match blocker {
             None => return Ok(guard),
             Some(other) => {
@@ -646,6 +736,78 @@ async fn enter_gate<'a>(
                 tokio::time::sleep(Duration::from_millis(25)).await;
             }
         }
+    }
+}
+
+/// A transaction id this route minted itself for a multi-frame request that named none (see
+/// [`plan_commit`]). Nobody can retry one, so the gate does not remember it as closed.
+fn is_auto_txn(txn: &str) -> bool {
+    txn.strip_prefix("commit-")
+        .is_some_and(|rest| rest.len() == 32 && rest.bytes().all(|b| b.is_ascii_hexdigit()))
+}
+
+/// With the gate held, bring its records in line with the ledger and return the cell's newest seq.
+/// The first request to a ledger in this process (or to a ledger recreated under a new origin)
+/// reads the runs the ledger already holds, so that a restart never makes a broken run look fresh.
+async fn sync_gate(state: &mut GateState, room: &LedgerRoom) -> Result<u64, CommitError> {
+    let (local, tip) = room.local_tip().await;
+    if state.origin.as_ref() != Some(&local) {
+        let (origin, runs) = room.local_txn_runs().await.map_err(from_converge)?;
+        state.runs.clear();
+        state.closed.clear();
+        for run in runs {
+            if run.closed {
+                state.runs.remove(&run.txn);
+                if !is_auto_txn(&run.txn) {
+                    state.closed.insert(run.txn);
+                }
+            } else {
+                state.runs.insert(
+                    run.txn,
+                    RunRec {
+                        last_seq: run.last_seq,
+                        since: None,
+                    },
+                );
+            }
+        }
+        state.origin = Some(origin);
+    }
+    Ok(tip)
+}
+
+/// May a request of transaction `txn` append? Only into an intact run: the newest frame of this
+/// cell's stream must be the last frame the run has (`tip`). A transaction the gate has no run for
+/// is fresh, except for a commit-only request, which has nothing to commit.
+fn check_run_intact(
+    state: &GateState,
+    txn: &str,
+    tip: u64,
+    commit_only: bool,
+) -> Result<(), CommitError> {
+    if state.closed.contains(txn) {
+        return Err(CommitError::txn_closed(txn));
+    }
+    match state.runs.get(txn) {
+        Some(run) if run.last_seq == tip => Ok(()),
+        Some(run) => Err(CommitError::txn_broken(
+            txn,
+            (tip > run.last_seq).then_some(run.last_seq + 1),
+            format!(
+                "transaction {txn:?} is broken: its last frame is seq {} and the ledger is at seq {tip}; \
+                 nothing was appended. Re-send the whole logical write under a new txn",
+                run.last_seq
+            ),
+        )),
+        None if commit_only => Err(CommitError::txn_broken(
+            txn,
+            None,
+            format!(
+                "transaction {txn:?} has no open run on this ledger (already committed, or never \
+                 opened); no commit was appended"
+            ),
+        )),
+        None => Ok(()),
     }
 }
 
@@ -719,6 +881,8 @@ async fn shacl_gate(
                 message: violations_to_halt_string(&contract, &violations),
                 violations: serde_json::to_value(&violations).ok(),
                 open_txn: None,
+                broken_txn: None,
+                closed_txn: None,
             }),
         }
     })
@@ -875,6 +1039,7 @@ async fn commit_inner(
         .map_err(|e| CommitError::bad(format!("invalid commit body: {e}")))?;
     drop(bytes);
 
+    let started = Instant::now();
     let plan = plan_commit(parsed, &Limits::default())?;
     shacl_gate(
         graph_dir,
@@ -884,13 +1049,14 @@ async fn commit_inner(
     )
     .await?;
 
+    let validated = Instant::now();
     let drafts = build_drafts(&plan, vocab);
     let key = ledger_room_key(graph_id, vocab);
     let gate = gate_for(&key);
     let room = open_room(state, graph_id, vocab).await?;
     let mut appended: Vec<Appended> = Vec::new();
     let room = {
-        let mut open = enter_gate(&gate, plan.txn.as_deref())
+        let mut state_guard = enter_gate(&gate, plan.txn.as_deref())
             .await
             .map_err(|other| CommitError {
                 status: StatusCode::CONFLICT,
@@ -899,44 +1065,60 @@ async fn commit_inner(
                 ),
                 violations: None,
                 open_txn: Some(other),
+                broken_txn: None,
+                closed_txn: None,
             })?;
+        // A room evicted between the open and here (the registry's idle sweep) is reopened once,
+        // as `append_all` does for an append.
+        let mut room = room;
+        let tip = match sync_gate(&mut state_guard, &room).await {
+            Err(error) if error.status == StatusCode::SERVICE_UNAVAILABLE && room.is_evicted() => {
+                room = open_room(state, graph_id, vocab).await?;
+                sync_gate(&mut state_guard, &room).await?
+            }
+            other => other?,
+        };
+        if let Some(txn) = &plan.txn {
+            let commit_only = plan.frames.is_empty() && plan.close;
+            check_run_intact(&state_guard, txn, tip, commit_only)?;
+        }
         let outcome = append_all(state, graph_id, vocab, room, drafts, &mut appended).await;
-        // Whatever happened, the gate reflects what is now in the ledger: a caller's transaction
-        // that has frames and no commit is open.
-        match (&plan.txn, plan.committed) {
-            (Some(txn), false) if !appended.is_empty() => {
-                *open = Some(OpenTxn {
-                    txn: txn.clone(),
-                    since: Instant::now(),
-                });
-            }
-            (Some(txn), true) if open.as_ref().is_some_and(|o| o.txn == *txn) => {
-                if outcome.is_ok() {
-                    *open = None;
+        // Whatever happened, the gate reflects what is now in the ledger: a transaction whose
+        // newest frame is not its commit is an open run, and `last_seq` is where it ends.
+        if let (Some(txn), Some(last)) = (&plan.txn, appended.last()) {
+            if plan.committed && outcome.is_ok() {
+                state_guard.runs.remove(txn);
+                if !is_auto_txn(txn) {
+                    state_guard.closed.insert(txn.clone());
                 }
+            } else {
+                state_guard.runs.insert(
+                    txn.clone(),
+                    RunRec {
+                        last_seq: last.seq,
+                        // Only a caller who left the transaction open is presumed still writing.
+                        since: (!plan.committed).then(Instant::now),
+                    },
+                );
             }
-            _ => {}
         }
         outcome?
     };
 
+    let appended_at = Instant::now();
     // The ack rides the barrier, never before it.
     room.persist()
         .await
         .map_err(|e| CommitError::internal(format!("ledger barrier: {e}")))?;
+    let barriered = Instant::now();
 
-    let local = room
-        .version_json()
-        .await
-        .get("local")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
+    let local = room.local_tip().await.0 .0;
     let frames: Vec<Value> = appended
         .iter()
-        .map(|a| json!({ "origin": local, "seq": a.seq, "id": to_hex(&a.id) }))
+        .map(|a| json!({ "origin": local, "seq": a.seq, "id": to_hex(&a.id), "hlc": a.hlc }))
         .collect();
 
+    let acked = Instant::now();
     let mut folded = false;
     if wait_for_fold && plan.committed {
         if let Some(last) = appended.last() {
@@ -957,6 +1139,18 @@ async fn commit_inner(
         "frames": frames,
         "committed": plan.committed,
         "folded": folded,
+    });
+    // Where the request spent its time, in milliseconds: validation (parse, plan, SHACL gate),
+    // the gate and the appends, the barrier, and (with `?wait=folded`) the wait for the fold.
+    let ms = |from: Instant, to: Instant| {
+        (to.saturating_duration_since(from).as_secs_f64() * 1e5).round() / 1e2
+    };
+    response["timings"] = json!({
+        "validateMs": ms(started, validated),
+        "appendMs": ms(validated, appended_at),
+        "barrierMs": ms(appended_at, barriered),
+        "ackMs": ms(started, acked),
+        "foldWaitMs": ms(acked, Instant::now()),
     });
     if let Some(txn) = &plan.txn {
         response["txn"] = Value::String(txn.clone());
@@ -1405,26 +1599,119 @@ mod tests {
         );
     }
 
+    fn live(last_seq: u64) -> RunRec {
+        RunRec {
+            last_seq,
+            since: Some(Instant::now()),
+        }
+    }
+
+    fn gate_with(runs: Vec<(&str, RunRec)>) -> CommitGate {
+        CommitGate {
+            open: AsyncMutex::new(GateState {
+                origin: None,
+                closed: BTreeSet::new(),
+                runs: runs.into_iter().map(|(t, r)| (t.to_string(), r)).collect(),
+            }),
+        }
+    }
+
     #[tokio::test]
     async fn another_callers_open_txn_blocks_until_it_idles_out_or_closes() {
-        let gate = CommitGate {
-            open: AsyncMutex::new(Some(OpenTxn {
-                txn: "t1".into(),
-                since: Instant::now(),
-            })),
-        };
+        let gate = gate_with(vec![("t1", live(1))]);
         // The owner passes; a stranger and a txn-less request are refused after the wait.
         assert!(enter_gate(&gate, Some("t1")).await.is_ok());
         assert_eq!(enter_gate(&gate, Some("t2")).await.unwrap_err(), "t1");
         assert_eq!(enter_gate(&gate, None).await.unwrap_err(), "t1");
         // Once the owner closes it, everyone passes.
-        *gate.open.lock().await = None;
+        gate.open.lock().await.runs.clear();
         assert!(enter_gate(&gate, None).await.is_ok());
-        // An idle transaction no longer blocks.
-        *gate.open.lock().await = Some(OpenTxn {
-            txn: "t3".into(),
-            since: Instant::now() - TXN_IDLE - Duration::from_secs(1),
-        });
+        // An idle transaction no longer blocks, and neither does a run learned from the ledger.
+        gate.open.lock().await.runs.insert(
+            "t3".into(),
+            RunRec {
+                last_seq: 3,
+                since: Some(Instant::now() - txn_idle() - Duration::from_secs(1)),
+            },
+        );
+        gate.open.lock().await.runs.insert(
+            "t4".into(),
+            RunRec {
+                last_seq: 4,
+                since: None,
+            },
+        );
         assert!(enter_gate(&gate, None).await.is_ok());
+    }
+
+    /// W7b F1. The check is against the cell's newest seq: equal is intact, anything past it names
+    /// the first stranger frame; a commit-only request for a run the gate does not hold is refused.
+    /// Mutation: compare nothing (always `Ok`) and the broken and commit-only cases go red.
+    #[test]
+    fn a_run_is_continued_only_while_it_is_intact() {
+        let state = GateState {
+            origin: None,
+            closed: BTreeSet::new(),
+            runs: [("t1".to_string(), live(3))].into_iter().collect(),
+        };
+        assert!(check_run_intact(&state, "t1", 3, false).is_ok());
+        assert!(check_run_intact(&state, "t1", 3, true).is_ok());
+        for commit_only in [false, true] {
+            let broken = check_run_intact(&state, "t1", 5, commit_only).unwrap_err();
+            assert_eq!(broken.status, StatusCode::CONFLICT);
+            assert_eq!(broken.broken_txn, Some(("t1".to_string(), Some(4))));
+        }
+        // A fresh transaction passes; a commit-only request for one has nothing to close.
+        assert!(check_run_intact(&state, "t9", 5, false).is_ok());
+        let nothing = check_run_intact(&state, "t9", 5, true).unwrap_err();
+        assert_eq!(nothing.status, StatusCode::CONFLICT);
+        assert_eq!(nothing.broken_txn, Some(("t9".to_string(), None)));
+        // A ledger that lost frames (a tip below the run's end) is broken too, with no culprit seq.
+        let lost = check_run_intact(&state, "t1", 2, false).unwrap_err();
+        assert_eq!(lost.broken_txn, Some(("t1".to_string(), None)));
+    }
+
+    /// W7b-2 c. A transaction the ledger already committed is refused `txnClosed`, for an ops
+    /// request and for a commit-only one; the id this route mints is never remembered. Mutation:
+    /// drop the `closed` test in `check_run_intact` and the first two assertions go red.
+    #[test]
+    fn a_closed_transaction_is_refused_for_ops_and_for_commit_only() {
+        let mut state = GateState::default();
+        state.closed.insert("t7".to_string());
+        for commit_only in [false, true] {
+            let closed = check_run_intact(&state, "t7", 9, commit_only).unwrap_err();
+            assert_eq!(closed.status, StatusCode::CONFLICT);
+            assert_eq!(closed.closed_txn.as_deref(), Some("t7"));
+            assert!(closed.broken_txn.is_none());
+        }
+        assert!(check_run_intact(&state, "t8", 9, false).is_ok());
+        assert!(is_auto_txn("commit-0123456789abcdef0123456789abcdef"));
+        assert!(!is_auto_txn("commit-1"));
+        assert!(!is_auto_txn("my-txn"));
+    }
+
+    /// W7b F2. The writer rides every frame's header extra, the commit frame's included, and a
+    /// request without one leaves the extra empty (so the frame bytes are what they were).
+    #[test]
+    fn the_writer_is_in_every_drafts_extra() {
+        let with = plan_commit(
+            body(
+                json!({"witness": "w", "writer": "nidra-1", "txn": "t1", "commit": true,
+                        "ops": [set(S1, json!("a"))]}),
+            ),
+            &Limits::default(),
+        )
+        .unwrap();
+        let drafts = build_drafts(&with, "ao");
+        assert_eq!(drafts.len(), 2, "the ops frame and the commit frame");
+        for draft in &drafts {
+            assert_eq!(draft.extra["writer"], "nidra-1");
+        }
+        let without = plan_commit(
+            body(json!({"witness": "w", "ops": [set(S1, json!("a"))]})),
+            &Limits::default(),
+        )
+        .unwrap();
+        assert!(build_drafts(&without, "ao")[0].extra.is_empty());
     }
 }
