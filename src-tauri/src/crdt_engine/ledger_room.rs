@@ -540,11 +540,13 @@ impl LedgerRoom {
             let mut ledger = self.ledger.lock().await;
             self.check_live()?;
             let mut clock = lock(&self.clock);
-            ledger
+            let appended = ledger
                 .append(&mut clock, wall_ms(), draft)
-                .map_err(from_ledger)?
+                .map_err(from_ledger)?;
+            // Under the lock, so an eviction that lands after this append sees what it owes.
+            self.mark_dirty();
+            appended
         };
-        self.mark_dirty();
         self.arm(self.frames.receiver_count() > 0);
         Ok(appended)
     }
@@ -638,9 +640,12 @@ impl Convergent for LedgerRoom {
         for (origin, raw) in entries {
             new_frames += ledger.apply(&origin, raw).map_err(from_ledger)?;
         }
+        if new_frames > 0 {
+            // Under the lock, so an eviction that lands after this apply sees what it owes.
+            self.mark_dirty();
+        }
         drop(ledger);
         if new_frames > 0 {
-            self.mark_dirty();
             // Section 4: eager as soon as any connection is subscribed (the writer's own socket
             // counts), idle cadence otherwise.
             self.arm(self.frames.receiver_count() > 0);
