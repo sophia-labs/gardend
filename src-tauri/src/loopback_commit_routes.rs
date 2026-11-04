@@ -1077,7 +1077,8 @@ async fn commit_inner(
     let gate = gate_for(&key);
     let room = open_room(state, graph_id, vocab).await?;
     let room_opened = Instant::now();
-    let mut gate_passed = room_opened;
+    // Set once the gate lets the request through; every path that reaches the timings sets it.
+    let gate_passed: Instant;
     let mut appended: Vec<Appended> = Vec::new();
     let room = {
         let mut state_guard = enter_gate(&gate, plan.txn.as_deref())
