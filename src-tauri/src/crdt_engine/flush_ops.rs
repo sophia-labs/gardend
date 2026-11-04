@@ -2944,3 +2944,57 @@ mod helper_text_classification_tests {
         }
     }
 }
+
+/// M5, the `import.vault` pending-archive read (`import_vault_ops::classify_pending_read_error`; its test lives
+/// here because `tests/import_vault_ops.rs` compiles that file alone, without the rest of the crate).
+#[cfg(test)]
+mod pending_read_classification_tests {
+    use crate::crdt_engine::executor::ApplyOperationError;
+    use crate::crdt_engine::import_vault_ops::classify_pending_read_error;
+
+    #[test]
+    fn a_missing_pending_file_or_an_outside_path_is_terminal_and_other_io_is_not() {
+        let dir = std::env::temp_dir().join(format!("vault-pending-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let present = dir.join("archive.zip");
+        std::fs::write(&present, b"zip").unwrap();
+        let gone = dir.join("gone.zip");
+
+        // The real message validate_pending_upload_path gives for a path that is not there.
+        let not_found = crate::pending_upload_paths::validate_pending_upload_path(
+            &dir,
+            &gone.display().to_string(),
+        )
+        .unwrap_err();
+        assert!(matches!(
+            classify_pending_read_error(not_found, &gone.display().to_string()),
+            ApplyOperationError::Terminal(_)
+        ));
+        // A file that is there, outside the graph's pending directory: the real refusal text.
+        let graph = dir.join("graph");
+        std::fs::create_dir_all(graph.join("pending-uploads")).unwrap();
+        let outside = crate::pending_upload_paths::validate_pending_upload_path(
+            &graph,
+            &present.display().to_string(),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(
+                classify_pending_read_error(outside.clone(), &present.display().to_string()),
+                ApplyOperationError::Terminal(_)
+            ),
+            "{outside}"
+        );
+        // A read that failed on I/O while the file is there may clear: retried.
+        let io = format!(
+            "read {}: {}",
+            present.display(),
+            std::io::Error::from_raw_os_error(5)
+        );
+        assert!(matches!(
+            classify_pending_read_error(io, &present.display().to_string()),
+            ApplyOperationError::RetryableAfterHotCommit(_)
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

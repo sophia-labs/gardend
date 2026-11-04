@@ -114,6 +114,14 @@ mod operation_completion_ledger {
     }
 }
 
+// The real classifier of a refusal text is src/crdt_engine/flush_ops.rs (`is_refusal_text`), which the handler
+// calls to class a failed pending-archive read. The pure-core tests below never reach the handler.
+mod flush_ops {
+    pub(crate) fn is_refusal_text(_message: &str) -> bool {
+        false
+    }
+}
+
 mod pending_upload_service {
     pub(crate) struct PendingUploadFileInput {
         pub(crate) graph_id: Option<String>,
