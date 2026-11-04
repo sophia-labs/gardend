@@ -129,10 +129,12 @@ cargo build --manifest-path src-tauri/Cargo.toml --no-default-features --feature
 
 ### Integration tests in the gate
 
-`src-tauri/tests/` (the integration binaries) and the workspace crates (`crates/garden-ledger`) now run in
-`scripts/buildbox test` (and therefore `gate`) as `cargo test --locked ... --workspace --tests`, and CI mirrors it.
+`src-tauri/tests/` (the root package's integration binaries) and the workspace crate `crates/garden-ledger` run in
+`scripts/buildbox test` (and therefore `gate`) as two steps: `test-tests` (`cargo test --locked ... -p garden --test <each>`,
+which does not rerun the lib battery that `--tests` would) and `test-ledger` (`-p garden-ledger`, all of its unit,
+property and fixture tests). CI mirrors it (`-p garden --test '*'`, then `-p garden-ledger`).
 The gate also runs `cargo check --locked --features desktop --lib --examples`; set `BUILDBOX_SKIP_DESKTOP_CHECK=1` on a
-machine without the desktop toolchain. The `--tests` run uses the same `--skip` filters as the library run, and the
+machine without the desktop toolchain. The `test-tests` run uses the same `--skip` filters as the library run, and the
 four order-dependent suites above still get their isolated runs.
 
 A red integration test is not deleted and not left red: skip it with `BUILDBOX_TEST_SKIP="<name> ..."` and list it
@@ -143,15 +145,16 @@ here with its reason, under **Known exclusions**, so the skip list and this page
 beside the rest in parallel (a different test of `cell_lease_durability` went red on each run), like the lib tests in
 the macOS spawn group. `buildbox test` on Darwin therefore runs the other binaries in `test-tests` and these four as
 `test-spawn-bins` with `--test-threads=1`; Linux and CI run them all together. One test in that group is timing-bound
-and stays out: run the gate with
-`BUILDBOX_TEST_SKIP="enforce_integrates_terminal_check_into_loopback_exposure_gate"` (`tests/cell_lease_durability.rs`).
+and stays out: `scripts/buildbox` skips `enforce_integrates_terminal_check_into_loopback_exposure_gate`
+(`tests/cell_lease_durability.rs`) by default on Darwin.
 In a debug build the spawned `gardend` reaches its "after core setup, before API readiness" lease guard only after
 the test has already retired the lease, so the refusal is logged by that earlier guard and the test's expected "while
 waiting for API readiness" text is absent. It wants a test fix (accept either guard) before it returns to the gate.
 
 `capture_event::tests::stalled_sink_is_bounded_and_sequence_gaps_report_cumulative_loss` asserts 10,000 emits finish in
-under one second; it passes alone (0.3 s) and missed that bound once in the 817 s parallel lib run on a Mac, so the Mac
-gate also carries it in `BUILDBOX_TEST_SKIP` (full value: both names, space-separated).
+under one second; it passes alone (0.3 s) and missed that bound once in the 817 s parallel lib run on a Mac, so
+`scripts/buildbox` skips it by default on Darwin as well. Both defaults sit beside the Keychain skip in `cmd_test`;
+`BUILDBOX_TEST_SKIP` adds to them and is no longer needed for the gate.
 
 Formatting is a gate: `cargo fmt --check --manifest-path src-tauri/Cargo.toml` must be clean, and CI runs it. The one
 repository-wide reformat is listed in `.git-blame-ignore-revs`.

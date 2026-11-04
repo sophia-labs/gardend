@@ -54,10 +54,13 @@ jobs:
 
       - name: Integration tests and workspace crates (headless)
         run: |
-          cargo test --locked --manifest-path src-tauri/Cargo.toml --no-default-features --features headless --workspace --tests -- \
+          # The root package's tests/ binaries only (--test '*'; --tests would run the lib battery a second time),
+          # then the ledger crate, which the root package does not depend on.
+          cargo test --locked --manifest-path src-tauri/Cargo.toml --no-default-features --features headless -p garden --test '*' -- \
             --skip semantic_model_state \
             --skip cell_self_heal_tests \
             --skip host_dry_run_apply_and_replay_preserve_the_exact_site_route
+          cargo test --locked --manifest-path src-tauri/Cargo.toml -p garden-ledger
 
       - name: Library tests (order-dependent, isolated)
         run: |
