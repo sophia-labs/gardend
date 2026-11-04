@@ -359,9 +359,11 @@ fn strip_sparql_strings_and_comments(update: &str) -> String {
 fn contains_reserved_named_graph_target(graph_id: &str, update: &str) -> bool {
     let graph_root = graph_subject(graph_id);
     let projection_prefix = format!("{graph_root}:projection:");
+    let ledger_prefix = format!("{graph_root}:ledger:");
     for keyword in ["GRAPH", "Graph", "graph", "WITH", "With", "with"] {
         if update.contains(&format!("{keyword} <{graph_root}>"))
             || update.contains(&format!("{keyword} <{projection_prefix}"))
+            || update.contains(&format!("{keyword} <{ledger_prefix}"))
             || update.contains(&format!("{keyword} <urn:mnemosyne:local:profile:"))
         {
             return true;
@@ -376,10 +378,14 @@ fn contains_reserved_named_graph_target(graph_id: &str, update: &str) -> bool {
 /// the single explicit target `load_rdf`/`run_sparql_update` are given
 /// up front. No logic changes here — this is the same predicate the SPARQL
 /// update gate and `load_rdf` target-resolution already use.
+///
+/// `{graph_root}:ledger:` is reserved too (W7b F3): it holds the ledger fold's control graph
+/// (`…:ledger:fold`, the per-(vocab, origin) watermark), which user SPARQL must not be able to forge.
 pub(crate) fn is_reserved_rdf_graph_iri(graph_id: &str, graph_iri: &str) -> bool {
     let graph_root = graph_subject(graph_id);
     graph_iri == graph_root
         || graph_iri.starts_with(&format!("{graph_root}:projection:"))
+        || graph_iri.starts_with(&format!("{graph_root}:ledger:"))
         || graph_iri.starts_with("urn:mnemosyne:local:profile:")
 }
 
@@ -402,6 +408,35 @@ mod tests {
             Some("urn:mnemosyne:local:graph:graph-a:projection:workspace")
         )
         .is_err());
+    }
+
+    /// W7b F3. The fold's control graph is reserved beside the projection graphs: no RDF write
+    /// target, no dataset-import graph, no SPARQL `GRAPH`/`WITH` target. Mutation: drop the
+    /// `:ledger:` arm of `is_reserved_rdf_graph_iri` and the first two assertions go red; drop it
+    /// from `contains_reserved_named_graph_target` and the update assertions go red.
+    #[test]
+    fn the_ledger_fold_control_graph_is_reserved_like_a_projection() {
+        let control = "urn:mnemosyne:local:graph:graph-a:ledger:fold";
+        assert!(is_reserved_rdf_graph_iri("graph-a", control));
+        assert!(user_rdf_target_graph_iri("graph-a", Some(control)).is_err());
+        // Another graph's control graph is not this graph's reserved graph, and user:rdf stays open.
+        assert!(!is_reserved_rdf_graph_iri(
+            "graph-a",
+            "urn:mnemosyne:local:graph:graph-b:ledger:fold"
+        ));
+        assert!(!is_reserved_rdf_graph_iri(
+            "graph-a",
+            "urn:mnemosyne:local:graph:graph-a:user:rdf"
+        ));
+        for update in [
+            format!("INSERT DATA {{ GRAPH <{control}> {{ <urn:s> <urn:p> <urn:o> }} }}"),
+            format!("WITH <{control}> DELETE {{ ?s ?p ?o }} WHERE {{ ?s ?p ?o }}"),
+        ] {
+            assert!(
+                validate_sparql_update_authority("graph-a", &update).is_err(),
+                "{update}"
+            );
+        }
     }
 
     #[test]
