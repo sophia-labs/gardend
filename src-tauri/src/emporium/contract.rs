@@ -17,6 +17,7 @@ use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
+use crate::emporium::ledger_fold::Merge;
 use crate::emporium::vocabs::{
     DOCUMENT_GOLDEN_JSON, GRAPH_GOLDEN_JSON, MEMORY_CORE_GOLDEN_JSON, NOMOS_GOLDEN_JSON,
     SALIENCE_GOLDEN_JSON, SEMANTIC_GOLDEN_JSON, SONG_GOLDEN_JSON, WIRES_GOLDEN_JSON,
@@ -75,7 +76,6 @@ pub(crate) struct PredicateSpec {
     #[serde(default)]
     pub(crate) required: bool,
     #[serde(default)]
-    #[allow(dead_code)]
     pub(crate) multi: bool,
     #[serde(default)]
     #[allow(dead_code)]
@@ -97,6 +97,26 @@ pub(crate) struct PredicateSpec {
     /// of the same vocabulary (D2 "Nesting"). Ignored for scalar datatypes.
     #[serde(default)]
     pub(crate) class: Option<String>,
+    /// How the ledger fold merges concurrent writes to this predicate (W7
+    /// decision 1.2): `lww` (functional, highest HLC wins), `add-wins` (set,
+    /// union minus observed removals) or `contested` (lww plus a loud flag when
+    /// two heads are concurrent). Absent means the default rule of
+    /// [`PredicateSpec::merge_policy`]: `add-wins` when `multi`, else `lww`, so
+    /// every existing pack keeps its meaning.
+    #[serde(default)]
+    pub(crate) merge: Option<Merge>,
+}
+
+impl PredicateSpec {
+    /// The effective merge policy: the declared `merge`, else `add-wins` when
+    /// `multi` and `lww` when not.
+    pub(crate) fn merge_policy(&self) -> Merge {
+        self.merge.unwrap_or(if self.multi {
+            Merge::AddWins
+        } else {
+            Merge::Lww
+        })
+    }
 }
 
 /// The `roles` of a class presentation (D2): which field keys Publish and the

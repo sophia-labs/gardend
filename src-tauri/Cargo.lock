@@ -2706,6 +2706,7 @@ dependencies = [
  "oxigraph",
  "pdfium-render",
  "prefixmap",
+ "proptest",
  "pulldown-cmark",
  "regex",
  "reqwest 0.12.28",

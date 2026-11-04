@@ -157,6 +157,9 @@ opentelemetry_sdk = { version = "0.31", default-features = false, features = ["t
 tokio = { version = "1", features = ["test-util", "rt-multi-thread", "macros"] }
 rusqlite = { version = "0.37", features = ["bundled"] }
 
+# W7 ledger fold property tests (the garden-ledger crate pins the same major).
+proptest = "1"
+
 # Already present transitively via axum (Router implements tower::Service);
 # declared directly so tests can drive a real Router end-to-end with
 # `ServiceExt::oneshot` instead of hand-constructing axum's internal `Next`.

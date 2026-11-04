@@ -61,7 +61,7 @@ pub(crate) const RETRACTION_EVENT_PRED: &str = "http://mnemosyne.dev/emporium#re
 /// A typed RDF object term. `Uri`/`Lit` wrap oxigraph model terms so `Display`
 /// produces N-Triples escaping byte-identical to pyoxigraph; `Placeholder`
 /// is a deferred URI (resolved by the applier, HELD).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Term {
     Uri(NamedNode),
     Lit(Literal),
@@ -323,6 +323,10 @@ pub(crate) enum CanonValue {
     Dt(u64),
     Bool(bool),
     Lit(String),
+    /// A language-tagged string: value and lowercased BCP47 tag. A tagged string
+    /// is NOT equal to its untagged twin, nor to the same text under another
+    /// tag (W7: the ledger fold keys lww equality on this).
+    LangLit(String, String),
 }
 
 fn num_to_bits(x: f64) -> u64 {
@@ -341,6 +345,9 @@ pub(crate) fn canon_value(term: &Term) -> CanonValue {
         Term::Lit(l) => {
             let dt = l.datatype().as_str().to_string();
             let value = l.value();
+            if let Some(lang) = l.language() {
+                return CanonValue::LangLit(value.to_string(), lang.to_ascii_lowercase());
+            }
             if dt == format!("{XSD}integer")
                 || dt == format!("{XSD}long")
                 || dt == format!("{XSD}double")
@@ -595,6 +602,24 @@ mod tests {
     }
 
     #[test]
+    fn language_tagged_string_is_not_its_untagged_twin() {
+        let plain = Term::Lit(Literal::new_simple_literal("hola"));
+        let es = Term::Lit(Literal::new_language_tagged_literal("hola", "es").unwrap());
+        let en = Term::Lit(Literal::new_language_tagged_literal("hola", "en").unwrap());
+        let es_upper = Term::Lit(Literal::new_language_tagged_literal("hola", "ES").unwrap());
+        assert_ne!(canon_value(&plain), canon_value(&es));
+        assert_ne!(canon_value(&es), canon_value(&en));
+        assert_eq!(canon_value(&es), canon_value(&es_upper));
+        assert_eq!(canon_value(&plain), canon_value(&plain.clone()));
+        // The diff must see the tag: swapping the tag is a remove plus an add.
+        let current: Vec<Triple> = vec![("urn:s".into(), "urn:p".into(), plain)];
+        let desired: Vec<Triple> = vec![("urn:s".into(), "urn:p".into(), es)];
+        let diff = diff_triples(&current, &desired);
+        assert_eq!(diff.adds.len(), 1);
+        assert_eq!(diff.removes.len(), 1);
+    }
+
+    #[test]
     fn diff_of_identical_sets_is_zero_ops() {
         let triples: Vec<Triple> = vec![
             (
@@ -760,6 +785,7 @@ mod diff_oracle {
         match cv {
             CanonValue::Uri(s) => json!({"k": "uri", "v": s}),
             CanonValue::Lit(s) => json!({"k": "lit", "v": s}),
+            CanonValue::LangLit(s, l) => json!({"k": "lit", "v": s, "lang": l}),
             CanonValue::Bool(b) => json!({"k": "bool", "v": b}),
             CanonValue::Placeholder(_) => json!({"k": "placeholder"}),
             CanonValue::Num(bits) => {

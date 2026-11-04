@@ -155,6 +155,7 @@ mod tests {
             CanonValue::Bool(b) => format!("BOOL|{b}"),
             CanonValue::Num(bits) => format!("NUM|{}", fmt_6dp(f64::from_bits(*bits))),
             CanonValue::Dt(bits) => format!("DT|{}", fmt_6dp(f64::from_bits(*bits))),
+            CanonValue::LangLit(v, tag) => format!("LANG|{tag}|{v}"),
         }
     }
 

@@ -37,6 +37,7 @@ mod fixtures;
 mod flow_projection_tests;
 pub(crate) mod folder_views;
 pub(crate) mod ingest_routes;
+pub(crate) mod ledger_fold;
 #[cfg(all(test, feature = "headless"))]
 mod lex_scotus_core_tests;
 #[cfg(test)]
