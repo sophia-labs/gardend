@@ -117,12 +117,14 @@ pub(crate) struct SubjectRef {
 /// One op of a payload.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Op {
-    /// Write one value (or clear the key when `value` is `None`).
+    /// Replace the predicate's whole value set with `values` (W7c). `values: []` clears it. On the
+    /// wire a scalar `value` is the one-element case and is read forever; the writer emits `values`.
+    /// A single-valued (lww or contested) predicate takes the last value of the list.
     Set {
         subject: String,
         class: String,
         predicate: String,
-        value: Option<Term>,
+        values: Vec<Term>,
     },
     /// Add values to a set.
     Add {
@@ -445,10 +447,10 @@ fn op_inner_in(v: &Value, group: Option<(&str, &str)>) -> Result<Op, String> {
         .and_then(Value::as_str)
         .ok_or("an op needs a string \"op\"")?;
     let allowed: &[&str] = match (kind, group.is_some()) {
-        ("set", false) => &["op", "subject", "class", "predicate", "value"],
+        ("set", false) => &["op", "subject", "class", "predicate", "value", "values"],
         ("add" | "remove", false) => &["op", "subject", "class", "predicate", "values"],
         ("retract", false) => &["op", "subject", "class"],
-        ("set", true) => &["op", "predicate", "value"],
+        ("set", true) => &["op", "predicate", "value", "values"],
         ("add" | "remove", true) => &["op", "predicate", "values"],
         ("retract", true) => &["op"],
         (other, _) => return Err(format!("unknown op {other:?}")),
@@ -470,15 +472,25 @@ fn op_inner_in(v: &Value, group: Option<(&str, &str)>) -> Result<Op, String> {
         return Err("rdf:type is the class of the subject; use the class field".to_string());
     }
     if kind == "set" {
-        let value = match m.get("value") {
-            None | Some(Value::Null) => None,
-            Some(v) => Some(term_inner(v)?),
+        // Both shapes are read forever: the scalar `value` (absent or null clears) and the list
+        // `values` (empty clears). Naming both is ambiguous and refused.
+        let values = match (m.get("value"), m.get("values")) {
+            (Some(v), Some(vs)) if !v.is_null() || !vs.is_null() => {
+                return Err("a set takes \"value\" or \"values\", not both".to_string())
+            }
+            (_, Some(Value::Null)) | (None | Some(Value::Null), None) => Vec::new(),
+            (_, Some(Value::Array(arr))) => arr
+                .iter()
+                .map(term_inner)
+                .collect::<Result<Vec<Term>, String>>()?,
+            (_, Some(_)) => return Err("a set's \"values\" must be an array".to_string()),
+            (Some(v), None) => vec![term_inner(v)?],
         };
         return Ok(Op::Set {
             subject,
             class,
             predicate,
-            value,
+            values,
         });
     }
     let arr = m
@@ -516,12 +528,7 @@ pub(crate) fn op_to_json(op: &Op) -> Value {
         m.insert("predicate".into(), Value::String(p.to_string()));
     }
     match op {
-        Op::Set { value, .. } => {
-            if let Some(t) = value {
-                m.insert("value".into(), term_to_json(t));
-            }
-        }
-        Op::Add { values, .. } | Op::Remove { values, .. } => {
+        Op::Set { values, .. } | Op::Add { values, .. } | Op::Remove { values, .. } => {
             m.insert(
                 "values".into(),
                 Value::Array(values.iter().map(term_to_json).collect()),
@@ -777,8 +784,8 @@ mod tests {
         assert_eq!(ev.parents_of("urn:ao:term/id=1"), &["ab".repeat(32)][..]);
         assert!(ev.parents_of("urn:other").is_empty());
         assert_eq!(ev.ops.len(), 5);
-        assert!(matches!(&ev.ops[0], Op::Set { value: Some(_), .. }));
-        assert!(matches!(&ev.ops[1], Op::Set { value: None, .. }));
+        assert!(matches!(&ev.ops[0], Op::Set { values, .. } if values.len() == 1));
+        assert!(matches!(&ev.ops[1], Op::Set { values, .. } if values.is_empty()));
         match &ev.ops[2] {
             Op::Add { values, .. } => {
                 assert_eq!(values.len(), 2);
@@ -1051,9 +1058,21 @@ mod tests {
                 .unwrap(),
             ),
             (
-                "set with values",
+                "set with both value and values",
                 serde_json::to_vec(&json!({"ops":[{"op":"set","subject":s,"class":c,
-                    "predicate":p,"values":["x"]}]}))
+                    "predicate":p,"value":"x","values":["y"]}]}))
+                .unwrap(),
+            ),
+            (
+                "set with values that is not an array",
+                serde_json::to_vec(&json!({"ops":[{"op":"set","subject":s,"class":c,
+                    "predicate":p,"values":"x"}]}))
+                .unwrap(),
+            ),
+            (
+                "set with a null among values",
+                serde_json::to_vec(&json!({"ops":[{"op":"set","subject":s,"class":c,
+                    "predicate":p,"values":["x",null]}]}))
                 .unwrap(),
             ),
             (
@@ -1088,6 +1107,57 @@ mod tests {
             // Display never panics either
             let _ = r.unwrap_err().to_string();
         }
+    }
+
+    /// W7c. A set reads both wire shapes forever, a scalar `value` as the one-element list, and
+    /// writes `values`. Mutation: write `value` for a one-element set and the writer assertions go
+    /// red; stop reading `value` and the legacy assertions go red.
+    #[test]
+    fn a_set_reads_value_and_values_and_writes_values() {
+        let lit = |s: &str| Term::Lit(oxigraph::model::Literal::new_simple_literal(s));
+        let iri = |s: &str| Term::Uri(NamedNode::new(s).unwrap());
+        let read = |op: Value| op_from_json(0, &op).unwrap();
+        let base = |extra: Value| {
+            let mut m =
+                json!({"op": "set", "subject": "urn:s", "class": "urn:c", "predicate": "urn:p"});
+            for (k, v) in extra.as_object().unwrap() {
+                m[k] = v.clone();
+            }
+            m
+        };
+        let values_of = |op: Op| match op {
+            Op::Set { values, .. } => values,
+            other => panic!("expected set, got {other:?}"),
+        };
+        assert_eq!(values_of(read(base(json!({"value": "x"})))), vec![lit("x")]);
+        assert_eq!(
+            values_of(read(base(json!({"values": ["x"]})))),
+            vec![lit("x")]
+        );
+        assert_eq!(
+            values_of(read(base(json!({"values": ["x", {"@id": "urn:o"}]})))),
+            vec![lit("x"), iri("urn:o")]
+        );
+        assert!(values_of(read(base(json!({"value": null})))).is_empty());
+        assert!(values_of(read(base(json!({"values": []})))).is_empty());
+        assert!(values_of(read(base(json!({})))).is_empty());
+        assert!(values_of(read(base(json!({"value": null, "values": null})))).is_empty());
+        // The writer emits `values`, never `value`, and the result reads back equal.
+        for op in [
+            read(base(json!({"value": "x"}))),
+            read(base(json!({"values": ["x", "y"]}))),
+            read(base(json!({"values": []}))),
+        ] {
+            let written = op_to_json(&op);
+            assert!(written.get("value").is_none(), "{written}");
+            assert!(written["values"].is_array(), "{written}");
+            assert_eq!(op_from_json(0, &written).unwrap(), op);
+        }
+        // A frame written before W7c (scalar form, as stored) still decodes.
+        let legacy = br#"{"ops":[{"class":"urn:c","op":"set","predicate":"urn:p","subject":"urn:s","value":"x"}]}"#;
+        let ops = ops_from_payload(legacy).unwrap();
+        assert_eq!(ops.len(), 1);
+        assert_eq!(values_of(ops[0].clone()), vec![lit("x")]);
     }
 
     #[test]

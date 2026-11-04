@@ -129,6 +129,13 @@ impl FoldPolicy {
         }
     }
 
+    /// True when a `set` on `predicate` replaces the value set of both layers: a contractless
+    /// vocabulary (`by_op`) for a predicate the table does not name, where `add`/`remove` write the
+    /// set layer and a scalar `set` the single layer (W7c).
+    pub(crate) fn sets_both_layers(&self, predicate: &str) -> bool {
+        self.by_op && !self.by_predicate.contains_key(predicate)
+    }
+
     /// The merge that applies to `op` writing `predicate`.
     pub(crate) fn merge_for(&self, predicate: &str, op: &Op) -> Merge {
         if let Some(m) = self.by_predicate.get(predicate) {
@@ -234,7 +241,7 @@ mod tests {
             subject: "urn:s".into(),
             class: "urn:t:A".into(),
             predicate: "urn:t:unknown".into(),
-            value: None,
+            values: vec![],
         };
         assert_eq!(p.merge_for("urn:t:unknown", &set), Merge::Lww);
         assert_eq!(p.merge_for("urn:t:tags", &set), Merge::AddWins);
@@ -247,7 +254,7 @@ mod tests {
             subject: "urn:s".into(),
             class: "urn:c".into(),
             predicate: "urn:p".into(),
-            value: None,
+            values: vec![],
         };
         let add = Op::Add {
             subject: "urn:s".into(),

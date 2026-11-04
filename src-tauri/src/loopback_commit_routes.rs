@@ -329,7 +329,8 @@ fn check_op(op: &Op) -> Result<(), String> {
         }
     }
     let terms: Vec<&Term> = match op {
-        Op::Set { value, .. } => value.iter().collect(),
+        // A set may carry any number of values, none clears; an add or remove needs at least one.
+        Op::Set { values, .. } => values.iter().collect(),
         Op::Add { values, .. } | Op::Remove { values, .. } => {
             if values.is_empty() {
                 return Err("values is empty".to_string());
@@ -378,11 +379,17 @@ impl Desired {
         };
         match op {
             Op::Set {
-                predicate, value, ..
+                predicate, values, ..
             } => {
                 entry.props.retain(|(p, _)| p != predicate);
-                if let Some(value) = value {
-                    entry.props.push((predicate.clone(), value.clone()));
+                for value in values {
+                    let duplicate = entry
+                        .props
+                        .iter()
+                        .any(|(p, v)| p == predicate && v.as_nt() == value.as_nt());
+                    if !duplicate {
+                        entry.props.push((predicate.clone(), value.clone()));
+                    }
                     entry.asserted = true;
                 }
             }
@@ -1054,6 +1061,8 @@ async fn commit_inner(
     let key = ledger_room_key(graph_id, vocab);
     let gate = gate_for(&key);
     let room = open_room(state, graph_id, vocab).await?;
+    let room_opened = Instant::now();
+    let mut gate_passed = room_opened;
     let mut appended: Vec<Appended> = Vec::new();
     let room = {
         let mut state_guard = enter_gate(&gate, plan.txn.as_deref())
@@ -1082,6 +1091,7 @@ async fn commit_inner(
             let commit_only = plan.frames.is_empty() && plan.close;
             check_run_intact(&state_guard, txn, tip, commit_only)?;
         }
+        gate_passed = Instant::now();
         let outcome = append_all(state, graph_id, vocab, room, drafts, &mut appended).await;
         // Whatever happened, the gate reflects what is now in the ledger: a transaction whose
         // newest frame is not its commit is an open run, and `last_seq` is where it ends.
@@ -1147,7 +1157,9 @@ async fn commit_inner(
     };
     response["timings"] = json!({
         "validateMs": ms(started, validated),
-        "appendMs": ms(validated, appended_at),
+        "roomMs": ms(validated, room_opened),
+        "gateMs": ms(room_opened, gate_passed),
+        "appendMs": ms(gate_passed, appended_at),
         "barrierMs": ms(appended_at, barriered),
         "ackMs": ms(started, acked),
         "foldWaitMs": ms(acked, Instant::now()),
@@ -1713,5 +1725,65 @@ mod tests {
         )
         .unwrap();
         assert!(build_drafts(&without, "ao")[0].extra.is_empty());
+    }
+
+    /// W7c. A set takes `values` (any number, none clears) or the scalar `value`, never both; the
+    /// frame carries the list form; a typed literal in the list is lexically checked; the SHACL
+    /// gate sees every value of the set. Mutation: reject `values` on a set (the W7b reader) and the
+    /// first assertion goes red; skip `check_term_lexical` over the list and the bad-literal case
+    /// is accepted.
+    #[test]
+    fn a_set_takes_a_list_of_values_and_the_frame_carries_it() {
+        let list = |values: Value| json!({"op": "set", "subject": S1, "class": CLASS, "predicate": NAME, "values": values});
+        let plan = plan_commit(
+            body(json!({"witness": "w", "ops": [list(json!(["a", "b", {"@id": "urn:o"}]))]})),
+            &Limits::default(),
+        )
+        .unwrap();
+        assert_eq!(plan.frames.len(), 1);
+        let payload: Value = serde_json::from_slice(&plan.frames[0].payload).unwrap();
+        assert_eq!(payload["ops"][0]["values"].as_array().unwrap().len(), 3);
+        assert!(payload["ops"][0].get("value").is_none());
+        // the SHACL gate is shown every value of the set
+        let props: Vec<_> = plan
+            .desired
+            .iter()
+            .filter(|(_, p, _)| p == NAME)
+            .map(|(_, _, o)| o.as_nt())
+            .collect();
+        assert_eq!(props.len(), 3, "{props:?}");
+
+        // [] clears (accepted); the scalar form is the one-element case; null clears
+        for ops in [
+            json!([list(json!([]))]),
+            json!([set(S1, json!("x"))]),
+            json!([set(S1, Value::Null)]),
+        ] {
+            plan_commit(
+                body(json!({"witness": "w", "ops": ops})),
+                &Limits::default(),
+            )
+            .unwrap();
+        }
+        // a set after a set replaces: the desired state holds the last list only
+        let plan = plan_commit(
+            body(json!({"witness": "w", "ops": [list(json!(["a", "b"])), list(json!(["c"]))]})),
+            &Limits::default(),
+        )
+        .unwrap();
+        assert_eq!(plan.desired.iter().filter(|(_, p, _)| p == NAME).count(), 1);
+
+        // refused: both shapes, a non-array, a null member, a malformed typed literal
+        let both = json!({"op": "set", "subject": S1, "class": CLASS, "predicate": NAME,
+                          "value": "x", "values": ["y"]});
+        for bad in [
+            both,
+            list(json!("x")),
+            list(json!(["x", null])),
+            list(json!([{"@value": "abc", "@type": "http://www.w3.org/2001/XMLSchema#integer"}])),
+        ] {
+            let error = refusal(json!({"witness": "w", "ops": [bad.clone()]}));
+            assert_eq!(error.status, StatusCode::BAD_REQUEST, "{bad}");
+        }
     }
 }

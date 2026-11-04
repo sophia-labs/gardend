@@ -75,7 +75,7 @@ fn set(subject: &str, pred: &str, v: Option<Term>) -> Op {
         subject: subject.into(),
         class: CLASS.into(),
         predicate: pred.into(),
-        value: v,
+        values: v.into_iter().collect(),
     }
 }
 
@@ -117,6 +117,8 @@ fn fold(policy: &FoldPolicy, events: &[FoldEvent]) -> HeadTable {
     let mut t = HeadTable::new();
     for e in events {
         t.apply(policy, e);
+        // W7b-2 F9: the maintained contested counter is the walk, after every single event.
+        assert_eq!(t.contested_count(), t.contested_count_by_walk());
     }
     t
 }
@@ -191,7 +193,14 @@ fn to_op(r: &RawOp) -> Op {
     let pred = PREDS[r.pred as usize % PREDS.len()];
     let vals: Vec<Term> = r.vals.iter().map(|v| term(*v)).collect();
     match r.kind {
-        0..=3 | 9 => set(
+        // W7c: kind 9 is a list set (`vals` may be empty: it clears), the others a scalar set.
+        9 => Op::Set {
+            subject: subject.into(),
+            class: CLASS.into(),
+            predicate: pred.into(),
+            values: vals,
+        },
+        0..=3 => set(
             subject,
             pred,
             Some(term(r.vals.first().copied().unwrap_or(0))),
@@ -743,7 +752,7 @@ fn from_ops_policy_reads_the_nidra_shape() {
         subject: s.into(),
         class: class.into(),
         predicate: name.into(),
-        value: Some(lit(v)),
+        values: vec![lit(v)],
     };
     let mut t = HeadTable::new();
     t.apply(&policy, &ev("oa", 1, 1, &[], vec![set_name("Customer")]));
@@ -848,4 +857,306 @@ fn rebuild_returns_the_triples_of_every_owned_subject() {
     assert_eq!(table.owned_subjects().len(), 2);
     // subject 0: type + p1; subject 1 retracted: nothing
     assert_eq!(triples.len(), 2);
+}
+
+// ---------------------------------------------------------------------------
+// W7c: `set` takes a list of values and replaces the predicate's whole value set
+// ---------------------------------------------------------------------------
+
+fn list_set(subject: &str, pred: &str, vs: Vec<Term>) -> Op {
+    Op::Set {
+        subject: subject.into(),
+        class: CLASS.into(),
+        predicate: pred.into(),
+        values: vs,
+    }
+}
+
+const RDF_JSON: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#JSON";
+
+fn json_whole(text: &str) -> Term {
+    Term::Lit(Literal::new_typed_literal(
+        text,
+        NamedNode::new(RDF_JSON).unwrap(),
+    ))
+}
+
+fn values_of(t: &HeadTable, subject: &str, pred: &str) -> BTreeSet<String> {
+    t.triples_of(subject)
+        .into_iter()
+        .filter(|(_, p, _)| p == pred)
+        .map(|(_, _, o)| o.as_nt())
+        .collect()
+}
+
+fn nts(terms: &[Term]) -> BTreeSet<String> {
+    terms.iter().map(Term::as_nt).collect()
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(96))]
+
+    /// 3 (lists). Re-asserting the same list (any order, any lexical form of a number) from a later
+    /// stamp of the same origin is an empty Delta and leaves the rendered triples as they were, on a
+    /// set key and, for the last element, on a single-valued key.
+    #[test]
+    fn p3_list_noop_reassert(
+        picks in prop::collection::vec(0u8..9, 1..4),
+        pred in 0u8..4,
+        shuffle in any::<bool>(),
+    ) {
+        let policy = policy();
+        let s = SUBJECTS[0];
+        let p = PREDS[pred as usize];
+        let list: Vec<Term> = picks.iter().map(|i| term(*i)).collect();
+        let mut again = list.clone();
+        if shuffle && (p == P1 || p == P2) {
+            // the last element decides a single-valued key: the rest may change freely
+            let last = again.len() - 1;
+            again[..last].reverse();
+        }
+        let first = ev("oa", 1, 10, &[], vec![list_set(s, p, list)]);
+        let second = ev("oa", 2, 20, &[], vec![list_set(s, p, again)]);
+        let mut t = HeadTable::new();
+        t.apply(&policy, &first);
+        let rendered = nt_set(&t.triples_of(s));
+        let d = t.apply(&policy, &second);
+        prop_assert!(d.is_empty(), "value-equal list re-assert changed triples: {:?}", d);
+        prop_assert_eq!(rendered, nt_set(&t.triples_of(s)));
+    }
+
+    /// 4 (lists). Single-valued keys: the highest stamp's list decides (its last element), the same
+    /// winner in either arrival order; an empty list that wins clears the key.
+    #[test]
+    fn p4_list_lww_winner(
+        o1 in 0u8..3,
+        o2 in 0u8..3,
+        h1 in 1u64..6,
+        h2 in 1u64..6,
+        l1 in prop::collection::vec(0u8..9, 0..3),
+        l2 in prop::collection::vec(0u8..9, 0..3),
+        pred in 0u8..2,
+    ) {
+        let policy = policy();
+        let s = SUBJECTS[0];
+        let p = PREDS[pred as usize];
+        let hlc1 = Hlc { ms: h1, count: 0 };
+        let hlc2 = if o1 == o2 { Hlc { ms: h1 + h2, count: 0 } } else { Hlc { ms: h2, count: 0 } };
+        let seq2 = if o1 == o2 { 2 } else { 1 };
+        let v1: Vec<Term> = l1.iter().map(|i| term(*i)).collect();
+        let v2: Vec<Term> = l2.iter().map(|i| term(*i)).collect();
+        let e1 = FoldEvent::synthetic(ORIGINS[o1 as usize], 1, hlc1, &[], vec![list_set(s, p, v1.clone())]);
+        let e2 = FoldEvent::synthetic(ORIGINS[o2 as usize], seq2, hlc2, &[], vec![list_set(s, p, v2.clone())]);
+        let second_wins = (hlc2, ORIGINS[o2 as usize], seq2) > (hlc1, ORIGINS[o1 as usize], 1u64);
+        let winner = if second_wins { &v2 } else { &v1 };
+        let expected: BTreeSet<_> = winner.last().map(canon_value).into_iter().collect();
+        let orders: Vec<[&FoldEvent; 2]> = if o1 == o2 { vec![[&e1, &e2]] } else { vec![[&e1, &e2], [&e2, &e1]] };
+        for order in orders {
+            let mut t = HeadTable::new();
+            for e in order {
+                t.apply(&policy, e);
+            }
+            let got: BTreeSet<_> = t
+                .triples_of(s)
+                .iter()
+                .filter(|(_, pr, _)| pr == p)
+                .map(|(_, _, o)| canon_value(o))
+                .collect();
+            prop_assert_eq!(got, expected.clone());
+        }
+    }
+}
+
+#[test]
+fn a_list_set_replaces_the_whole_set_and_an_empty_list_clears() {
+    let policy = policy();
+    let s = SUBJECTS[0];
+    let mut t = HeadTable::new();
+    t.apply(
+        &policy,
+        &ev("oa", 1, 1, &[], vec![add(s, Q1, vec![lit("x"), lit("y")])]),
+    );
+    t.apply(
+        &policy,
+        &ev(
+            "oa",
+            2,
+            2,
+            &[],
+            vec![list_set(s, Q1, vec![lit("p"), lit("q"), lit("r")])],
+        ),
+    );
+    assert_eq!(values_of(&t, s, Q1), nts(&[lit("p"), lit("q"), lit("r")]));
+    // a later add and remove apply on top of the set they observed
+    t.apply(
+        &policy,
+        &ev("oa", 3, 3, &[], vec![add(s, Q1, vec![lit("z")])]),
+    );
+    t.apply(
+        &policy,
+        &ev("oa", 4, 4, &[], vec![rem(s, Q1, vec![lit("p")])]),
+    );
+    assert_eq!(values_of(&t, s, Q1), nts(&[lit("q"), lit("r"), lit("z")]));
+    t.apply(&policy, &ev("oa", 5, 5, &[], vec![list_set(s, Q1, vec![])]));
+    assert!(values_of(&t, s, Q1).is_empty());
+    // single-valued: the last element of the list; an empty list clears
+    t.apply(
+        &policy,
+        &ev(
+            "oa",
+            6,
+            6,
+            &[],
+            vec![list_set(s, P1, vec![lit("a"), lit("b")])],
+        ),
+    );
+    assert_eq!(values_of(&t, s, P1), nts(&[lit("b")]));
+    t.apply(&policy, &ev("oa", 7, 7, &[], vec![list_set(s, P1, vec![])]));
+    assert!(values_of(&t, s, P1).is_empty());
+}
+
+#[test]
+fn a_concurrent_list_set_replaces_only_what_it_observed() {
+    // Another origin's concurrent add survives (add-wins), in every arrival order.
+    let policy = policy();
+    let s = SUBJECTS[0];
+    let base = ev("oa", 1, 1, &[], vec![add(s, Q1, vec![lit("x")])]);
+    let other = ev("ob", 1, 2, &[], vec![add(s, Q1, vec![lit("z")])]);
+    let replace = ev(
+        "oa",
+        2,
+        3,
+        &[],
+        vec![list_set(s, Q1, vec![lit("w"), lit("v")])],
+    );
+    for order in [
+        [&base, &other, &replace],
+        [&base, &replace, &other],
+        [&other, &base, &replace],
+    ] {
+        let mut t = HeadTable::new();
+        for e in order {
+            t.apply(&policy, e);
+        }
+        assert_eq!(values_of(&t, s, Q1), nts(&[lit("z"), lit("w"), lit("v")]));
+    }
+}
+
+/// W7c, the Nidra shape: one predicate carries the `rdf:JSON` whole and its members, readers
+/// `FILTER(datatype(?v) = rdf:JSON)`. Rewriting the column twice with `set values[]` leaves exactly
+/// one whole and the newest members, under a contract (set layer) and with none (`from_ops`, where
+/// the column was written with `add`).
+#[test]
+fn a_json_whole_plus_members_rewritten_twice_leaves_exactly_one_whole() {
+    let s = "urn:ao:column/id=1";
+    let col = "urn:ao:column#values";
+    let class = "urn:ao:column";
+    let write = |ops: Op| ops;
+    let setv = |vs: Vec<Term>| {
+        write(Op::Set {
+            subject: s.into(),
+            class: class.into(),
+            predicate: col.into(),
+            values: vs,
+        })
+    };
+    let addv = |vs: Vec<Term>| Op::Add {
+        subject: s.into(),
+        class: class.into(),
+        predicate: col.into(),
+        values: vs,
+    };
+    let mut contract = BTreeMap::new();
+    contract.insert(col.to_string(), Merge::AddWins);
+    let contract_policy = FoldPolicy {
+        default: Merge::Lww,
+        by_predicate: contract,
+        by_op: false,
+    };
+    for (name, policy) in [
+        ("contract", contract_policy),
+        ("from_ops", FoldPolicy::from_ops()),
+    ] {
+        let wholes = |t: &HeadTable| {
+            t.triples_of(s)
+                .into_iter()
+                .filter(|(_, p, o)| {
+                    p == col && matches!(o, Term::Lit(l) if l.datatype().as_str() == RDF_JSON)
+                })
+                .count()
+        };
+        let mut t = HeadTable::new();
+        let v0 = vec![json_whole("[\"a\",\"b\"]"), lit("a"), lit("b")];
+        t.apply(&policy, &ev("oa", 1, 1, &[], vec![addv(v0)]));
+        assert_eq!(wholes(&t), 1, "{name}");
+
+        let v1 = vec![
+            json_whole("[\"a\",\"c\",\"d\"]"),
+            lit("a"),
+            lit("c"),
+            lit("d"),
+        ];
+        t.apply(&policy, &ev("oa", 2, 2, &[], vec![setv(v1.clone())]));
+        assert_eq!(wholes(&t), 1, "{name}: after the first rewrite");
+        assert_eq!(values_of(&t, s, col), nts(&v1), "{name}");
+
+        let v2 = vec![json_whole("[\"z\",\"y\"]"), lit("z"), lit("y")];
+        t.apply(&policy, &ev("oa", 3, 3, &[], vec![setv(v2.clone())]));
+        assert_eq!(wholes(&t), 1, "{name}: after the second rewrite");
+        assert_eq!(values_of(&t, s, col), nts(&v2), "{name}");
+
+        // A column that shrinks to the whole alone (one value) drops the members too.
+        let v3 = vec![json_whole("[]")];
+        t.apply(&policy, &ev("oa", 4, 4, &[], vec![setv(v3.clone())]));
+        assert_eq!(wholes(&t), 1, "{name}: whole only");
+        assert_eq!(values_of(&t, s, col), nts(&v3), "{name}");
+
+        // and an add after it applies on top of the set it observed
+        t.apply(&policy, &ev("oa", 5, 5, &[], vec![addv(vec![lit("m")])]));
+        assert_eq!(
+            values_of(&t, s, col),
+            nts(&[json_whole("[]"), lit("m")]),
+            "{name}"
+        );
+        t.apply(&policy, &ev("oa", 6, 6, &[], vec![setv(vec![])]));
+        assert!(values_of(&t, s, col).is_empty(), "{name}: cleared");
+
+        // The same ledger folded as a rebuild is the same table, whatever the arrival order.
+        let events: Vec<FoldEvent> = vec![
+            ev(
+                "oa",
+                1,
+                1,
+                &[],
+                vec![addv(vec![json_whole("[1]"), lit("a")])],
+            ),
+            ev(
+                "oa",
+                2,
+                2,
+                &[],
+                vec![setv(vec![json_whole("[2]"), lit("b"), lit("c")])],
+            ),
+            ev("oa", 3, 3, &[], vec![setv(vec![json_whole("[3]")])]),
+            ev(
+                "oa",
+                4,
+                4,
+                &[],
+                vec![setv(vec![json_whole("[4]"), lit("d")])],
+            ),
+        ];
+        let (rebuilt, _) = HeadTable::rebuild(&policy, events.iter());
+        let mut inc = HeadTable::new();
+        for e in &events {
+            inc.apply(&policy, e);
+        }
+        assert_eq!(rebuilt.canonical(), inc.canonical(), "{name}");
+        assert_eq!(wholes(&inc), 1, "{name}");
+        assert_eq!(
+            values_of(&inc, s, col),
+            nts(&[json_whole("[4]"), lit("d")]),
+            "{name}"
+        );
+    }
 }

@@ -270,6 +270,9 @@ pub(crate) struct HeadTable {
     owned: BTreeSet<String>,
     /// Per subject, the number of visible values. A subject with none emits no triples.
     visible_count: BTreeMap<String, u64>,
+    /// Number of single-layer keys flagged contested, maintained where the flag flips so the host
+    /// reads it in O(1) after every chunk (W7b-2 F9); [`HeadTable::contested_count`].
+    contested_n: usize,
 }
 
 /// Terms replaced by their canonical value, so two tables compare equal whenever they fold to
@@ -413,6 +416,25 @@ fn class_triple(subject: &str, class: &str) -> Option<Triple> {
         .map(|c| (subject.to_string(), RDF_TYPE.to_string(), Term::Uri(c)))
 }
 
+/// The same set with no values: what a one-valued set leaves of the set layer (it clears what it
+/// observed and adds nothing).
+fn set_clear_of(op: &Op) -> Op {
+    match op {
+        Op::Set {
+            subject,
+            class,
+            predicate,
+            ..
+        } => Op::Set {
+            subject: subject.clone(),
+            class: class.clone(),
+            predicate: predicate.clone(),
+            values: Vec::new(),
+        },
+        other => other.clone(),
+    }
+}
+
 impl HeadTable {
     pub(crate) fn new() -> HeadTable {
         HeadTable::default()
@@ -523,6 +545,12 @@ impl HeadTable {
 
     /// Number of keys flagged contested.
     pub(crate) fn contested_count(&self) -> usize {
+        self.contested_n
+    }
+
+    /// The same count by walking every head (what the maintained counter must equal; tests only).
+    #[cfg(test)]
+    pub(crate) fn contested_count_by_walk(&self) -> usize {
         self.heads
             .values()
             .filter(|h| {
@@ -683,13 +711,52 @@ impl HeadTable {
             }
         }
         let merge = policy.merge_for(predicate, op);
+        if let (Op::Set { values, .. }, true) = (op, policy.sets_both_layers(predicate)) {
+            // A contractless vocabulary (W7c): a set replaces the predicate's whole value set, in
+            // both layers. The single layer is cleared (lww) or takes the one value; the set layer
+            // is cleared of what the set observed, and takes the values when there are not one.
+            if let [value] = values.as_slice() {
+                self.apply_set(
+                    &set_clear_of(op),
+                    subject,
+                    predicate,
+                    stamp.clone(),
+                    &ev.id,
+                    parents,
+                    cx,
+                );
+                self.apply_single(
+                    subject,
+                    predicate,
+                    Some(value.clone()),
+                    stamp,
+                    &ev.id,
+                    parents,
+                    false,
+                    cx,
+                );
+            } else {
+                self.apply_single(
+                    subject,
+                    predicate,
+                    None,
+                    stamp.clone(),
+                    &ev.id,
+                    parents,
+                    false,
+                    cx,
+                );
+                self.apply_set(op, subject, predicate, stamp, &ev.id, parents, cx);
+            }
+            return;
+        }
         if merge.is_set() {
             self.apply_set(op, subject, predicate, stamp, &ev.id, parents, cx);
         } else {
             // Under lww and contested: set writes its value; add writes the last value; remove
             // clears. An add or remove with no values writes nothing.
             let value: Option<Option<Term>> = match op {
-                Op::Set { value, .. } => Some(value.clone()),
+                Op::Set { values, .. } => Some(values.last().cloned()),
                 Op::Add { values, .. } => values.last().map(|v| Some(v.clone())),
                 Op::Remove { values, .. } => {
                     if values.is_empty() {
@@ -730,6 +797,7 @@ impl HeadTable {
         let HeadTable {
             heads,
             visible_count,
+            contested_n,
             ..
         } = self;
         let key = HeadKey {
@@ -793,11 +861,13 @@ impl HeadTable {
                     *hs = stamp;
                     *hf = frame.to_string();
                     *hp = parents.to_vec();
+                    *contested_n = *contested_n + usize::from(cc) - usize::from(*hc);
                     *hc = cc;
                     if cc && cx.want {
                         cx.contested.push(key);
                     }
                 } else if cc && !*hc {
+                    *contested_n += 1;
                     *hc = true;
                     if cx.want {
                         cx.contested.push(key);
@@ -844,9 +914,9 @@ impl HeadTable {
                     sh.remove(v, &stamp, parents, &mut out);
                 }
             }
-            Op::Set { value, .. } => {
+            Op::Set { values, .. } => {
                 sh.clear(&stamp, parents, &mut out);
-                if let Some(v) = value {
+                for v in values {
                     sh.add(v, &stamp, frame, &mut out);
                 }
             }
@@ -866,6 +936,7 @@ impl HeadTable {
             class_of,
             retracted_at,
             visible_count,
+            contested_n,
             ..
         } = self;
         retracted_at.insert(subject.to_string(), r.clone());
@@ -890,6 +961,7 @@ impl HeadTable {
                     contested,
                 } => {
                     if stamp < r {
+                        *contested_n -= usize::from(contested);
                         if let Some(t) = value {
                             record(
                                 visible_count,

@@ -965,3 +965,79 @@ fn a_retry_after_a_lost_response_of_a_committed_txn_is_refused_txn_closed() {
         });
     });
 }
+
+/// W7c, the Nidra shape end to end: one predicate carries an `rdf:JSON` whole and its members. The
+/// column is written with `add`, then rewritten twice with `set values[]` through the real router;
+/// the sink holds exactly one `rdf:JSON` whole (the readers' `FILTER(datatype(?v) = rdf:JSON)`) and
+/// the newest members, and an oracle replay is equal. Mutation: make `set` clear only the single
+/// layer (the W7b fold) and the first rewrite leaves two wholes.
+#[test]
+fn a_json_whole_and_members_rewritten_with_set_values_leave_one_whole() {
+    with_cell("setvalues", |profile| {
+        block_on(async {
+            create_fixture_graph();
+            let state = state_for(profile);
+            let col = "urn:ao:column#values";
+            let json_t = "http://www.w3.org/1999/02/22-rdf-syntax-ns#JSON";
+            let whole = |text: &str| json!({"@value": text, "@type": json_t});
+            let op = |kind: &str, values: Value| {
+                json!({"op": kind, "subject": "urn:ao:column/id=1", "class": "urn:ao:column",
+                       "predicate": col, "values": values})
+            };
+            let write = |ops: Vec<Value>| json!({"witness": "w", "ops": ops});
+
+            let (status, first) = commit(
+                &state,
+                AO,
+                "?wait=folded",
+                write(vec![op("add", json!([whole("[\"a\"]"), "a"]))]),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{first}");
+            for (rewrite, wanted) in [
+                (json!([whole("[\"b\",\"c\"]"), "b", "c"]), 3),
+                (json!([whole("[\"d\"]"), "d"]), 2),
+            ] {
+                let (status, done) =
+                    commit(&state, AO, "?wait=folded", write(vec![op("set", rewrite)])).await;
+                assert_eq!(status, StatusCode::OK, "{done}");
+                assert_eq!(done["folded"], true, "{done}");
+                let q = |filter: &str| {
+                    format!(
+                        "SELECT ?o WHERE {{ GRAPH ?g {{ <urn:ao:column/id=1> <{col}> ?o {filter} }} }}"
+                    )
+                };
+                let ask = |sparql: String| {
+                    let state = state.clone();
+                    async move {
+                        let (status, rows) = send(
+                            &state,
+                            "POST",
+                            "/api/sparql/query",
+                            serde_json::to_vec(&json!({"graphId": GRAPH, "sparql": sparql}))
+                                .unwrap(),
+                        )
+                        .await;
+                        assert_eq!(status, StatusCode::OK, "{rows}");
+                        rows["rows"].as_array().unwrap().len()
+                    }
+                };
+                assert_eq!(ask(q("")).await, wanted, "all values");
+                assert_eq!(
+                    ask(q(&format!("FILTER(datatype(?o) = <{json_t}>)"))).await,
+                    1,
+                    "exactly one rdf:JSON whole"
+                );
+            }
+            let (status, report) = send(
+                &state,
+                "POST",
+                &format!("/emporium/fold/{GRAPH}/{AO}/replay?into=oracle"),
+                Vec::new(),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{report}");
+            assert_eq!(report["equal"], true, "{report}");
+        });
+    });
+}
