@@ -15,16 +15,16 @@ const CASES_DIR = new URL('../cases/', import.meta.url).pathname
 import { pathToFileURL } from 'node:url'
 import { takeMeasure, registerDev } from './lock.mjs'
 import { loadSpans, serverFacts } from './spans.mjs'
-import { summaryMd } from './report.mjs'
+import { summaryMd, evaluateThresholds, thresholdSummary } from './report.mjs'
 import { holdAwake, powerNow, powerDuring, foreignCpuSampler, roundHealth } from './power.mjs'
 
 const utcStamp = () => new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z')
 const r1 = (x) => Math.round(x * 10) / 10
 
-function caseResult({ caseId, kind, caseVersion = CASE_VERSION, params, calls, extra }) {
+function caseResult({ caseId, kind, caseVersion = CASE_VERSION, params, calls, extra, thresholds }) {
   const ok = calls.filter((c) => c.ok), samples = ok.map((c) => r1(c.ms))
   const traceIds = ok.map((c) => c.traceId ?? null)
-  return { caseId, caseVersion, kind, params, n: samples.length, errors: calls.length - ok.length, ms: summarize(samples), samples, traceIds, server: null, exemplars: [], ...(extra ?? {}), _calls: calls }
+  return { caseId, caseVersion, kind, params, n: samples.length, errors: calls.length - ok.length, ms: summarize(samples), samples, traceIds, server: null, exemplars: [], ...(extra ?? {}), ...(thresholds?.length ? { thresholds: thresholds.map((t) => ({ ...t })) } : {}), _calls: calls }
 }
 
 export async function runBench(o) {
@@ -109,7 +109,7 @@ async function runBenchInner(o) {
     }
     const lex = lexicon(seed)
     const base = { mode: attach ? 'attach' : 'spawn', graphId: G, tag, lex, fixture: manifest, runDir, shared: {}, rng: mulberry32(seed ^ 0xabcdef), log: (o) => log(JSON.stringify(o)),
-      get url() { return client.url }, get key() { return client.key }, get c() { return client }, get twin() { return twinApi } }
+      get url() { return client.url }, get key() { return client.key }, get c() { return client }, get twin() { return twinApi }, get profile() { return attach ? null : clone }, get twinProfile() { return twinClone } }
     base.proc = attach ? null : {
       start: async () => { gard = await startGardend(); client = gard.client(); return gard },
       stop: async () => { if (gard?.child && gard.child.exitCode === null) { const c = gard.cpu(); cpuU += c.user; cpuS += c.sys; await gard.stop() } },
@@ -170,7 +170,7 @@ async function runBenchInner(o) {
         }
       } catch (e) { notes.push(`case ${def.id} failed: ${client?.redact ? client.redact(e.message) : e.message}`); log(`  FAIL ${def.id}: ${e.message}`); continue }
       finally { try { if (def.teardown) await def.teardown(ctx) } catch {} }
-      results.push(caseResult({ caseId: def.id, kind: def.kind, caseVersion: def.version, params, calls, extra }))
+      results.push(caseResult({ caseId: def.id, kind: def.kind, caseVersion: def.version, params, calls, extra, thresholds: def.thresholds }))
       const s = results.at(-1).ms; log(`  ${def.id}: n ${results.at(-1).n} err ${results.at(-1).errors} p50 ${s.p50} p95 ${s.p95}`)
       try { writeFileSync(path.join(runDir, 'run.partial.json'), JSON.stringify({ runId, label, suite, tier, cases: results.map(({ _calls, ...r }) => r) })) } catch {}
       await sleep(def.kind === 'read' || def.kind === 'boot' ? 300 : 1200) // let background work (projection flush) settle
@@ -218,6 +218,10 @@ async function runBenchInner(o) {
     for (const f of spanFiles) rmSync(f)
   }
   for (const r of results) delete r._calls
+  // thresholds (cases that declare them; nothing changes for the rest): evaluate against this run's results, say what failed.
+  for (const r of results) if (r.thresholds) r.thresholds = evaluateThresholds(r.thresholds, r, results)
+  const thr = results.some((r) => r.thresholds) ? thresholdSummary(results) : null
+  if (thr) { log(`thresholds: ${thr.pass} pass, ${thr.fail} fail, ${thr.unmeasured} unmeasured, ${thr.deferred} deferred to A/B`); if (thr.fail) notes.push(`THRESHOLDS FAILED: ${results.flatMap((r) => (r.thresholds ?? []).filter((t) => t.status === 'fail').map((t) => `${r.caseId} ${t.name ?? t.metric}`)).join('; ')}`) }
 
   const finishedAt = new Date()
   const run = {
@@ -227,6 +231,7 @@ async function runBenchInner(o) {
     env: { ...fp0, contention: o._contention ?? { measured: false }, machine, loadAfter: loadavg(), otherGardends: fp0.otherGardends.filter((g) => !pids.includes(g.pid)) },
     fixture: { ...manifest.counts, seedMs: manifest.seedMs },
     cases: results,
+    ...(thr ? { thresholdSummary: thr } : {}),
     process: { rssStartMB: Math.round(rssStart / 1024), rssPeakMB: Math.round(rssPeak / 1024), rssEndMB: Math.round(rssEnd / 1024), cpuUserS: Math.round(cpuU * 10) / 10, cpuSysS: Math.round(cpuS * 10) / 10 },
     ...(failure ? { failed: true, error: failure } : {}), spanJoin, notes: [...notes, ...(fp0.loadBefore[0] > 6 ? [`machine was busy at start: load1 ${fp0.loadBefore[0]}`] : [])],
   }

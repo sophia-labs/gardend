@@ -1,6 +1,7 @@
 // Spawn / stop the gardend we start, and fingerprint the machine.
 import { spawn, execFileSync } from 'node:child_process'
-import { createWriteStream, existsSync, readFileSync, statSync } from 'node:fs'
+import { createWriteStream, existsSync, readFileSync, statSync, readdirSync } from 'node:fs'
+import path from 'node:path'
 import { createHash } from 'node:crypto'
 import os from 'node:os'
 import net from 'node:net'
@@ -25,6 +26,22 @@ export function binaryInfo(bin) {
   if (!gitRev) { // installed app keeps BUILD.txt in Resources; version line there names the rev
     for (const f of [bin.replace(/MacOS\/gardend$/, 'Resources/BUILD.txt'), bin + '.BUILD.txt']) {
       if (existsSync(f)) { const m = readFileSync(f, 'utf8').match(/gardend [^\n]*\(([0-9a-f]{7,40})\)/); if (m) { gitRev = m[1]; break } }
+    }
+  }
+  // A binary built elsewhere and parked in a cache (not in a git checkout) names its rev in a BUILD.txt beside it: one line `gitRev=<sha>` (optional `binary=<file name>`).
+  // Accepted: `<bin>.BUILD.txt`; or `BUILD.txt` in the binary's directory when its `binary=` line names this file, or when this file is the only binary there
+  // (a shared bins/ directory never lends one binary's rev to another).
+  if (!gitRev) {
+    const rev = (f) => { try { const t = readFileSync(f, 'utf8'); return { rev: (t.match(/^gitRev=([0-9a-f]{7,40})\s*$/m) ?? [])[1], binary: (t.match(/^binary=(\S+)\s*$/m) ?? [])[1] } } catch { return {} } }
+    const own = existsSync(bin + '.BUILD.txt') ? rev(bin + '.BUILD.txt') : {}
+    if (own.rev) gitRev = own.rev
+    else {
+      const dir = path.dirname(bin), shared = path.join(dir, 'BUILD.txt')
+      if (existsSync(shared)) {
+        const r = rev(shared)
+        const others = readdirSync(dir).filter((n) => n !== 'BUILD.txt' && !n.endsWith('.BUILD.txt') && statSync(path.join(dir, n)).isFile())
+        if (r.rev && (r.binary ? r.binary === path.basename(bin) : others.length === 1 && others[0] === path.basename(bin))) gitRev = r.rev
+      }
     }
   }
   const full = existsSync(bin.replace(/MacOS\/gardend$/, 'Resources/BUILD.txt')) ? readFileSync(bin.replace(/MacOS\/gardend$/, 'Resources/BUILD.txt'), 'utf8').match(/gardend [^\n]*/)?.[0].replace(/^gardend /, '') : null
