@@ -22,9 +22,21 @@ export function compareRuns(A, B, { resamples = 10000, seed = 20261025 } = {}) {
     if (xa != null && xb != null && (xa !== fa || xb !== fb)) row.fullFsyncsPerOpP50 = { a: xa, b: xb }
     const ha = ca.server?.leaseHoldMs?.p95, hb = cb.server?.leaseHoldMs?.p95
     if (ha != null && hb != null) row.leaseHoldP95 = { a: ha, b: hb, ratio: ha ? hb / ha : NaN, verdict: ha && Math.abs(hb / ha - 1) >= 0.05 && hb > 1 ? (hb < ha ? 'faster' : 'slower') : 'same' }
+    // Thresholds marked `ab: true` are B/A ratios no single run can judge (report.mjs leaves them `deferred`); here they are judged
+    // by this comparison's median ratio: pass when the ratio meets the limit or the comparison's verdict is `same` / `faster`.
+    const abSpecs = (cb.thresholds ?? []).filter((t) => t.ab)
+    if (abSpecs.length) row.thresholds = abSpecs.map((t) => abVerdict(t, row))
     rows.push(row)
   }
   return rows
+}
+const abCmp = { '<=': (a, b) => a <= b, '<': (a, b) => a < b, '>=': (a, b) => a >= b, '>': (a, b) => a > b }
+export function abVerdict(t, row) {
+  const ratio = row.median.ratio, f1 = abCmp[t.op]
+  if (!f1 || !Number.isFinite(ratio)) return { name: t.name ?? t.metric, limit: t.limit, op: t.op, ratio: null, status: 'unmeasured', detail: `no usable ratio for op ${t.op}` }
+  const met = f1(ratio, t.limit), calm = row.median.verdict === 'same' || row.median.verdict === 'faster'
+  return { name: t.name ?? t.metric, limit: t.limit, op: t.op, ratio, verdict: row.median.verdict, status: met || calm ? 'pass' : 'fail',
+    detail: `B/A median ratio ${ratio.toFixed(2)} (CI ${row.median.lo?.toFixed?.(2)}-${row.median.hi?.toFixed?.(2)}), verdict ${row.median.verdict}; want ${t.op} ${t.limit} or a \`same\` verdict` }
 }
 const f = (x, d = 2) => (Number.isFinite(x) ? x.toFixed(d) : '-')
 // Is this comparison a judge? Only if every round on both sides ran on a clean machine (power.mjs roundHealth).
@@ -47,6 +59,8 @@ export function compareMd(A, B, rows, judge = judgeOf(A, B)) {
     if (r.skipped) { L.push(`| ${r.caseId} | | | | | skipped: ${r.skipped} |${pairs ? ' |' : ''} | | | |`); continue }
     L.push(`| ${r.caseId} | ${f(r.p50A, 1)} | ${f(r.p50B, 1)} | ${f(r.median.ratio)} | ${f(r.median.lo)}–${f(r.median.hi)} | **${r.median.verdict}** |${pairs ? ` ${(r.pairs ?? []).map((x) => f(x)).join(' / ')} |` : ''} ${f(r.p95.ratio)} | ${r.p95.verdict} | ${r.fsyncsPerOpP50 ? `${r.fsyncsPerOpP50.a}→${r.fsyncsPerOpP50.b} (${r.fsyncsPerOpP50.verdict})${r.fullFsyncsPerOpP50 ? `; full ${r.fullFsyncsPerOpP50.a}→${r.fullFsyncsPerOpP50.b}` : ''}` : '-'} | ${r.leaseHoldP95 ? `${f(r.leaseHoldP95.a, 1)}→${f(r.leaseHoldP95.b, 1)} (${r.leaseHoldP95.verdict})` : '-'} |`)
   }
+  const abLines = rows.flatMap((r) => (r.thresholds ?? []).map((t) => `- ${t.status.toUpperCase()} ${r.caseId}: ${t.name} -- ${t.detail}`))
+  if (abLines.length) L.push('', `## Thresholds judged by this comparison (B/A)${judge.ok ? '' : ' -- NOT A JUDGE, read as direction only'}`, '', ...abLines)
   const ok = rows.filter((r) => !r.skipped), ratios = ok.map((r) => r.median.ratio).sort((a, b) => a - b)
   const q = (p) => ratios[Math.min(ratios.length - 1, Math.floor(p * ratios.length))]
   const counts = ok.reduce((a, r) => ({ ...a, [r.median.verdict]: (a[r.median.verdict] ?? 0) + 1 }), {})

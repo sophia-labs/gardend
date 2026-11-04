@@ -113,7 +113,7 @@ const evFor = (ctx, s) => eventsOf(ctx, s === 'e100k' ? 'large' : 'small')
 
 // ---- thresholds (SLICE-1.md section 6, section 11 correction) -----------------------------------------------------------------
 const T = {
-  b1n10k: { name: 'write.b1.n10k / write.b1.n0 (p50)', metric: 'p50', ratioTo: 'rich.ledger.write.b1.n0', op: '<=', limit: 1.2, note: 'section 6 says B/A <= 1.20; A has no commit route, so the control is the empty ledger on the same binary' },
+  b1n10k: { name: 'write.b1.n10k / write.b1.n0 (p50) [PROXY for the section 6 B/A row]', metric: 'p50', ratioTo: 'rich.ledger.write.b1.n0', op: '<=', limit: 1.2, proxy: true, note: 'PROXY: section 6 says B/A <= 1.20 against main; main has no commit route, so the control is the empty ledger on the same binary. The real B/A row is judged by `ab` against the prototype (rich.emporium_log) when both run' },
   b1n100k: { name: 'write.b1.n100k / write.b1.n10k (p50)', metric: 'p50', ratioTo: 'rich.ledger.write.b1.n10k', op: '<=', limit: 1.25, note: 'section 6: the append must not scale with the log' },
   b1e100k: { name: 'write.b1.e100k / write.b1.e10k (p50)', metric: 'p50', ratioTo: 'rich.ledger.write.b1.e10k', op: '<=', limit: 1.25, note: 'section 12 row: the append must not scale with the log, measured in events' },
   queryEq: { name: 'query_eq B/A same', metric: 'p50', ab: true, op: '<=', limit: 1, note: 'the projection is the same store; judged by the A/B comparison (`same`)' },
@@ -129,12 +129,25 @@ const T = {
 async function writeRun(ctx, recordsPerRequest) {
   if (ctx.noFold) return { skipped: NO_FOLD }
   const g = ctx.graphId, base = 1_000_000, seed = seedOf(ctx)
+  // W7b item 9: the timed number stays "commit with ?wait=folded" (ack + fold), and is now split. The server's own `timings` (response body)
+  // separate the plain ack (validate + append + barrier) from the fold wait; the fold status's `last_cycle` (read untimed, after each call)
+  // splits the fold cycle (barrier, events_since seek, plan, delta staging, commit of the transaction carrying the watermark).
+  const timings = [], cycles = []
+  const sample = async () => { try { const st = await cm.foldStatus(ctx, g, VOCAB); if (st?.last_cycle) cycles.push(st.last_cycle) } catch { /* the split is a report, not a gate */ } }
   const out = await phasedRun(ctx, ctx.params, async (c, i) => {
+    if (i > 0) await sample()
     const start = base + i * recordsPerRequest, ops = []
     gizmoRecords(recordsPerRequest, seed, start).forEach((rec, j) => ops.push(...opsOf(g, rec, start + j)))
     c._body = bodyOf(ops)
-  }, async (c) => { await cm.commit(c, g, VOCAB, c._body, { wait: true }) })
-  return { calls: out.calls, ...meta(ctx, { recordsPerRequest, waitFolded: true, notes: [`actual n ${ctx.L.n} ${ctx.L.nUnit} (tier ${tierOf(ctx)})`, ...ctx.L.notes, `timed: one commit of ${recordsPerRequest} record(s) with ?wait=folded; the body is built untimed`, IRI_NOTE] }) }
+  }, async (c) => { const r = await cm.commit(c, g, VOCAB, c._body, { wait: true }); timings.push(r.json?.timings ?? null) })
+  await sample()
+  const keep = (rows) => rows.slice(ctx.params.warmup).filter(Boolean)
+  const p50 = (rows, k) => { const v = rows.map((r) => r[k]).filter((x) => typeof x === 'number').sort((a, b) => a - b); return v.length ? r2(v[Math.floor((v.length - 1) / 2)]) : null }
+  const t = keep(timings), cy = cycles.slice(Math.max(0, cycles.length - Math.max(1, t.length)))
+  const split = { ackMsP50: p50(t, 'ackMs'), validateMsP50: p50(t, 'validateMs'), appendMsP50: p50(t, 'appendMs'), barrierMsP50: p50(t, 'barrierMs'), foldWaitMsP50: p50(t, 'foldWaitMs'),
+    cycle: { persistMsP50: p50(cy, 'persist_ms'), eventsSinceMsP50: p50(cy, 'events_since_ms'), planMsP50: p50(cy, 'plan_ms'), applyMsP50: p50(cy, 'apply_ms'), deltaMsP50: p50(cy, 'delta_ms'), commitMsP50: p50(cy, 'commit_ms') } }
+  const note = `split (server-side p50 ms): ack ${split.ackMsP50} = validate ${split.validateMsP50} + append ${split.appendMsP50} + barrier ${split.barrierMsP50}; fold wait ${split.foldWaitMsP50}; fold cycle: persist ${split.cycle.persistMsP50}, events_since ${split.cycle.eventsSinceMsP50}, plan ${split.cycle.planMsP50}, apply ${split.cycle.applyMsP50} (delta ${split.cycle.deltaMsP50} + commit ${split.cycle.commitMsP50})`
+  return { calls: out.calls, ...meta(ctx, { recordsPerRequest, waitFolded: true, split, notes: [`actual n ${ctx.L.n} ${ctx.L.nUnit} (tier ${tierOf(ctx)})`, ...ctx.L.notes, `timed: one commit of ${recordsPerRequest} record(s) with ?wait=folded; the body is built untimed`, note, IRI_NOTE] }) }
 }
 async function replayRun(ctx, into, { timeoutMs = 900_000, requireEqual = true } = {}) {
   if (ctx.noFold) return { skipped: NO_FOLD }
@@ -155,8 +168,10 @@ async function diskRun(ctx) {
   let bytes = null
   const out = await timedRun(ctx, ctx.params, async () => { bytes = await cm.settledLedgerBytes(ctx.profile, ctx.graphId, VOCAB); if (bytes === null) throw new Error(`no ledger directory at ${cm.ledgerDir(ctx.profile, ctx.graphId, VOCAB)}`) })
   const jsonl = ctx.L.jsonlBytes, ratio = jsonl && bytes ? r2(bytes / jsonl) : null, st = await cm.foldStatus(ctx, ctx.graphId, VOCAB)
-  const m = meta(ctx, { ledgerBytes: bytes, jsonlBytes: jsonl, ratio, version: st?.version })
+  const fb = cm.frameBytes(cm.ledgerDir(ctx.profile, ctx.graphId, VOCAB)), share = (x) => (fb && fb.fileBytes ? r2(x / fb.fileBytes) : null)
+  const m = meta(ctx, { ledgerBytes: bytes, jsonlBytes: jsonl, ratio, version: st?.version, frameBytes: fb, headerShare: share(fb?.headerBytes), payloadShare: share(fb?.payloadBytes) })
   m.extra.notes.push(`ledger bytes ${bytes}, JSONL ${jsonl} (${ctx.L.nUnit === 'events' ? 'the frames\' payload lines' : 'the records'}), ratio ${ratio} (threshold <= 3)`)
+  if (fb) m.extra.notes.push(`${fb.frames} frames: header ${fb.headerBytes} B (${share(fb.headerBytes)} of the file), payload ${fb.payloadBytes} B (${share(fb.payloadBytes)}), fixed framing ${fb.fixedBytes} B; ${fb.subjects} header subject entries`)
   return { calls: out.calls, ...m }
 }
 // Process start to the first emporium_query eq ok on a graph with the large ledger; also when the fold had caught up (lag_frames 0), reported as extra.foldCaughtUpMs.

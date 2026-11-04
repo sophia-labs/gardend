@@ -6,7 +6,7 @@
 //   POST /emporium/fold/{graph}/{vocab}/replay             body {into: 'oracle' | 'live'}
 // `api` is anything with {url, key}: the runner's ctx, or ctx.twin. The bearer token is the runner's (the profile's selfhost-key.json), as in lib/mcp.mjs.
 // Own fetch (not ctx.http) because the replay and wait=folded calls need longer timeouts than the client's default, and every message is redacted of the key.
-import { readdirSync, statSync, existsSync } from 'node:fs'
+import { readdirSync, statSync, existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 
 export const XSD = 'http://www.w3.org/2001/XMLSchema#'
@@ -138,6 +138,23 @@ export function dirBytes(dir) {
 }
 export const ledgerDir = (profile, graph, vocab) => path.join(profile, 'graphs', graph, 'ledger', vocab)
 export const ledgerBytes = (profile, graph, vocab) => (profile ? dirBytes(ledgerDir(profile, graph, vocab)) : null)
+// Header vs payload bytes of every frame in the ledger directory (W7b item 9, the disk diagnosis). Frame layout (garden-ledger frame.rs):
+// [u32 LE body_len][u16 LE hdr_len][header JSON][u32 hdr_crc][payload][u32 payload_crc]. Reads the *.log streams; null when the directory is absent.
+export function frameBytes(dir) {
+  if (!existsSync(dir)) return null
+  const out = { frames: 0, headerBytes: 0, payloadBytes: 0, fixedBytes: 0, fileBytes: 0, subjects: 0 }
+  for (const name of readdirSync(dir)) {
+    if (!name.endsWith('.log')) continue
+    const buf = readFileSync(path.join(dir, name)); out.fileBytes += buf.length
+    for (let at = 0; at + 6 <= buf.length;) {
+      const bodyLen = buf.readUInt32LE(at); if (at + 4 + bodyLen > buf.length) break
+      const hl = buf.readUInt16LE(at + 4), h = JSON.parse(buf.toString('utf8', at + 6, at + 6 + hl))
+      out.frames += 1; out.headerBytes += hl; out.payloadBytes += h.payload_len ?? 0; out.fixedBytes += 4 + 2 + 4 + 4; out.subjects += h.subjects?.length ?? 0
+      at += 4 + bodyLen
+    }
+  }
+  return out
+}
 // Bytes once they stop growing (the barrier trails the acks by up to the 1 s window; the ship task may still write).
 export async function settledLedgerBytes(profile, graph, vocab, { maxMs = 8000, stepMs = 500 } = {}) {
   let prev = null, cur = ledgerBytes(profile, graph, vocab); const t0 = performance.now()

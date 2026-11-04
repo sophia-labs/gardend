@@ -28,8 +28,16 @@ async function pair(ctx, name, { twin = true } = {}) {
 const draftOf = (i, tag = 'led') => ({ witness: 'urn:gbench:witness', subjects: [{ subject: `urn:gbench:${tag}:${i}`, class: 'urn:gbench:Gizmo', parents: [] }], mode: 'assert', payload: JSON.stringify([{ s: `urn:gbench:${tag}:${i}`, p: 'urn:gbench:n', o: i }]) })
 async function until(what, fn, ms = TIMEOUT, step = 2) { const t0 = performance.now(); for (;;) { if (await fn()) return performance.now() - t0; if (performance.now() - t0 > ms) throw new Error(`timeout ${ms} ms: ${what}`); await sleep(step) } }
 
+// SLICE-1.md section 6, encoded (W7b F7): sync.n10k <= 5 s, sync.delta.b1 p50 <= 250 ms, awareness.echo p50 <= 50 ms.
+const T = {
+  syncN10k: { name: 'sync.n10k', metric: 'p50', op: '<=', limit: 5000, unit: 'ms', note: 'section 6: a replica catching up on ten thousand events, loopback' },
+  syncDelta: { name: 'sync.delta.b1 p50', metric: 'p50', op: '<=', limit: 250, unit: 'ms', note: 'section 6: an edit on A visible on B within a glance' },
+  awarenessEcho: { name: 'awareness.echo p50', metric: 'p50', op: '<=', limit: 50, unit: 'ms', note: 'section 6: presence is the same relay as ws.typing.book today' },
+}
+
 const cold = (id, which) => ({
   id, version: 1, kind: 'rich', suites: which === 'small' ? LSUITES : SUITES, params: IT([1, 0], [3, 1]), needs: ['twin'],
+  ...(which === 'small' ? { thresholds: [T.syncN10k] } : {}),
   async run(ctx) {
     if (!ledger.available) return { skipped: NO_DEPS }
     const n = sizeOf(ctx, which); ctx.params.n = n; ctx.params.n_actual = n; ctx.params.tier = tierOf(ctx)
@@ -60,7 +68,7 @@ export const cases = [
   cold('rich.ledger.sync.cold.n10k', 'small'),
   cold('rich.ledger.sync.cold.n100k', 'large'),
   // With the pair synced and the relay live: one frame appended by a writer on cell A; ms until cell B's version.origins[writer] increments.
-  { id: 'rich.ledger.sync.delta', version: 1, kind: 'rich', suites: LSUITES, params: IT([3, 1], [20, 3]), needs: ['twin'],
+  { id: 'rich.ledger.sync.delta', version: 1, kind: 'rich', suites: LSUITES, params: IT([3, 1], [20, 3]), needs: ['twin'], thresholds: [T.syncDelta],
     async run(ctx) {
       if (!ledger.available) return { skipped: NO_DEPS }
       const base = 100; ctx.params.n = base; ctx.params.n_actual = base; ctx.params.tier = tierOf(ctx)
@@ -93,7 +101,7 @@ export const cases = [
       return { calls }
     } },
   // Awareness on the ledger room: client 1 publishes a state at 20/s, client 2 on the same room receives it; ms from send to receive.
-  { id: 'rich.ledger.awareness.echo', version: 1, kind: 'rich', suites: LSUITES, params: { iterations: 600, warmup: 0, concurrency: 1, hz: 20, smoke: { iterations: 100 }, def: 'awareness state sent by client 1 on the ledger room; ms until client 2 holds it' }, needs: [],
+  { id: 'rich.ledger.awareness.echo', version: 1, kind: 'rich', suites: LSUITES, thresholds: [T.awarenessEcho], params: { iterations: 600, warmup: 0, concurrency: 1, hz: 20, smoke: { iterations: 100 }, def: 'awareness state sent by client 1 on the ledger room; ms until client 2 holds it' }, needs: [],
     async run(ctx) {
       if (!ledger.available) return { skipped: NO_DEPS }
       const n = ctx.params.iterations, hz = ctx.params.hz
