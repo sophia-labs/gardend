@@ -1,5 +1,6 @@
 use crate::app_error::PersistenceError;
 use crate::app_runtime::AppHandle;
+use crate::app_runtime::Manager;
 use crate::{
     graph_service::touch_graph_content_revision,
     ids::validate_local_id,
@@ -14,8 +15,6 @@ use crate::{
 use oxigraph::sparql::SparqlEvaluator;
 #[cfg(test)]
 use std::sync::{Mutex, OnceLock};
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 
 #[cfg(test)]
 static FAIL_NEXT_DELETE_AFTER_TOMBSTONE: OnceLock<Mutex<Option<(String, String)>>> =

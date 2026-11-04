@@ -8,6 +8,7 @@
 use super::ops::{read_scene, scene_from_update_base64, scene_of_doc, write_dirty};
 use super::outline::{arrows, outline_markdown, shapes};
 use super::scene::{Element, Scene};
+use crate::app_runtime::Manager;
 use crate::graph_service::{create_graph_service, CreateGraphInput};
 use crate::local_jobs::LocalJobRegistry;
 use crate::mcp_dispatch_registry::{lookup, McpCallCtx};

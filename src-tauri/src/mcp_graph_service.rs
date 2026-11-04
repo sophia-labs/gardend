@@ -199,6 +199,7 @@ fn update_graph_description_argument(arguments: &serde_json::Value) -> Option<St
 #[cfg(all(test, feature = "headless"))]
 pub(crate) mod async_graph_alias_test_support {
     use super::*;
+    use crate::app_runtime::Manager;
     use std::{
         future::Future,
         panic::AssertUnwindSafe,
@@ -206,8 +207,6 @@ pub(crate) mod async_graph_alias_test_support {
         thread,
         time::{Duration, SystemTime, UNIX_EPOCH},
     };
-    #[cfg(feature = "desktop")]
-    use tauri::Manager;
 
     pub(crate) fn assert_alias_yields_while_graph_lease_is_held<F, Fut>(
         profile_prefix: &str,

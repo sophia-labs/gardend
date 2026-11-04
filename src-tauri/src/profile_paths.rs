@@ -1,8 +1,7 @@
 use crate::app_runtime::AppHandle;
+use crate::app_runtime::Manager;
 use crate::runtime_config::{LOOPBACK_MANIFEST_FILE, PROFILE_ID};
 use std::path::PathBuf;
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 
 pub(crate) fn profile_dir(app: &AppHandle) -> Result<PathBuf, String> {
     // Headless/container override (also handy for desktop debugging):

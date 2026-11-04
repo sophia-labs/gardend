@@ -5,6 +5,7 @@
 //! and changes nothing, not even on open; an Editor's and the Owner's same
 //! frames land (so every refusal is a real one). No mocks.
 use super::*;
+use crate::app_runtime::Manager;
 use crate::crdt_engine::rooms::{RoomRegistry, VISITOR_REFUSED_CLOSE};
 use axum::{body::Body, http::Request};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};

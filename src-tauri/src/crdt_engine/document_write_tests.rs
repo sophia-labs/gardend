@@ -5,6 +5,7 @@
 //! the real operations (`document.write`, `document.ingestMarkdownOriginal`) through the real
 //! queue against a disposable graph, then look at the room's Y.Doc, the broadcast updates and the
 //! stored record. No mocks.
+use crate::app_runtime::Manager;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use tokio::sync::broadcast::error::TryRecvError;

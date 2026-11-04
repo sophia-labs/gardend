@@ -12,14 +12,13 @@
 use super::persistence_coordinator::HotWriteLease;
 use crate::app_error::PersistenceError;
 use crate::app_runtime::AppHandle;
+use crate::app_runtime::Manager;
 use crate::crdt_operation_journal::{
     record_crdt_operation_completion, record_crdt_operation_completion_unforced,
 };
 use crate::crdt_operation_queue::RetrySchedule;
 use crate::crdt_queue::{CompleteCrdtOperationInput, CrdtOperation, CrdtOperationQueue};
 use serde_json::Value;
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 use tracing::{instrument::WithSubscriber, Instrument};
 
 /// Structured operation failure contract used by the production drainer.
@@ -626,10 +625,9 @@ async fn apply_operation_dispatch(
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod incarnation_recovery_tests {
     use super::*;
+    use crate::app_runtime::Manager;
     use crate::graph_service::{create_graph_service, CreateGraphInput};
     use std::path::PathBuf;
-    #[cfg(feature = "desktop")]
-    use tauri::Manager;
     use uuid::Uuid;
 
     fn temp_profile() -> PathBuf {
@@ -888,6 +886,7 @@ mod incarnation_recovery_tests {
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod post_hot_recovery_tests {
     use super::*;
+    use crate::app_runtime::Manager;
     use crate::crdt_engine::document_ops::IngestFailurePoint;
     use crate::crdt_engine::import_archive_ops::ArchiveFailurePoint;
     use crate::graph_service::{create_graph_service, CreateGraphInput};
@@ -897,8 +896,6 @@ mod post_hot_recovery_tests {
     use sha2::{Digest, Sha256};
     use std::io::Write;
     use std::path::{Path, PathBuf};
-    #[cfg(feature = "desktop")]
-    use tauri::Manager;
     use uuid::Uuid;
     use yrs::updates::decoder::Decode;
     use yrs::{Doc, Map as YMap, ReadTxn, StateVector, Transact, Update};

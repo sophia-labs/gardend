@@ -1,10 +1,9 @@
 use crate::app_runtime::AppHandle;
+use crate::app_runtime::Manager;
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
     Arc, Mutex,
 };
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 
 /// Cooperative guard against concurrent CRDT mutations during a graph
 /// restore. While `is_active` is set, every CRDT enqueue and direct

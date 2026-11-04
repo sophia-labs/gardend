@@ -173,6 +173,14 @@ mod workspace_ops {
             "workspace_ops is not available in standalone import_vault_ops tests".into(),
         ))
     }
+
+    pub(crate) async fn apply_classified_with_prior_hot_commit(
+        app: &crate::app_runtime::AppHandle,
+        operation: &crate::crdt_queue::CrdtOperation,
+        _prior_hot_commit: bool,
+    ) -> crate::executor::ApplyOperationResult<serde_json::Value> {
+        apply_classified(app, operation).await
+    }
 }
 
 #[path = "../src/crdt_engine/import_vault_ops.rs"]

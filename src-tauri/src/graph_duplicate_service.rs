@@ -1,4 +1,5 @@
 use crate::app_runtime::AppHandle;
+use crate::app_runtime::Manager;
 use crate::{
     clock::timestamp,
     crdt_queue::CrdtOperation,
@@ -26,8 +27,6 @@ use oxigraph::{sparql::SparqlEvaluator, store::Store};
 use std::path::Path;
 #[cfg(test)]
 use std::sync::{Arc, Condvar, Mutex};
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 use uuid::Uuid;
 
 #[cfg(test)]
@@ -101,12 +100,8 @@ async fn duplicate_graph_inner(
         return Err("source_graph_id and new_graph_id must differ".to_string());
     }
 
-    // The retired frontend-authority build still needs its cooperative flush
-    // handshake. Normal desktop and gardend builds both use the leased Rust
-    // room flush below as their source snapshot boundary.
-    #[cfg(feature = "frontend-crdt")]
-    crate::crdt_projection_flush::flush_graph_projection(app.clone(), &source_graph_id).await?;
-
+    // Desktop and gardend both use the leased Rust room flush below as their
+    // source snapshot boundary.
     let coordinator = app
         .try_state::<crate::crdt_engine::persistence_coordinator::GraphPersistenceCoordinator>()
         .ok_or_else(|| "graph persistence coordinator is unavailable".to_string())?;
@@ -558,11 +553,10 @@ mod tests {
     #[cfg(all(feature = "headless", not(feature = "desktop")))]
     #[test]
     fn concurrent_real_create_list_read_and_connect_observe_one_atomic_publication() {
+        use crate::app_runtime::Manager;
         use crate::graph_service::{
             create_graph_service, create_graph_service_async, list_graphs_service, CreateGraphInput,
         };
-        #[cfg(feature = "desktop")]
-        use tauri::Manager;
 
         let _serial = crate::tauri_runtime::profile_env_serial()
             .lock()
@@ -1042,10 +1036,9 @@ mod tests {
     #[cfg(all(feature = "headless", not(feature = "desktop")))]
     #[test]
     fn duplicate_hydrates_fresh_registry_hot_only_and_stale_cold_sidecars() {
+        use crate::app_runtime::Manager;
         use crate::graph_service::{create_graph_service, CreateGraphInput};
         use serde_json::json;
-        #[cfg(feature = "desktop")]
-        use tauri::Manager;
         use yrs::{Any, Doc, Map, MapPrelim, ReadTxn, StateVector, Transact, WriteTxn};
 
         fn full_update(doc: &Doc) -> Vec<u8> {

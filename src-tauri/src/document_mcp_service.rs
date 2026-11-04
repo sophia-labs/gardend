@@ -1,4 +1,5 @@
 use crate::app_runtime::AppHandle;
+use crate::app_runtime::Manager;
 use crate::{
     document_record_store::DocumentSummary,
     document_rendering::{document_blocks_for_read, document_markdown},
@@ -6,8 +7,6 @@ use crate::{
     mcp_utils::{mcp_arg_string, mcp_arg_usize, mcp_required_document_id, mcp_required_graph_id},
     paths::existing_graph_dir,
 };
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 
 const DEFAULT_LIST_LIMIT: usize = 100;
 const MAX_LIST_LIMIT: usize = 500;

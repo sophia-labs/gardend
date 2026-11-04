@@ -1,4 +1,5 @@
 use crate::app_runtime::AppHandle;
+use crate::app_runtime::Manager;
 use crate::{
     clock::duration_ms,
     crdt_queue::{
@@ -12,8 +13,6 @@ use std::{
     sync::{atomic::AtomicBool, Arc},
     time::Instant,
 };
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 use tracing::instrument::WithSubscriber;
 
 /// Header callers send to opt back into the legacy synchronous flush path

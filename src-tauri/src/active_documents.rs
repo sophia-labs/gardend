@@ -1,12 +1,11 @@
 use crate::app_runtime::AppHandle;
+use crate::app_runtime::Manager;
 use crate::{
     crdt_queue::{enqueue_crdt_operation_outcome, EnqueueCrdtOperationInput},
     BlockSnapshot,
 };
 use serde::Deserialize;
 use std::{collections::HashSet, sync::Mutex, time::Duration};
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 
 const LIVE_PROJECTION_TIMEOUT_SECS: u64 = 5;
 

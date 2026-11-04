@@ -47,6 +47,7 @@
 //! (`workflow_run_record`) one `:run:<runId>` graph, only input triples whose
 //! subject is in that run's namespace, plus host-derived cast registrations in
 //! the document's `:agents` graph.
+use crate::app_runtime::Manager;
 use crate::{
     app_error::{AppError, AppResult},
     app_runtime::AppHandle,
@@ -59,8 +60,6 @@ use oxigraph::model::{GraphNameRef, Literal, NamedNode, NamedOrBlankNode, Term, 
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::OnceLock;
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 
 const WF: &str = "http://mnemosyne.dev/workflow#";
 const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";

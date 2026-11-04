@@ -1,3 +1,4 @@
+use crate::app_runtime::Manager;
 use crate::{
     app_error::{AppError, AppResult},
     app_runtime::AppHandle,
@@ -11,8 +12,6 @@ use crate::{
 use reqwest::Method;
 use serde_json::{json, Value};
 use std::sync::Arc;
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 
 const KG_ULTRA_INTUITION_PATH: &str = "/api/intuition";
 

@@ -7,6 +7,7 @@
 //! only things a collaborator can observe: the room's Y.Doc, the frames it broadcasts, the saved record's
 //! revision and the receipts. A "person" is a real second Y.Doc synced to the room and delivering its updates
 //! through `Room::apply_client_update`, the same call the websocket host makes. No mocks.
+use crate::app_runtime::Manager;
 use std::sync::Arc;
 
 use serde_json::{json, Value};

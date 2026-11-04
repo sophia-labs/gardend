@@ -12,6 +12,7 @@
 //! held projection gate), `wire_iri_store_tests::document_target_validation_sees_acknowledged_blocks_before_projection`,
 //! `block_contract_store_tests` (every `stored()`/`markdown()` goes through the
 //! fence), and the `rdf_seed_service` marker tests.
+use crate::app_runtime::Manager;
 use std::sync::Arc;
 
 use serde_json::{json, Value};

@@ -51,8 +51,8 @@ write intent is invalid.
 
 On local-mode startup, the runtime scans the journal and re-enqueues operations
 that have a queued event but no terminal completion event. Recovered operations
-are detached from any old caller response channel and are drained by the normal
-frontend CRDT runtime.
+are detached from any old caller response channel and are drained by the Rust cell executor (the
+frontend CRDT runtime was removed).
 
 Local jobs already persist records under:
 

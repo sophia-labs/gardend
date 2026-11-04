@@ -7,6 +7,7 @@
 //! The grammar is Choreograph's graph-plan-v1 (`src/workflow/graph-plan.ts`,
 //! `compileGraphPlan`); the fixture is the real Freud definition its tests pin
 //! (`tests/fixtures/workflow_plan/graph-plan-freud-ch1.sparql.json`).
+use crate::app_runtime::Manager;
 use crate::local_jobs::LocalJobRegistry;
 use crate::mcp_dispatch_registry::{lookup, McpCallCtx};
 use serde_json::{json, Value};

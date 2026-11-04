@@ -21,6 +21,7 @@ use super::{
     rooms::RoomRegistry,
     workspace_ops::{persist_workspace, write_workspace_document},
 };
+use crate::app_runtime::Manager;
 use crate::{
     crdt_queue::CrdtOperation,
     document_paths::document_dir,
@@ -37,8 +38,6 @@ use oxigraph::sparql::{QueryResults, SparqlEvaluator};
 use oxigraph::store::Store;
 use serde_json::{json, Value};
 use std::{panic::UnwindSafe, path::PathBuf};
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 use uuid::Uuid;
 use yrs::updates::decoder::Decode;
 use yrs::{

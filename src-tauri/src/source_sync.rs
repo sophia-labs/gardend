@@ -21,14 +21,13 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 
+use crate::app_runtime::Manager;
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use oxigraph::io::{RdfFormat, RdfParser};
 use oxigraph::model::{Literal, NamedNode};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 use tokio::sync::{Mutex as AsyncMutex, OwnedMutexGuard};
 use uuid::Uuid;
 
@@ -5411,11 +5410,7 @@ pub(crate) async fn mcp_local_source_pull(app: AppHandle, arguments: &Value) -> 
         "mutationCapabilities": {
             "expectedGraphIncarnation": {
                 "version": 1,
-                "tools": if cfg!(feature = "frontend-crdt") {
-                    vec!["emporium_write"]
-                } else {
-                    vec!["emporium_write", "create_document_once", "create_wires"]
-                },
+                "tools": vec!["emporium_write", "create_document_once", "create_wires"],
                 "input": "graphIncarnation",
                 "alias": "graph_incarnation",
                 "scope": "managed-graph-lifetime",

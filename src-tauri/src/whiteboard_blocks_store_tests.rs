@@ -4,6 +4,7 @@
 //! room the way a browser's y-websocket client does (one stringified element per key of `elements`), and persisted
 //! through the real `persist_room_document` tail. Everything after that is read back through the real record, the
 //! real search projection and the real dispatch table. No mocks.
+use crate::app_runtime::Manager;
 use std::path::PathBuf;
 use std::sync::Arc;
 

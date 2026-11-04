@@ -6,12 +6,11 @@
 //! an incomplete claim is deliberately NOT reapplied over possibly edited
 //! destination state. Its immutable archive remains available for recovery.
 use super::*;
+use crate::app_runtime::Manager;
 use crate::document_history_store::{LocalDocumentSnapshotMeta, LocalDocumentSnapshotPayload};
 use oxigraph::model::{GraphName, NamedNode, NamedOrBlankNode, Quad, Term};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 
 #[cfg(test)]
 #[path = "preservation_v2_tests.rs"]

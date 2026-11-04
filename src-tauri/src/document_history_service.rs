@@ -726,6 +726,8 @@ fn delete_manual_document_snapshot_with_lease(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "headless")]
+    use crate::app_runtime::Manager;
     use crate::{
         document_history_file_store::fail_next_history_store_write,
         document_history_store::{
@@ -745,9 +747,6 @@ mod tests {
     use std::fs;
     #[cfg(feature = "headless")]
     use std::{collections::HashSet, sync::mpsc, time::Duration};
-    #[cfg(feature = "headless")]
-    #[cfg(feature = "desktop")]
-    use tauri::Manager;
 
     fn temp_graph_dir(prefix: &str) -> std::path::PathBuf {
         std::env::temp_dir().join(format!("{prefix}-{}", Uuid::new_v4()))

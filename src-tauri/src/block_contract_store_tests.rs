@@ -12,6 +12,7 @@
 //! an image inside a paragraph or a list item is hoisted, an unknown block is
 //! wrapped as a byte-exact `opaqueBlock`, an unknown mark is kept verbatim —
 //! and every rewrite is reported in the write's `warnings` with its node path.
+use crate::app_runtime::Manager;
 use serde_json::{json, Value};
 
 const GRAPH: &str = "block-contract";

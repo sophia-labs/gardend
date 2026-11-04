@@ -1,10 +1,9 @@
 //! Optional caller fences carried into the existing graph lifecycle authority.
 use crate::app_error::{AppError, AppResult};
 use crate::app_runtime::AppHandle;
+use crate::app_runtime::Manager;
 use crate::crdt_engine::persistence_coordinator::{GraphPersistenceCoordinator, SharedLease};
 use serde_json::Value;
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 
 pub(crate) fn expected_incarnation(arguments: &Value) -> AppResult<Option<String>> {
     let mut expected: Option<String> = None;

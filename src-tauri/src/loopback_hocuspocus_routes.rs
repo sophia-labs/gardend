@@ -20,6 +20,7 @@
 //! keeps its presence, and never writes, not even on open (no self-heal, no
 //! incarnation published, no room for a document that does not exist).
 
+use crate::app_runtime::Manager;
 use crate::{
     app_runtime::AppHandle,
     crdt_engine::{
@@ -42,8 +43,6 @@ use axum::routing::get;
 use axum::Router;
 use std::collections::BTreeMap;
 use std::{path::Path as FsPath, sync::Arc};
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 use tracing::{instrument::WithSubscriber, Instrument};
 
 pub(super) fn loopback_hocuspocus_router() -> Router<Arc<LoopbackState>> {

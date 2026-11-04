@@ -1,4 +1,4 @@
-use crate::app_runtime::{App, AppHandle};
+use crate::app_runtime::{App, AppHandle, Manager};
 use crate::{
     active_documents::ActiveDocumentRegistry,
     cell_graph_boundary::CellGraphBoundary,
@@ -15,8 +15,6 @@ use crate::{
     time_travel_interval_scheduler::start_interval_scheduler,
 };
 use std::{error::Error, time::Duration};
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 
 #[cfg(not(feature = "desktop"))]
 #[derive(Default)]
@@ -98,16 +96,7 @@ pub(crate) fn setup_core(handle: &AppHandle) -> Result<RuntimeMode, Box<dyn Erro
         recover_local_crdt_operations(handle.clone())?;
         prune_journal_on_startup(handle.clone());
         prune_completion_ledger_on_startup(handle.clone());
-        #[cfg(feature = "frontend-crdt")]
-        {
-            // Explicit compatibility mode retains the frontend-driven
-            // recovered-event/poll lifecycle.
-            if let Err(error) = start_local_loopback(handle.clone()) {
-                log::error!("Failed to start loopback API: {error}");
-            }
-            start_interval_scheduler(handle.clone());
-        }
-        #[cfg(all(not(feature = "frontend-crdt"), not(feature = "desktop")))]
+        #[cfg(not(feature = "desktop"))]
         {
             // WS, metadata, and lifecycle routes bypass the CRDT queue but share
             // graph gates. Keep the entire API unexposed until the recovered
@@ -132,7 +121,7 @@ pub(crate) fn setup_core(handle: &AppHandle) -> Result<RuntimeMode, Box<dyn Erro
                 drop(bootstrap_lease);
             });
         }
-        #[cfg(all(not(feature = "frontend-crdt"), feature = "desktop"))]
+        #[cfg(feature = "desktop")]
         {
             // The normal desktop is the same in-process cell authority as
             // gardend. Shrubbery is a Yjs/API client; it never drains the
@@ -254,7 +243,6 @@ fn recover_local_crdt_operations(app_handle: AppHandle) -> Result<usize, String>
     Ok(count)
 }
 
-#[cfg(not(feature = "frontend-crdt"))]
 async fn drain_recovered_then_start_cell_services(app_handle: AppHandle) -> Result<(), String> {
     crate::crdt_engine::executor::drain_queue(app_handle.clone()).await;
     #[cfg(not(feature = "desktop"))]
@@ -288,7 +276,7 @@ async fn drain_recovered_then_start_cell_services(app_handle: AppHandle) -> Resu
 /// boot verdict can therefore become stale before this task binds the
 /// loopback socket. Make the lease check part of the service-exposure gate,
 /// not merely a check in the outer Gardend orchestration.
-#[cfg(all(not(feature = "frontend-crdt"), not(feature = "desktop")))]
+#[cfg(not(feature = "desktop"))]
 fn refuse_loopback_exposure_under_invalid_lease() -> Result<(), String> {
     use crate::cell_lease::LeaseMode;
 
@@ -393,7 +381,6 @@ mod startup_order_tests {
         );
     }
 
-    #[cfg(not(feature = "frontend-crdt"))]
     #[test]
     fn cell_recovered_drain_completes_before_api_exposure() {
         let source = include_str!("tauri_runtime.rs");

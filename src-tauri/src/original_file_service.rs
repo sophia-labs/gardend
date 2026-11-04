@@ -392,13 +392,12 @@ pub(super) fn read_image_file(
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod tests {
     use super::*;
+    use crate::app_runtime::Manager;
     use crate::{
         document_service::{create_document, CreateDocumentInput},
         graph_service::{create_graph_service, CreateGraphInput},
     };
     use std::{sync::mpsc, time::Duration};
-    #[cfg(feature = "desktop")]
-    use tauri::Manager;
     use uuid::Uuid;
 
     #[test]

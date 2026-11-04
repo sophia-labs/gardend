@@ -1,3 +1,4 @@
+use crate::app_runtime::Manager;
 use crate::{
     clock::{duration_ms, epoch_millis},
     crdt_projection_flush::{flush_document_projection_phase, flush_graph_projection_phase},
@@ -19,8 +20,6 @@ use axum::{
     Json,
 };
 use std::{sync::Arc, time::Instant};
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 
 pub(super) async fn loopback_hosted_put_document(
     State(state): State<Arc<LoopbackState>>,

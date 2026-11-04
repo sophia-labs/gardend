@@ -1,6 +1,7 @@
 //! R1: an external SPARQL query takes the shared lifecycle lease, not the
 //! hot-write lease, so it neither waits for a writer nor holds one up.
 //! Real app state, real coordinator, real store; no stand-ins.
+use crate::app_runtime::Manager;
 use std::time::Duration;
 
 use serde_json::json;

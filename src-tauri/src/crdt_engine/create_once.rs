@@ -4,6 +4,7 @@
 //! and content attempt. A retained admission is never a permission to replay,
 //! even for the same recovered operation. Partial effects require inspection.
 
+use crate::app_runtime::Manager;
 use crate::{app_runtime::AppHandle, crdt_queue::CrdtOperation};
 use serde_json::{json, Value};
 use std::{
@@ -11,8 +12,6 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
 };
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 use yrs::{updates::decoder::Decode, Array, Doc, Map, ReadTxn, Transact, Update};
 
 use super::{

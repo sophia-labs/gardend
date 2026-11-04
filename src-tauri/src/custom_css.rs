@@ -1,5 +1,6 @@
 //! Explicit graph-shared stylesheet source. Application/consent is a host concern.
 //! The workspace Y.Doc is the sole authority; no profile CSS store or new root.
+use crate::app_runtime::Manager;
 use crate::{
     app_error::{AppError, AppResult},
     app_runtime::AppHandle,
@@ -8,8 +9,6 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 use yrs::{Any, Map, Out, ReadTxn, Transact, TransactionMut, WriteTxn};
 
 pub(crate) const MAX_CSS_BYTES: usize = 65_536;

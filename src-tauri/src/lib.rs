@@ -283,12 +283,7 @@ mod swarm_store_tests;
 mod block_contract_store_tests;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod document_kind_store_tests;
-#[cfg(all(
-    test,
-    feature = "headless",
-    not(feature = "desktop"),
-    not(feature = "frontend-crdt")
-))]
+#[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod fence_tests;
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod forward_restore_store_tests;
@@ -537,6 +532,8 @@ pub fn run() {
 /// Entry points for the headless `gardend` cell binary.
 #[cfg(not(feature = "desktop"))]
 pub mod headless {
+    use crate::app_runtime::Manager;
+
     pub use crate::hosted_mode::RuntimeMode;
     pub use crate::telemetry::init as init_telemetry;
 
@@ -677,8 +674,7 @@ pub mod headless {
         };
 
         pub fn tracker(handle: &crate::app_runtime::AppHandle) -> std::sync::Arc<CellLifecycle> {
-            #[cfg(feature = "desktop")]
-            use tauri::Manager;
+            use crate::app_runtime::Manager;
             handle
                 .state::<std::sync::Arc<CellLifecycle>>()
                 .inner()

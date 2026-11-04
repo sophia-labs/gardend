@@ -6,10 +6,9 @@ use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::Arc;
 
+use crate::app_runtime::Manager;
 use serde::Serialize;
 use serde_json::{json, Value};
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 use yrs::types::ToJson;
 use yrs::updates::decoder::Decode;
 use yrs::{Doc, Map, ReadTxn, StateVector, Transact, TransactionMut, Update, WriteTxn};

@@ -1,4 +1,5 @@
 use crate::app_runtime::AppHandle;
+use crate::app_runtime::Manager;
 pub(crate) use crate::graph_record_store::{
     mutate_graph_record, mutate_graph_record_canonical, next_content_revision, read_graph_record,
     touch_graph_content_revision, touch_graph_updated_at, write_graph_record,
@@ -32,8 +33,6 @@ use crate::{
 };
 use serde::Deserialize;
 use std::{collections::HashMap, fs, io::ErrorKind, path::Path};
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 use uuid::Uuid;
 
 const PROFILE_METADATA_FULL_REFRESH_GRAPH_LIMIT: usize = 32;
@@ -975,9 +974,8 @@ fn finish_soft_delete_after_canonical_tombstone(
 #[cfg(all(test, feature = "headless", not(feature = "desktop")))]
 mod lifecycle_serialization_tests {
     use super::*;
+    use crate::app_runtime::Manager;
     use std::path::PathBuf;
-    #[cfg(feature = "desktop")]
-    use tauri::Manager;
     use uuid::Uuid;
 
     fn temp_profile() -> PathBuf {

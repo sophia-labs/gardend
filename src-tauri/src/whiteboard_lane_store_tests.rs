@@ -5,6 +5,7 @@
 //! persists it through the same `persist_room_document` path a person's edit takes, and reads the graph's
 //! `:projection:whiteboard` lane back from the real store. The delete, restore and cold-seed tests run the real
 //! services. No mocks.
+use crate::app_runtime::Manager;
 use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::time::{Duration, Instant};

@@ -13,6 +13,7 @@
 
 use crate::app_error::PersistenceError;
 use crate::app_runtime::AppHandle;
+use crate::app_runtime::Manager;
 use crate::storage_atomic::{
     atomic_temp_path, sync_parent_dir, write_bytes_atomic_durable, Durability,
 };
@@ -27,8 +28,6 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::sync::{OnceLock, Weak};
 use std::time::{Duration, Instant};
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 use tokio::sync::{broadcast, Mutex, Notify};
 use tracing::{instrument::WithSubscriber, Instrument};
 use yrs::block::ClientID;
@@ -90,7 +89,6 @@ pub struct Room {
     eviction_notify: Notify,
     /// Cell-owned server debounce. Shrubbery and hosted browsers are sync
     /// clients; only the opt-in legacy frontend authority omits this target.
-    #[cfg(not(feature = "frontend-crdt"))]
     projection_flush: OnceLock<Arc<ProjectionFlushTarget>>,
 }
 
@@ -240,7 +238,6 @@ fn is_awareness_removal(entry: &AwarenessUpdateEntry) -> bool {
     entry.json.trim() == "null"
 }
 
-#[cfg(not(feature = "frontend-crdt"))]
 struct ProjectionFlushTarget {
     graph_id: String,
     document_id: Option<String>,
@@ -258,7 +255,6 @@ struct ProjectionFlushTarget {
 /// starts a burst); the task sleeps until `last + debounce`, but never past
 /// `first + PROJECTION_DEBOUNCE_MAX_WAIT`, so a person who types without a
 /// pause still gets their document projected.
-#[cfg(not(feature = "frontend-crdt"))]
 #[derive(Default)]
 struct DebounceTimer {
     /// A timer task owns the pending burst.
@@ -269,7 +265,6 @@ struct DebounceTimer {
 
 /// How long until the pending burst is due: the debounce after the latest
 /// update, capped at `max_wait` after the first. Zero means flush now.
-#[cfg(not(feature = "frontend-crdt"))]
 fn debounce_remaining(
     first: Instant,
     last: Instant,
@@ -281,14 +276,12 @@ fn debounce_remaining(
     due.saturating_duration_since(now)
 }
 
-#[cfg(not(feature = "frontend-crdt"))]
 #[derive(Default)]
 struct FlushContexts {
     updates: Vec<crate::telemetry::TraceContext>,
     dropped: u64,
 }
 
-#[cfg(not(feature = "frontend-crdt"))]
 impl FlushContexts {
     fn push(&mut self, context: crate::telemetry::TraceContext) {
         if context.span_context().is_none() {
@@ -304,28 +297,20 @@ impl FlushContexts {
     }
 }
 
-#[cfg(not(feature = "frontend-crdt"))]
 const WORKSPACE_PROJECTION_DEBOUNCE: Duration = Duration::from_millis(250);
-#[cfg(not(feature = "frontend-crdt"))]
 const DOCUMENT_PROJECTION_DEBOUNCE: Duration = Duration::from_millis(600);
 /// Continuous typing postpones the debounce for as long as keys keep coming;
 /// the projection (cold record, RDF, search) still lands at least this often.
-#[cfg(not(feature = "frontend-crdt"))]
 const PROJECTION_DEBOUNCE_MAX_WAIT: Duration = Duration::from_secs(5);
-#[cfg(not(feature = "frontend-crdt"))]
 const PROJECTION_RETRY_INITIAL: Duration = Duration::from_millis(100);
-#[cfg(not(feature = "frontend-crdt"))]
 const PROJECTION_RETRY_MAX: Duration = Duration::from_secs(5);
-#[cfg(not(feature = "frontend-crdt"))]
 const PROJECTION_FLUSH_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(5);
 
-#[cfg(not(feature = "frontend-crdt"))]
 enum ProjectionFlushFailure {
     Terminal(String),
     Retryable(String),
 }
 
-#[cfg(not(feature = "frontend-crdt"))]
 fn classify_projection_flush_failure(error: String) -> ProjectionFlushFailure {
     if error.contains("graph not found:")
         || error.contains("stale graph generation")
@@ -799,7 +784,6 @@ impl RoomRegistry {
             authority_lock: Mutex::new(()),
             evicted: AtomicBool::new(false),
             eviction_notify: Notify::new(),
-            #[cfg(not(feature = "frontend-crdt"))]
             projection_flush: OnceLock::new(),
         });
 
@@ -1153,12 +1137,6 @@ impl Room {
         graph_id: String,
         document_id: Option<String>,
     ) -> Result<(), String> {
-        #[cfg(feature = "frontend-crdt")]
-        {
-            let _ = (graph_id, document_id);
-            Ok(())
-        }
-        #[cfg(not(feature = "frontend-crdt"))]
         {
             let debounce = if document_id.is_some() {
                 DOCUMENT_PROJECTION_DEBOUNCE
@@ -1190,7 +1168,6 @@ impl Room {
     }
 
     pub(crate) fn schedule_projection_flush(self: &Arc<Self>, app: AppHandle) {
-        #[cfg(not(feature = "frontend-crdt"))]
         if let Some(target) = self.projection_flush.get() {
             if self.needs_projection_flush() && !self.is_evicted() {
                 let graph_generation =
@@ -1212,15 +1189,12 @@ impl Room {
                 target.schedule(Arc::downgrade(self), app, graph_generation);
             }
         }
-        #[cfg(feature = "frontend-crdt")]
-        let _ = app;
     }
 
     fn evict(&self) {
         if self.evicted.swap(true, Ordering::SeqCst) {
             return;
         }
-        #[cfg(not(feature = "frontend-crdt"))]
         if let Some(target) = self.projection_flush.get() {
             target.generation.fetch_add(1, Ordering::SeqCst);
         }
@@ -2213,7 +2187,6 @@ impl Room {
     }
 }
 
-#[cfg(not(feature = "frontend-crdt"))]
 impl ProjectionFlushTarget {
     /// Note one update. Returns true when the caller must start the timer
     /// task: only the first update of a burst does, later ones just move
@@ -2262,7 +2235,6 @@ impl ProjectionFlushTarget {
 /// max wait), flush against the generation as it stands, and go again if
 /// updates arrived while the flush ran. It exits, disarmed, when nothing is
 /// pending, and silently when the room or its target is gone or evicted.
-#[cfg(not(feature = "frontend-crdt"))]
 async fn run_debounced_projection(
     target: Weak<ProjectionFlushTarget>,
     room: Weak<Room>,
@@ -2330,14 +2302,12 @@ async fn run_debounced_projection(
     }
 }
 
-#[cfg(not(feature = "frontend-crdt"))]
 enum ProjectionAttempt<T> {
     Completed(T),
     Evicted,
     TimedOut,
 }
 
-#[cfg(not(feature = "frontend-crdt"))]
 async fn wait_for_room_delay(room: &Weak<Room>, delay: Duration) -> bool {
     let Some(room) = room.upgrade() else {
         return true;
@@ -2348,7 +2318,6 @@ async fn wait_for_room_delay(room: &Weak<Room>, delay: Duration) -> bool {
     }
 }
 
-#[cfg(not(feature = "frontend-crdt"))]
 async fn wait_for_projection_attempt<F, T>(
     room: &Weak<Room>,
     future: Pin<&mut F>,
@@ -2367,7 +2336,6 @@ where
     }
 }
 
-#[cfg(not(feature = "frontend-crdt"))]
 async fn run_projection_flush(
     target: Weak<ProjectionFlushTarget>,
     room: Weak<Room>,
@@ -2412,7 +2380,6 @@ async fn run_projection_flush(
     .await;
 }
 
-#[cfg(not(feature = "frontend-crdt"))]
 async fn run_projection_flush_inner(
     target: Weak<ProjectionFlushTarget>,
     room: Weak<Room>,
@@ -4110,7 +4077,6 @@ mod tests {
         });
     }
 
-    #[cfg(not(feature = "frontend-crdt"))]
     #[test]
     fn eviction_notification_survives_release_before_first_await() {
         crate::app_runtime::async_runtime::block_on(async {
@@ -4134,7 +4100,6 @@ mod tests {
         });
     }
 
-    #[cfg(not(feature = "frontend-crdt"))]
     #[test]
     fn eviction_cancels_backoff_and_in_flight_waits() {
         crate::app_runtime::async_runtime::block_on(async {
@@ -4939,7 +4904,6 @@ mod tests {
         });
     }
 
-    #[cfg(not(feature = "frontend-crdt"))]
     #[test]
     fn continuous_typing_is_flushed_by_the_max_wait() {
         let debounce = Duration::from_millis(600);
@@ -4977,7 +4941,6 @@ mod tests {
         );
     }
 
-    #[cfg(not(feature = "frontend-crdt"))]
     #[test]
     fn one_timer_task_serves_a_whole_burst_of_frames() {
         crate::app_runtime::async_runtime::block_on(async {
@@ -5015,7 +4978,6 @@ mod tests {
         });
     }
 
-    #[cfg(not(feature = "frontend-crdt"))]
     #[test]
     fn the_last_connection_to_close_schedules_the_projection_repair() {
         crate::app_runtime::async_runtime::block_on(async {

@@ -14,6 +14,7 @@
 //! role on it ([`Delegation`]). gardend's `/mcp` accepts it, bound to that
 //! graph (`loopback_mcp_routes`); nothing else does.
 
+use crate::app_runtime::Manager;
 use crate::{
     app_runtime::AppHandle, clock::timestamp, loopback_state::LoopbackManifest,
     process_utils::place_child_in_new_process_group, profile_paths::profile_dir,
@@ -33,8 +34,6 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 use uuid::Uuid;
 
 pub(crate) const CHOREOGRAPH_SERVICE_ID: &str = "choreograph";

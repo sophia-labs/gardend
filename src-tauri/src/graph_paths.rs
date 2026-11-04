@@ -1,4 +1,6 @@
 use crate::app_runtime::AppHandle;
+#[cfg(all(feature = "headless", not(feature = "desktop")))]
+use crate::app_runtime::Manager;
 use crate::{
     graph_service::GraphRecord,
     ids::validate_local_id,
@@ -13,9 +15,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 #[cfg(all(feature = "headless", not(feature = "desktop")))]
 use std::sync::{Mutex, OnceLock};
-#[cfg(all(feature = "headless", not(feature = "desktop")))]
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 
 #[cfg(all(feature = "headless", not(feature = "desktop")))]
 static GRAPH_SELF_HEAL_LOCK: OnceLock<Mutex<()>> = OnceLock::new();

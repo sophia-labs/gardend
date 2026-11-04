@@ -1,3 +1,4 @@
+use crate::app_runtime::Manager;
 use crate::{
     crdt_queue::CrdtOperationQueue,
     get_profile,
@@ -15,8 +16,6 @@ use axum::{
 };
 use serde::Deserialize;
 use std::sync::Arc;
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]

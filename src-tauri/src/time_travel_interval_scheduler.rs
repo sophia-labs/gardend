@@ -1,4 +1,5 @@
 use crate::app_runtime::AppHandle;
+use crate::app_runtime::Manager;
 use crate::{
     clock,
     graph_paths::existing_graph_dir,
@@ -10,8 +11,6 @@ use crate::{
     time_travel_types::RestorePointTrigger,
 };
 use std::{sync::Arc, time::Duration};
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 use tokio::time::MissedTickBehavior;
 
 /// Tick cadence for unattended restore-point capture. Short in dev for

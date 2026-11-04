@@ -13,6 +13,7 @@
 //! operation shows up as a failed test, not a hung one. The last test is the
 //! other half of the contract: a tail that fails for a while (a disk, a lease)
 //! is still retried until it lands.
+use crate::app_runtime::Manager;
 use serde_json::{json, Value};
 use std::time::Duration;
 

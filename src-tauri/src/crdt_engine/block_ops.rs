@@ -21,13 +21,12 @@
 
 use crate::app_error::PersistenceError;
 use crate::app_runtime::AppHandle;
+use crate::app_runtime::Manager;
 use crate::crdt_queue::CrdtOperation;
 use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 use yrs::types::text::YChange;
 use yrs::types::xml::{XmlFragment, XmlOut};
 use yrs::types::Attrs;
@@ -1522,10 +1521,6 @@ async fn finish_ledger_guarded(
     if let Some(lease) = lease {
         lease.release_for_projection();
     }
-    #[cfg(feature = "frontend-crdt")]
-    persist_document(app, ctx, _operation)
-        .await
-        .map_err(ApplyOperationError::retryable_after_hot_commit)?;
     let (replayed, envelope) = match outcome {
         TxnOutcome::Replayed(cached) => (true, cached.unwrap_or_else(|| json!({}))),
         TxnOutcome::Fresh(envelope) => (false, envelope),

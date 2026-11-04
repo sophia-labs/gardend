@@ -1,4 +1,5 @@
 use crate::app_runtime::AppHandle;
+use crate::app_runtime::Manager;
 use crate::{
     app_error::{AppError, AppResult},
     clock,
@@ -30,8 +31,6 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::path::Path;
 use std::sync::Arc;
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 use uuid::Uuid;
 
 const TIMESTAMP_LABEL: &str = "restore-point";
@@ -956,11 +955,10 @@ fn base64_encode(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app_runtime::Manager;
     use crate::crdt_queue::{enqueue_crdt_operation, EnqueueCrdtOperationInput};
     use crate::graph_service::{create_graph_service, CreateGraphInput};
     use serde_json::json;
-    #[cfg(feature = "desktop")]
-    use tauri::Manager;
 
     /// The lease-per-document capture refuses a point whose walk a restore overlapped: the guard's epoch
     /// counts engagements, so a restore that began and finished between two documents is still seen. Real

@@ -16,14 +16,13 @@
 
 use crate::app_error::PersistenceError;
 use crate::app_runtime::AppHandle;
+use crate::app_runtime::Manager;
 use crate::crdt_engine::rooms::{Room, RoomRegistry};
 use crate::crdt_queue::CrdtOperation;
 use serde_json::{json, Map as JsonMap, Value};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 use yrs::{
     Any, Doc, Map as YMap, MapPrelim, MapRef, Out, ReadTxn, Transact, TransactionMut, WriteTxn,
 };

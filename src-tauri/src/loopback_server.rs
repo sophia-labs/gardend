@@ -1,4 +1,5 @@
 use crate::app_runtime::AppHandle;
+use crate::app_runtime::Manager;
 use crate::{
     cell_graph_boundary::CellGraphBoundary,
     clock::timestamp,
@@ -18,8 +19,6 @@ use std::{
     process,
     sync::Arc,
 };
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 use uuid::Uuid;
 
 pub(super) fn start_loopback_server(app: AppHandle) -> Result<LoopbackManifest, String> {

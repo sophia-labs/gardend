@@ -24,6 +24,7 @@
 use super::executor::{ApplyOperationError, ApplyOperationResult};
 use crate::app_error::PersistenceError;
 use crate::app_runtime::AppHandle;
+use crate::app_runtime::Manager;
 use crate::crdt_queue::CrdtOperation;
 use base64::Engine;
 use flate2::read::GzDecoder;
@@ -36,8 +37,6 @@ use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 use yrs::updates::decoder::Decode;
 use yrs::{Any, Doc, Map as YMap, MapRef, Out, ReadTxn, StateVector, Transact, Update, WriteTxn};
 

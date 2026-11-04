@@ -1,3 +1,4 @@
+use crate::app_runtime::Manager;
 use crate::{
     app_error::{AppError, AppResult},
     app_runtime::AppHandle,
@@ -18,8 +19,6 @@ use reqwest::Method;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeSet, fmt, sync::Arc};
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 use tokio::time::{sleep, Duration, Instant};
 
 const WF_NS: &str = "http://mnemosyne.dev/workflow#";

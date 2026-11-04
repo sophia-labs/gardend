@@ -148,7 +148,17 @@ fn gardend_binary() -> PathBuf {
         status.success(),
         "cargo build --example gardend must succeed"
     );
-    let path = manifest_dir.join("target/debug/examples/gardend");
+    let target_dir = std::env::var_os("CARGO_TARGET_DIR")
+        .map(|dir| {
+            let dir = std::path::PathBuf::from(dir);
+            if dir.is_absolute() {
+                dir
+            } else {
+                manifest_dir.join(dir)
+            }
+        })
+        .unwrap_or_else(|| manifest_dir.join("target"));
+    let path = target_dir.join("debug/examples/gardend");
     assert!(
         path.is_file(),
         "expected a built binary at {}",

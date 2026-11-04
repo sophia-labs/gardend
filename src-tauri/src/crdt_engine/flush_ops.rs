@@ -2,15 +2,13 @@
 
 use crate::app_error::PersistenceError;
 use crate::app_runtime::AppHandle;
+use crate::app_runtime::Manager;
 use crate::crdt_engine::executor::{ApplyOperationError, ApplyOperationResult};
 use crate::crdt_engine::rooms::{Room, RoomRegistry};
 use crate::crdt_queue::CrdtOperation;
 use serde_json::{json, Value};
 use std::path::Path;
 use std::sync::Arc;
-#[cfg(feature = "desktop")]
-use tauri::Manager;
-#[cfg(not(feature = "frontend-crdt"))]
 use tracing::Instrument;
 
 pub(crate) const HYDRATE_PERSISTED_SIDECARS_PAYLOAD_KEY: &str = "hydratePersistedSidecars";
@@ -25,7 +23,13 @@ pub(crate) async fn flush_document_background(
     room: Arc<Room>,
     graph_generation: u64,
 ) -> Result<(), PersistenceError> {
-    crate::app_runtime::async_runtime::spawn_blocking(crate::telemetry::blocking(move || {
+    // Desktop's runtime facade hands back tauri's own JoinHandle type; the pass table wants
+    // tokio's, and every caller is already inside a tokio context.
+    #[cfg(feature = "desktop")]
+    let spawn_blocking = tokio::task::spawn_blocking;
+    #[cfg(not(feature = "desktop"))]
+    let spawn_blocking = crate::app_runtime::async_runtime::spawn_blocking;
+    spawn_blocking(crate::telemetry::blocking(move || {
         crate::app_runtime::async_runtime::block_on(async {
             let coordinator =
                 app.state::<super::persistence_coordinator::GraphPersistenceCoordinator>();
@@ -88,7 +92,6 @@ pub(crate) struct FenceCounts {
 /// pass behind its fence has not finished by the deadline. The pass keeps
 /// running (it is owned by the graph, not by the request), so a retry joins it
 /// and the progress only grows. Never a stale result: the read fails instead.
-#[cfg_attr(feature = "frontend-crdt", allow(dead_code))]
 pub(crate) const PROJECTION_PENDING_PREFIX: &str = "projection_pending (retryable):";
 
 /// True for the error a read gets when its fence is still catching up.
@@ -97,12 +100,10 @@ pub(crate) fn is_projection_pending(message: &str) -> bool {
     message.starts_with(PROJECTION_PENDING_PREFIX)
 }
 
-#[cfg(not(feature = "frontend-crdt"))]
 const FENCE_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// One graph-wide projection pass in flight. Owned by the graph: a reader that
 /// gives up at its deadline leaves it running.
-#[cfg(not(feature = "frontend-crdt"))]
 struct Pass {
     /// Documents finished / documents to visit, for the pending error.
     done: std::sync::atomic::AtomicU64,
@@ -110,11 +111,9 @@ struct Pass {
     finished: tokio::sync::watch::Sender<Option<Result<(), String>>>,
 }
 
-#[cfg(not(feature = "frontend-crdt"))]
 static PASSES: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, Arc<Pass>>>> =
     std::sync::OnceLock::new();
 
-#[cfg(not(feature = "frontend-crdt"))]
 fn passes() -> std::sync::MutexGuard<'static, std::collections::HashMap<String, Arc<Pass>>> {
     PASSES
         .get_or_init(Default::default)
@@ -124,14 +123,19 @@ fn passes() -> std::sync::MutexGuard<'static, std::collections::HashMap<String, 
 
 /// The fence's work for one call, on a blocking thread so its own runtime can
 /// outlive the request that asked.
-#[cfg(not(feature = "frontend-crdt"))]
 fn spawn_fence_task(
     app: AppHandle,
     graph_id: String,
     document_id: Option<String>,
     progress: Option<Arc<Pass>>,
 ) -> tokio::task::JoinHandle<Result<(), String>> {
-    crate::app_runtime::async_runtime::spawn_blocking(crate::telemetry::blocking(move || {
+    // Desktop's runtime facade hands back tauri's own JoinHandle type; the pass table wants
+    // tokio's, and every caller is already inside a tokio context.
+    #[cfg(feature = "desktop")]
+    let spawn_blocking = tokio::task::spawn_blocking;
+    #[cfg(not(feature = "desktop"))]
+    let spawn_blocking = crate::app_runtime::async_runtime::spawn_blocking;
+    spawn_blocking(crate::telemetry::blocking(move || {
         crate::app_runtime::async_runtime::block_on(async {
             // A panic must not leave a pass nobody finishes: every reader would
             // wait out its deadline on it.
@@ -194,13 +198,11 @@ fn spawn_fence_task(
 }
 
 /// Fails a pass that ended without reporting (a panic) and frees its slot.
-#[cfg(not(feature = "frontend-crdt"))]
 struct PassGuard {
     graph_id: String,
     pass: Arc<Pass>,
 }
 
-#[cfg(not(feature = "frontend-crdt"))]
 impl Drop for PassGuard {
     fn drop(&mut self) {
         {
@@ -224,7 +226,6 @@ impl Drop for PassGuard {
 
 /// Join the graph's pass in flight, or start one. The bool is true when this
 /// call started it (so the pass began after the caller entered).
-#[cfg(not(feature = "frontend-crdt"))]
 fn join_or_start_pass(app: &AppHandle, graph_id: &str) -> (Arc<Pass>, bool) {
     let mut map = passes();
     if let Some(pass) = map.get(graph_id) {
@@ -253,7 +254,6 @@ fn join_or_start_pass(app: &AppHandle, graph_id: &str) -> (Arc<Pass>, bool) {
 /// Start the graph's catch-up pass without waiting for it (single-flight: a
 /// pass already in flight is joined, not duplicated). Meant for a graph that
 /// opens with unstamped documents, so no reader pays for it.
-#[cfg(not(feature = "frontend-crdt"))]
 #[allow(dead_code)]
 pub(crate) fn start_background_projection_pass(app: &AppHandle, graph_id: &str) {
     let _ = join_or_start_pass(app, graph_id);
@@ -276,18 +276,9 @@ pub(crate) async fn await_document_projections(
     graph_id: String,
     document_id: Option<String>,
 ) -> Result<(), String> {
-    #[cfg(feature = "frontend-crdt")]
-    {
-        let _ = (app, graph_id, document_id);
-        return Ok(());
-    }
-    #[cfg(not(feature = "frontend-crdt"))]
-    {
-        await_document_projections_within(app, graph_id, document_id, FENCE_DEADLINE).await
-    }
+    await_document_projections_within(app, graph_id, document_id, FENCE_DEADLINE).await
 }
 
-#[cfg(not(feature = "frontend-crdt"))]
 pub(crate) async fn await_document_projections_within(
     app: AppHandle,
     graph_id: String,
@@ -346,7 +337,6 @@ pub(crate) async fn await_document_projections_within(
 
 /// Phase totals across the documents of one fence, in milliseconds. `None`
 /// timers (telemetry off) add nothing, so this costs a branch per phase.
-#[cfg(not(feature = "frontend-crdt"))]
 #[derive(Default)]
 struct FencePhases {
     stat: f64,
@@ -356,7 +346,6 @@ struct FencePhases {
     evict: f64,
 }
 
-#[cfg(not(feature = "frontend-crdt"))]
 async fn fence_projections(
     app: &AppHandle,
     graph_id: &str,
@@ -384,7 +373,6 @@ async fn fence_projections(
     result
 }
 
-#[cfg(not(feature = "frontend-crdt"))]
 async fn fence_projections_inner(
     app: &AppHandle,
     graph_id: &str,
@@ -1161,6 +1149,7 @@ mod tests {
         apply, fail_next_flush_attempts_for_test, flush_attempts_for_test,
         hydrate_workspace_and_named_document_room, persisted_document_sidecars,
     };
+    use crate::app_runtime::Manager;
     use crate::crdt_engine::rooms::RoomRegistry;
     use crate::crdt_queue::{CrdtOperation, CrdtOperationQueue};
     use crate::graph_service::{create_graph_service, CreateGraphInput};
@@ -1168,8 +1157,6 @@ mod tests {
     use serde_json::{json, Value};
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
-    #[cfg(feature = "desktop")]
-    use tauri::Manager;
     use yrs::updates::decoder::Decode;
     use yrs::{Any, Doc, Map, MapPrelim, Out, ReadTxn, StateVector, Transact, Update, WriteTxn};
 

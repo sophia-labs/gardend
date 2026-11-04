@@ -34,6 +34,7 @@
 //! hosted cell never loads public mode, so never a fence either.
 
 use crate::app_runtime::AppHandle;
+use crate::app_runtime::Manager;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
@@ -43,8 +44,6 @@ use std::{
     sync::{Mutex, PoisonError},
     time::{Duration, Instant, SystemTime},
 };
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 use yrs::{types::ToJson, Any, Map as _, MapRef, Out, ReadTxn};
 
 /// Server-only payload key: the fence an operation was admitted under.

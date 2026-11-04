@@ -10,6 +10,7 @@
 //! like a client does) or, where the report matters, the engine itself (`forward_restore_manifest`), against
 //! a disposable graph with live `Room`s. A "browser" is a second Y.Doc synced to the room; a reconnect is the
 //! SyncStep2 exchange `Room::apply_client_update` serves. No mocks.
+use crate::app_runtime::Manager;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 

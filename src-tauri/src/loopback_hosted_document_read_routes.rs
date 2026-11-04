@@ -1,3 +1,4 @@
+use crate::app_runtime::Manager;
 use crate::{
     app_error::AppError,
     crdt_engine::persistence_coordinator::GraphPersistenceCoordinator,
@@ -21,8 +22,6 @@ use axum::{
     response::Response,
 };
 use std::{collections::BTreeMap, sync::Arc};
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 
 pub(super) async fn loopback_hosted_list_documents(
     State(state): State<Arc<LoopbackState>>,

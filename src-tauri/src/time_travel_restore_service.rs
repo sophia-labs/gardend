@@ -1,4 +1,5 @@
 use crate::app_runtime::AppHandle;
+use crate::app_runtime::Manager;
 use crate::{
     app_error::{AppError, AppResult},
     clock,
@@ -28,7 +29,7 @@ use crate::{
 use serde_json::{json, Value};
 use std::{path::Path, sync::Arc};
 #[cfg(feature = "desktop")]
-use tauri::{Emitter, Manager};
+use tauri::Emitter;
 
 const RESTORE_JOB_TYPE: &str = "graph.restore";
 const RESTORE_EVENT: &str = "time-travel.graph-restored";

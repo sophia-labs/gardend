@@ -5,6 +5,7 @@
 //! - `create_document` with an existing id took the document over;
 //! - `write_document` on a deleted id brought it back with the caller's text;
 //! - a comment's author was whatever the caller said.
+use crate::app_runtime::Manager;
 use crate::cell_graph_boundary::CellGraphBoundary;
 use crate::crdt_engine::rooms::RoomRegistry;
 use crate::loopback_client_token_service::create_client_token;
@@ -14,8 +15,6 @@ use axum::{body::Body, http::StatusCode};
 use serde_json::{json, Value};
 use std::path::Path;
 use std::sync::Arc;
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 use tower::ServiceExt;
 use yrs::types::ToJson;
 use yrs::{Map as _, Out, ReadTxn, Transact};

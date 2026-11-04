@@ -24,6 +24,7 @@
 //! it. Choreograph pins `agentId` to the session's own agent at its host gate.
 
 use crate::app_runtime::AppHandle;
+use crate::app_runtime::Manager;
 use crate::{
     app_error::{AppError, AppResult},
     crdt_engine::persistence_coordinator::GraphPersistenceCoordinator,
@@ -38,8 +39,6 @@ use oxigraph::{
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 
 pub(crate) const TOOL_NAME: &str = "agent_self_image";
 const AGT: &str = "http://mnemosyne.dev/agent#";

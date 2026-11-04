@@ -37,12 +37,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
 use std::path::Path;
 
+use crate::app_runtime::Manager;
 use oxigraph::io::{RdfFormat, RdfParser};
 use oxigraph::model::{GraphName, NamedOrBlankNode};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 
 use super::{
     acquire_source_gate, active_graph_identity, capture_value_store_files, ledger_path,

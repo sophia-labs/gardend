@@ -41,11 +41,6 @@ required-features = ["headless"]
 default = ["desktop"]
 # Desktop app: real Tauri runtime (wry webview) + desktop-only plugins.
 desktop = ["dep:tauri", "dep:tauri-build", "tauri/wry", "tauri/common-controls-v6", "dep:tauri-plugin-log", "dep:tauri-plugin-opener"]
-# Compatibility switch for the retired TypeScript CRDT authority. The normal
-# desktop build deliberately leaves this OFF: Shrubbery is a sync client and
-# the Rust cell executor owns queue draining and cold projection, exactly as it
-# does in gardend.
-frontend-crdt = []
 # Headless cell (gardend): native managed-state/runtime facade; no Tauri or GUI.
 # Build with: cargo build --no-default-features --features headless --example gardend
 headless = [

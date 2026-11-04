@@ -250,8 +250,9 @@ fn edit_comment_set_anchors_resolves_and_deletes() {
     assert_eq!(result["blockId"], "b1");
     assert_eq!(result["quotedText"], "alpha", "quotedText defaults to find");
     assert_eq!(result["comment"]["text"], "important");
-    assert_eq!(result["comment"]["author"], "MCP Agent");
-    assert_eq!(result["comment"]["authorId"], "mcp-agent");
+    // No request named anyone, so the runtime signs (src/comment_authorship.rs); a caller never does.
+    assert_eq!(result["comment"]["author"], "local-runtime");
+    assert_eq!(result["comment"]["authorId"], "local-runtime");
     assert_eq!(result["comment"]["resolved"], false);
     assert_eq!(result["comment"]["createdAt"], json!(1_700_000_000_000i64));
 
@@ -389,8 +390,8 @@ fn edit_comment_set_occurrence_zero_anchors_every_match() {
                 "find": "alpha",
                 "occurrence": 0,
                 "quotedText": "custom quote",
-                "author": "Vera",
-                "authorId": "u-7",
+                // The server-side stamp the enqueue writes (a caller's own author field is ignored).
+                "__gardenCommentAuthor": { "id": "u-7", "name": "Vera" },
             })),
             "set",
             "c-2",

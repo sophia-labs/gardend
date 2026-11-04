@@ -235,9 +235,8 @@ mod tests {
     #[cfg(all(feature = "headless", not(feature = "desktop")))]
     mod self_heal {
         use super::*;
+        use crate::app_runtime::Manager;
         use crate::storage::write_json;
-        #[cfg(feature = "desktop")]
-        use tauri::Manager;
 
         fn write_snapshot(graph_dir: &Path, documents: serde_json::Value) {
             fs::create_dir_all(workspace_snapshot_path(graph_dir).parent().unwrap()).unwrap();

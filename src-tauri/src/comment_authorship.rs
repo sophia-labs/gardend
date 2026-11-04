@@ -25,10 +25,9 @@
 //! Neovim bridge) do not pass through here; see the integrity receipt.
 
 use crate::app_runtime::AppHandle;
+use crate::app_runtime::Manager;
 use serde_json::{json, Map, Value};
 use std::sync::Arc;
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 
 /// Server-only payload key; stripped from every caller payload at enqueue.
 pub(crate) const COMMENT_AUTHOR_PAYLOAD_KEY: &str = "__gardenCommentAuthor";

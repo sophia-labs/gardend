@@ -5,6 +5,7 @@
 //! `get_wires` and `traverse_wires` through the dispatch table (the path a live `tools/call` takes), the real
 //! `scene_wire::create_scene_wires` writer the whiteboard's `wire` move calls, the real workspace Y.Doc snapshot
 //! and the real RDF projection, against a disposable graph. No mocks.
+use crate::app_runtime::Manager;
 use std::sync::Arc;
 
 use serde_json::{json, Value};

@@ -11,6 +11,7 @@
 
 use crate::app_error::PersistenceError;
 use crate::app_runtime::AppHandle;
+use crate::app_runtime::Manager;
 use crate::crdt_engine::{
     builder,
     executor::{ApplyOperationError, ApplyOperationResult},
@@ -27,8 +28,6 @@ use crate::ydoc_paths::checked_document_ydoc_state_path;
 use base64::Engine;
 use serde_json::{json, Map, Value};
 use std::sync::Arc;
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 use yrs::types::text::YChange;
 use yrs::types::xml::{XmlFragment, XmlOut};
 use yrs::types::Attrs;
@@ -3158,17 +3157,6 @@ pub(super) async fn edit_comment_with_lease(
     if let Some(lease) = lease {
         lease.release_for_projection();
     }
-    #[cfg(feature = "frontend-crdt")]
-    persist_room_document(
-        app,
-        &graph_id,
-        &document_id,
-        &existing_record_title(&graph_dir, &document_id),
-        &room,
-        &operation.operation_id,
-    )
-    .await
-    .map_err(ApplyOperationError::retryable_after_hot_commit)?;
 
     let mut response = Map::new();
     response.insert("documentId".to_string(), json!(document_id));

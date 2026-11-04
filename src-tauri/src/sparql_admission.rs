@@ -26,6 +26,7 @@
 //! bound behind slow queries.
 
 use crate::app_runtime::AppHandle;
+use crate::app_runtime::Manager;
 use crate::{
     app_error::{AppError, AppResult},
     crdt_engine::persistence_coordinator::{
@@ -42,8 +43,6 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 const CONCURRENCY_ENV: &str = "GARDEN_SPARQL_MAX_CONCURRENCY";

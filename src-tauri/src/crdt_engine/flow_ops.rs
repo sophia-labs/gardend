@@ -27,14 +27,13 @@
 
 use crate::app_error::PersistenceError;
 use crate::app_runtime::AppHandle;
+use crate::app_runtime::Manager;
 use crate::crdt_queue::{CrdtOperation, RECOVERED_OPERATION_PAYLOAD_KEY};
 use crate::flow_board::{
     board_derive_report, board_doc_from_update_bytes, board_export_json, board_rows, cycles_json,
     derive_report_json, seed_board_txn, BOARD_DOCUMENT_ID, FLOW_BOARD_KIND,
 };
 use serde_json::{json, Map as JsonMap, Value};
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 use yrs::{Map as YMap, ReadTxn, WriteTxn};
 
 use super::executor::{ApplyOperationError, ApplyOperationResult};

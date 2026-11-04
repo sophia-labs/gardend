@@ -13,6 +13,7 @@ use super::{
         update_workspace_document, write_workspace_document, write_workspace_folder,
     },
 };
+use crate::app_runtime::Manager;
 use crate::{
     crdt_queue::{CrdtOperation, EnqueueCrdtOperationInput},
     document_paths::document_dir,
@@ -23,8 +24,6 @@ use crate::{
 };
 use serde_json::{json, Value};
 use std::{panic::UnwindSafe, path::PathBuf};
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 use uuid::Uuid;
 use yrs::{Map as YMap, MapPrelim, Out, ReadTxn, Transact, WriteTxn, XmlFragment};
 

@@ -1,6 +1,7 @@
 //! Bounded text artifacts. Original bytes remain authoritative; workspace
 //! content identity is a rebuildable invalidation hint. The queue owns replay,
 //! while graph-scoped receipts bind caller IDs to exact mutation requests.
+use crate::app_runtime::Manager;
 use crate::{
     app_error::{AppError, AppResult},
     app_runtime::AppHandle,
@@ -19,8 +20,6 @@ use std::{
     fs,
     path::{Path, PathBuf},
 };
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 use yrs::{Any, Map, Out, ReadTxn, Transact, WriteTxn};
 
 pub(crate) const MAX_TEXT_BYTES: usize = 2 * 1024 * 1024;

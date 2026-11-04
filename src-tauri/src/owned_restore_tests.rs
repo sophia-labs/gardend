@@ -1,6 +1,7 @@
 //! Real signed Axum route -> durable job -> CRDT queue -> persistence.
 //! The independent Platform fixture is synthetic, not production migration.
 use super::*;
+use crate::app_runtime::Manager;
 use crate::local_jobs::{LocalJobRegistry, LocalJobStatus};
 use crate::loopback_state::LoopbackManifest;
 use axum::{body::Body, http::Request};

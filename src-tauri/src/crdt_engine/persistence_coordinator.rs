@@ -11,12 +11,11 @@
 //! the same lease and delegate to non-reentrant service helpers; queued handlers
 //! that already own the async lease call those helpers directly.
 
+use crate::app_runtime::Manager;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 use tokio::sync::Notify;
 use tracing::Instrument;
 

@@ -12,6 +12,12 @@ pub(crate) type GardenTauriRuntime = tauri::Wry;
 #[cfg(all(not(feature = "desktop"), not(feature = "headless")))]
 compile_error!("enable at least one of the `desktop` or `headless` features");
 
+/// The managed-state / path accessor trait. Desktop uses Tauri's own
+/// `Manager`; headless defines an equivalent trait over its native handle, so
+/// call sites import `crate::app_runtime::Manager` unconditionally.
+#[cfg(feature = "desktop")]
+pub(crate) use tauri::Manager;
+
 #[cfg(feature = "desktop")]
 pub(crate) type AppHandle = tauri::AppHandle<GardenTauriRuntime>;
 
@@ -78,10 +84,32 @@ mod native {
         }
     }
 
-    impl AppHandle {
+    /// Managed-state and path accessors shared with the desktop build, where
+    /// the same names come from `tauri::Manager`.
+    pub trait Manager {
         /// Register one value for a concrete Rust type. As with Tauri's
         /// `Manager::manage`, an existing value wins and returns `false`.
-        pub fn manage<T>(&self, value: T) -> bool
+        fn manage<T>(&self, value: T) -> bool
+        where
+            T: Send + Sync + 'static;
+
+        /// The managed value of type `T`, if one was registered.
+        fn try_state<T>(&self) -> Option<State<'_, T>>
+        where
+            T: Send + Sync + 'static;
+
+        /// The managed value of type `T`; panics if none was registered.
+        #[track_caller]
+        fn state<T>(&self) -> State<'_, T>
+        where
+            T: Send + Sync + 'static;
+
+        /// Application directory resolver.
+        fn path(&self) -> PathResolver;
+    }
+
+    impl Manager for AppHandle {
+        fn manage<T>(&self, value: T) -> bool
         where
             T: Send + Sync + 'static,
         {
@@ -97,7 +125,7 @@ mod native {
             true
         }
 
-        pub fn try_state<T>(&self) -> Option<State<'_, T>>
+        fn try_state<T>(&self) -> Option<State<'_, T>>
         where
             T: Send + Sync + 'static,
         {
@@ -117,7 +145,7 @@ mod native {
         }
 
         #[track_caller]
-        pub fn state<T>(&self) -> State<'_, T>
+        fn state<T>(&self) -> State<'_, T>
         where
             T: Send + Sync + 'static,
         {
@@ -125,13 +153,15 @@ mod native {
                 .unwrap_or_else(|| panic!("state `{}` is not managed", std::any::type_name::<T>()))
         }
 
-        pub fn path(&self) -> PathResolver {
+        fn path(&self) -> PathResolver {
             PathResolver {
                 app_data_dir: self.inner.app_data_dir.clone(),
                 resource_dir: self.inner.resource_dir.clone(),
             }
         }
+    }
 
+    impl AppHandle {
         /// Headless cells have no frontend event bus. These events are desktop
         /// notifications only, so accepting them as a no-op preserves the core
         /// write path without inventing an unseen cloud consumer.
@@ -308,11 +338,11 @@ mod native {
 }
 
 #[cfg(all(not(feature = "desktop"), feature = "headless"))]
-pub use native::{async_runtime, App, AppHandle, State};
+pub use native::{async_runtime, App, AppHandle, Manager, State};
 
 #[cfg(all(test, not(feature = "desktop"), feature = "headless"))]
 mod tests {
-    use super::{async_runtime, App};
+    use super::{async_runtime, App, Manager};
 
     #[test]
     fn headless_managed_state_is_typed_shared_and_first_writer_wins() {

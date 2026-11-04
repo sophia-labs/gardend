@@ -1,4 +1,5 @@
 use crate::app_runtime::AppHandle;
+use crate::app_runtime::Manager;
 use crate::{
     app_error::AppErrorKind,
     clock::{duration_ms, timestamp},
@@ -17,7 +18,7 @@ use std::{
     time::{Duration, Instant},
 };
 #[cfg(feature = "desktop")]
-use tauri::{Emitter, Manager};
+use tauri::Emitter;
 use tracing::instrument::WithSubscriber;
 use uuid::Uuid;
 
@@ -51,7 +52,6 @@ pub(crate) const RECOVERED_OPERATION_PAYLOAD_KEY: &str = "__gardenRecoveredOpera
 /// caller's content).
 pub(crate) const TRUSTED_RECREATION_PAYLOAD_KEY: &str = "__gardenTrustedRecreation";
 
-#[cfg(not(feature = "frontend-crdt"))]
 fn operation_kind_uses_recovery_provenance(kind: &str) -> bool {
     matches!(
         kind,
@@ -130,7 +130,6 @@ pub(crate) fn recover_crdt_operations(app: AppHandle) -> Result<usize, String> {
     let queue = app.state::<CrdtOperationQueue>();
     for mut operation in operations {
         operation.trace_context.recovered = true;
-        #[cfg(not(feature = "frontend-crdt"))]
         {
             if operation_kind_uses_recovery_provenance(&operation.kind) {
                 if let Some(payload) = operation.payload.as_object_mut() {
@@ -545,9 +544,6 @@ async fn enqueue_crdt_operation_outcome_inner(
     }
     let expected = crate::graph_incarnation_admission::expected_incarnation(&input.payload)
         .map_err(crate::app_error::AppError::message)?;
-    if expected.is_some() && cfg!(feature = "frontend-crdt") {
-        return Err("expected-incarnation mutation requires the native CRDT executor".into());
-    }
     if expected.is_some()
         && app
             .try_state::<crate::crdt_engine::persistence_coordinator::GraphPersistenceCoordinator>()
@@ -646,7 +642,6 @@ async fn enqueue_crdt_operation_outcome_inner(
     // The Rust cell is the CRDT authority in both gardend and the Shrubbery
     // desktop shell. Only an explicitly requested legacy frontend build polls
     // and completes this queue from TypeScript.
-    #[cfg(not(feature = "frontend-crdt"))]
     {
         let executor_app = app.clone();
         crate::app_runtime::async_runtime::spawn(
@@ -959,10 +954,9 @@ mod tests {
     #[cfg(all(feature = "headless", not(feature = "desktop")))]
     #[test]
     fn enqueue_cannot_journal_tokenless_operation_across_delete() {
+        use crate::app_runtime::Manager;
         use crate::runtime_config::GRAPH_STATUS_DELETED;
         use std::path::PathBuf;
-        #[cfg(feature = "desktop")]
-        use tauri::Manager;
         use uuid::Uuid;
 
         let _serial = crate::tauri_runtime::profile_env_serial()
@@ -1083,8 +1077,7 @@ mod tests {
     #[cfg(all(feature = "headless", not(feature = "desktop")))]
     #[test]
     fn marked_enqueue_timeout_after_insertion_completes_exactly_once() {
-        #[cfg(feature = "desktop")]
-        use tauri::Manager;
+        use crate::app_runtime::Manager;
         use uuid::Uuid;
 
         let _serial = crate::tauri_runtime::profile_env_serial()

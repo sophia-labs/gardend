@@ -2,6 +2,7 @@
 
 use super::persistence_coordinator::GraphPersistenceCoordinator;
 use super::rooms::RoomRegistry;
+use crate::app_runtime::Manager;
 use crate::crdt_queue::{CrdtOperation, CrdtOperationQueue, EnqueueCrdtOperationInput};
 use crate::telemetry::{test_support, TraceContext};
 use opentelemetry::trace::SpanId;

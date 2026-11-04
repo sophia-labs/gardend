@@ -15,14 +15,13 @@ use super::outline;
 use super::scene::{apply_moves, bounds, unmark_wires, Ctx, ObjectInfo, Rng, Scene};
 use super::WHITEBOARD_KIND;
 use crate::app_runtime::AppHandle;
+use crate::app_runtime::Manager;
 use crate::crdt_engine::rooms::{Room, RoomRegistry};
 use crate::mcp_utils::{mcp_arg_string, mcp_required_document_id, mcp_required_graph_id};
 use crate::scene_wire::{SceneWireDraft, SceneWireEnd};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::sync::Arc;
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 
 const MAX_MOVES: usize = 200;
 

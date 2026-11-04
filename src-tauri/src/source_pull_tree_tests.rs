@@ -33,6 +33,7 @@
 //! (`apps/organism/src/cell/sidebar-documents.ts`). No mocks. Every wait is
 //! bounded.
 use crate::app_runtime::AppHandle;
+use crate::app_runtime::Manager;
 use crate::crdt_engine::persistence_coordinator::GraphPersistenceCoordinator;
 use crate::crdt_engine::rooms::{Room, RoomRegistry};
 use crate::crdt_queue::CrdtOperationQueue;

@@ -1,5 +1,6 @@
 //! Optional-use, graph-shared reports joined to the frozen Emporium Agent identity.
 //! These are editable RDF testimony, NOT runtime liveness or signed seat identity.
+use crate::app_runtime::Manager;
 use crate::{
     app_error::{AppError, AppResult},
     app_runtime::AppHandle,
@@ -13,8 +14,6 @@ use oxigraph::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 
 const AGENT: &str = "http://mnemosyne.dev/agent#Agent";
 const TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
