@@ -1,0 +1,23 @@
+{
+  "note": "a commit frame closing txn-7: empty payload, no subjects",
+  "id": "b9cbe440a90dc678d96bb8fcb24858abf427556ac905377de725a384574961c8",
+  "canonical": true,
+  "payload_state": "intact",
+  "payload_hex": "",
+  "header": {
+    "hlc": {
+      "count": 0,
+      "ms": 1700000000008
+    },
+    "mode": "commit",
+    "origin": "cell-a.1",
+    "payload_hash": "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262",
+    "payload_len": 0,
+    "seq": 9,
+    "subjects": [],
+    "txn": "txn-7",
+    "v": 1,
+    "vocab": "urn:vocab:fixtures",
+    "witness": "https://witness.example/vera"
+  }
+}

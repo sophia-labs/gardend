@@ -96,7 +96,12 @@ pub enum Mode {
     Supersede,
     /// Redact an earlier payload.
     Redact,
-    /// A mode written by a newer build (for example `commit`).
+    /// Close a multi-frame transaction: a frame of the same origin and the same `txn` as the run
+    /// of frames it closes. [`encode`] refuses a commit frame that carries a payload or has no
+    /// `txn`; [`decode`] reads one like any other frame (a reader never refuses a frame over its
+    /// mode). The fold applies a txn's buffered frames when the commit arrives.
+    Commit,
+    /// A mode written by a newer build than this one.
     Other(String),
 }
 
@@ -108,6 +113,7 @@ impl Mode {
             Mode::Retract => "retract",
             Mode::Supersede => "supersede",
             Mode::Redact => "redact",
+            Mode::Commit => "commit",
             Mode::Other(s) => s,
         }
     }
@@ -119,6 +125,7 @@ impl Mode {
             "retract" => Mode::Retract,
             "supersede" => Mode::Supersede,
             "redact" => Mode::Redact,
+            "commit" => Mode::Commit,
             other => Mode::Other(other.to_string()),
         }
     }
@@ -511,9 +518,23 @@ pub fn assemble(header_bytes: &[u8], payload: &[u8]) -> Result<Vec<u8>, FrameErr
 }
 
 /// Encode an event as one frame. The payload length must match the header.
+///
+/// A [`Mode::Commit`] event must carry no payload and must name its `txn`; otherwise this is
+/// [`FrameError::Header`]. (Decoding a commit frame is ordinary: those rules bind writers only.)
 pub fn encode(ev: &Event) -> Result<Vec<u8>, FrameError> {
     if ev.header.v != VERSION {
         return Err(FrameError::Version(ev.header.v));
+    }
+    if ev.header.mode == Mode::Commit {
+        if !ev.payload.is_empty() {
+            return Err(FrameError::Header(format!(
+                "commit frame carries a payload of {} bytes",
+                ev.payload.len()
+            )));
+        }
+        if ev.header.txn.is_none() {
+            return Err(FrameError::Header("commit frame without a txn".into()));
+        }
     }
     if ev.payload.len() != ev.header.payload_len as usize {
         return Err(FrameError::Header(format!(
@@ -786,7 +807,7 @@ mod tests {
     #[test]
     fn mode_and_extra_are_lenient_and_round_trip() {
         let mut ev = sample(b"{}");
-        ev.header.mode = Mode::Other("commit".into());
+        ev.header.mode = Mode::Other("tombstone-v9".into());
         ev.header
             .extra
             .insert("future".into(), serde_json::json!(1));
@@ -795,7 +816,7 @@ mod tests {
             .insert("nested".into(), serde_json::json!({"b": [1, 2], "a": null}));
         let f = encode(&ev).unwrap();
         let d = decode(&f).unwrap();
-        assert_eq!(d.header.mode, Mode::Other("commit".into()));
+        assert_eq!(d.header.mode, Mode::Other("tombstone-v9".into()));
         assert_eq!(d.header.extra["future"], serde_json::json!(1));
         assert_eq!(d.header, ev.header);
         // The unknown fields are in the canonical bytes, in sorted order.
@@ -809,6 +830,66 @@ mod tests {
         let mut bad = sample(b"{}");
         bad.header.extra.insert("seq".into(), serde_json::json!(9));
         assert!(encode(&bad).is_err());
+    }
+
+    fn commit_event(payload: &[u8], txn: Option<&str>) -> Event {
+        let mut ev = sample(payload);
+        ev.header.mode = Mode::Commit;
+        ev.header.txn = txn.map(str::to_string);
+        ev
+    }
+
+    /// Mutation: drop the payload check in `encode` (or the `txn` check) and the matching
+    /// assertion below goes red; make `Mode::from_name("commit")` return `Other` and the round trip
+    /// and the `Other("commit")` refusal go red.
+    #[test]
+    fn commit_frames_encode_only_empty_with_a_txn() {
+        assert_eq!(Mode::from_name("commit"), Mode::Commit);
+        assert_eq!(Mode::Commit.as_str(), "commit");
+        // A commit with a txn and no payload round-trips.
+        let ev = commit_event(b"", Some("txn-1"));
+        let f = encode(&ev).unwrap();
+        let d = decode(&f).unwrap();
+        assert_eq!(d.header, ev.header);
+        assert_eq!(d.header.mode, Mode::Commit);
+        assert_eq!(d.header.txn.as_deref(), Some("txn-1"));
+        assert!(d.payload.is_empty());
+        assert_eq!(d.state, PayloadState::Intact);
+        // A payload is refused, whether or not there is a txn.
+        for txn in [Some("txn-1"), None] {
+            assert!(
+                matches!(
+                    encode(&commit_event(b"{}", txn)),
+                    Err(FrameError::Header(_))
+                ),
+                "payload, txn {txn:?}"
+            );
+        }
+        // No txn is refused.
+        assert!(matches!(
+            encode(&commit_event(b"", None)),
+            Err(FrameError::Header(_))
+        ));
+        // `commit` is a known name now: it cannot hide in `Other`.
+        let mut ev = sample(b"");
+        ev.header.mode = Mode::Other("commit".into());
+        assert!(encode(&ev).is_err());
+    }
+
+    /// Mutation: add the commit rules to `decode`/`inspect` and the frames below stop reading, so
+    /// this goes red.
+    #[test]
+    fn decoding_a_commit_frame_is_ordinary_even_when_a_writer_would_have_been_refused() {
+        // A commit that carries a payload, and a commit without a txn, as some other writer made them.
+        for (payload, txn) in [(&b"{}"[..], Some("t")), (&b""[..], None)] {
+            let ev = commit_event(payload, txn);
+            let f = assemble(&canonical_header_bytes(&ev.header).unwrap(), payload).unwrap();
+            let d = decode(&f).unwrap();
+            assert_eq!(d.header.mode, Mode::Commit);
+            assert_eq!(d.header.txn.as_deref(), txn);
+            assert_eq!(d.payload, payload);
+            assert_eq!(d.state, PayloadState::Intact);
+        }
     }
 
     #[test]

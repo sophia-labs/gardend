@@ -19,6 +19,13 @@
 //! lost a frame a peer already held could mint a different one at the same seq and no version
 //! vector would ever say so.
 //!
+//! # Transactions and the writer id
+//!
+//! A multi-frame transaction is a run of frames of one origin sharing a `txn`, closed by a
+//! [`Mode::Commit`] frame ([`Draft::commit`]); [`Ledger::txn_runs`] reports the runs so a fold can
+//! buffer by txn. A cell's writer id is minted once as `cell-<16 hex>` into `{ledger_dir}/origin`
+//! and read on every open ([`Ledger::open_dir`]).
+//!
 //! # What the host owns
 //!
 //! The crate owns no thread, timer or global: the host serializes access and calls the sync
@@ -37,5 +44,7 @@ pub use frame::{
     Event, FrameError, Header, Hlc, Id, Mode, OriginId, PayloadState, RedactPayload, Subject,
 };
 pub use hlc::HlcClock;
-pub use ledger::{Draft, Ledger, LedgerError, VersionVector};
+pub use ledger::{
+    read_or_mint_origin, Draft, Ledger, LedgerError, TxnRun, VersionVector, ORIGIN_FILE,
+};
 pub use stream::{Appended, FrameAt, Located, RawChunk, Recovery, Stream, StreamError};

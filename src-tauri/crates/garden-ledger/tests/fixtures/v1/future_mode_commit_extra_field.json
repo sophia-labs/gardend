@@ -1,7 +1,7 @@
 {
-  "note": "mode commit (unknown to v1 readers) and an unknown header field future:1",
+  "note": "mode commit without a txn (a writer would be refused; a reader is not) and an unknown header field future:1",
   "id": "b8de8ab91c4d605937d573d2b14ecc11234a0fbf7644a0c42f0f82f09801a960",
-  "canonical": true,
+  "canonical": false,
   "payload_state": "intact",
   "payload_hex": "",
   "header": {

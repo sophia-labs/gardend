@@ -35,6 +35,16 @@
 //! ledger repairs from the durable `redact` frame before the stream is judged (see `ledger.rs`).
 //!
 //! A damaged length prefix on the very last frame is indistinguishable from a tear and is cut.
+//!
+//! # A failed full flush poisons the stream
+//!
+//! After `fsync` fails the kernel may have dropped the dirty pages and cleared the error, so a retry
+//! can report success for bytes that never reached the disk. A `Stream` therefore never retries: the
+//! first failed `sync_full` marks it poisoned ([`Stream::is_poisoned`]). From then on `append`,
+//! `redact_at`, `sync_barrier` and `sync_full` refuse ([`StreamError::Poisoned`], surfaced inside an
+//! `io::Error` by the two sync calls: see [`StreamError::io_is_poisoned`]), and [`Stream::durable_len`]
+//! stays where it was, so nothing the failed flush may have lost is ever shipped. Reads still work.
+//! Only reopening the ledger (which rescans the file and fsyncs what it finds) clears the poison.
 
 use std::fmt;
 use std::fs::{File, OpenOptions};
@@ -100,6 +110,9 @@ pub enum StreamError {
     },
     /// An offset that is past the end of the stream.
     BadOffset(u64),
+    /// An earlier `sync_full` failed, so what reached the disk is unknown: the stream refuses writes
+    /// and flushes until it is reopened (see the module docs).
+    Poisoned,
     /// The stream file is already open for writing (a second `Stream` in this process, or another
     /// process): one writer per stream.
     Locked {
@@ -131,6 +144,10 @@ impl fmt::Display for StreamError {
                 write!(f, "origin mismatch: expected {expected}, found {found}")
             }
             StreamError::BadOffset(o) => write!(f, "offset {o} is past the end of the stream"),
+            StreamError::Poisoned => write!(
+                f,
+                "stream is poisoned by a failed full flush: reopen the ledger"
+            ),
             StreamError::Locked { path } => write!(
                 f,
                 "stream {} is locked: it is already open for writing (one writer per stream)",
@@ -147,6 +164,21 @@ impl std::error::Error for StreamError {
             _ => None,
         }
     }
+}
+
+impl StreamError {
+    /// True when `e` is the `io::Error` a poisoned stream's `sync_barrier` or `sync_full` returns
+    /// (it wraps [`StreamError::Poisoned`]).
+    pub fn io_is_poisoned(e: &io::Error) -> bool {
+        e.get_ref()
+            .and_then(|inner| inner.downcast_ref::<StreamError>())
+            .is_some_and(|s| matches!(s, StreamError::Poisoned))
+    }
+}
+
+/// The error a poisoned stream's sync calls return.
+fn poisoned_io() -> io::Error {
+    io::Error::other(StreamError::Poisoned)
 }
 
 impl From<io::Error> for StreamError {
@@ -247,6 +279,8 @@ pub struct Stream {
     /// Bytes of the file a successful full flush has covered, the only bound sync ships below. 0 until
     /// open has fsynced the recovered file.
     durable_len: AtomicU64,
+    /// A full flush failed: refuse writes and flushes until reopen (see the module docs).
+    poisoned: AtomicBool,
 }
 
 enum Raw {
@@ -688,6 +722,7 @@ impl Scan {
                 full_owed: AtomicBool::new(false),
                 synced_len: AtomicU64::new(self.end),
                 durable_len: AtomicU64::new(0),
+                poisoned: AtomicBool::new(false),
             },
             recovery,
         ))
@@ -757,6 +792,12 @@ impl Stream {
         self.durable_len.load(Ordering::Acquire)
     }
 
+    /// True once a `sync_full` has failed on this stream: it refuses writes and flushes until reopened
+    /// and `durable_len` is frozen (see the module docs).
+    pub fn is_poisoned(&self) -> bool {
+        self.poisoned.load(Ordering::Acquire)
+    }
+
     /// Path of the stream file.
     pub fn path(&self) -> &Path {
         &self.path
@@ -764,6 +805,9 @@ impl Stream {
 
     /// Append one already-encoded frame whose `header.seq` must equal `next_seq` (else `StreamError::Seq`).
     pub fn append(&mut self, frame: &[u8], header: &Header) -> Result<Appended, StreamError> {
+        if self.is_poisoned() {
+            return Err(StreamError::Poisoned);
+        }
         if header.origin != self.origin {
             return Err(StreamError::Origin {
                 expected: self.origin.0.clone(),
@@ -961,6 +1005,9 @@ impl Stream {
     /// is left alone. This is the second step of a redaction: `Ledger::redact` appends and barriers the
     /// `redact` frame first.
     pub fn redact_at(&mut self, offset: u64) -> Result<(), StreamError> {
+        if self.is_poisoned() {
+            return Err(StreamError::Poisoned);
+        }
         if offset >= self.len {
             return Err(StreamError::BadOffset(offset));
         }
@@ -982,6 +1029,9 @@ impl Stream {
     /// since a barrier, a full flush is owed if there was anything to cover, and everything written so
     /// far counts as synced.
     pub fn sync_barrier(&self) -> io::Result<()> {
+        if self.is_poisoned() {
+            return Err(poisoned_io());
+        }
         let covered = self.len;
         let was_dirty = self.dirty_since_barrier.swap(false, Ordering::AcqRel);
         match fs_sync_barrier(&self.file) {
@@ -1006,17 +1056,33 @@ impl Stream {
     ///
     /// The redact path writes through its own handle, so the barrier/full here is issued on the append
     /// handle of the same inode, which covers those pages as well on the platforms we target.
+    ///
+    /// A failure poisons the stream (see the module docs): this and every later write or flush
+    /// refuses, and `durable_len` does not move.
     pub fn sync_full(&self) -> io::Result<()> {
+        self.sync_full_with(fs_sync_full)
+    }
+
+    /// `sync_full` with the flush syscall injected, so tests can make a real stream see a real
+    /// `fsync` failure without a failing disk.
+    pub(crate) fn sync_full_with(
+        &self,
+        flush: impl FnOnce(&File) -> io::Result<()>,
+    ) -> io::Result<()> {
+        if self.is_poisoned() {
+            return Err(poisoned_io());
+        }
         let covered = self.len;
         let was_dirty = self.dirty_since_barrier.swap(false, Ordering::AcqRel);
         let was_owed = self.full_owed.swap(false, Ordering::AcqRel);
-        match fs_sync_full(&self.file) {
+        match flush(&self.file) {
             Ok(()) => {
                 self.synced_len.fetch_max(covered, Ordering::AcqRel);
                 self.durable_len.fetch_max(covered, Ordering::AcqRel);
                 Ok(())
             }
             Err(e) => {
+                self.poisoned.store(true, Ordering::Release);
                 if was_dirty {
                     self.dirty_since_barrier.store(true, Ordering::Release);
                 }
@@ -1170,6 +1236,60 @@ mod tests {
                     .unwrap()
             })
             .collect()
+    }
+
+    /// Mutation: drop the `poisoned.store(true)` in `sync_full_with` and the stream stays writable, so
+    /// the `Poisoned` assertions go red; let the failure path `fetch_max` durable_len and the frozen
+    /// length assertion goes red; clear the flag anywhere but open and the pre-reopen checks go red.
+    #[test]
+    fn a_failed_full_flush_poisons_the_stream_and_freezes_durable_len_until_reopen() {
+        let dir = tempfile::tempdir().unwrap();
+        let o = origin("p");
+        let (mut s, _) = Stream::open(dir.path(), &o).unwrap();
+        fill(&mut s, 2);
+        s.sync_full().unwrap();
+        let frozen = s.durable_len();
+        assert_eq!(frozen, s.len());
+        assert!(!s.is_poisoned());
+        s.append_event(&event(&o, 3, b"third")).unwrap();
+        let len3 = s.len();
+        let err = s
+            .sync_full_with(|_| Err(io::Error::other("injected fsync failure")))
+            .unwrap_err();
+        assert!(
+            !StreamError::io_is_poisoned(&err),
+            "the first failure is the raw one"
+        );
+        assert!(s.is_poisoned());
+        assert_eq!(s.durable_len(), frozen);
+        // A later flush that the OS would have accepted is still refused, and moves nothing.
+        let again = s.sync_full().unwrap_err();
+        assert!(StreamError::io_is_poisoned(&again));
+        assert!(StreamError::io_is_poisoned(&s.sync_barrier().unwrap_err()));
+        assert_eq!(s.durable_len(), frozen);
+        // Nothing past the frozen length ships; what was durable still does.
+        let chunk = s.raw_after(0, usize::MAX).unwrap();
+        assert_eq!(chunk.to_seq, 2);
+        // Writes refuse and write nothing.
+        assert!(matches!(
+            s.append_event(&event(&o, 4, b"fourth")),
+            Err(StreamError::Poisoned)
+        ));
+        assert!(matches!(s.redact_at(0), Err(StreamError::Poisoned)));
+        assert_eq!(s.len(), len3);
+        assert_eq!(s.next_seq(), 4);
+        // Reads still work.
+        assert_eq!(s.scan_from(0).count(), 3);
+        drop(s);
+        // Reopen rescans and fsyncs: unpoisoned, and the third frame (on disk) counts and ships.
+        let (mut s, rec) = Stream::open(dir.path(), &o).unwrap();
+        assert_eq!(rec, Recovery::Clean);
+        assert!(!s.is_poisoned());
+        assert_eq!(s.durable_len(), len3);
+        assert_eq!(s.raw_after(0, usize::MAX).unwrap().to_seq, 3);
+        s.append_event(&event(&o, 4, b"fourth")).unwrap();
+        s.sync_full().unwrap();
+        assert_eq!(s.durable_len(), s.len());
     }
 
     #[test]

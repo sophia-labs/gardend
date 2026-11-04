@@ -1,10 +1,14 @@
 //! The ledger: a directory of per-origin streams, a version vector, diff and apply.
 
+use std::collections::hash_map::RandomState;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::fs::File;
+use std::hash::{BuildHasher, Hasher};
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::frame::{
     self, Event, FrameError, Header, Id, Mode, OriginId, PayloadState, RedactPayload, Subject,
@@ -53,6 +57,18 @@ pub enum LedgerError {
         /// The missing position.
         seq: u64,
     },
+    /// We hold frames of this origin but the chunk repeats none of them: it cannot be checked
+    /// against what we hold, so a fork could slip through. [`Ledger::diff`] always starts a chunk at
+    /// the receiver's tip; a chunk that does not is not from a peer that diffed against our vector.
+    /// Nothing was written.
+    NoOverlap {
+        /// The origin whose chunk carried no overlap.
+        origin: OriginId,
+        /// The last seq we hold of that origin.
+        ours: u64,
+        /// The seq the chunk started at (`ours + 1`).
+        first: u64,
+    },
 }
 
 impl fmt::Display for LedgerError {
@@ -86,6 +102,15 @@ impl fmt::Display for LedgerError {
             LedgerError::NoSuchFrame { origin, seq } => {
                 write!(f, "no frame at seq {seq} in origin {}", origin.0)
             }
+            LedgerError::NoOverlap {
+                origin,
+                ours,
+                first,
+            } => write!(
+                f,
+                "chunk for origin {} starts at seq {first} and repeats none of our {ours} frames",
+                origin.0
+            ),
         }
     }
 }
@@ -158,6 +183,124 @@ pub struct Draft {
     pub txn: Option<String>,
 }
 
+impl Draft {
+    /// The closing frame of transaction `txn`: mode [`Mode::Commit`], no payload, no subjects, and
+    /// `txn` set. `witness` and `vocab` start empty; set them with [`Draft::with_witness`] and
+    /// [`Draft::with_vocab`] (a fold reads the vocab off the commit frame's header like any other).
+    ///
+    /// Append it after the transaction's other frames, from the same ledger with nothing from another
+    /// transaction in between, and [`Ledger::txn_runs`] reports the run closed.
+    pub fn commit(txn: impl Into<String>) -> Draft {
+        Draft {
+            witness: String::new(),
+            vocab: String::new(),
+            subjects: Vec::new(),
+            mode: Mode::Commit,
+            payload: Vec::new(),
+            txn: Some(txn.into()),
+        }
+    }
+
+    /// Set the witness IRI.
+    pub fn with_witness(mut self, witness: impl Into<String>) -> Draft {
+        self.witness = witness.into();
+        self
+    }
+
+    /// Set the vocabulary.
+    pub fn with_vocab(mut self, vocab: impl Into<String>) -> Draft {
+        self.vocab = vocab.into();
+        self
+    }
+}
+
+/// A run of consecutive frames of one origin that share a `txn`, as [`Ledger::txn_runs`] reports it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TxnRun {
+    /// The transaction id the frames carry.
+    pub txn: String,
+    /// Seq of the run's first frame (at or after the `from_seq` asked for).
+    pub first_seq: u64,
+    /// Seq of the run's last frame; for a closed run this is the commit frame.
+    pub last_seq: u64,
+    /// True when the run ends with a [`Mode::Commit`] frame of this `txn`. An open run is a
+    /// transaction still being written, or one whose writer died.
+    pub closed: bool,
+}
+
+/// File in the ledger directory that holds the cell's writer id.
+pub const ORIGIN_FILE: &str = "origin";
+
+/// Mint a writer id: `cell-` and 16 lowercase hex digits.
+///
+/// No entropy crate: `RandomState` is seeded from the OS once per thread and every `RandomState::new`
+/// advances its key, so two mints in one process or on one clock tick still differ; the clock, pid,
+/// a process counter and a stack address are mixed in as well.
+fn mint_origin() -> OriginId {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let mut h = RandomState::new().build_hasher();
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    h.write(&nanos.to_le_bytes());
+    h.write(&std::process::id().to_le_bytes());
+    h.write(&COUNTER.fetch_add(1, Ordering::Relaxed).to_le_bytes());
+    let marker = 0u8;
+    h.write(&(&marker as *const u8 as usize).to_le_bytes());
+    OriginId(format!("cell-{:016x}", h.finish()))
+}
+
+/// Read `{dir}/origin`, or mint an id and store it there, once.
+///
+/// The directory is created if missing. A minted id is written to a temp file, fsynced, and
+/// hard-linked into place, so the file is either absent or complete, and two processes that race to
+/// mint agree on whichever linked first. A file that holds anything but a valid origin id is
+/// [`LedgerError::BadOrigin`] (never overwritten).
+pub fn read_or_mint_origin(dir: &Path) -> Result<OriginId, LedgerError> {
+    std::fs::create_dir_all(dir)?;
+    let path = dir.join(ORIGIN_FILE);
+    for _ in 0..3 {
+        match std::fs::read_to_string(&path) {
+            Ok(text) => {
+                let id = text.trim();
+                if !origin_is_valid(id) {
+                    return Err(LedgerError::BadOrigin(format!(
+                        "{} holds {id:?}, not an origin id",
+                        path.display()
+                    )));
+                }
+                return Ok(OriginId(id.to_string()));
+            }
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e.into()),
+        }
+        let id = mint_origin();
+        let tmp = dir.join(format!("{ORIGIN_FILE}.tmp-{}", id.0));
+        {
+            use std::io::Write;
+            let mut f = File::create(&tmp)?;
+            f.write_all(id.0.as_bytes())?;
+            f.write_all(b"\n")?;
+            f.sync_all()?;
+        }
+        let linked = std::fs::hard_link(&tmp, &path);
+        let _ = std::fs::remove_file(&tmp);
+        match linked {
+            Ok(()) => {
+                sync_dir_once(dir)?;
+                return Ok(id);
+            }
+            // Lost the race (or the file appeared): read what is there.
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e.into()),
+        }
+    }
+    Err(LedgerError::BadOrigin(format!(
+        "{} could not be read or created",
+        path.display()
+    )))
+}
+
 /// A directory of per-origin streams with one local (writable) origin.
 ///
 /// The ledger holds every stream open (and so locked: see [`Stream::open`]) for its life. It ships a
@@ -168,10 +311,11 @@ pub struct Ledger {
     dir: PathBuf,
     streams: BTreeMap<OriginId, Stream>,
     local: OriginId,
-    /// Redact frames whose target is not held yet, `(target origin, target seq)` to the target's id:
+    /// Redact frames whose target is not held yet, keyed `(target origin, target seq, target id)`:
     /// the target is zeroed the moment it lands, so a redaction that outran its target never leaves
-    /// the payload on disk and shippable.
-    pending_redactions: BTreeMap<(String, u64), Id>,
+    /// the payload on disk and shippable. The id is part of the key so that a redact frame naming the
+    /// right position with a wrong id cannot displace the genuine one.
+    pending_redactions: BTreeSet<(String, u64, Id)>,
 }
 
 /// Compare the ids a peer sent for positions we hold with the ids we hold there.
@@ -220,6 +364,14 @@ pub fn sync_dir_once(dir: &Path) -> io::Result<()> {
 }
 
 impl Ledger {
+    /// Open the ledger in `dir` as the cell whose writer id lives in `{dir}/origin`: read it, or mint
+    /// `cell-<16 hex>` and store it there on the first open (see [`read_or_mint_origin`]). It is
+    /// never `GARDEN_CELL_ID`. Otherwise this is [`Ledger::open`].
+    pub fn open_dir(dir: &Path) -> Result<(Ledger, Vec<(OriginId, Recovery)>), LedgerError> {
+        let local = read_or_mint_origin(dir)?;
+        Ledger::open(dir, local)
+    }
+
     /// Open every `*.log` in `dir` (create dir if missing); recover each; report recoveries. Every
     /// stream file is locked and fsynced (see [`Stream::open`]): a second `Ledger` or `Stream` on the
     /// same directory fails with [`StreamError::Locked`].
@@ -283,7 +435,7 @@ impl Ledger {
         if created {
             sync_dir_once(dir)?;
         }
-        let mut pending_redactions = BTreeMap::new();
+        let mut pending_redactions = BTreeSet::new();
         for r in redactions {
             let Ok(id) = r.id() else { continue };
             let held = r.target_seq == 0
@@ -291,7 +443,7 @@ impl Ledger {
                     .get(&OriginId(r.target_origin.clone()))
                     .is_some_and(|s| r.target_seq < s.next_seq());
             if !held {
-                pending_redactions.insert((r.target_origin, r.target_seq), id);
+                pending_redactions.insert((r.target_origin, r.target_seq, id));
             }
         }
         Ok((
@@ -412,8 +564,13 @@ impl Ledger {
     ///
     /// Appended frames are not shippable onward until the host `sync_full`s them.
     ///
+    /// When we already hold frames of `origin` the chunk must repeat at least one of them (the tip
+    /// frame [`Ledger::diff`] starts every chunk with), else [`LedgerError::NoOverlap`] and nothing is
+    /// written: a chunk that begins right after our tail could not reveal a fork. An empty chunk is
+    /// 0 new. When we hold none of the origin there is nothing to compare and no overlap is needed.
+    ///
     /// `origin` may be the local origin: that is how a replica gets back its own frames that a crash cut
-    /// from its tail but a peer kept (they extend our tail contiguously and match on any overlap).
+    /// from its tail but a peer kept (they extend our tail contiguously and match on the overlap).
     /// New `redact` frames zero the local copy of their target, after a barrier on the stream they were
     /// appended to. A redact frame whose target is not held yet is remembered, and the target is zeroed
     /// the moment it lands (also across a reopen, which re-reads the redact frames).
@@ -489,6 +646,15 @@ impl Ledger {
                 });
             }
         }
+        if ours > 0 && overlap.is_empty() {
+            if let Some((_, header, _)) = fresh.first() {
+                return Err(LedgerError::NoOverlap {
+                    origin: origin.clone(),
+                    ours,
+                    first: header.seq,
+                });
+            }
+        }
         if fresh.is_empty() {
             return Ok(0);
         }
@@ -517,27 +683,28 @@ impl Ledger {
                 if !self.zero_target(r)? {
                     if let Ok(id) = r.id() {
                         self.pending_redactions
-                            .insert((r.target_origin.clone(), r.target_seq), id);
+                            .insert((r.target_origin.clone(), r.target_seq, id));
                     }
                 }
             }
         }
         // Frames that landed under a redact frame that arrived first.
         if !self.pending_redactions.is_empty() {
-            let landed: Vec<u64> = fresh
+            let landed: Vec<(u64, Id)> = fresh
                 .iter()
                 .filter(|(_, h, id)| {
-                    self.pending_redactions.get(&(origin.0.clone(), h.seq)) == Some(id)
+                    self.pending_redactions
+                        .contains(&(origin.0.clone(), h.seq, *id))
                 })
-                .map(|(_, h, _)| h.seq)
+                .map(|(_, h, id)| (h.seq, *id))
                 .collect();
             if !landed.is_empty() {
                 // Every redact frame that is waiting must be ordered before its target is touched.
                 self.sync_barrier()?;
-                for seq in landed {
-                    let Some(id) = self.pending_redactions.remove(&(origin.0.clone(), seq)) else {
+                for (seq, id) in landed {
+                    if !self.pending_redactions.remove(&(origin.0.clone(), seq, id)) {
                         continue;
-                    };
+                    }
                     if let Some(stream) = self.streams.get_mut(origin) {
                         if let Some(loc) = stream.locate(seq)? {
                             if loc.id == id {
@@ -545,6 +712,10 @@ impl Ledger {
                             }
                         }
                     }
+                    // The position is filled now: a pending redaction that named it with another id
+                    // can never match.
+                    self.pending_redactions
+                        .retain(|(o, s, _)| !(o == &origin.0 && *s == seq));
                 }
             }
         }
@@ -583,6 +754,64 @@ impl Ledger {
             .get(origin)
             .ok_or_else(|| LedgerError::BadOrigin(format!("unknown origin {}", origin.0)))?;
         Ok(s.scan_from(from_offset))
+    }
+
+    /// The transaction runs of one origin from `from_seq` (inclusive; 0 and 1 mean the start), in seq
+    /// order, so a fold can buffer by txn without re-deriving it.
+    ///
+    /// A run is consecutive frames of `origin` that carry the same `txn`. A frame with no `txn`, or
+    /// with another one, ends the run, so the same txn id seen again after a gap is a second run. A
+    /// run is `closed` when its last frame is a [`Mode::Commit`] frame of that txn (the commit frame
+    /// belongs to the run: `last_seq` is its seq); a commit ends the run, so a frame with the same txn
+    /// after it starts a new run. A commit with no frames before it is a closed run of one. A run
+    /// that is not closed is a transaction still being written, or one whose writer died.
+    ///
+    /// When `from_seq` falls inside a run the run starts at the first frame at or after it. Reads
+    /// every frame from `from_seq` to the end of the stream (frames not yet flushed included).
+    /// `BadOrigin` when the origin is unknown.
+    pub fn txn_runs(&self, origin: &OriginId, from_seq: u64) -> Result<Vec<TxnRun>, LedgerError> {
+        let stream = self
+            .streams
+            .get(origin)
+            .ok_or_else(|| LedgerError::BadOrigin(format!("unknown origin {}", origin.0)))?;
+        let offset = if from_seq <= 1 {
+            0
+        } else {
+            match stream.locate(from_seq)? {
+                Some(loc) => loc.offset,
+                None => return Ok(Vec::new()),
+            }
+        };
+        let mut runs: Vec<TxnRun> = Vec::new();
+        let mut cur: Option<TxnRun> = None;
+        for item in stream.scan_from(offset) {
+            let frame = item?;
+            let header = &frame.decoded.header;
+            let seq = header.seq;
+            let Some(txn) = header.txn.as_ref() else {
+                runs.extend(cur.take());
+                continue;
+            };
+            let is_commit = header.mode == Mode::Commit;
+            match cur.take() {
+                Some(mut run) if run.txn == *txn && !run.closed => {
+                    run.last_seq = seq;
+                    run.closed = is_commit;
+                    cur = Some(run);
+                }
+                other => {
+                    runs.extend(other);
+                    cur = Some(TxnRun {
+                        txn: txn.clone(),
+                        first_seq: seq,
+                        last_seq: seq,
+                        closed: is_commit,
+                    });
+                }
+            }
+        }
+        runs.extend(cur);
+        Ok(runs)
     }
 
     /// Redact the payload of frame `(target_origin, target_seq)`, durably, in two steps.
@@ -657,26 +886,44 @@ impl Ledger {
     /// Ordered-durability barrier on every stream appended to since the last barrier: the writer's ack.
     /// Each stream that had writes then owes a full flush (see [`Stream::full_owed`]). A barrier does
     /// not make frames shippable; only [`Ledger::sync_full`] does.
+    ///
+    /// Every stream is attempted even when one fails (a poisoned stream must not keep the others from
+    /// their barrier); the first error is returned.
     pub fn sync_barrier(&self) -> io::Result<()> {
+        let mut first: io::Result<()> = Ok(());
         for s in self.streams.values() {
             if s.dirty_since_barrier() {
-                s.sync_barrier()?;
+                if let Err(e) = s.sync_barrier() {
+                    if first.is_ok() {
+                        first = Err(e);
+                    }
+                }
             }
         }
-        Ok(())
+        first
     }
 
     /// Full flush on every stream that appended or redacted since its last full flush: the ones that
     /// owe one after a barrier, and the ones never barriered at all. This is what makes frames
     /// shippable: [`Ledger::diff`] offers only what a full flush has covered, so call it (eagerly when a
     /// peer is waiting) after appends and applies.
+    ///
+    /// Every stream is attempted even when one fails; the first error is returned. A stream whose
+    /// full flush failed is poisoned (see [`Stream::is_poisoned`]): its `durable_len` stays frozen, so
+    /// nothing it may have lost ships, and this keeps returning an error until the ledger is
+    /// reopened (test it with [`StreamError::io_is_poisoned`]).
     pub fn sync_full(&self) -> io::Result<()> {
+        let mut first: io::Result<()> = Ok(());
         for s in self.streams.values() {
             if s.full_owed() || s.dirty_since_barrier() {
-                s.sync_full()?;
+                if let Err(e) = s.sync_full() {
+                    if first.is_ok() {
+                        first = Err(e);
+                    }
+                }
             }
         }
-        Ok(())
+        first
     }
 }
 
@@ -686,6 +933,62 @@ mod tests {
 
     fn o(s: &str) -> OriginId {
         OriginId(s.to_string())
+    }
+
+    fn assert_draft(txn: Option<&str>) -> Draft {
+        Draft {
+            witness: "urn:w".into(),
+            vocab: "v".into(),
+            subjects: Vec::new(),
+            mode: Mode::Assert,
+            payload: b"[]".to_vec(),
+            txn: txn.map(str::to_string),
+        }
+    }
+
+    /// Mutation: make `Ledger::sync_full` return at the first error (`?`) and the second ledger-level
+    /// check (other streams still flush) is not exercised; drop the poison check in `Stream::append`
+    /// and the append below succeeds, so this goes red; let `durable_len` move on the failure path
+    /// and the one-frame chunk assertion goes red.
+    #[test]
+    fn a_poisoned_stream_refuses_ledger_appends_and_syncs_and_ships_only_what_was_durable() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut led, _) = Ledger::open(dir.path(), o("mine")).unwrap();
+        let mut clock = HlcClock::new();
+        led.append(&mut clock, 1, assert_draft(None)).unwrap();
+        led.sync_full().unwrap();
+        led.append(&mut clock, 2, assert_draft(None)).unwrap();
+        led.stream(&o("mine"))
+            .unwrap()
+            .sync_full_with(|_| Err(io::Error::other("injected")))
+            .unwrap_err();
+        assert!(led.stream(&o("mine")).unwrap().is_poisoned());
+        assert!(matches!(
+            led.append(&mut clock, 3, assert_draft(None)),
+            Err(LedgerError::Stream(StreamError::Poisoned))
+        ));
+        assert!(StreamError::io_is_poisoned(&led.sync_full().unwrap_err()));
+        assert!(StreamError::io_is_poisoned(
+            &led.sync_barrier().unwrap_err()
+        ));
+        assert_eq!(led.version().get(&o("mine")), 2);
+        let chunks = led.diff(&VersionVector::default(), 1 << 20).unwrap();
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(
+            chunks[0].1.to_seq, 1,
+            "only the frame a full flush covered ships"
+        );
+        drop(led);
+        let (mut led, _) = Ledger::open(dir.path(), o("mine")).unwrap();
+        assert!(!led.stream(&o("mine")).unwrap().is_poisoned());
+        led.append(&mut clock, 4, assert_draft(None)).unwrap();
+        led.sync_full().unwrap();
+        assert_eq!(
+            led.diff(&VersionVector::default(), 1 << 20).unwrap()[0]
+                .1
+                .to_seq,
+            3
+        );
     }
 
     #[test]

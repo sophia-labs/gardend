@@ -141,7 +141,7 @@ fn mode_strategy() -> impl Strategy<Value = Mode> {
         Just(Mode::Retract),
         Just(Mode::Supersede),
         Just(Mode::Redact),
-        Just(Mode::Other("commit".to_string())),
+        Just(Mode::Other("tombstone-v9".to_string())),
     ]
 }
 
@@ -1528,14 +1528,14 @@ fn unit_apply_refuses_a_chunk_that_does_not_validate_and_writes_nothing() {
 
 #[test]
 fn unit_unknown_mode_and_fields_survive_open_sync_and_reopen() {
-    // A frame a newer build wrote (mode "commit", header field "future") must open, replicate and
+    // A frame a newer build wrote (mode "tombstone-v9", header field "future") must open, replicate and
     // reopen on this build, with its id unchanged.
     let td = TempDir::new().unwrap();
     let a_id = OriginId("aaa".to_string());
     let dir_a = td.path().join("a");
     let (mut s, _) = Stream::open(&dir_a, &a_id).unwrap();
     let mut spec = simple_spec("future");
-    spec.mode = Mode::Other("commit".into());
+    spec.mode = Mode::Other("tombstone-v9".into());
     let mut ev = event(&spec, "aaa", 1);
     ev.header
         .extra
@@ -1552,7 +1552,7 @@ fn unit_unknown_mode_and_fields_survive_open_sync_and_reopen() {
     }
     let f = b.scan(&a_id, 0).unwrap().next().unwrap().unwrap();
     assert_eq!(f.decoded.id, ap.id);
-    assert_eq!(f.decoded.header.mode, Mode::Other("commit".into()));
+    assert_eq!(f.decoded.header.mode, Mode::Other("tombstone-v9".into()));
     assert_eq!(f.decoded.header.extra["future"], serde_json::json!(1));
     // The local origin keeps appending after such a frame.
     a.append(&mut HlcClock::new(), 1, draft(&simple_spec("next")))
