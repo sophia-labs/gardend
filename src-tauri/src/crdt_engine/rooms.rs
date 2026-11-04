@@ -1102,36 +1102,72 @@ impl RoomRegistry {
         let (graph_dir, _record) =
             crate::graph_record_store::read_graph_record_no_heal(app, graph_id)
                 .map_err(|error| LedgerAdmissionError::NotFound(error.message()))?;
-        self.get_or_create_ledger(
-            &format!("ledger:{graph_id}:{vocab}"),
-            graph_dir.join("ledger").join(vocab),
-        )
-        .await
-        .map_err(LedgerAdmissionError::Other)
+        let room = self
+            .get_or_create_ledger(
+                &format!("ledger:{graph_id}:{vocab}"),
+                graph_dir.join("ledger").join(vocab),
+            )
+            .await
+            .map_err(LedgerAdmissionError::Other)?;
+        // The fold host (W7 section 4): one tail per hosted room, started here because it needs the
+        // app handle (the hot-write lease, the graph store) that `get_or_create_ledger` does not
+        // carry. Idempotent for a room that already has one; it lets go of the room at eviction.
+        crate::emporium::ledger_fold::tail::ensure_tail(app, graph_id, vocab, &graph_dir, &room);
+        Ok(room)
     }
 
     /// The version map of the ledger `key` at `ledger_dir` without creating any state: the hosted
     /// room's when one is hosted, else a cold read (see [`LedgerRoom::cold_version_json`]) taken
     /// under the key's opening slot, so it cannot race a room open for the stream locks.
+    ///
+    /// The cold read opens the streams (an fsync, and a torn tail may be cut), so it runs on a
+    /// blocking thread, which takes the opening slot itself. A ledger still locked by an evicted
+    /// room's last flush is retried every [`LEDGER_LOCKED_RETRY`] for up to [`LEDGER_LOCKED_WAIT`],
+    /// as a room open is, and each retry looks for a hosted room first (one may have been
+    /// installed meanwhile; it then answers, and the cold read never contends with it).
     pub(crate) async fn ledger_version(
         &self,
         key: &str,
         ledger_dir: &std::path::Path,
     ) -> Result<serde_json::Value, String> {
-        let room = {
+        let deadline = tokio::time::Instant::now() + LEDGER_LOCKED_WAIT;
+        loop {
+            if let Some(room) = self.peek_ledger(key) {
+                return Ok(room.version_json().await);
+            }
             let slot = self.opening_slot(key);
-            let _guard = slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-            // A room may have been installed since the first look: it answers, not a second open.
-            match self.peek_ledger(key) {
-                Some(room) => room,
-                None => {
-                    return LedgerRoom::cold_version_json(ledger_dir).map_err(|error| {
-                        format!("read ledger version {}: {error}", ledger_dir.display())
-                    });
+            let dir = ledger_dir.to_path_buf();
+            let cold = tokio::task::spawn_blocking(move || {
+                let _guard = slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                LedgerRoom::cold_version_json(&dir)
+            })
+            .await
+            .map_err(|error| format!("read ledger version {}: {error}", ledger_dir.display()))?;
+            match cold {
+                Ok(body) => return Ok(body),
+                Err(ConvergeError::Locked(path))
+                    if tokio::time::Instant::now() + LEDGER_LOCKED_RETRY <= deadline =>
+                {
+                    log::debug!(
+                        "ledger stream {path} is locked; retrying the version read of {key}"
+                    );
+                    tokio::time::sleep(LEDGER_LOCKED_RETRY).await;
+                }
+                Err(ConvergeError::Locked(path)) => {
+                    return Err(format!(
+                        "read ledger version {}: still locked by another handle after \
+                         {LEDGER_LOCKED_WAIT:?} ({path}); an evicted room has not let go of it",
+                        ledger_dir.display()
+                    ));
+                }
+                Err(error) => {
+                    return Err(format!(
+                        "read ledger version {}: {error}",
+                        ledger_dir.display()
+                    ));
                 }
             }
-        };
-        Ok(room.version_json().await)
+        }
     }
 
     fn open_ledger_room(

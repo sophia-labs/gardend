@@ -26,16 +26,19 @@ use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, Weak};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use garden_ledger::frame::Decoded;
 use garden_ledger::{
-    Appended, Draft, HlcClock, Ledger, LedgerError, OriginId, StreamError, VersionVector,
+    Appended, Draft, HlcClock, Ledger, LedgerError, Mode, OriginId, StreamError, TxnRun,
+    VersionVector,
 };
-use tokio::sync::{broadcast, Mutex};
+use tokio::sync::{broadcast, watch, Mutex};
 use tracing::instrument::WithSubscriber;
 
 use super::awareness::AwarenessTable;
 use super::convergent::{Applied, ConvergeError, Convergent, RoomKind};
 use super::rooms::{ship_pending, ConnectionId, FrameKind, RoomFrame, ROOM_PERSIST_WINDOW};
 use crate::app_error::PersistenceError;
+use crate::emporium::ledger_fold::{decode_event, FoldEvent};
 
 /// How long the room coalesces dirty frames before the eager full flush that lets them ship, when
 /// at least one peer is subscribed.
@@ -96,6 +99,10 @@ pub(crate) struct LedgerRoom {
     me: Weak<LedgerRoom>,
     frames: broadcast::Sender<RoomFrame>,
     awareness: AwarenessTable,
+    /// The ledger's version after every append or apply that changed it (and once more, unchanged,
+    /// at eviction so a watcher wakes to notice the flag). The fold host watches it instead of
+    /// subscribing to `frames`, which would count as a waiting peer and change the ship cadence.
+    changes: watch::Sender<VersionVector>,
 }
 
 fn lock<T>(m: &StdMutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -330,6 +337,76 @@ fn queue_shippable(
     Ok(())
 }
 
+/// One frame of the ledger as the fold host sees it: where it sits, whether it opens or closes a
+/// transaction, which subjects its header names, and its decoded records.
+pub(crate) struct FoldStep {
+    pub(crate) origin: OriginId,
+    pub(crate) seq: u64,
+    /// The frame's `txn`, if it carries one (a `commit` frame always does).
+    pub(crate) txn: Option<String>,
+    pub(crate) mode: Mode,
+    /// Subject IRIs named in the header.
+    pub(crate) subjects: Vec<String>,
+    /// `None`: the frame carries no records to fold (commit, redact, an unknown mode, a redacted
+    /// payload). `Some(Err)`: it should have and does not decode (the fold quarantines it).
+    pub(crate) event: Option<Result<FoldEvent, String>>,
+}
+
+/// Decode one frame's records through the fold core.
+fn decode_step_event(decoded: &Decoded) -> Result<FoldEvent, String> {
+    decode_event(decoded).map_err(|e| e.to_string())
+}
+
+fn fold_step(decoded: &Decoded) -> FoldStep {
+    let header = &decoded.header;
+    let carries_records = matches!(header.mode, Mode::Assert | Mode::Supersede | Mode::Retract);
+    let event = if !carries_records || decoded.is_redacted() {
+        None
+    } else if decoded.state == garden_ledger::PayloadState::Damaged {
+        Some(Err("payload does not match its hash".to_string()))
+    } else {
+        Some(decode_step_event(decoded))
+    };
+    FoldStep {
+        origin: header.origin.clone(),
+        seq: header.seq,
+        txn: header.txn.clone(),
+        mode: header.mode.clone(),
+        subjects: header.subjects.iter().map(|s| s.subject.clone()).collect(),
+        event,
+    }
+}
+
+/// Walk every stream from the first frame past `since`.
+fn collect_steps(ledger: &Ledger, since: &VersionVector) -> Result<Vec<FoldStep>, ConvergeError> {
+    let mut out = Vec::new();
+    for (origin, last) in &ledger.version().0 {
+        let held = since.get(origin);
+        if held >= *last {
+            continue;
+        }
+        let Some(stream) = ledger.stream(origin) else {
+            continue;
+        };
+        let offset = if held == 0 {
+            0
+        } else {
+            match stream
+                .locate(held + 1)
+                .map_err(|e| from_ledger(LedgerError::Stream(e)))?
+            {
+                Some(located) => located.offset,
+                None => continue,
+            }
+        };
+        for item in ledger.scan(origin, offset).map_err(from_ledger)? {
+            let at = item.map_err(|e| from_ledger(LedgerError::Stream(e)))?;
+            out.push(fold_step(&at.decoded));
+        }
+    }
+    Ok(out)
+}
+
 impl LedgerRoom {
     /// Open (creating if missing) the ledger at `graph_dir/ledger/{vocab}` with `local` as this
     /// cell's writer id. `vocab` must be a single safe path component. Every frame found on open is
@@ -355,6 +432,7 @@ impl LedgerRoom {
             outbox: Vec::new(),
         };
         let (frames, _) = broadcast::channel(FRAME_CHANNEL_CAPACITY);
+        let (changes, _) = watch::channel(shipping.durable_vv.clone());
         Ok(Arc::new_cyclic(|me| LedgerRoom {
             vocab: vocab.to_string(),
             ledger: Arc::new(Mutex::new(ledger)),
@@ -368,6 +446,7 @@ impl LedgerRoom {
             me: me.clone(),
             frames,
             awareness: AwarenessTable::new(),
+            changes,
         }))
     }
 
@@ -447,6 +526,8 @@ impl LedgerRoom {
             kind: FrameKind::Evicted,
             payload: Vec::new(),
         });
+        // Wake the fold host (it holds no strong reference, so it must hear about this to let go).
+        self.changes.send_modify(|_| {});
         let room = self.clone();
         crate::app_runtime::async_runtime::spawn(
             async move {
@@ -545,10 +626,59 @@ impl LedgerRoom {
                 .map_err(from_ledger)?;
             // Under the lock, so an eviction that lands after this append sees what it owes.
             self.mark_dirty();
+            self.changes.send_replace(ledger.version());
             appended
         };
         self.arm(self.frames.receiver_count() > 0);
         Ok(appended)
+    }
+
+    /// A receiver for the ledger's version, updated after every `apply` or `append` that changed it
+    /// (W7 section 4). The fold host's wake-up: it carries no frames, so watching it does not count
+    /// as a waiting peer. It also ticks once, unchanged, when the room is evicted.
+    pub(crate) fn changes(&self) -> watch::Receiver<VersionVector> {
+        self.changes.subscribe()
+    }
+
+    /// Every frame past `since` (per origin, in seq order, origins in name order), as [`FoldStep`]s:
+    /// the header facts the fold needs, and the payload of an `assert`, `supersede` or `retract`
+    /// frame decoded by the fold core. A frame that does not decode is a step that says so (the
+    /// fold quarantines it) and never fails the walk. `commit`, `redact` and unknown-mode frames
+    /// carry no records and are not decoded; a redacted or damaged payload is not folded either.
+    ///
+    /// Reads frames not yet flushed too (the fold waits for the barrier first). The scan runs on a
+    /// blocking thread holding the ledger lock, as `persist` does.
+    pub(crate) async fn events_since(
+        &self,
+        since: &VersionVector,
+    ) -> Result<Vec<FoldStep>, ConvergeError> {
+        self.check_live()?;
+        let ledger = self.ledger.clone().lock_owned().await;
+        let since = since.clone();
+        tokio::task::spawn_blocking(move || collect_steps(&ledger, &since))
+            .await
+            .map_err(|e| ConvergeError::Persistence(persistence(e, "ledger scan task")))?
+    }
+
+    /// The transaction runs that have no `commit` frame yet, with their origin: a transaction still
+    /// being written, or one whose writer died (the fold lists a run followed by later frames as
+    /// abandoned). Walks every stream, so it is for the status route and tests, not the hot path.
+    pub(crate) async fn txn_runs_open(&self) -> Result<Vec<(OriginId, TxnRun)>, ConvergeError> {
+        self.check_live()?;
+        let ledger = self.ledger.clone().lock_owned().await;
+        tokio::task::spawn_blocking(move || {
+            let mut open = Vec::new();
+            for origin in ledger.version().0.keys() {
+                for run in ledger.txn_runs(origin, 0).map_err(from_ledger)? {
+                    if !run.closed {
+                        open.push((origin.clone(), run));
+                    }
+                }
+            }
+            Ok(open)
+        })
+        .await
+        .map_err(|e| ConvergeError::Persistence(persistence(e, "ledger txn scan task")))?
     }
 
     /// `{origins: {origin: seq}, durable: {origin: seq}, local: origin}` for the stats route.
@@ -643,6 +773,7 @@ impl Convergent for LedgerRoom {
         if new_frames > 0 {
             // Under the lock, so an eviction that lands after this apply sees what it owes.
             self.mark_dirty();
+            self.changes.send_replace(ledger.version());
         }
         drop(ledger);
         if new_frames > 0 {

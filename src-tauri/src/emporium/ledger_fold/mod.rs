@@ -50,10 +50,13 @@ use serde_json::{Map, Value};
 use crate::emporium::terms::{Term, Triple, PLACEHOLDER_NS};
 
 pub(crate) mod apply;
+pub(crate) mod fold_routes;
 pub(crate) mod heads;
 pub(crate) mod policy;
 #[cfg(test)]
 mod props;
+pub(crate) mod tail;
+mod watermark;
 
 pub(crate) use apply::{apply_delta, apply_delta_commit};
 pub(crate) use garden_ledger::Hlc;
