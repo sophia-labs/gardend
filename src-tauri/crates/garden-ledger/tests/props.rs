@@ -45,6 +45,7 @@ fn draft(spec: &Spec) -> Draft {
         mode: spec.mode.clone(),
         payload: spec.payload.clone(),
         txn: spec.txn.clone(),
+        extra: Default::default(),
     }
 }
 

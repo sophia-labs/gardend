@@ -293,6 +293,7 @@ fn draft(tag: &str) -> Draft {
         mode: Mode::Assert,
         payload: format!("{{\"tag\":\"{tag}\"}}").into_bytes(),
         txn: None,
+        extra: Default::default(),
     }
 }
 

@@ -17,6 +17,7 @@ fn draft(payload: &[u8], i: usize) -> Draft {
         mode: Mode::Assert,
         payload: payload.to_vec(),
         txn: None,
+        extra: Default::default(),
     }
 }
 

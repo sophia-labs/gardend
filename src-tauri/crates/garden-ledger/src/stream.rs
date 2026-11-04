@@ -53,8 +53,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use crate::frame::{
-    decode, encode, inspect, redact_body, Decoded, Event, FrameError, Header, Id, Mode, OriginId,
-    RedactPayload, LEN_PREFIX, MAX_BODY,
+    decode, encode, inspect, redact_body, Decoded, Event, FrameError, Header, Hlc, Id, Mode,
+    OriginId, RedactPayload, LEN_PREFIX, MAX_BODY,
 };
 use crate::sync::{
     sync_barrier as fs_sync_barrier, sync_dir, sync_full as fs_sync_full, try_lock_exclusive,
@@ -196,6 +196,8 @@ pub struct Appended {
     pub offset: u64,
     /// The frame's id (blake3 of its stored header bytes).
     pub id: Id,
+    /// The frame's clock stamp (from its header).
+    pub hlc: Hlc,
 }
 
 /// What `Stream::open` did to the file.
@@ -860,7 +862,12 @@ impl Stream {
         self.len = offset + frame.len() as u64;
         self.next_seq += 1;
         self.dirty_since_barrier.store(true, Ordering::Release);
-        Ok(Appended { seq, offset, id })
+        Ok(Appended {
+            seq,
+            offset,
+            id,
+            hlc: header.hlc,
+        })
     }
 
     /// Encode and append an event (sets nothing; the caller built the header with the right seq).

@@ -27,6 +27,7 @@ fn assert_draft(txn: Option<&str>) -> Draft {
         mode: Mode::Assert,
         payload: br#"[{"s":"urn:s","p":"urn:p","o":"x"}]"#.to_vec(),
         txn: txn.map(str::to_string),
+        extra: Default::default(),
     }
 }
 
@@ -259,6 +260,7 @@ fn redact_makers(td: &Path, a: &mut Ledger) -> (Ledger, Ledger) {
             mode: Mode::Redact,
             payload: bogus,
             txn: None,
+            extra: Default::default(),
         },
     )
     .unwrap();
@@ -445,4 +447,69 @@ fn an_origin_file_is_honoured_or_refused_never_overwritten() {
             *bad
         );
     }
+}
+
+/// W7b F2. A draft's `extra` lands in the stored header (and so in the id), survives a reopen, and
+/// `Appended` carries the hlc the header holds. Mutation: copy nothing in `Ledger::append`
+/// (`extra: BTreeMap::new()`) and the writer assertion goes red; take the hlc from a second clock
+/// read and the hlc assertion goes red.
+#[test]
+fn a_drafts_extra_is_stored_in_the_header_and_appended_carries_the_hlc() {
+    let td = TempDir::new().unwrap();
+    let mut led = open(td.path(), "cell-a");
+    let mut clock = HlcClock::new();
+
+    let plain = led.append(&mut clock, 100, assert_draft(None)).unwrap();
+    let tagged = led
+        .append(
+            &mut clock,
+            101,
+            assert_draft(None).with_extra("writer", serde_json::json!("nidra-worker-1")),
+        )
+        .unwrap();
+    assert_ne!(plain.id, tagged.id);
+    assert!(tagged.hlc > plain.hlc);
+    led.sync_full().unwrap();
+    drop(led);
+
+    let led = open(td.path(), "cell-a");
+    let frames: Vec<_> = led
+        .scan(&o("cell-a"), 0)
+        .unwrap()
+        .map(|item| item.unwrap().decoded)
+        .collect();
+    assert_eq!(frames.len(), 2);
+    assert!(frames[0].header.extra.is_empty(), "no extra, no key");
+    assert_eq!(frames[0].header.hlc, plain.hlc);
+    assert_eq!(frames[1].header.extra["writer"], "nidra-worker-1");
+    assert_eq!(frames[1].header.hlc, tagged.hlc);
+    // The stored header bytes of an extra-free draft carry no extra field at all.
+    let raw = std::fs::read(td.path().join("cell-a.log")).unwrap();
+    let text = String::from_utf8_lossy(&raw);
+    assert_eq!(text.matches("\"writer\"").count(), 1);
+}
+
+/// W7b F2. An `extra` key may not shadow a known header field: the append is refused and nothing is
+/// written. Mutation: skip the shadow check in header validation and the append succeeds.
+#[test]
+fn a_draft_extra_that_shadows_a_known_field_is_refused_and_appends_nothing() {
+    let td = TempDir::new().unwrap();
+    let mut led = open(td.path(), "cell-a");
+    let mut clock = HlcClock::new();
+    let err = led
+        .append(
+            &mut clock,
+            100,
+            assert_draft(None).with_extra("seq", serde_json::json!(9)),
+        )
+        .unwrap_err();
+    assert!(
+        matches!(err, LedgerError::Stream(_) | LedgerError::Frame(_)),
+        "{err:?}"
+    );
+    assert_eq!(led.version().get(&o("cell-a")), 0);
+    assert!(led
+        .append(&mut clock, 101, assert_draft(None))
+        .map(|a| a.seq)
+        .is_ok_and(|seq| seq == 1));
 }

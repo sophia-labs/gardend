@@ -181,6 +181,10 @@ pub struct Draft {
     pub payload: Vec<u8>,
     /// Cross-vocab write marker.
     pub txn: Option<String>,
+    /// Header fields beyond the known ones, written verbatim into [`Header::extra`] (the id covers
+    /// them). Empty by default, and an empty map leaves the frame bytes exactly as they were. A key
+    /// may not shadow a known header field: such a draft is refused when it is encoded.
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 impl Draft {
@@ -198,6 +202,7 @@ impl Draft {
             mode: Mode::Commit,
             payload: Vec::new(),
             txn: Some(txn.into()),
+            extra: Default::default(),
         }
     }
 
@@ -210,6 +215,12 @@ impl Draft {
     /// Set the vocabulary.
     pub fn with_vocab(mut self, vocab: impl Into<String>) -> Draft {
         self.vocab = vocab.into();
+        self
+    }
+
+    /// Set one header `extra` entry (for example `writer`).
+    pub fn with_extra(mut self, key: impl Into<String>, value: serde_json::Value) -> Draft {
+        self.extra.insert(key.into(), value);
         self
     }
 }
@@ -508,7 +519,7 @@ impl Ledger {
             payload_len,
             txn: draft.txn,
             sig: None,
-            extra: BTreeMap::new(),
+            extra: draft.extra,
         };
         let event = Event {
             header,
@@ -869,6 +880,7 @@ impl Ledger {
                 mode: Mode::Redact,
                 payload,
                 txn: None,
+                extra: Default::default(),
             },
         )?;
         let local = self.streams.get(&self.local).ok_or_else(|| {
@@ -943,6 +955,7 @@ mod tests {
             mode: Mode::Assert,
             payload: b"[]".to_vec(),
             txn: txn.map(str::to_string),
+            extra: Default::default(),
         }
     }
 
