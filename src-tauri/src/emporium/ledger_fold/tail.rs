@@ -70,6 +70,52 @@ pub(crate) const RETIRE_GRACE: Duration = Duration::from_secs(60);
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
 /// Sample triples listed in an oracle report.
 const REPORT_SAMPLE: usize = 5;
+/// A quarantined frame is logged for its (graph, vocab, origin) at most this often (W7b item 10).
+const QUARANTINE_LOG_EVERY: Duration = Duration::from_secs(60);
+
+/// Rate limit for the quarantine warning of one (graph, vocab, origin): the first note goes out
+/// at once, later ones are counted and go out as one line per window. A tail that reloads re-plans
+/// the whole ledger and meets the same bad frames again; without this each reload wrote one line per
+/// frame (1,104 per gardend in the W7 smoke).
+#[derive(Debug, Default)]
+struct QuarantineLimiter {
+    last: Option<std::time::Instant>,
+    pending: u64,
+}
+
+impl QuarantineLimiter {
+    /// Count `n` newly quarantined frames. `Some(total)` when a line is due: the frames counted since
+    /// the last line, this call's included.
+    fn note(&mut self, now: std::time::Instant, n: u64, every: Duration) -> Option<u64> {
+        self.pending += n;
+        let due = self
+            .last
+            .map_or(true, |at| now.saturating_duration_since(at) >= every);
+        if !due {
+            return None;
+        }
+        self.last = Some(now);
+        Some(std::mem::take(&mut self.pending))
+    }
+
+    /// A line owed for notes held back by an earlier window: `Some(count)` once the window has
+    /// passed and something is pending, with no new frames needed (W7b-2 d). The tail asks on
+    /// every cycle, so the trailing count of a burst is never left unreported until the next
+    /// quarantine.
+    fn flush(&mut self, now: std::time::Instant, every: Duration) -> Option<u64> {
+        if self.pending == 0 {
+            return None;
+        }
+        self.note(now, 0, every)
+    }
+}
+
+fn quarantine_limiters() -> &'static StdMutex<HashMap<(String, String, String), QuarantineLimiter>>
+{
+    static LIMITERS: OnceLock<StdMutex<HashMap<(String, String, String), QuarantineLimiter>>> =
+        OnceLock::new();
+    LIMITERS.get_or_init(|| StdMutex::new(HashMap::new()))
+}
 
 fn lock<T>(m: &StdMutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|p| p.into_inner())
@@ -633,6 +679,8 @@ struct ChunkOut {
     touched: BTreeSet<String>,
     applied: u64,
     contested: u64,
+    delta_ms: f64,
+    commit_ms: f64,
 }
 
 /// One store transaction: every unit's delta, then the watermarks. Nothing is visible until the
@@ -647,6 +695,7 @@ fn apply_chunk_blocking(
         .start_transaction()
         .map_err(|e| format!("start fold transaction: {e}"))?;
     let mut out = ChunkOut::default();
+    let staging = Instant::now();
     for unit in units {
         for event in &unit.events {
             let delta = heads.apply(&ctx.policy, event);
@@ -658,6 +707,8 @@ fn apply_chunk_blocking(
         let slot = out.advance.entry(unit.origin.clone()).or_insert(0);
         *slot = (*slot).max(unit.last_seq);
     }
+    out.delta_ms = ms_since(staging);
+    let committing = Instant::now();
     for (origin, seq) in &out.advance {
         watermark::stage_watermark(&mut txn, &ctx.control, &ctx.vocab, origin, *seq)?;
     }
@@ -667,6 +718,7 @@ fn apply_chunk_blocking(
     txn.commit()
         .map_err(|e| format!("commit fold transaction: {e}"))?;
     crate::cell_durability::mark_rdf_store_written(&ctx.store);
+    out.commit_ms = ms_since(committing);
     Ok(out)
 }
 
@@ -804,8 +856,30 @@ fn schedule_retire(store: Arc<Store>, old: NamedNode) {
 // The tail's shared state, commands and handle.
 // ---------------------------------------------------------------------------------------------
 
+/// Where the last fold cycle spent its time (W7b item 9): the barrier, the walk past the watermark
+/// (`events_since`), planning, and the store transaction split into staging the deltas and the
+/// commit that carries the watermark. Milliseconds; shown by the status route as `last_cycle`.
+#[derive(Clone, Debug, Default, Serialize)]
+pub(crate) struct CycleStats {
+    pub(crate) persist_ms: f64,
+    pub(crate) events_since_ms: f64,
+    pub(crate) plan_ms: f64,
+    pub(crate) apply_ms: f64,
+    /// Inside `apply_ms`: head-table merges and delta staging.
+    pub(crate) delta_ms: f64,
+    /// Inside `apply_ms`: staging the watermark and committing the store transaction.
+    pub(crate) commit_ms: f64,
+    pub(crate) steps: usize,
+    pub(crate) events: usize,
+}
+
+fn ms_since(start: Instant) -> f64 {
+    (start.elapsed().as_secs_f64() * 1e6).round() / 1e3
+}
+
 #[derive(Default)]
 struct Shared {
+    last_cycle: Option<CycleStats>,
     running: bool,
     ready: bool,
     sink: String,
@@ -918,6 +992,7 @@ impl FoldTail {
             shared,
             wm_tx,
             fault,
+            chunk_ms: (0.0, 0.0),
         };
         let weak = Arc::downgrade(room);
         crate::app_runtime::async_runtime::spawn(
@@ -967,6 +1042,7 @@ impl FoldTail {
             "error": shared.error,
             "applied_events": shared.applied_events,
             "owned_subjects": shared.owned_subjects,
+            "last_cycle": shared.last_cycle,
         })
     }
 
@@ -1123,6 +1199,8 @@ struct Core {
     shared: Arc<StdMutex<Shared>>,
     wm_tx: watch::Sender<VersionVector>,
     fault: Arc<AtomicBool>,
+    /// Staging and commit time of the chunks applied since the last cycle report.
+    chunk_ms: (f64, f64),
 }
 
 impl Core {
@@ -1179,19 +1257,49 @@ impl Core {
                 .entry((run.origin.clone(), run.first_seq))
                 .or_insert(run);
         }
+        // New quarantines, grouped by origin: one rate-limited line per origin, not one per frame.
+        let mut fresh: BTreeMap<String, (u64, u64, String)> = BTreeMap::new();
         for q in std::mem::take(&mut plan.quarantined) {
             let key = (q.origin.clone(), q.seq);
             if self.quarantined.insert(key, q.error.clone()).is_none() {
                 self.quarantined_total += 1;
+                fresh
+                    .entry(q.origin)
+                    .and_modify(|(count, _, _)| *count += 1)
+                    .or_insert((1, q.seq, q.error));
+            }
+        }
+        for (origin, (count, seq, error)) in fresh {
+            let due = lock(quarantine_limiters())
+                .entry((self.graph_id.clone(), self.vocab.clone(), origin.clone()))
+                .or_default()
+                .note(std::time::Instant::now(), count, QUARANTINE_LOG_EVERY);
+            if let Some(total) = due {
                 log::warn!(
-                    "ledger fold {}/{}: quarantined frame {}#{}: {}",
+                    "ledger fold {}/{}: quarantined {total} frame(s) of {origin} (the first of them {origin}#{seq}: {error}); \
+                     the status route lists them, and this note repeats at most once a minute",
                     self.graph_id,
                     self.vocab,
-                    q.origin,
-                    q.seq,
-                    q.error
                 );
             }
+        }
+        // Notes an earlier window held back: report them on this cycle, not at the next quarantine.
+        let owed: Vec<(String, u64)> = lock(quarantine_limiters())
+            .iter_mut()
+            .filter(|((graph, vocab, _), _)| *graph == self.graph_id && *vocab == self.vocab)
+            .filter_map(|((_, _, origin), limiter)| {
+                limiter
+                    .flush(std::time::Instant::now(), QUARANTINE_LOG_EVERY)
+                    .map(|total| (origin.clone(), total))
+            })
+            .collect();
+        for (origin, total) in owed {
+            log::warn!(
+                "ledger fold {}/{}: {total} more frame(s) of {origin} quarantined since the last note; \
+                 the status route lists them",
+                self.graph_id,
+                self.vocab,
+            );
         }
         while self.quarantined.len() > QUARANTINE_CAP {
             if let Some(oldest) = self.quarantined.keys().next().cloned() {
@@ -1246,6 +1354,11 @@ impl Core {
         self.quarantined.clear();
         self.quarantined_total = 0;
 
+        // `events_since` reads only what a barrier has covered; cover what is there first, so a
+        // frame appended before this task started is not left waiting for the next append.
+        room.persist()
+            .await
+            .map_err(|e| format!("ledger barrier: {e}"))?;
         let steps = room
             .events_since(&VersionVector::default())
             .await
@@ -1310,18 +1423,46 @@ impl Core {
             return Err("the fold state is not loaded".to_string());
         }
         let _background = background_lease("ledger-fold");
-        // The fold applies only what the barrier has covered, so the sink is never ahead of what
-        // the ledger would recover after a power cut.
+        // The fold applies only what a barrier has covered (`events_since` stops at the version the
+        // last barrier recorded). The barrier orders the ledger's writes; it does not force them to
+        // the platter, so a power cut inside the accepted 1 s window can still lose the newest
+        // frames, and the sink can then be ahead of the recovered ledger by that window. What the
+        // rule does buy: the fold never reads a frame no barrier has been issued for, and the
+        // watermark commits only after the ledger's own writes were ordered ahead of it. This
+        // barrier covers everything appended so far.
+        let started = Instant::now();
         room.persist()
             .await
             .map_err(|e| format!("ledger barrier: {e}"))?;
+        let persist_ms = ms_since(started);
+        let walking = Instant::now();
         let steps = room
             .events_since(&self.wm)
             .await
             .map_err(|e| e.to_string())?;
+        let events_since_ms = ms_since(walking);
+        let planning = Instant::now();
+        let step_count = steps.len();
         let mut plan = plan_steps(steps);
+        let plan_ms = ms_since(planning);
         self.absorb_meta(&mut plan);
+        let event_count: usize = plan.units.iter().map(|u| u.events.len()).sum();
+        self.chunk_ms = (0.0, 0.0);
+        let applying = Instant::now();
         self.apply_units(plan.units).await?;
+        let apply_ms = ms_since(applying);
+        if step_count > 0 {
+            lock(&self.shared).last_cycle = Some(CycleStats {
+                persist_ms,
+                events_since_ms,
+                plan_ms,
+                apply_ms,
+                delta_ms: (self.chunk_ms.0 * 1e3).round() / 1e3,
+                commit_ms: (self.chunk_ms.1 * 1e3).round() / 1e3,
+                steps: step_count,
+                events: event_count,
+            });
+        }
         self.publish();
         Ok(())
     }
@@ -1369,6 +1510,8 @@ impl Core {
             let slot = self.wm.0.entry(origin).or_insert(0);
             *slot = (*slot).max(seq);
         }
+        self.chunk_ms.0 += out.delta_ms;
+        self.chunk_ms.1 += out.commit_ms;
         self.owned.extend(out.touched);
         self.owned.extend(header_subjects);
         self.applied += out.applied;
@@ -1442,6 +1585,9 @@ impl Core {
     /// folded.
     async fn rebuild_live(&mut self, room: &Arc<LedgerRoom>) -> Result<OracleReport, String> {
         let _background = background_lease("ledger-fold");
+        room.persist()
+            .await
+            .map_err(|e| format!("ledger barrier: {e}"))?;
         let steps = room
             .events_since(&VersionVector::default())
             .await
@@ -1689,6 +1835,49 @@ mod tests {
             .collect()
     }
 
+    /// W7b item 10. The first note goes out at once; later ones are counted and released as one line
+    /// per window, with the count. Mutation: log every call (drop the window test) and the second
+    /// assertion goes red; drop the `pending` carry and the released count is wrong.
+    #[test]
+    fn quarantine_notes_are_rate_limited_per_window_and_carry_their_count() {
+        let t0 = std::time::Instant::now();
+        let every = Duration::from_secs(60);
+        let mut limiter = QuarantineLimiter::default();
+        assert_eq!(
+            limiter.note(t0, 3, every),
+            Some(3),
+            "the first note is immediate"
+        );
+        assert_eq!(limiter.note(t0 + Duration::from_secs(1), 5, every), None);
+        assert_eq!(limiter.note(t0 + Duration::from_secs(59), 2, every), None);
+        assert_eq!(
+            limiter.note(t0 + Duration::from_secs(60), 1, every),
+            Some(8),
+            "one line per window, carrying what was held back"
+        );
+        assert_eq!(limiter.note(t0 + Duration::from_secs(61), 4, every), None);
+        assert_eq!(
+            limiter.note(t0 + Duration::from_secs(121), 0, every),
+            Some(4)
+        );
+
+        // The trailing count of a burst is flushed by a later cycle, with no new quarantine.
+        let mut burst = QuarantineLimiter::default();
+        assert_eq!(burst.note(t0, 1, every), Some(1));
+        assert_eq!(burst.note(t0 + Duration::from_secs(5), 7, every), None);
+        assert_eq!(
+            burst.flush(t0 + Duration::from_secs(30), every),
+            None,
+            "window not over"
+        );
+        assert_eq!(burst.flush(t0 + Duration::from_secs(61), every), Some(7));
+        assert_eq!(
+            burst.flush(t0 + Duration::from_secs(200), every),
+            None,
+            "nothing pending"
+        );
+    }
+
     #[test]
     fn host_plan_a_committed_run_is_one_unit_ending_at_its_commit() {
         let plan = plan_steps(vec![
@@ -1910,6 +2099,7 @@ mod tests {
             mode: Mode::Assert,
             payload: serde_json::to_vec(&json!({"ops": ops})).unwrap(),
             txn: txn.map(str::to_string),
+            extra: Default::default(),
         }
     }
 
@@ -1992,6 +2182,40 @@ mod tests {
         let report = rig.tail.replay(ReplayInto::Oracle).await.unwrap();
         assert!(report.equal, "{report:?}");
         assert_eq!(report.events, 2);
+    }
+
+    /// W7b F8: the sink is never ahead of the barrier. With the next barrier parked in its fsync
+    /// nothing is covered, so the fold applies nothing and the stored watermark stays; once the
+    /// fsync finishes the frame folds. Mutation: let `events_since` read past the recorded barrier
+    /// version and a frame appended between the cycle's barrier and its read is folded early.
+    #[tokio::test]
+    async fn host_the_fold_applies_a_frame_only_after_a_barrier_covers_it() {
+        let rig = Rig::new("ao").await;
+        let hook = rig.room.hold_next_barrier();
+        let seq = rig
+            .append(assert_draft(
+                "ao",
+                &[1],
+                vec![set_op(1, "name", "Customer")],
+                None,
+            ))
+            .await;
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        while !hook.entered() && tokio::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert!(hook.entered(), "no barrier reached its fsync");
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        assert_eq!(rig.watermark_in_store(), 0, "folded ahead of the barrier");
+        assert!(
+            rig.quads_in_sink().is_empty(),
+            "folded ahead of the barrier"
+        );
+
+        hook.release();
+        rig.folded(seq).await;
+        assert_eq!(rig.watermark_in_store(), seq);
+        assert!(!rig.quads_in_sink().is_empty());
     }
 
     #[tokio::test]
