@@ -188,6 +188,51 @@ impl SetHead {
         }
     }
 
+    /// A `set` on this key: clear what the set observed, then add its values. A value visible
+    /// before and after (a value-equal re-assert, in any lexical form) keeps the term it had and
+    /// reports no change, as a value-equal write does in the single layer: no triple churn (W7d,
+    /// now that every write of a contractless vocabulary lands here).
+    fn replace(
+        &mut self,
+        values: &[Term],
+        by: &Stamp,
+        frame: &str,
+        parents: &[FrameId],
+        out: &mut Vec<Change>,
+    ) {
+        let mut changes: Vec<Change> = Vec::new();
+        self.clear(by, parents, &mut changes);
+        for v in values {
+            self.add(v, by, frame, &mut changes);
+        }
+        // Each value vanishes at most once (the clear) and appears at most once (the first add
+        // that finds it invisible), so a vanish and an appear of one canonical value net out.
+        let mut vanished: BTreeMap<CanonValue, Term> = BTreeMap::new();
+        let mut appeared: Vec<Term> = Vec::new();
+        for ch in changes {
+            match ch {
+                Change::Vanish(t) => {
+                    vanished.insert(canon_value(&t), t);
+                }
+                Change::Appear(t) => appeared.push(t),
+            }
+        }
+        let mut fresh: Vec<Term> = Vec::new();
+        for t in appeared {
+            let c = canon_value(&t);
+            match vanished.remove(&c) {
+                Some(old) => {
+                    if let Some(entry) = self.entries.get_mut(&c) {
+                        entry.term = old;
+                    }
+                }
+                None => fresh.push(t),
+            }
+        }
+        out.extend(vanished.into_values().map(Change::Vanish));
+        out.extend(fresh.into_iter().map(Change::Appear));
+    }
+
     fn clear(&mut self, by: &Stamp, parents: &[FrameId], out: &mut Vec<Change>) {
         self.clears.add(parents, by);
         let clears = &self.clears;
@@ -697,16 +742,10 @@ impl HeadTable {
                 );
             }
         }
+        // A contractless vocabulary (W7d) answers add-wins for every write, a `set` of any arity
+        // included, so its single layer is never written: a scalar set is the one-element case of
+        // `set values[]` and a later add/remove composes with it.
         let merge = policy.merge_for(predicate, op);
-        if let (Op::Set { .. }, true) = (op, policy.sets_both_layers(predicate)) {
-            // A contractless vocabulary (W7d): a set of any arity, one included, is an observed
-            // replace in the set layer, so a later add/remove composes with it and "a scalar is
-            // the one-element case" is literally true. The single layer is never written in this
-            // mode (add and remove go to the set layer too), so there is nothing to clear there.
-            // Strict lww for a functional column comes with the contract (W8).
-            self.apply_set(op, subject, predicate, stamp, &ev.id, parents, cx);
-            return;
-        }
         if merge.is_set() {
             self.apply_set(op, subject, predicate, stamp, &ev.id, parents, cx);
         } else {
@@ -872,10 +911,7 @@ impl HeadTable {
                 }
             }
             Op::Set { values, .. } => {
-                sh.clear(&stamp, parents, &mut out);
-                for v in values {
-                    sh.add(v, &stamp, frame, &mut out);
-                }
+                sh.replace(values, &stamp, frame, parents, &mut out);
             }
             Op::Retract { .. } => {}
         }

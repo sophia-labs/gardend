@@ -4,8 +4,8 @@
 //! happens when two writers disagree. It comes from the vocabulary contract
 //! ([`FoldPolicy::from_contract`], reading `PredicateSpec.merge` with the default
 //! rule of [`PredicateSpec::merge_policy`]) or, for a vocabulary without a contract
-//! (Nidra's `ao`), from the kind of op that touches the predicate
-//! ([`FoldPolicy::from_ops`]).
+//! (Nidra's `ao`), is the set reading for every write ([`FoldPolicy::from_ops`], W7d):
+//! `add`/`remove` are add-wins and a `set` of any arity replaces what it observed.
 
 use std::collections::BTreeMap;
 
@@ -74,8 +74,10 @@ pub(crate) struct FoldPolicy {
     pub default: Merge,
     /// Per-predicate policy, keyed by the expanded predicate IRI.
     pub by_predicate: BTreeMap<String, Merge>,
-    /// Contractless vocabularies (decision 1.2): for a predicate not in `by_predicate`, `set` is
-    /// an observed replace (set layer) and `add`/`remove` are add-wins (W7d: one layer).
+    /// Contractless vocabularies (decision 1.2, W7d): for a predicate not in `by_predicate`, every
+    /// write folds in the set layer: `add`/`remove` are add-wins and a `set` of any arity (one
+    /// included) replaces what it observed, so a later `add`/`remove` composes with it. The single
+    /// layer is never written; strict lww for a functional column comes with the contract (W8).
     pub by_op: bool,
 }
 
@@ -90,7 +92,7 @@ impl Default for FoldPolicy {
 }
 
 impl FoldPolicy {
-    /// Policy for a vocabulary with no contract: the op kind decides.
+    /// Policy for a vocabulary with no contract: every write in the set layer (see `by_op`).
     pub(crate) fn from_ops() -> FoldPolicy {
         FoldPolicy {
             default: Merge::Lww,
@@ -129,22 +131,18 @@ impl FoldPolicy {
         }
     }
 
-    /// True when a `set` on `predicate` is an observed replace in the set layer, whatever its arity
-    /// (W7d): a contractless vocabulary (`by_op`) for a predicate the table does not name, where
-    /// `add`/`remove` write the set layer too and the single layer is never written.
-    pub(crate) fn sets_both_layers(&self, predicate: &str) -> bool {
-        self.by_op && !self.by_predicate.contains_key(predicate)
-    }
-
     /// The merge that applies to `op` writing `predicate`.
     pub(crate) fn merge_for(&self, predicate: &str, op: &Op) -> Merge {
         if let Some(m) = self.by_predicate.get(predicate) {
             return *m;
         }
         if self.by_op {
+            // W7d: a contractless vocabulary writes only the set layer. A `set` there replaces what
+            // it observed (`HeadTable` clears the observed tags, then adds), whatever its arity.
+            // A retract names no predicate and never asks.
             return match op {
-                Op::Add { .. } | Op::Remove { .. } => Merge::AddWins,
-                Op::Set { .. } | Op::Retract { .. } => Merge::Lww,
+                Op::Set { .. } | Op::Add { .. } | Op::Remove { .. } => Merge::AddWins,
+                Op::Retract { .. } => Merge::Lww,
             };
         }
         self.default
@@ -247,8 +245,11 @@ mod tests {
         assert_eq!(p.merge_for("urn:t:tags", &set), Merge::AddWins);
     }
 
+    /// W7d: a contractless vocabulary folds every write in the set layer, a `set` included (it
+    /// replaces what it observed there). Mutation: answer lww for a set and a one-element set lands
+    /// in the single layer, where a later remove never reaches it.
     #[test]
-    fn from_ops_lets_the_op_kind_decide() {
+    fn from_ops_folds_every_write_in_the_set_layer() {
         let p = FoldPolicy::from_ops();
         let set = Op::Set {
             subject: "urn:s".into(),
@@ -268,7 +269,7 @@ mod tests {
             predicate: "urn:p".into(),
             values: vec![],
         };
-        assert_eq!(p.merge_for("urn:p", &set), Merge::Lww);
+        assert_eq!(p.merge_for("urn:p", &set), Merge::AddWins);
         assert_eq!(p.merge_for("urn:p", &add), Merge::AddWins);
         assert_eq!(p.merge_for("urn:p", &rem), Merge::AddWins);
     }

@@ -1238,9 +1238,14 @@ fn from_ops_set_of_one_value_composes_with_add_and_remove() {
 fn from_ops_the_single_layer_is_never_written() {
     let policy = FoldPolicy::from_ops();
     let mut t = HeadTable::new();
-    for (i, vs) in [vec![lit("a")], vec![lit("b"), lit("c")], vec![], vec![lit("d")]]
-        .into_iter()
-        .enumerate()
+    for (i, vs) in [
+        vec![lit("a")],
+        vec![lit("b"), lit("c")],
+        vec![],
+        vec![lit("d")],
+    ]
+    .into_iter()
+    .enumerate()
     {
         t.apply(
             &policy,
@@ -1364,4 +1369,266 @@ proptest! {
         let d = t.apply(&policy, &ev("oa", 2, 2, &[], vec![set(s, P1, Some(term(v)))]));
         prop_assert!(d.is_empty(), "value-equal re-assert changed triples: {:?}", d);
     }
+}
+
+// ---------------------------------------------------------------------------
+// W7d review of item 1: the properties of a contractless `set` the WIP left unpinned
+// ---------------------------------------------------------------------------
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(96))]
+
+    /// 3 in the set layer: now that a contractless scalar `set` lands in the set layer, a
+    /// value-equal re-assert in another lexical form (with or without a member that stays) changes
+    /// no triple, as it does in the single layer; under `from_ops` and on a contract's set key.
+    /// Mutation: drop the netting in `SetHead::replace` and the same-origin re-assert of
+    /// `"1"^^xsd:long` over `"1"^^xsd:integer` removes one triple and inserts the other.
+    #[test]
+    fn p3_set_layer_value_equal_reassert_in_any_lexical_form_is_a_noop(
+        pair in prop::sample::select(vec![(3u8, 4u8), (3, 5), (4, 5), (5, 3), (0, 0), (2, 2), (7, 7)]),
+        o1 in 0u8..3,
+        o2 in 0u8..3,
+        late_arrival in any::<bool>(),
+        with_member in any::<bool>(),
+        contract in any::<bool>(),
+    ) {
+        let (policy, p) = if contract { (policy(), Q1) } else { (FoldPolicy::from_ops(), P1) };
+        let s = SUBJECTS[0];
+        let seq2 = if o1 == o2 { 2 } else { 1 };
+        let list = |v: u8| {
+            let mut vs = vec![term(v)];
+            if with_member {
+                vs.push(iri("urn:t:member"));
+            }
+            vs
+        };
+        let e1 = ev(ORIGINS[o1 as usize], 1, 10, &[], vec![list_set(s, p, list(pair.0))]);
+        let e2 = ev(ORIGINS[o2 as usize], seq2, 20, &[], vec![list_set(s, p, list(pair.1))]);
+        let (first, second) = if late_arrival || o1 == o2 { (&e1, &e2) } else { (&e2, &e1) };
+        let mut t = HeadTable::new();
+        t.apply(&policy, first);
+        let rendered = nt_set(&t.triples_of(s));
+        let d = t.apply(&policy, second);
+        prop_assert!(d.is_empty(), "value-equal re-assert changed triples: {:?}", d);
+        prop_assert_eq!(rendered, nt_set(&t.triples_of(s)));
+        let (rebuilt, _) = HeadTable::rebuild(&policy, [first, second].iter().copied());
+        prop_assert_eq!(rebuilt.canonical(), t.canonical());
+    }
+
+    /// 8 under `from_ops`: the Deltas of a contractless fold, replayed on a triple set, are
+    /// exactly the rebuilt set (every removal removes a triple that is there, every insert adds one
+    /// that is not), so a rebuild or a live replay reproduces the sink the incremental fold wrote.
+    #[test]
+    fn p8_from_ops_deltas_replay_to_the_rebuild(frames in prop::collection::vec(raw_frame(5), 1..14)) {
+        let policy = FoldPolicy::from_ops();
+        let events = build_events(&frames);
+        let mut t = HeadTable::new();
+        let mut live: BTreeSet<String> = BTreeSet::new();
+        for e in &events {
+            let d = t.apply(&policy, e);
+            for r in &d.remove {
+                prop_assert!(live.remove(&nt(r)), "Delta removes a triple the sink does not hold: {}", nt(r));
+            }
+            for i in &d.insert {
+                prop_assert!(live.insert(nt(i)), "Delta inserts a triple already in the sink: {}", nt(i));
+            }
+        }
+        let (rebuilt_table, rebuilt) = HeadTable::rebuild(&policy, events.iter());
+        prop_assert_eq!(&nt_set(&rebuilt), &live);
+        prop_assert_eq!(&nt_set(&all_triples(&t)), &live);
+        prop_assert_eq!(rebuilt_table.canonical(), t.canonical());
+        prop_assert!(!t.holds_single_layer());
+    }
+
+    /// After ANY number of `set values[]` rewrites (whole plus members, members possibly none or
+    /// repeated) exactly one `rdf:JSON` whole remains and the column holds exactly the newest list,
+    /// under `from_ops` and on a contract's set key, whether or not the column was first written with
+    /// `add`; the rebuild is the same table.
+    #[test]
+    fn p_any_number_of_json_rewrites_leave_exactly_one_whole(
+        lists in prop::collection::vec(prop::collection::vec(0u8..9, 0..4), 1..8),
+        seeded in any::<bool>(),
+    ) {
+        let mut by = BTreeMap::new();
+        by.insert(AO_COL.to_string(), Merge::AddWins);
+        let contract = FoldPolicy {
+            default: Merge::Lww,
+            by_predicate: by,
+            by_op: false,
+        };
+        for policy in [contract, FoldPolicy::from_ops()] {
+            let mut t = HeadTable::new();
+            let mut events: Vec<FoldEvent> = Vec::new();
+            if seeded {
+                let e = ev("oa", 1, 1, &[], vec![ao_add(vec![json_whole("[\"seed\"]"), lit("seed")])]);
+                t.apply(&policy, &e);
+                events.push(e);
+            }
+            for (i, members) in lists.iter().enumerate() {
+                let mut values = vec![json_whole(&format!("[{i}]"))];
+                values.extend(members.iter().map(|m| term(*m)));
+                let seq = events.len() as u64 + 1;
+                let e = ev("oa", seq, seq, &[], vec![ao_set(values.clone())]);
+                t.apply(&policy, &e);
+                events.push(e);
+                prop_assert_eq!(ao_wholes(&t), 1, "after rewrite {}", i);
+                let got: BTreeSet<_> = t
+                    .triples_of(AO_S)
+                    .iter()
+                    .filter(|(_, p, _)| p == AO_COL)
+                    .map(|(_, _, o)| canon_value(o))
+                    .collect();
+                let want: BTreeSet<_> = values.iter().map(canon_value).collect();
+                prop_assert_eq!(got, want);
+            }
+            let (rebuilt, _) = HeadTable::rebuild(&policy, events.iter());
+            prop_assert_eq!(rebuilt.canonical(), t.canonical());
+        }
+    }
+}
+
+/// `values: []` clears the predicate (whole and members alike), and a later remove + add in one
+/// frame leaves exactly the new whole and its members; the wire's scalar `value` is the same op as
+/// a one-element `values`, and a remove composes with either (nothing left, no single layer).
+#[test]
+fn from_ops_an_empty_set_clears_and_a_scalar_value_is_the_one_element_list() {
+    let policy = FoldPolicy::from_ops();
+    let mut t = HeadTable::new();
+    t.apply(
+        &policy,
+        &ev(
+            "oa",
+            1,
+            1,
+            &[],
+            vec![ao_set(vec![json_whole("[\"a\"]"), lit("a")])],
+        ),
+    );
+    t.apply(&policy, &ev("oa", 2, 2, &[], vec![ao_set(vec![])]));
+    assert!(
+        values_of(&t, AO_S, AO_COL).is_empty(),
+        "values: [] clears the predicate"
+    );
+    t.apply(
+        &policy,
+        &ev(
+            "oa",
+            3,
+            3,
+            &[],
+            vec![
+                ao_rem(vec![json_whole("[\"a\"]")]),
+                ao_add(vec![json_whole("[\"m\"]"), lit("m")]),
+            ],
+        ),
+    );
+    assert_eq!(ao_wholes(&t), 1);
+    assert_eq!(
+        values_of(&t, AO_S, AO_COL),
+        nts(&[json_whole("[\"m\"]"), lit("m")])
+    );
+
+    let scalar = op_from_json(
+        0,
+        &serde_json::json!({"op": "set", "subject": AO_S, "class": AO_CLASS,
+                            "predicate": AO_COL, "value": "W"}),
+    )
+    .expect("a scalar set");
+    let listed = op_from_json(
+        0,
+        &serde_json::json!({"op": "set", "subject": AO_S, "class": AO_CLASS,
+                            "predicate": AO_COL, "values": ["W"]}),
+    )
+    .expect("a one-element list set");
+    assert_eq!(scalar, listed);
+    assert_eq!(scalar, ao_set(vec![lit("W")]));
+    for op in [scalar, listed] {
+        let mut t = HeadTable::new();
+        t.apply(&policy, &ev("oa", 1, 1, &[], vec![op]));
+        assert_eq!(values_of(&t, AO_S, AO_COL), nts(&[lit("W")]));
+        t.apply(&policy, &ev("oa", 2, 2, &[], vec![ao_rem(vec![lit("W")])]));
+        assert!(
+            values_of(&t, AO_S, AO_COL).is_empty(),
+            "a remove composes with a scalar set"
+        );
+        assert!(!t.holds_single_layer());
+    }
+}
+
+/// The documented consequence, pinned exactly: the commit route sends no parents, so a `set`
+/// observes only its own cell's earlier writes. Two cells that set one scalar hold one value each,
+/// and each cell's later set replaces only its own (strict lww for a functional column comes with
+/// the contract, W8).
+#[test]
+fn from_ops_a_later_set_without_parents_replaces_only_its_own_cell_s_value() {
+    let policy = FoldPolicy::from_ops();
+    let events = [
+        ev("oa", 1, 1, &[], vec![ao_set(vec![lit("x")])]),
+        ev("ob", 1, 2, &[], vec![ao_set(vec![lit("y")])]),
+        ev("oa", 2, 3, &[], vec![ao_set(vec![lit("z")])]),
+    ];
+    let t = fold(&policy, &events);
+    assert_eq!(values_of(&t, AO_S, AO_COL), nts(&[lit("z"), lit("y")]));
+    let (rebuilt, _) = HeadTable::rebuild(&policy, events.iter());
+    assert_eq!(rebuilt.canonical(), t.canonical());
+}
+
+/// A vocabulary WITH a contract keeps the policy `FoldPolicy::from_contract` reads, untouched by
+/// W7d: a functional column (no `multi`) is lww in the single layer, so two cells' concurrent sets
+/// leave one winner (the highest stamp) in either arrival order where the contractless reading keeps
+/// both; a `multi` column is add-wins in the set layer, where add and remove compose with a set.
+#[test]
+fn a_contract_vocabulary_keeps_lww_for_functional_columns_and_add_wins_for_multi() {
+    let contract: crate::emporium::contract::VocabularyContract =
+        serde_json::from_value(serde_json::json!({
+            "name": "t",
+            "version": "1.0.0",
+            "title": "T",
+            "description": "W7d contract pin",
+            "namespaces": {"t": "urn:t:"},
+            "primary_prefix": "t",
+            "classes": {"A": {"predicates": {
+                "t:p1": {"datatype": "string"},
+                "t:q1": {"datatype": "string", "multi": true}
+            }}}
+        }))
+        .expect("contract parses");
+    let policy = FoldPolicy::from_contract(&contract);
+    assert!(!policy.by_op);
+    assert_eq!(policy.by_predicate.get(P1), Some(&Merge::Lww));
+    assert_eq!(policy.by_predicate.get(Q1), Some(&Merge::AddWins));
+    let s = SUBJECTS[0];
+    let ea = ev("oa", 1, 1, &[], vec![set(s, P1, Some(lit("x")))]);
+    let eb = ev("ob", 1, 2, &[], vec![set(s, P1, Some(lit("y")))]);
+    for order in [[&ea, &eb], [&eb, &ea]] {
+        let mut t = HeadTable::new();
+        for e in order {
+            t.apply(&policy, e);
+        }
+        assert_eq!(
+            values_of(&t, s, P1),
+            nts(&[lit("y")]),
+            "lww: the highest stamp wins"
+        );
+        assert!(t.holds_single_layer());
+        let mut u = HeadTable::new();
+        for e in order {
+            u.apply(&FoldPolicy::from_ops(), e);
+        }
+        assert_eq!(values_of(&u, s, P1), nts(&[lit("x"), lit("y")]));
+    }
+    let mut t = HeadTable::new();
+    t.apply(
+        &policy,
+        &ev("oa", 1, 1, &[], vec![set(s, Q1, Some(lit("a")))]),
+    );
+    t.apply(
+        &policy,
+        &ev("oa", 2, 2, &[], vec![add(s, Q1, vec![lit("b")])]),
+    );
+    t.apply(
+        &policy,
+        &ev("oa", 3, 3, &[], vec![rem(s, Q1, vec![lit("a")])]),
+    );
+    assert_eq!(values_of(&t, s, Q1), nts(&[lit("b")]));
 }
