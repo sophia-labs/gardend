@@ -37,6 +37,10 @@ name = "gardend"
 path = "examples/gardend.rs"
 required-features = ["headless"]
 
+# The ledger crate (W5) lives beside the app; the root package does not depend on it yet.
+[workspace]
+members = ["crates/garden-ledger"]
+
 [features]
 default = ["desktop"]
 # Desktop app: real Tauri runtime (wry webview) + desktop-only plugins.

@@ -1,0 +1,21 @@
+[package]
+name = "garden-ledger"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Append-only ledger of per-origin frame streams: frames, streams, version vectors, HLC."
+
+[lib]
+name = "garden_ledger"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+serde_json_canonicalizer = "0.3"
+crc32c = "0.6"
+blake3 = "1"
+
+[dev-dependencies]
+proptest = "1"
+tempfile = "3"
