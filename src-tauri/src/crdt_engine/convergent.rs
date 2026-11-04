@@ -61,8 +61,19 @@ pub(crate) enum ConvergeError {
         /// The position both frames claim.
         seq: u64,
     },
-    /// Decoded, but refused (gap, wrong origin, frame invalid, oversized, not allowed).
+    /// The payload names a wire version this cell does not speak (`ledger-vv/N`, `ledger-bundle/N`).
+    /// The loop closes the connection with a reason instead of skipping it, so the peer can tell.
+    UnsupportedVersion {
+        /// Which encoding (`ledger-vv`, `ledger-bundle`).
+        what: &'static str,
+        /// The version byte the peer sent.
+        version: u8,
+    },
+    /// Decoded, but refused (gap, wrong origin, frame invalid, oversized, not allowed, room evicted).
     Refused(String),
+    /// A stream file of the ledger is locked by another handle (an evicted room's last flush, or
+    /// another process). The registry retries an open for a bounded time.
+    Locked(String),
     /// Storage failed underneath.
     Persistence(PersistenceError),
 }
@@ -77,7 +88,11 @@ impl fmt::Display for ConvergeError {
                     "fork: origin {origin} wrote two different events at seq {seq}"
                 )
             }
+            ConvergeError::UnsupportedVersion { what, version } => {
+                write!(f, "{what} version {version} unsupported")
+            }
             ConvergeError::Refused(m) => write!(f, "refused: {m}"),
+            ConvergeError::Locked(path) => write!(f, "ledger stream is locked: {path}"),
             ConvergeError::Persistence(e) => write!(f, "persistence: {e:?}"),
         }
     }
@@ -130,6 +145,11 @@ pub(crate) trait Convergent: Send + Sync + 'static {
     /// Payloads that became shippable since the last call (ledger only; yrs: empty). The loop fans
     /// these out as Update messages.
     fn shippable(&self) -> impl Future<Output = Vec<Vec<u8>>> + Send;
+
+    /// Whether graph deletion or a registry eviction has invalidated this room. The generic loop
+    /// checks it under the graph's lifecycle lease before every delivery; a room that was evicted
+    /// refuses further updates.
+    fn is_evicted(&self) -> bool;
 
     /// The ephemeral presence table.
     fn awareness(&self) -> &AwarenessTable;

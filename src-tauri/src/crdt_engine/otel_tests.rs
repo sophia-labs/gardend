@@ -1025,6 +1025,97 @@ fn room_updates_debounce_into_a_linked_flush_without_content() {
     assert!(!test_support::json(&spans).contains(MARKER));
 }
 
+/// M3: a client update delivered through the generic loop's seam (`Convergent::apply` on a room the
+/// websocket host bound) still records the `ydoc.update.apply` span with its attributes, parented on
+/// the connection span, as `serve_room_with` did. The sidecar write is deferred to the armed group
+/// commit and the cold projection is scheduled, as on the websocket path.
+#[test]
+fn the_convergent_apply_of_a_bound_room_records_the_update_span() {
+    use super::convergent::Convergent;
+    let profile = Profile::new();
+    let app = profile.app();
+    let (provider, exporter, dispatch) = test_support::capture(true);
+    tracing::dispatcher::with_default(&dispatch, || {
+        runtime().block_on(async {
+            let registry = app.state::<RoomRegistry>();
+            let graph_dir = crate::graph_paths::existing_graph_dir(&app, GRAPH).unwrap();
+            let state_path = crate::ydoc_paths::document_ydoc_state_path(&graph_dir, "seam-doc");
+            let room = registry
+                .get_or_create("doc:otel-graph:seam-doc", state_path.clone())
+                .await
+                .unwrap();
+            room.configure_projection_flush(GRAPH.to_string(), Some("seam-doc".to_string()))
+                .unwrap();
+            room.bind_persist_scope(&app, GRAPH);
+            let remote = Doc::new();
+            let update = {
+                let mut txn = remote.transact_mut();
+                let fragment = txn.get_or_insert_xml_fragment("content");
+                super::builder::append_nodes(
+                    &mut txn,
+                    &fragment,
+                    &[json!({
+                        "type": "paragraph", "attrs": {"data-block-id": "block-seam"},
+                        "content": [{"type": "text", "text": MARKER}],
+                    })],
+                );
+                drop(txn);
+                remote
+                    .transact()
+                    .encode_state_as_update_v1(&StateVector::default())
+            };
+            let connection = tracing::info_span!(target: "gardend_otel", "room.connection");
+            async {
+                let coordinator = app.state::<GraphPersistenceCoordinator>();
+                let lease = coordinator.acquire_hot_write(GRAPH).await.unwrap();
+                lease.declare_rdf_read_only();
+                let applied = Convergent::apply(&*room, &update, 7).await.unwrap();
+                assert!(applied.changed);
+                // The same update again changes nothing, and says so.
+                assert!(!Convergent::apply(&*room, &update, 7).await.unwrap().changed);
+            }
+            .instrument(connection)
+            .await;
+            // Deferred: the sidecar lands with the group commit, not before `apply` returned.
+            tokio::time::timeout(Duration::from_secs(5), async {
+                while !state_path.exists() {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .expect("the armed group commit wrote the sidecar");
+        })
+    });
+    provider.force_flush().unwrap();
+    let spans = exporter.get_finished_spans().unwrap();
+    let connection = spans
+        .iter()
+        .find(|span| span.name == "room.connection")
+        .unwrap();
+    let updates: Vec<_> = spans
+        .iter()
+        .filter(|span| span.name == "ydoc.update.apply")
+        .collect();
+    assert_eq!(updates.len(), 2, "one span per applied frame");
+    for update in &updates {
+        assert_eq!(update.parent_span_id, connection.span_context.span_id());
+        assert!(attribute(update, "sophia.ydoc.update_bytes").is_some());
+        assert!(attribute(update, "sophia.ydoc.mutex_wait_ms").is_some());
+        assert!(attribute(update, "sophia.ydoc.changed").is_some());
+    }
+    let changed: Vec<bool> = updates
+        .iter()
+        .map(|update| {
+            matches!(
+                attribute(update, "sophia.ydoc.changed"),
+                Some(opentelemetry::Value::Bool(true))
+            )
+        })
+        .collect();
+    assert_eq!(changed.iter().filter(|c| **c).count(), 1, "{changed:?}");
+    assert!(!test_support::json(&spans).contains(MARKER));
+}
+
 #[test]
 fn enqueue_context_parents_the_real_drainer_and_recovery_links_it() {
     let profile = Profile::new();

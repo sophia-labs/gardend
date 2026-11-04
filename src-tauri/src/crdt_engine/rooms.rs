@@ -13,7 +13,7 @@
 
 use super::awareness::AwarenessTable;
 use super::convergent::{Applied, ConvergeError, Convergent, RoomKind};
-use super::ledger_room::{LedgerRoom, LEDGER_SHIP_WINDOW};
+use super::ledger_room::LedgerRoom;
 use crate::app_error::PersistenceError;
 use crate::app_runtime::AppHandle;
 use crate::app_runtime::Manager;
@@ -137,7 +137,7 @@ struct PersistScope {
 /// the sidecar. The edit is broadcast at once; within this window the sidecar
 /// lags the live room by at most one group commit (Vera's accepted loss on a
 /// power cut is about one second, never corruption).
-const ROOM_PERSIST_WINDOW: Duration = Duration::from_millis(250);
+pub(super) const ROOM_PERSIST_WINDOW: Duration = Duration::from_millis(250);
 
 /// The room sidecar is replaced by rename, so after the first write its name
 /// already exists: the file's own fsync makes the new content whole, and a
@@ -307,6 +307,34 @@ fn room_key_belongs_to_graph(key: &str, graph_id: &str) -> bool {
         || key.starts_with(&format!("ledger:{graph_id}:"))
 }
 
+/// How long a ledger open waits for stream locks an evicted room still holds.
+const LEDGER_LOCKED_WAIT: Duration = Duration::from_secs(2);
+/// The pause between those attempts.
+const LEDGER_LOCKED_RETRY: Duration = Duration::from_millis(25);
+
+/// Why a ledger room could not be opened.
+enum LedgerOpenError {
+    /// A stream file is locked by another handle (the path). Retried for a bounded time.
+    Locked(String),
+    /// Anything else, as a message.
+    Other(String),
+}
+
+impl From<String> for LedgerOpenError {
+    fn from(message: String) -> Self {
+        LedgerOpenError::Other(message)
+    }
+}
+
+/// Why [`RoomRegistry::open_ledger`] refused.
+#[derive(Debug)]
+pub(crate) enum LedgerAdmissionError {
+    /// The graph does not exist or is deleted (HTTP 404).
+    NotFound(String),
+    /// The lease, the open or the ledger failed (HTTP 500).
+    Other(String),
+}
+
 #[allow(dead_code)]
 /// One hosted room, tagged by what it holds. The registry's operations that are about a key
 /// (admission, eviction, graph scans, flushes) cover both kinds; the ones that return a `Room`
@@ -345,12 +373,11 @@ impl RoomEntry {
         }
     }
 
-    /// A Y.Doc room carries an eviction flag; a ledger room is evicted by leaving the registry,
-    /// so an entry still in the map is live.
+    /// Both kinds carry an eviction flag, set by [`Self::evict`].
     fn is_evicted(&self) -> bool {
         match self {
             RoomEntry::YDoc(room) => room.is_evicted(),
-            RoomEntry::Ledger(_) => false,
+            RoomEntry::Ledger(room) => room.is_evicted(),
         }
     }
 
@@ -364,29 +391,15 @@ impl RoomEntry {
     }
 
     /// Invalidate the room. A Y.Doc room sets its flag and cancels its projection generation. A
-    /// ledger room tells every socket to go (a [`FrameKind::Evicted`] frame), then makes what it
-    /// holds durable on a spawned task that keeps the room alive until it has finished, so the
-    /// ledger's stream locks are released only after the last flush. Idempotent for Y.Doc rooms;
-    /// the registry calls it exactly once per removed entry.
+    /// ledger room sets its flag first (so `apply`, `append` and `diff` refuse from then on), tells
+    /// every socket to go (a [`FrameKind::Evicted`] frame), then makes what it holds durable on a
+    /// spawned task that keeps the room alive until it has finished, so the ledger's stream locks
+    /// are released only after the last flush. Idempotent for both kinds; the registry calls it
+    /// once per removed entry.
     fn evict(&self) {
         match self {
             RoomEntry::YDoc(room) => room.evict(),
-            RoomEntry::Ledger(room) => {
-                let _ = room.frames().send(RoomFrame {
-                    origin: None,
-                    kind: FrameKind::Evicted,
-                    payload: Vec::new(),
-                });
-                let room = room.clone();
-                crate::app_runtime::async_runtime::spawn(async move {
-                    if let Err(error) = room.persist().await {
-                        log::warn!("ledger barrier at eviction failed: {error}");
-                    }
-                    if let Err(error) = room.durable().await {
-                        log::warn!("ledger full flush at eviction failed: {error}");
-                    }
-                });
-            }
+            RoomEntry::Ledger(room) => room.evict(),
         }
     }
 
@@ -1021,23 +1034,115 @@ impl RoomRegistry {
     /// refuses, and cold opens of one key queue on its opening slot. A key held by a Y.Doc room is
     /// an error. The open (a recovery scan of the ledger) runs on the calling thread, as the Y.Doc
     /// open does.
+    ///
+    /// The ledger's stream files are flocked, so a reopen behind a live `Arc` of an evicted room
+    /// (graph duplicate, restore: the old room's last flush and its sockets' last `Arc` are still
+    /// finishing) finds them `Locked`. That is retried every [`LEDGER_LOCKED_RETRY`] for up to
+    /// [`LEDGER_LOCKED_WAIT`], then fails naming the path. This function does not take the graph's
+    /// lifecycle lease; a route that opens on behalf of a request uses [`Self::open_ledger`].
     pub(crate) async fn get_or_create_ledger(
         &self,
         key: &str,
         ledger_dir: PathBuf,
     ) -> Result<Arc<LedgerRoom>, String> {
-        self.open_ledger_room(key, &ledger_dir)
+        self.get_or_create_ledger_within(key, ledger_dir, LEDGER_LOCKED_WAIT)
+            .await
+    }
+
+    /// [`Self::get_or_create_ledger`] with the bounded wait for a `Locked` ledger spelled out.
+    pub(crate) async fn get_or_create_ledger_within(
+        &self,
+        key: &str,
+        ledger_dir: PathBuf,
+        wait: Duration,
+    ) -> Result<Arc<LedgerRoom>, String> {
+        let deadline = tokio::time::Instant::now() + wait;
+        loop {
+            match self.open_ledger_room(key, &ledger_dir) {
+                Ok(room) => return Ok(room),
+                Err(LedgerOpenError::Locked(path))
+                    if tokio::time::Instant::now() + LEDGER_LOCKED_RETRY <= deadline =>
+                {
+                    log::debug!("ledger stream {path} is locked; retrying the open of {key}");
+                    tokio::time::sleep(LEDGER_LOCKED_RETRY).await;
+                }
+                Err(LedgerOpenError::Locked(path)) => {
+                    return Err(format!(
+                        "ledger {} is still locked by another handle after {wait:?} ({path}); \
+                         an evicted room has not let go of it",
+                        ledger_dir.display()
+                    ));
+                }
+                Err(LedgerOpenError::Other(message)) => return Err(message),
+            }
+        }
+    }
+
+    /// Open the ledger room of `(graph_id, vocab)` for a request: under the graph's shared
+    /// lifecycle lease (graph deletion evicts the graph's rooms under the exclusive one, so a room
+    /// cannot be installed behind it), and only for a graph that is not deleted. The check is the
+    /// one graph deletion itself writes and `linearize_state_bearing_delivery` reads: the graph
+    /// record's `status` ([`crate::graph_record_store::read_graph_record_no_heal`] refuses
+    /// `GRAPH_STATUS_DELETED` and a missing record, never healing one). `Err(NotFound)` for those.
+    pub(crate) async fn open_ledger(
+        &self,
+        app: &AppHandle,
+        graph_id: &str,
+        vocab: &str,
+    ) -> Result<Arc<LedgerRoom>, LedgerAdmissionError> {
+        let coordinator = app
+            .try_state::<super::persistence_coordinator::GraphPersistenceCoordinator>()
+            .ok_or_else(|| {
+                LedgerAdmissionError::Other("graph persistence coordinator is unavailable".into())
+            })?;
+        let _lease = coordinator
+            .acquire_lifecycle_shared(graph_id)
+            .await
+            .map_err(LedgerAdmissionError::Other)?;
+        let (graph_dir, _record) =
+            crate::graph_record_store::read_graph_record_no_heal(app, graph_id)
+                .map_err(|error| LedgerAdmissionError::NotFound(error.message()))?;
+        self.get_or_create_ledger(
+            &format!("ledger:{graph_id}:{vocab}"),
+            graph_dir.join("ledger").join(vocab),
+        )
+        .await
+        .map_err(LedgerAdmissionError::Other)
+    }
+
+    /// The version map of the ledger `key` at `ledger_dir` without creating any state: the hosted
+    /// room's when one is hosted, else a cold read (see [`LedgerRoom::cold_version_json`]) taken
+    /// under the key's opening slot, so it cannot race a room open for the stream locks.
+    pub(crate) async fn ledger_version(
+        &self,
+        key: &str,
+        ledger_dir: &std::path::Path,
+    ) -> Result<serde_json::Value, String> {
+        let room = {
+            let slot = self.opening_slot(key);
+            let _guard = slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            // A room may have been installed since the first look: it answers, not a second open.
+            match self.peek_ledger(key) {
+                Some(room) => room,
+                None => {
+                    return LedgerRoom::cold_version_json(ledger_dir).map_err(|error| {
+                        format!("read ledger version {}: {error}", ledger_dir.display())
+                    });
+                }
+            }
+        };
+        Ok(room.version_json().await)
     }
 
     fn open_ledger_room(
         &self,
         key: &str,
         ledger_dir: &std::path::Path,
-    ) -> Result<Arc<LedgerRoom>, String> {
+    ) -> Result<Arc<LedgerRoom>, LedgerOpenError> {
         if !key.starts_with("ledger:") {
-            return Err(format!(
-                "room key {key} is not a ledger key (ledger:{{graph}}:{{vocab}})"
-            ));
+            return Err(
+                format!("room key {key} is not a ledger key (ledger:{{graph}}:{{vocab}})").into(),
+            );
         }
         let vocab = ledger_dir
             .file_name()
@@ -1053,7 +1158,8 @@ impl RoomRegistry {
             return Err(format!(
                 "ledger key {key} does not name the vocab of {}",
                 ledger_dir.display()
-            ));
+            )
+            .into());
         }
         let graph_dir = ledger_dir
             .parent()
@@ -1080,7 +1186,9 @@ impl RoomRegistry {
                 .iter()
                 .any(|graph_id| room_key_belongs_to_graph(key, graph_id))
             {
-                return Err("graph room is unavailable during disk archive restore".to_string());
+                return Err("graph room is unavailable during disk archive restore"
+                    .to_string()
+                    .into());
             }
             let rooms = self
                 .rooms
@@ -1089,17 +1197,31 @@ impl RoomRegistry {
             match rooms.get(key) {
                 Some(RoomEntry::Ledger(room)) => return Ok(room.clone()),
                 Some(RoomEntry::YDoc(_)) => {
-                    return Err(format!("room key {key} is hosted by a Y.Doc room"));
+                    return Err(format!("room key {key} is hosted by a Y.Doc room").into());
                 }
                 None => {}
             }
         }
 
         // Phase 2: recover and open with no registry lock held.
-        let local = garden_ledger::ledger::read_or_mint_origin(ledger_dir)
-            .map_err(|error| format!("ledger origin in {}: {error}", ledger_dir.display()))?;
-        let room = LedgerRoom::open(&graph_dir, &vocab, local)
-            .map_err(|error| format!("open ledger {}: {error}", ledger_dir.display()))?;
+        let local =
+            garden_ledger::ledger::read_or_mint_origin(ledger_dir).map_err(
+                |error| match error {
+                    garden_ledger::LedgerError::Stream(garden_ledger::StreamError::Locked {
+                        path,
+                    }) => LedgerOpenError::Locked(path.display().to_string()),
+                    other => LedgerOpenError::Other(format!(
+                        "ledger origin in {}: {other}",
+                        ledger_dir.display()
+                    )),
+                },
+            )?;
+        let room = LedgerRoom::open(&graph_dir, &vocab, local).map_err(|error| match error {
+            ConvergeError::Locked(path) => LedgerOpenError::Locked(path),
+            other => {
+                LedgerOpenError::Other(format!("open ledger {}: {other}", ledger_dir.display()))
+            }
+        })?;
 
         // Phase 3: admission again (a disk restore may have begun while this opener was
         // recovering), then insert. Only this function inserts ledger keys and it holds the key's
@@ -1113,7 +1235,11 @@ impl RoomRegistry {
                 .iter()
                 .any(|graph_id| room_key_belongs_to_graph(key, graph_id))
             {
-                return Err("graph room is unavailable during disk archive restore".to_string());
+                // The room just opened was never installed: let go of its streams at once.
+                drop(room);
+                return Err("graph room is unavailable during disk archive restore"
+                    .to_string()
+                    .into());
             }
             let mut rooms = self
                 .rooms
@@ -1201,7 +1327,7 @@ impl RoomRegistry {
     }
 
     /// Snapshot hosted Y.Doc rooms whose keys start with `prefix` (ledger
-    /// rooms are skipped; see [`Self::entries_with_prefix`]). Sorting makes a
+    /// rooms are skipped: they are not `Room`s). Sorting makes a
     /// graph-wide flush deterministic and avoids holding the registry lock
     /// while filesystem/RDF persistence runs.
     pub(crate) async fn rooms_with_prefix(&self, prefix: &str) -> Vec<(String, Arc<Room>)> {
@@ -1215,20 +1341,6 @@ impl RoomRegistry {
                 RoomEntry::YDoc(room) if !room.is_evicted() => Some((key.clone(), room.clone())),
                 _ => None,
             })
-            .collect();
-        matches.sort_by(|(left, _), (right, _)| left.cmp(right));
-        matches
-    }
-
-    /// [`Self::rooms_with_prefix`] over rooms of either kind.
-    pub(crate) fn entries_with_prefix(&self, prefix: &str) -> Vec<(String, RoomEntry)> {
-        let Ok(rooms) = self.rooms.lock() else {
-            return Vec::new();
-        };
-        let mut matches: Vec<_> = rooms
-            .iter()
-            .filter(|(key, entry)| key.starts_with(prefix) && !entry.is_evicted())
-            .map(|(key, entry)| (key.clone(), entry.clone()))
             .collect();
         matches.sort_by(|(left, _), (right, _)| left.cmp(right));
         matches
@@ -2095,7 +2207,7 @@ impl Room {
 
     /// Let the websocket host defer this room's sidecar writes to the group
     /// commit, under `graph_id`'s lifecycle lease.
-    fn bind_persist_scope(&self, app: &AppHandle, graph_id: &str) {
+    pub(super) fn bind_persist_scope(&self, app: &AppHandle, graph_id: &str) {
         let _ = self.persist_scope.set(PersistScope {
             app: app.clone(),
             graph_id: graph_id.to_string(),
@@ -2134,6 +2246,7 @@ impl Room {
         );
     }
 
+    #[cfg(test)]
     fn persist_state_bytes_at(
         state_path: &std::path::Path,
         bytes: &[u8],
@@ -2231,10 +2344,11 @@ impl Room {
 ///
 /// * `version` is the encoded state vector, `diff` is `encode_state_as_update_v1(since)` as one
 ///   payload (a Y.Doc update is not splittable, so `max_bytes` does not apply).
-/// * `apply` is [`Room::apply_client_update_inner`] (the broadcast, the epoch bumps, the evict on a
-///   failed integrate). On a room the websocket host bound (see `bind_persist_scope`) the sidecar
-///   write is deferred to the group commit and the cold projection is scheduled, as the websocket
-///   loop does; on any other room the update is on disk before `apply` returns.
+/// * `apply` is [`Room::apply_client_frame`] on a room the websocket host bound (see
+///   `bind_persist_scope`): the `ydoc.update.apply` span, the broadcast, the epoch bumps, the evict
+///   on a failed integrate, the sidecar write deferred to the group commit and the cold projection
+///   scheduled, as the websocket loop did. On any other room it is [`Room::apply_client_update_inner`]
+///   and the update is on disk before `apply` returns.
 /// * `persist` is the sidecar write if the room is dirty; `durable` is a no-op (the sidecar write is
 ///   its own durability point and shutdown ends with a full flush); `shippable` is empty (the
 ///   update was broadcast when it was applied).
@@ -2258,25 +2372,27 @@ impl Convergent for Room {
     }
 
     async fn apply(&self, payload: &[u8], from: ConnectionId) -> Result<Applied, ConvergeError> {
-        let defer = self.persist_scope.get().is_some();
-        let changed = self
-            .apply_client_update_inner(payload, Some(from), defer)
-            .await
-            .map_err(|error| {
-                if error.starts_with("decode client ydoc update") {
-                    ConvergeError::Decode(error)
-                } else {
-                    ConvergeError::Refused(error)
-                }
-            })?;
-        if changed {
-            if let (Some(room), Some(scope)) = (self.me.upgrade(), self.persist_scope.get()) {
-                if defer {
-                    room.arm_state_persist();
-                }
-                room.schedule_projection_flush(scope.app.clone());
+        let map_error = |error: String| {
+            if error.starts_with("decode client ydoc update") {
+                ConvergeError::Decode(error)
+            } else {
+                ConvergeError::Refused(error)
             }
-        }
+        };
+        // A room the websocket host bound goes through `apply_client_frame`, as `serve_room_with`
+        // did: the `ydoc.update.apply` span (update_bytes, mutex_wait_ms, changed, status), the
+        // deferred sidecar write with its armed group commit, and the cold-projection schedule.
+        let changed = match (self.me.upgrade(), self.persist_scope.get()) {
+            (Some(room), Some(scope)) => room
+                .apply_client_frame(payload, scope.app.clone(), Some(from))
+                .await
+                .map_err(map_error)?,
+            // No host bound: the update is on disk before `apply` returns, and nothing is scheduled.
+            _ => self
+                .apply_client_update_inner(payload, Some(from), false)
+                .await
+                .map_err(map_error)?,
+        };
         Ok(Applied {
             changed,
             reply: None,
@@ -2293,6 +2409,10 @@ impl Convergent for Room {
 
     async fn shippable(&self) -> Vec<Vec<u8>> {
         Vec::new()
+    }
+
+    fn is_evicted(&self) -> bool {
+        Room::is_evicted(self)
     }
 
     fn awareness(&self) -> &AwarenessTable {
@@ -2690,9 +2810,8 @@ pub(super) async fn run_projection_flush_for_test(
 const WS_STATE_SEND_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// A room that can say whether graph deletion has evicted it. The delivery helpers below check
-/// this under the graph's shared lifecycle lease; a hosted ledger room has no flag (leaving the
-/// registry is its eviction, announced by a [`FrameKind::Evicted`] frame), so the generic loop
-/// passes [`YDocFlag`], which is `false` for it.
+/// this under the graph's shared lifecycle lease. Both kinds of room carry the flag (a ledger
+/// room's is [`LedgerRoom::evict`]'s); the generic loop passes [`RoomFlag`], which asks the room.
 pub(crate) trait Evictable {
     /// Whether the room has been evicted.
     fn is_evicted(&self) -> bool;
@@ -2716,12 +2835,12 @@ impl<T: Evictable + ?Sized> Evictable for &T {
     }
 }
 
-/// The eviction flag of whatever Y.Doc room a generic loop serves; `false` for a ledger room.
-struct YDocFlag(Option<Arc<Room>>);
+/// The eviction flag of whatever room a generic loop serves.
+struct RoomFlag<C: Convergent>(Arc<C>);
 
-impl Evictable for YDocFlag {
+impl<C: Convergent> Evictable for RoomFlag<C> {
     fn is_evicted(&self) -> bool {
-        self.0.as_ref().is_some_and(|room| room.is_evicted())
+        Convergent::is_evicted(&*self.0)
     }
 }
 
@@ -2915,6 +3034,10 @@ pub async fn serve_room(socket: WebSocket, room: Arc<Room>, app: AppHandle, grap
 }
 
 /// [`serve_room`] for a connection with the given [`RoomAccess`].
+///
+/// No route calls this any more: they serve through [`serve_convergent`]. It stays because the
+/// room, fence and otel tests drive the Y.Doc loop through it directly, and so keeps a second,
+/// independent implementation of the same behaviour for them to compare against.
 #[tracing::instrument(target = "gardend_otel", name = "room.connection", skip_all,
     fields(sophia.graph.id = %graph_id))]
 pub(crate) async fn serve_room_with(
@@ -3243,6 +3366,22 @@ const CONVERGENT_DIFF_CHUNK_BYTES: usize = 8 * 1024 * 1024;
 /// The close code a connection gets when a frame it sent contradicts one we hold (a fork).
 pub(crate) const LEDGER_FORK_CLOSE: u16 = 4409;
 
+/// The close code for a payload that names a wire version this cell does not speak
+/// (`ledger-vv/N` on SyncStep1, `ledger-bundle/N` on an update). The reason reads
+/// `ledger-vv version N unsupported`. (W6.md first drafted 4409 for this; that was already the fork code.)
+pub(crate) const LEDGER_VERSION_CLOSE: u16 = 4410;
+
+/// The close code for an update that does not decode; the reason is the decode message.
+pub(crate) const LEDGER_DECODE_CLOSE: u16 = 4400;
+
+/// A close frame with `code` and a `reason` cut to the 110 characters a close frame may carry.
+fn close_with(code: u16, reason: &str) -> WsMessage {
+    WsMessage::Close(Some(axum::extract::ws::CloseFrame {
+        code,
+        reason: reason.chars().take(110).collect::<String>().into(),
+    }))
+}
+
 /// y-sync message tag for a sync message.
 const MSG_SYNC: u8 = 0;
 /// y-sync sync sub-tags.
@@ -3265,7 +3404,7 @@ fn write_var_u64(out: &mut Vec<u8>, mut value: u64) {
 
 /// Read a lib0 variable-length unsigned integer at `*pos`, advancing it; `None` on a short or
 /// over-long encoding.
-fn read_var_u64(buf: &[u8], pos: &mut usize) -> Option<u64> {
+pub(super) fn read_var_u64(buf: &[u8], pos: &mut usize) -> Option<u64> {
     let mut value: u64 = 0;
     let mut shift = 0u32;
     loop {
@@ -3427,20 +3566,26 @@ async fn ledger_payload_would_change<C: Convergent>(
 /// refusal close, presence, and fan-out are the same code paths; what a state vector, a diff, an
 /// update and a flush *are* comes from the room.
 ///
-/// * SyncStep1 from the room is `room.version()`; a peer's SyncStep1 is answered with
-///   `room.diff(..)`, one SyncStep2 message per payload, each delivered under its own lease so a
-///   cold sync of a large ledger is bounded per chunk, not per ledger.
+/// * SyncStep1 from the room is `room.version()`. A peer's SyncStep1 is answered with
+///   `room.diff(..)`. For a Y.Doc that one payload is encoded and sent inside a single
+///   state-bearing delivery (under the lifecycle lease and the delivery timeout). For a ledger the
+///   diff is a list of bounded chunks, one SyncStep2 message each, every chunk delivered under its
+///   own lease so a cold sync of a large ledger is bounded per chunk, not per ledger. A ledger
+///   SyncStep1 that names an unknown `ledger-vv` version closes with [`LEDGER_VERSION_CLOSE`].
 /// * A peer's SyncStep2 / Update goes to `room.apply(..)` under the client-frame lease. For a Y.Doc
-///   room that is the existing apply path. For a ledger room, a change arms the ship window
-///   ([`LEDGER_SHIP_WINDOW`] when another socket is subscribed, [`ROOM_PERSIST_WINDOW`] otherwise);
-///   when it fires the loop runs [`ship_pending`], which fans the shippable bundles out to every
-///   subscriber. A [`ConvergeError::Fork`] closes the socket with [`LEDGER_FORK_CLOSE`].
+///   room that is `apply_client_frame`. For a ledger room a change also arms the room's own
+///   persist and ship tasks (see `ledger_room`), which fan the shippable bundles out to every
+///   subscriber whether or not this connection sends another frame. A [`ConvergeError::Fork`]
+///   closes the socket with [`LEDGER_FORK_CLOSE`], an unsupported bundle version with
+///   [`LEDGER_VERSION_CLOSE`], an undecodable ledger update with [`LEDGER_DECODE_CLOSE`], and a
+///   refusal (an evicted room) ends the loop.
 /// * At close the room is made durable (a Y.Doc room: the sidecar under the lifecycle lease; a
 ///   ledger room: barrier, full flush, ship) and the socket's presence is removed.
 ///
-/// A Y.Doc room served here behaves as under [`serve_room_with`] (the doc and workspace routes
-/// still use that loop; see the lane R debts). A ledger room has no eviction flag: leaving the
-/// registry sends [`FrameKind::Evicted`], which ends this loop.
+/// Both kinds carry an eviction flag (`Convergent::is_evicted`), checked under the shared lease
+/// before every delivery; a ledger room also announces its eviction with [`FrameKind::Evicted`],
+/// which ends this loop. The doc and workspace routes and the ledger route all serve through here;
+/// [`serve_room_with`] stays for the tests that drive it directly.
 #[tracing::instrument(target = "gardend_otel", name = "room.connection", skip_all,
     fields(sophia.graph.id = %graph_id))]
 pub(crate) async fn serve_convergent<C: Convergent>(
@@ -3453,7 +3598,7 @@ pub(crate) async fn serve_convergent<C: Convergent>(
     let connection_id = NEXT_CONVERGENT_CONNECTION.fetch_add(1, Ordering::Relaxed);
     let kind = room.kind();
     let ydoc = as_ydoc(&room);
-    let evictable = YDocFlag(ydoc.clone());
+    let evictable = RoomFlag(room.clone());
     let _connection = ydoc.as_ref().map(|ydoc| ConnectionGuard::new(ydoc, &app));
     if let Some(ydoc) = ydoc.as_ref() {
         // From here the room's websocket frames are broadcast first and made
@@ -3464,8 +3609,6 @@ pub(crate) async fn serve_convergent<C: Convergent>(
     // a connection gets a few, then it is closed.
     let mut visitor_noop_frames: u32 = 0;
     const VISITOR_NOOP_FRAMES: u32 = 16;
-    // When the ship window of a ledger room fires; armed by a change.
-    let mut ship_deadline: Option<tokio::time::Instant> = None;
     let (mut sink, mut stream) = socket.split();
     let mut rx = room.frames().subscribe();
 
@@ -3491,7 +3634,6 @@ pub(crate) async fn serve_convergent<C: Convergent>(
     }
 
     loop {
-        let ship_at = ship_deadline;
         tokio::select! {
             _ = async {
                 match ydoc.as_ref() {
@@ -3499,15 +3641,6 @@ pub(crate) async fn serve_convergent<C: Convergent>(
                     None => std::future::pending::<()>().await,
                 }
             } => break,
-            _ = async {
-                match ship_at {
-                    Some(at) => tokio::time::sleep_until(at).await,
-                    None => std::future::pending::<()>().await,
-                }
-            } => {
-                ship_deadline = None;
-                ship_pending(&*room).await;
-            }
             frame = stream.next() => {
                 let Some(Ok(frame)) = frame else {
                     break;
@@ -3533,9 +3666,53 @@ pub(crate) async fn serve_convergent<C: Convergent>(
                     continue;
                 };
                 match message {
+                    Inbound::Step1(since) if kind == RoomKind::YDoc => {
+                        // A Y.Doc's diff is one payload and, as `serve_room_with` did, is encoded
+                        // under the graph's lifecycle lease and inside the delivery timeout, so
+                        // deletion cannot interleave and a slow encode cannot park the connection.
+                        let result = linearize_state_bearing_delivery(
+                            &app,
+                            &graph_id,
+                            &evictable,
+                            async {
+                                let parts = match room.diff(&since, CONVERGENT_DIFF_CHUNK_BYTES).await {
+                                    Ok(parts) => parts,
+                                    // An undecodable version is skipped, as an undecodable message is.
+                                    Err(ConvergeError::Decode(error)) => {
+                                        log::warn!("ignoring undecodable SyncStep1 on {graph_id}: {error}");
+                                        return Ok(());
+                                    }
+                                    Err(error) => return Err(error.to_string()),
+                                };
+                                for part in parts {
+                                    sink.send(WsMessage::binary(sync_message(SYNC_STEP2, &part)))
+                                        .await
+                                        .map_err(|error| format!("send websocket SyncStep2: {error}"))?;
+                                }
+                                Ok(())
+                            },
+                        )
+                        .await;
+                        if let Err(error) = result {
+                            log::warn!("closing websocket sync reply for {graph_id}: {error}");
+                            break;
+                        }
+                    }
                     Inbound::Step1(since) => {
+                        // A ledger's diff is a list of bounded chunks (a cold sync of a large ledger
+                        // is many): each is delivered under its own lease, so the lease is held per
+                        // chunk, not per ledger.
                         let parts = match room.diff(&since, CONVERGENT_DIFF_CHUNK_BYTES).await {
                             Ok(parts) => parts,
+                            // A version this cell does not speak: say so and go, rather than leave
+                            // the peer waiting for a reply that is never coming.
+                            Err(error @ ConvergeError::UnsupportedVersion { .. }) => {
+                                log::warn!("closing websocket sync reply for {graph_id}: {error}");
+                                let _ = sink
+                                    .send(close_with(LEDGER_VERSION_CLOSE, &error.to_string()))
+                                    .await;
+                                break;
+                            }
                             // An undecodable version is skipped, as an undecodable message is.
                             Err(ConvergeError::Decode(error)) => {
                                 log::warn!("ignoring undecodable SyncStep1 on {graph_id}: {error}");
@@ -3662,19 +3839,9 @@ pub(crate) async fn serve_convergent<C: Convergent>(
                         };
                         match room.apply(&update, connection_id).await {
                             Ok(applied) => {
-                                if applied.changed
-                                    && kind == RoomKind::Ledger
-                                    && ship_deadline.is_none()
-                                {
-                                    // Frames ship once a full flush covers them: soon when
-                                    // another socket waits, at the group-commit window if not.
-                                    let window = if room.frames().receiver_count() > 1 {
-                                        LEDGER_SHIP_WINDOW
-                                    } else {
-                                        ROOM_PERSIST_WINDOW
-                                    };
-                                    ship_deadline = Some(tokio::time::Instant::now() + window);
-                                }
+                                // A ledger room ships what it applied on its own timer (the ship
+                                // task `LedgerRoom::apply` arms), so a connection that goes quiet,
+                                // or a server-side append, still reaches every peer.
                                 if let Some(reply) = applied.reply {
                                     let result = tokio::time::timeout(
                                         WS_STATE_SEND_TIMEOUT,
@@ -3692,15 +3859,25 @@ pub(crate) async fn serve_convergent<C: Convergent>(
                                     "fork on {graph_id}: origin {origin} wrote two different events at seq {seq}; closing the connection"
                                 );
                                 let _ = sink
-                                    .send(WsMessage::Close(Some(axum::extract::ws::CloseFrame {
-                                        code: LEDGER_FORK_CLOSE,
-                                        reason: format!("fork: {origin} seq {seq}")
-                                            .chars()
-                                            .take(110)
-                                            .collect::<String>()
-                                            .into(),
-                                    })))
+                                    .send(close_with(
+                                        LEDGER_FORK_CLOSE,
+                                        &format!("fork: {origin} seq {seq}"),
+                                    ))
                                     .await;
+                                break;
+                            }
+                            Err(error @ ConvergeError::UnsupportedVersion { .. }) => {
+                                log::warn!("closing websocket room for {graph_id}: {error}");
+                                let _ = sink
+                                    .send(close_with(LEDGER_VERSION_CLOSE, &error.to_string()))
+                                    .await;
+                                break;
+                            }
+                            // (A Y.Doc room keeps its old behaviour: the generic arm below closes
+                            // without a reason.)
+                            Err(ConvergeError::Decode(reason)) if kind == RoomKind::Ledger => {
+                                log::warn!("closing websocket room for {graph_id}: undecodable update: {reason}");
+                                let _ = sink.send(close_with(LEDGER_DECODE_CLOSE, &reason)).await;
                                 break;
                             }
                             Err(error) => {

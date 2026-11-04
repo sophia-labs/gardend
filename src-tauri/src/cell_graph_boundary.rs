@@ -48,6 +48,9 @@ mod create_document_refusal_cell_tests;
 #[path = "files_rudiments_tests.rs"]
 mod files_rudiments_tests;
 #[cfg(all(test, feature = "headless"))]
+#[path = "ledger_rooms_cell_tests.rs"]
+mod ledger_rooms_cell_tests;
+#[cfg(all(test, feature = "headless"))]
 #[path = "loopback_manifest_secret_redaction_cell_tests.rs"]
 mod loopback_manifest_secret_redaction_cell_tests;
 #[cfg(all(test, feature = "headless"))]

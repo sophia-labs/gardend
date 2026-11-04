@@ -128,17 +128,6 @@ impl AwarenessTable {
         (!update.clients.is_empty()).then_some(update)
     }
 
-    /// Merge one websocket's awareness update into the live state and return the encoded awareness
-    /// message that is safe to broadcast (`Message::Awareness`, y-sync tag `1`), or an empty vector
-    /// when nothing was accepted. See [`Self::merge_detailed`] for the rules and for whether the
-    /// sender may skip its echo.
-    pub(crate) fn merge_tagged(&self, update: AwarenessUpdate, from: ConnectionId) -> Vec<u8> {
-        match self.merge_detailed(&update, from) {
-            Some((accepted, _own_only)) => Message::Awareness(accepted).encode_v1(),
-            None => Vec::new(),
-        }
-    }
-
     /// Merge one websocket's awareness update into the room's live state.
     ///
     /// Awareness is ephemeral connection state, not durable document state: every live entry has an

@@ -2,32 +2,51 @@
 //!
 //! [`LedgerRoom`] implements [`Convergent`] with the wire encodings of W6.md section 3
 //! (`ledger-vv/1` for SyncStep1, `ledger-bundle/1` for SyncStep2 and Update) and the cadence of
-//! section 4: an append or apply marks the room dirty, the host's persist tick issues
-//! [`Convergent::persist`] (a barrier), and when a peer waits the host issues [`Convergent::durable`]
-//! after [`LEDGER_SHIP_WINDOW`] of coalescing, then fans out [`Convergent::shippable`]. The crate
-//! refuses to ship anything not below a stream's `durable_len`, so the room only chooses *when* to
-//! flush, never *whether* a frame is safe to send.
+//! section 4, which the room itself keeps (no socket needs to be connected for it to hold): an
+//! append or a changed apply marks the room dirty and arms two tasks. The persist task runs
+//! [`Convergent::persist`] (a barrier) after [`ROOM_PERSIST_WINDOW`]. The ship task runs
+//! [`ship_pending`] (barrier, full flush, fan-out of [`Convergent::shippable`]) after
+//! [`LEDGER_SHIP_WINDOW`] when a peer is subscribed, and after [`LEDGER_IDLE_FLUSH_WINDOW`] when none
+//! is. The crate refuses to ship anything not below a stream's `durable_len`, so the room only
+//! chooses *when* to flush, never *whether* a frame is safe to send.
+//!
+//! The barrier and the full flush run on a blocking thread (`spawn_blocking`) holding the ledger's
+//! owned mutex guard, so a 20 ms fsync never occupies an executor worker; appends still wait for it,
+//! exactly as before.
+//!
+//! An evicted room (graph deleted, restored or duplicated over, or replaced in the registry) is
+//! fenced: `apply`, `append` and `diff` refuse once [`LedgerRoom::evict`] has run, while the final
+//! `persist` + `durable` that eviction spawns still go through.
 
-#![allow(dead_code)] // consumed by the generic room loop (lane R) and the write seam (W7)
+#![allow(dead_code)] // the write seam (W7) is the remaining consumer of `append` / `version_json`
 
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::{Arc, Mutex as StdMutex, Weak};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use garden_ledger::{
     Appended, Draft, HlcClock, Ledger, LedgerError, OriginId, StreamError, VersionVector,
 };
 use tokio::sync::{broadcast, Mutex};
+use tracing::instrument::WithSubscriber;
 
 use super::awareness::AwarenessTable;
 use super::convergent::{Applied, ConvergeError, Convergent, RoomKind};
-use super::rooms::{ConnectionId, RoomFrame};
+use super::rooms::{ship_pending, ConnectionId, FrameKind, RoomFrame, ROOM_PERSIST_WINDOW};
 use crate::app_error::PersistenceError;
 
-/// How long the host coalesces dirty frames before the eager full flush that lets them ship.
+/// How long the room coalesces dirty frames before the eager full flush that lets them ship, when
+/// at least one peer is subscribed.
 pub(crate) const LEDGER_SHIP_WINDOW: Duration = Duration::from_millis(20);
+
+/// How long dirty frames wait for their full flush when nobody is subscribed (the 1 s durability
+/// window of `plans/2026-10-22-durability/DESIGN.md`).
+pub(crate) const LEDGER_IDLE_FLUSH_WINDOW: Duration = Duration::from_secs(1);
+
+/// The message a fenced room refuses with.
+const EVICTED_REASON: &str = "ledger room was evicted";
 
 /// Budget for one bundle when shipping newly durable frames.
 const SHIP_CHUNK_BYTES: usize = 8 * 1024 * 1024;
@@ -37,6 +56,12 @@ const FRAME_CHANNEL_CAPACITY: usize = 256;
 
 const VV_VERSION: u8 = 1;
 const BUNDLE_VERSION: u8 = 1;
+
+/// `ship_armed` states: no ship task pending, one pending at the idle window, one pending at the
+/// eager window. A higher state is armed over a lower one (see [`LedgerRoom::arm_ship`]).
+const SHIP_NONE: u8 = 0;
+const SHIP_IDLE: u8 = 1;
+const SHIP_EAGER: u8 = 2;
 
 /// Cursors for shipping: what has already been offered, and what a full flush has covered.
 #[derive(Default)]
@@ -52,13 +77,23 @@ struct Shipping {
 /// A ledger hosted as a room. Share it as `Arc<LedgerRoom>`.
 pub(crate) struct LedgerRoom {
     vocab: String,
-    ledger: Mutex<Ledger>,
+    /// In an `Arc` so a flush can take an owned guard onto a blocking thread.
+    ledger: Arc<Mutex<Ledger>>,
     clock: StdMutex<HlcClock>,
-    shipping: StdMutex<Shipping>,
+    shipping: Arc<StdMutex<Shipping>>,
     /// Frames written since the last barrier.
     barrier_owed: AtomicBool,
     /// Frames written since the last full flush.
     ship_owed: AtomicBool,
+    /// Set (once, first) by [`LedgerRoom::evict`]; fences `apply`, `append` and `diff`.
+    evicted: AtomicBool,
+    /// A persist task is waiting out its window.
+    persist_armed: AtomicBool,
+    /// A ship task is waiting out its window ([`SHIP_NONE`], [`SHIP_IDLE`] or [`SHIP_EAGER`]).
+    ship_armed: AtomicU8,
+    /// Back-reference for the tasks the room arms from `&self`. They hold it weakly: a room nobody
+    /// else holds is gone, and its files are released.
+    me: Weak<LedgerRoom>,
     frames: broadcast::Sender<RoomFrame>,
     awareness: AwarenessTable,
 }
@@ -80,6 +115,9 @@ fn persistence(e: impl std::fmt::Display, context: &str) -> PersistenceError {
 
 fn from_ledger(e: LedgerError) -> ConvergeError {
     match e {
+        LedgerError::Stream(StreamError::Locked { path }) => {
+            ConvergeError::Locked(path.display().to_string())
+        }
         LedgerError::Fork { origin, seq, .. } => ConvergeError::Fork {
             origin: origin.0,
             seq,
@@ -156,7 +194,10 @@ pub(crate) fn decode_vv(bytes: &[u8]) -> Result<VersionVector, ConvergeError> {
     let mut r = Reader { buf: bytes, at: 0 };
     let v = r.take(1, "version")?[0];
     if v != VV_VERSION {
-        return Err(ConvergeError::Decode(format!("ledger-vv version {v}")));
+        return Err(ConvergeError::UnsupportedVersion {
+            what: "ledger-vv",
+            version: v,
+        });
     }
     let n = r.u32("entry count")?;
     let mut map = BTreeMap::new();
@@ -201,7 +242,10 @@ pub(crate) fn decode_bundle(bytes: &[u8]) -> Result<Vec<(OriginId, &[u8])>, Conv
     let mut r = Reader { buf: bytes, at: 0 };
     let v = r.take(1, "version")?[0];
     if v != BUNDLE_VERSION {
-        return Err(ConvergeError::Decode(format!("ledger-bundle version {v}")));
+        return Err(ConvergeError::UnsupportedVersion {
+            what: "ledger-bundle",
+            version: v,
+        });
     }
     let mut out = Vec::new();
     while !r.done() {
@@ -211,6 +255,79 @@ pub(crate) fn decode_bundle(bytes: &[u8]) -> Result<Vec<(OriginId, &[u8])>, Conv
         out.push((origin, raw));
     }
     Ok(out)
+}
+
+/// The cell's background-work lease, held by a room's timer tasks so idle drain and shutdown wait
+/// for them. Tests have no process lifecycle, so they hold none.
+fn background_lease(name: &'static str) -> Option<crate::cell_lifecycle::BackgroundLease> {
+    #[cfg(test)]
+    {
+        let _ = name;
+        None
+    }
+    #[cfg(not(test))]
+    {
+        crate::cell_lifecycle::process_lifecycle()
+            .and_then(|lifecycle| lifecycle.begin_background(name).ok())
+    }
+}
+
+/// A version vector as a JSON object `{origin: seq}`.
+fn vv_json(vv: &BTreeMap<OriginId, u64>) -> serde_json::Map<String, serde_json::Value> {
+    vv.iter()
+        .map(|(o, s)| (o.0.clone(), serde_json::Value::from(*s)))
+        .collect()
+}
+
+/// What a blocking full flush ended in.
+enum Flushed {
+    /// Flushed, and everything below the flushed version is queued for shipping.
+    Done,
+    /// The full flush itself failed; nothing may ship.
+    Full(std::io::Error),
+    /// The flush succeeded but queuing the shippable bundles failed; retry on the next flush.
+    Ship(ConvergeError),
+}
+
+/// Queue bundles for every origin's frames past the shipped watermark. The caller holds the ledger
+/// and has just completed `sync_full`, so the crate will serve everything up to `upto`.
+fn queue_shippable(
+    ledger: &Ledger,
+    shipping: &StdMutex<Shipping>,
+    upto: &VersionVector,
+) -> Result<(), ConvergeError> {
+    let mut ship = lock(shipping);
+    let mut queued = Vec::new();
+    let mut marks = Vec::new();
+    for (origin, last) in &upto.0 {
+        let mut from = ship.shipped.get(origin).copied().unwrap_or(0);
+        if from >= *last {
+            continue;
+        }
+        let Some(stream) = ledger.stream(origin) else {
+            continue;
+        };
+        loop {
+            let chunk = stream
+                .raw_after_with_tip(from, SHIP_CHUNK_BYTES)
+                .map_err(|e| from_ledger(LedgerError::Stream(e)))?;
+            // A tip-only chunk (`to_seq == from`) means nothing new is durable yet.
+            if chunk.bytes.is_empty() || chunk.to_seq <= from {
+                break;
+            }
+            queued.push(encode_bundle(&[(origin, chunk.bytes.as_slice())])?);
+            from = chunk.to_seq;
+            if !chunk.more {
+                break;
+            }
+        }
+        marks.push((origin.clone(), from));
+    }
+    ship.outbox.extend(queued);
+    for (origin, seq) in marks {
+        ship.shipped.insert(origin, seq);
+    }
+    Ok(())
 }
 
 impl LedgerRoom {
@@ -238,15 +355,55 @@ impl LedgerRoom {
             outbox: Vec::new(),
         };
         let (frames, _) = broadcast::channel(FRAME_CHANNEL_CAPACITY);
-        Ok(Arc::new(LedgerRoom {
+        Ok(Arc::new_cyclic(|me| LedgerRoom {
             vocab: vocab.to_string(),
-            ledger: Mutex::new(ledger),
+            ledger: Arc::new(Mutex::new(ledger)),
             clock: StdMutex::new(HlcClock::new()),
-            shipping: StdMutex::new(shipping),
+            shipping: Arc::new(StdMutex::new(shipping)),
             barrier_owed: AtomicBool::new(false),
             ship_owed: AtomicBool::new(false),
+            evicted: AtomicBool::new(false),
+            persist_armed: AtomicBool::new(false),
+            ship_armed: AtomicU8::new(SHIP_NONE),
+            me: me.clone(),
             frames,
             awareness: AwarenessTable::new(),
+        }))
+    }
+
+    /// The version map of the ledger in `dir` when no room hosts it, without creating anything:
+    /// no directory, no `origin` file, no stream file, no registry room. A directory with no
+    /// `origin` file has no ledger yet (`local` is `null`); one with an `origin` and no streams
+    /// reports that origin and nothing else; one with streams is opened the way a room opens it
+    /// (so a torn tail is recovered, exactly as the next room open would) and dropped. The caller
+    /// serializes this against room opens (the registry's opening slot), because the open takes the
+    /// streams' locks.
+    pub(crate) fn cold_version_json(dir: &Path) -> Result<serde_json::Value, ConvergeError> {
+        let empty = |local: Option<String>| serde_json::json!({"origins": {}, "durable": {}, "local": local});
+        if !dir.join(garden_ledger::ORIGIN_FILE).is_file() {
+            return Ok(empty(None));
+        }
+        let has_streams = std::fs::read_dir(dir)
+            .map(|entries| {
+                entries.filter_map(Result::ok).any(|entry| {
+                    entry
+                        .file_name()
+                        .to_str()
+                        .is_some_and(|n| n.ends_with(".log"))
+                })
+            })
+            .unwrap_or(false);
+        if !has_streams {
+            let local = garden_ledger::read_or_mint_origin(dir).map_err(from_ledger)?;
+            return Ok(empty(Some(local.0)));
+        }
+        let (ledger, _recoveries) = Ledger::open_dir(dir).map_err(from_ledger)?;
+        let origins = vv_json(&ledger.version().0);
+        Ok(serde_json::json!({
+            // Everything found on open is durable: the open fsynced it.
+            "origins": origins.clone(),
+            "durable": origins,
+            "local": ledger.local().0.clone(),
         }))
     }
 
@@ -265,82 +422,142 @@ impl LedgerRoom {
         self.barrier_owed.load(Ordering::Acquire)
     }
 
+    /// Whether [`Self::evict`] has run.
+    pub(crate) fn is_evicted(&self) -> bool {
+        self.evicted.load(Ordering::SeqCst)
+    }
+
+    fn check_live(&self) -> Result<(), ConvergeError> {
+        if self.is_evicted() {
+            return Err(ConvergeError::Refused(EVICTED_REASON.into()));
+        }
+        Ok(())
+    }
+
+    /// Fence the room and let go of it. The flag is set first (so nothing new is accepted), then
+    /// every socket is told to go, then a spawned task makes what the room holds durable and keeps
+    /// the room alive until it has finished, so the ledger's stream locks are released only after
+    /// the last flush. Idempotent: only the first call does anything.
+    pub(crate) fn evict(self: &Arc<Self>) {
+        if self.evicted.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let _ = self.frames.send(RoomFrame {
+            origin: None,
+            kind: FrameKind::Evicted,
+            payload: Vec::new(),
+        });
+        let room = self.clone();
+        crate::app_runtime::async_runtime::spawn(
+            async move {
+                if let Err(error) = room.persist().await {
+                    log::warn!("ledger barrier at eviction failed: {error}");
+                }
+                if let Err(error) = room.durable().await {
+                    log::warn!("ledger full flush at eviction failed: {error}");
+                }
+            }
+            .with_current_subscriber(),
+        );
+    }
+
     fn mark_dirty(&self) {
         self.barrier_owed.store(true, Ordering::Release);
         self.ship_owed.store(true, Ordering::Release);
     }
 
+    /// Arm the two background tasks a change owes (W6.md section 4). `peers_waiting`: someone other
+    /// than the writer is subscribed, so shipping is eager.
+    fn arm(&self, peers_waiting: bool) {
+        self.arm_persist();
+        self.arm_ship(peers_waiting);
+    }
+
+    /// At most one persist task waits at a time. It clears the flag *before* it flushes, so a change
+    /// that lands after arms the next task and one that landed before is in this barrier.
+    fn arm_persist(&self) {
+        if self.is_evicted() || self.persist_armed.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let lease = background_lease("ledger-persist");
+        let me = self.me.clone();
+        crate::app_runtime::async_runtime::spawn(
+            async move {
+                let _lease = lease;
+                tokio::time::sleep(ROOM_PERSIST_WINDOW).await;
+                let Some(room) = me.upgrade() else {
+                    return;
+                };
+                room.persist_armed.store(false, Ordering::SeqCst);
+                if let Err(error) = room.persist().await {
+                    log::warn!("ledger barrier failed (retried with the next flush): {error}");
+                }
+            }
+            .with_current_subscriber(),
+        );
+    }
+
+    /// Arm a ship task: [`LEDGER_SHIP_WINDOW`] when a peer waits, [`LEDGER_IDLE_FLUSH_WINDOW`] when
+    /// none does. A task already armed at the same or an earlier window is enough (it clears the
+    /// state before it ships, so a change that lands after arms its own); a waiting peer arrives
+    /// over an idle task and arms an eager one beside it.
+    fn arm_ship(&self, peers_waiting: bool) {
+        if self.is_evicted() {
+            return;
+        }
+        let want = if peers_waiting { SHIP_EAGER } else { SHIP_IDLE };
+        if self.ship_armed.fetch_max(want, Ordering::SeqCst) >= want {
+            return;
+        }
+        let window = if peers_waiting {
+            LEDGER_SHIP_WINDOW
+        } else {
+            LEDGER_IDLE_FLUSH_WINDOW
+        };
+        let lease = background_lease("ledger-ship");
+        let me = self.me.clone();
+        crate::app_runtime::async_runtime::spawn(
+            async move {
+                let _lease = lease;
+                tokio::time::sleep(window).await;
+                let Some(room) = me.upgrade() else {
+                    return;
+                };
+                room.ship_armed.store(SHIP_NONE, Ordering::SeqCst);
+                ship_pending(&*room).await;
+            }
+            .with_current_subscriber(),
+        );
+    }
+
     /// Append a local event (server-side writers: the W7 write seam). The ack the caller gets rides
-    /// `persist`; the event ships after the next `durable`.
+    /// `persist` (armed here); the event ships after the room's next `durable`, which this arms too,
+    /// so a connected peer receives it without sending a frame.
     pub(crate) async fn append(&self, draft: Draft) -> Result<Appended, ConvergeError> {
-        let mut ledger = self.ledger.lock().await;
+        self.check_live()?;
         let appended = {
+            let mut ledger = self.ledger.lock().await;
+            self.check_live()?;
             let mut clock = lock(&self.clock);
             ledger
                 .append(&mut clock, wall_ms(), draft)
                 .map_err(from_ledger)?
         };
         self.mark_dirty();
+        self.arm(self.frames.receiver_count() > 0);
         Ok(appended)
     }
 
     /// `{origins: {origin: seq}, durable: {origin: seq}, local: origin}` for the stats route.
     pub(crate) async fn version_json(&self) -> serde_json::Value {
         let ledger = self.ledger.lock().await;
-        let origins: serde_json::Map<String, serde_json::Value> = ledger
-            .version()
-            .0
-            .into_iter()
-            .map(|(o, s)| (o.0, serde_json::Value::from(s)))
-            .collect();
-        let durable: serde_json::Map<String, serde_json::Value> = lock(&self.shipping)
-            .durable_vv
-            .0
-            .iter()
-            .map(|(o, s)| (o.0.clone(), serde_json::Value::from(*s)))
-            .collect();
+        let origins = vv_json(&ledger.version().0);
+        let durable = vv_json(&lock(&self.shipping).durable_vv.0);
         serde_json::json!({
             "origins": origins,
             "durable": durable,
             "local": ledger.local().0.clone(),
         })
-    }
-
-    /// Queue bundles for every origin's frames past the shipped watermark. Caller holds the ledger
-    /// lock and has just completed `sync_full`, so the crate will serve everything up to `upto`.
-    fn queue_shippable(&self, ledger: &Ledger, upto: &VersionVector) -> Result<(), ConvergeError> {
-        let mut ship = lock(&self.shipping);
-        let mut queued = Vec::new();
-        let mut marks = Vec::new();
-        for (origin, last) in &upto.0 {
-            let mut from = ship.shipped.get(origin).copied().unwrap_or(0);
-            if from >= *last {
-                continue;
-            }
-            let Some(stream) = ledger.stream(origin) else {
-                continue;
-            };
-            loop {
-                let chunk = stream
-                    .raw_after_with_tip(from, SHIP_CHUNK_BYTES)
-                    .map_err(|e| from_ledger(LedgerError::Stream(e)))?;
-                // A tip-only chunk (`to_seq == from`) means nothing new is durable yet.
-                if chunk.bytes.is_empty() || chunk.to_seq <= from {
-                    break;
-                }
-                queued.push(encode_bundle(&[(origin, chunk.bytes.as_slice())])?);
-                from = chunk.to_seq;
-                if !chunk.more {
-                    break;
-                }
-            }
-            marks.push((origin.clone(), from));
-        }
-        ship.outbox.extend(queued);
-        for (origin, seq) in marks {
-            ship.shipped.insert(origin, seq);
-        }
-        Ok(())
     }
 }
 
@@ -355,7 +572,9 @@ impl Convergent for LedgerRoom {
 
     async fn diff(&self, since: &[u8], max_bytes: usize) -> Result<Vec<Vec<u8>>, ConvergeError> {
         let mut vv = decode_vv(since)?;
+        self.check_live()?;
         let ledger = self.ledger.lock().await;
+        self.check_live()?;
         let mut out = Vec::new();
         // Ledger::diff returns one chunk per origin; an origin with `more` is asked again from
         // where its chunk ended. Origins already complete are not repeated on later passes.
@@ -389,7 +608,9 @@ impl Convergent for LedgerRoom {
 
     async fn apply(&self, payload: &[u8], _from: ConnectionId) -> Result<Applied, ConvergeError> {
         let entries = decode_bundle(payload)?;
+        self.check_live()?;
         let mut ledger = self.ledger.lock().await;
+        self.check_live()?;
         // The server never appends a peer's frames to its own stream. A peer that is in step still sends our
         // origin back as the one-frame tip overlap `Ledger::diff` always carries, so own-origin frames we already
         // hold are an idempotent duplicate (or a loud Fork, if the bytes differ) and go through `Ledger::apply`;
@@ -416,8 +637,11 @@ impl Convergent for LedgerRoom {
         for (origin, raw) in entries {
             new_frames += ledger.apply(&origin, raw).map_err(from_ledger)?;
         }
+        drop(ledger);
         if new_frames > 0 {
             self.mark_dirty();
+            // The writer's own socket is one of the subscribers; a peer waits only if there is another.
+            self.arm(self.frames.receiver_count() > 1);
         }
         Ok(Applied {
             changed: new_frames > 0,
@@ -426,39 +650,78 @@ impl Convergent for LedgerRoom {
     }
 
     async fn persist(&self) -> Result<(), PersistenceError> {
+        if !self.barrier_owed.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        let ledger = self.ledger.clone().lock_owned().await;
         if !self.barrier_owed.swap(false, Ordering::AcqRel) {
             return Ok(());
         }
-        let ledger = self.ledger.lock().await;
-        ledger.sync_barrier().map_err(|e| {
-            self.barrier_owed.store(true, Ordering::Release);
-            PersistenceError::io(e, "ledger barrier")
-        })
+        // The fsync runs on a blocking thread holding the owned guard: appends wait for it as they
+        // always did, but no executor worker does.
+        match tokio::task::spawn_blocking(move || ledger.sync_barrier()).await {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(e)) => {
+                self.barrier_owed.store(true, Ordering::Release);
+                Err(PersistenceError::io(e, "ledger barrier"))
+            }
+            Err(e) => {
+                self.barrier_owed.store(true, Ordering::Release);
+                Err(persistence(e, "ledger barrier task"))
+            }
+        }
     }
 
     async fn durable(&self) -> Result<(), PersistenceError> {
+        if !self.ship_owed.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        let ledger = self.ledger.clone().lock_owned().await;
         if !self.ship_owed.swap(false, Ordering::AcqRel) {
             return Ok(());
         }
-        let ledger = self.ledger.lock().await;
-        let covered = ledger.version();
-        if let Err(e) = ledger.sync_full() {
-            self.ship_owed.store(true, Ordering::Release);
-            return Err(PersistenceError::io(e, "ledger full flush"));
-        }
-        // A full flush covers the barrier's bytes too.
+        // Holding the ledger, nothing is appended while this flushes, and the full flush covers the
+        // barrier's bytes too: clear the barrier debt now so an append after it can set it again.
         self.barrier_owed.store(false, Ordering::Release);
-        if let Err(e) = self.queue_shippable(&ledger, &covered) {
-            // The flush itself succeeded; shipping is retried by the next owed flush.
-            self.ship_owed.store(true, Ordering::Release);
-            return Err(persistence(e, "ledger shippable"));
+        let shipping = self.shipping.clone();
+        let flushed = tokio::task::spawn_blocking(move || {
+            let covered = ledger.version();
+            if let Err(e) = ledger.sync_full() {
+                return Flushed::Full(e);
+            }
+            if let Err(e) = queue_shippable(&ledger, &shipping, &covered) {
+                return Flushed::Ship(e);
+            }
+            lock(&shipping).durable_vv = covered;
+            Flushed::Done
+        })
+        .await;
+        match flushed {
+            Ok(Flushed::Done) => Ok(()),
+            Ok(Flushed::Full(e)) => {
+                self.barrier_owed.store(true, Ordering::Release);
+                self.ship_owed.store(true, Ordering::Release);
+                Err(PersistenceError::io(e, "ledger full flush"))
+            }
+            Ok(Flushed::Ship(e)) => {
+                // The flush itself succeeded; shipping is retried by the next owed flush.
+                self.ship_owed.store(true, Ordering::Release);
+                Err(persistence(e, "ledger shippable"))
+            }
+            Err(e) => {
+                self.barrier_owed.store(true, Ordering::Release);
+                self.ship_owed.store(true, Ordering::Release);
+                Err(persistence(e, "ledger full flush task"))
+            }
         }
-        lock(&self.shipping).durable_vv = covered;
-        Ok(())
     }
 
     async fn shippable(&self) -> Vec<Vec<u8>> {
         std::mem::take(&mut lock(&self.shipping).outbox)
+    }
+
+    fn is_evicted(&self) -> bool {
+        LedgerRoom::is_evicted(self)
     }
 
     fn awareness(&self) -> &AwarenessTable {
@@ -552,9 +815,16 @@ mod tests {
                 "cut {cut}"
             );
         }
+        // An unknown version is named, not folded into "undecodable": the loop closes on it.
         let mut bad = bytes.clone();
         bad[0] = 2;
-        assert!(matches!(decode_vv(&bad), Err(ConvergeError::Decode(_))));
+        assert_eq!(
+            decode_vv(&bad),
+            Err(ConvergeError::UnsupportedVersion {
+                what: "ledger-vv",
+                version: 2
+            })
+        );
         let mut extra = bytes.clone();
         extra.push(0);
         assert!(matches!(decode_vv(&extra), Err(ConvergeError::Decode(_))));
@@ -586,7 +856,13 @@ mod tests {
                 assert!(matches!(r, Err(ConvergeError::Decode(_))), "cut {cut}");
             }
         }
-        assert!(matches!(decode_bundle(&[9]), Err(ConvergeError::Decode(_))));
+        assert_eq!(
+            decode_bundle(&[9]).err(),
+            Some(ConvergeError::UnsupportedVersion {
+                what: "ledger-bundle",
+                version: 9
+            })
+        );
         assert!(matches!(decode_bundle(&[]), Err(ConvergeError::Decode(_))));
     }
 
@@ -733,5 +1009,317 @@ mod tests {
         a.append(draft("more")).await.unwrap();
         a.durable().await.unwrap();
         assert_eq!(a.shippable().await.len(), 1);
+    }
+
+    async fn frame_within(
+        rx: &mut broadcast::Receiver<RoomFrame>,
+        wait: Duration,
+    ) -> Option<RoomFrame> {
+        tokio::time::timeout(wait, async {
+            loop {
+                match rx.recv().await {
+                    Ok(frame) if frame.kind == FrameKind::State => return frame,
+                    Ok(_) => continue,
+                    Err(_) => std::future::pending::<()>().await,
+                }
+            }
+        })
+        .await
+        .ok()
+    }
+
+    /// B1: after `evict` the room refuses apply, append and diff, says `Evicted` once however many
+    /// times it is evicted, and its final flush still goes through.
+    #[tokio::test]
+    async fn an_evicted_room_is_fenced_but_still_flushes() {
+        let (da, db) = (Scratch::new(), Scratch::new());
+        let a = LedgerRoom::open(&da.0, "test", o("cell-a")).unwrap();
+        let b = LedgerRoom::open(&db.0, "test", o("cell-b")).unwrap();
+        a.append(draft("before")).await.unwrap();
+        b.append(draft("theirs")).await.unwrap();
+        b.durable().await.unwrap();
+        let from_b = b.diff(&a.version().await, 1 << 20).await.unwrap();
+        let mut rx = a.frames().subscribe();
+        assert!(!a.is_evicted());
+
+        a.evict();
+        a.evict();
+        assert!(a.is_evicted());
+        assert!(Convergent::is_evicted(&*a));
+        let first = rx.recv().await.unwrap();
+        assert_eq!(first.kind, FrameKind::Evicted);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), async {
+                loop {
+                    if let Ok(frame) = rx.recv().await {
+                        if frame.kind == FrameKind::Evicted {
+                            return;
+                        }
+                    }
+                }
+            })
+            .await
+            .is_err(),
+            "a second evict announced the eviction again"
+        );
+
+        let refused = |r: Result<_, ConvergeError>| match r {
+            Err(ConvergeError::Refused(m)) => m == EVICTED_REASON,
+            _ => false,
+        };
+        assert!(refused(a.append(draft("after")).await.map(|_| ())));
+        assert!(refused(a.apply(&from_b[0], 1).await.map(|_| ())));
+        assert!(refused(
+            a.diff(&b.version().await, 1 << 20).await.map(|_| ())
+        ));
+        assert_eq!(vv_of(&a.version().await).get(&o("cell-a")), 1);
+        assert_eq!(vv_of(&a.version().await).get(&o("cell-b")), 0);
+
+        // The flush eviction owes is not fenced.
+        a.persist().await.unwrap();
+        a.durable().await.unwrap();
+        assert!(!a.ship_owed());
+        let j = a.version_json().await;
+        assert_eq!(j["durable"]["cell-a"], 1);
+    }
+
+    /// M1: an append on a room with one subscribed peer reaches it as a `State` frame within 200 ms,
+    /// with no client frame and no explicit flush call.
+    #[tokio::test]
+    async fn an_append_ships_to_a_subscribed_peer_without_any_client_frame() {
+        let (da, db) = (Scratch::new(), Scratch::new());
+        let a = LedgerRoom::open(&da.0, "test", o("cell-a")).unwrap();
+        let b = LedgerRoom::open(&db.0, "test", o("cell-b")).unwrap();
+        let mut rx = a.frames().subscribe();
+        a.append(draft("pushed")).await.unwrap();
+        let frame = frame_within(&mut rx, Duration::from_millis(200))
+            .await
+            .expect("the append shipped within 200 ms");
+        // [0][2][varuint len][bundle]: an Update a peer applies.
+        assert_eq!(&frame.payload[..2], &[0, 2]);
+        let mut pos = 2usize;
+        let len = crate::crdt_engine::rooms::read_var_u64(&frame.payload, &mut pos).unwrap();
+        let bundle = &frame.payload[pos..pos + len as usize];
+        assert!(b.apply(bundle, 9).await.unwrap().changed);
+        assert_eq!(vv_of(&b.version().await).get(&o("cell-a")), 1);
+        assert!(!a.ship_owed());
+    }
+
+    /// M1: a changed apply ships to a *second* subscriber (the first is the writer's own socket)
+    /// within 200 ms, on the room's timer, with nothing else happening.
+    #[tokio::test]
+    async fn an_apply_ships_to_the_other_subscriber() {
+        let (da, db) = (Scratch::new(), Scratch::new());
+        let a = LedgerRoom::open(&da.0, "test", o("cell-a")).unwrap();
+        let b = LedgerRoom::open(&db.0, "test", o("cell-b")).unwrap();
+        b.append(draft("from b")).await.unwrap();
+        b.durable().await.unwrap();
+        let (mut writer, mut peer) = (a.frames().subscribe(), a.frames().subscribe());
+        for bundle in b.diff(&a.version().await, 1 << 20).await.unwrap() {
+            assert!(a.apply(&bundle, 3).await.unwrap().changed);
+        }
+        assert!(frame_within(&mut peer, Duration::from_millis(200))
+            .await
+            .is_some());
+        assert!(frame_within(&mut writer, Duration::from_millis(50))
+            .await
+            .is_some());
+        assert!(!a.ship_owed());
+    }
+
+    /// M1: with nobody subscribed the full flush rides the 1 s idle cadence, and the barrier its own
+    /// 250 ms window: both debts clear on their own.
+    #[tokio::test]
+    async fn with_no_peer_the_room_flushes_itself_on_the_idle_cadence() {
+        let d = Scratch::new();
+        let a = LedgerRoom::open(&d.0, "test", o("cell-a")).unwrap();
+        a.append(draft("quiet")).await.unwrap();
+        assert!(a.ship_owed() && a.barrier_owed());
+        tokio::time::sleep(ROOM_PERSIST_WINDOW + Duration::from_millis(250)).await;
+        assert!(!a.barrier_owed(), "the barrier did not run on its window");
+        assert!(a.ship_owed(), "the idle full flush came early");
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        while a.ship_owed() && tokio::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        assert!(!a.ship_owed(), "ship_owed did not clear within 2 s");
+        assert_eq!(a.version_json().await["durable"]["cell-a"], 1);
+    }
+
+    /// An idle-armed ship task does not hold a waiting peer back for a second: a subscriber that
+    /// arrives and a second change arms the eager window beside it.
+    #[tokio::test]
+    async fn a_peer_arriving_over_an_idle_task_gets_the_eager_window() {
+        let d = Scratch::new();
+        let a = LedgerRoom::open(&d.0, "test", o("cell-a")).unwrap();
+        a.append(draft("first")).await.unwrap();
+        let mut rx = a.frames().subscribe();
+        a.append(draft("second")).await.unwrap();
+        let frame = frame_within(&mut rx, Duration::from_millis(300)).await;
+        assert!(
+            frame.is_some(),
+            "the second change waited out the idle window"
+        );
+    }
+
+    /// The cold version read: it creates nothing.
+    #[test]
+    fn a_cold_version_read_creates_nothing() {
+        let d = Scratch::new();
+        let dir = d.0.join("ledger").join("test");
+        let none = LedgerRoom::cold_version_json(&dir).unwrap();
+        assert_eq!(
+            none,
+            serde_json::json!({"origins": {}, "durable": {}, "local": null})
+        );
+        assert!(
+            !d.0.join("ledger").exists(),
+            "a cold read made the ledger directory"
+        );
+        // A directory with no origin file is still no ledger.
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(LedgerRoom::cold_version_json(&dir).unwrap(), none);
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
+    }
+
+    fn registry_dir(scratch: &Scratch, graph: &str, vocab: &str) -> (String, PathBuf) {
+        (
+            format!("ledger:{graph}:{vocab}"),
+            scratch.0.join(graph).join("ledger").join(vocab),
+        )
+    }
+
+    /// B1: the registry hands out one room per key; evicting it fences the old `Arc`, and a reopen
+    /// (which waits out the old room's last flush and its last holder) is a new room that has every
+    /// frame the old one made durable.
+    #[tokio::test]
+    async fn the_registry_evicts_a_ledger_room_and_reopens_it_behind_the_old_arc() {
+        use crate::crdt_engine::rooms::RoomRegistry;
+        let d = Scratch::new();
+        let (key, dir) = registry_dir(&d, "g", "v");
+        let registry = RoomRegistry::default();
+        let first = registry
+            .get_or_create_ledger(&key, dir.clone())
+            .await
+            .unwrap();
+        let again = registry
+            .get_or_create_ledger(&key, dir.clone())
+            .await
+            .unwrap();
+        assert!(
+            Arc::ptr_eq(&first, &again),
+            "two opens of one key made two rooms"
+        );
+        assert!(Arc::ptr_eq(&first, &registry.peek_ledger(&key).unwrap()));
+        drop(again);
+        let local = first.version_json().await["local"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(local.starts_with("cell-"));
+
+        for tag in ["a", "b", "c"] {
+            first.append(draft(tag)).await.unwrap();
+        }
+        let mut rx = first.frames().subscribe();
+        assert!(registry.evict_room(&key));
+        assert!(first.is_evicted());
+        assert_eq!(rx.recv().await.unwrap().kind, FrameKind::Evicted);
+        assert!(registry.peek_ledger(&key).is_none());
+        assert!(matches!(
+            first.append(draft("late")).await,
+            Err(ConvergeError::Refused(_))
+        ));
+        assert!(matches!(
+            first.apply(&[1], 1).await,
+            Err(ConvergeError::Refused(_))
+        ));
+
+        // The old Arc is still held: the streams are flocked, so a reopen cannot succeed yet, and
+        // says why, naming the path, when its bounded wait is over.
+        let started = tokio::time::Instant::now();
+        let refused = registry
+            .get_or_create_ledger_within(&key, dir.clone(), Duration::from_millis(200))
+            .await
+            .err()
+            .expect("a reopen behind a live Arc is refused");
+        assert!(started.elapsed() >= Duration::from_millis(150), "{refused}");
+        assert!(
+            refused.contains("locked") && refused.contains(&dir.display().to_string()),
+            "{refused}"
+        );
+
+        // Let go of it: the reopen then waits only for the eviction's final flush.
+        drop(rx);
+        drop(first);
+        let second = registry
+            .get_or_create_ledger(&key, dir.clone())
+            .await
+            .unwrap();
+        assert!(!second.is_evicted());
+        assert_eq!(second.version_json().await["local"], local.as_str());
+        assert_eq!(second.version_json().await["origins"][&local], 3);
+        // What the old room made durable is there for a peer to take.
+        assert_eq!(second.version_json().await["durable"][&local], 3);
+        second.append(draft("d")).await.unwrap();
+        assert_eq!(second.version_json().await["origins"][&local], 4);
+    }
+
+    /// M4: the version of a ledger nobody hosts is read without hosting it or changing the disk.
+    #[tokio::test]
+    async fn the_registry_reads_a_cold_ledger_version_without_a_room() {
+        use crate::crdt_engine::rooms::RoomRegistry;
+        let d = Scratch::new();
+        let (key, dir) = registry_dir(&d, "g", "v");
+        let registry = RoomRegistry::default();
+        assert_eq!(
+            registry.ledger_version(&key, &dir).await.unwrap(),
+            serde_json::json!({"origins": {}, "durable": {}, "local": null})
+        );
+        assert!(!d.0.join("g").exists());
+
+        let local = {
+            let room = registry
+                .get_or_create_ledger(&key, dir.clone())
+                .await
+                .unwrap();
+            room.append(draft("x")).await.unwrap();
+            room.append(draft("y")).await.unwrap();
+            room.persist().await.unwrap();
+            room.durable().await.unwrap();
+            let local = room.version_json().await["local"]
+                .as_str()
+                .unwrap()
+                .to_string();
+            assert!(registry.evict_room(&key));
+            local
+        };
+        // Wait for the eviction's flush to let go of the streams, then read cold.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+        loop {
+            let cold = registry.ledger_version(&key, &dir).await;
+            match cold {
+                Ok(cold) => {
+                    assert_eq!(cold["origins"][&local], 2);
+                    assert_eq!(cold["durable"][&local], 2);
+                    assert_eq!(cold["local"], local.as_str());
+                    break;
+                }
+                Err(error) if tokio::time::Instant::now() < deadline && error.contains("lock") => {
+                    tokio::time::sleep(Duration::from_millis(25)).await
+                }
+                Err(error) => panic!("cold version read failed: {error}"),
+            }
+        }
+        assert!(
+            registry.peek_ledger(&key).is_none(),
+            "a cold read hosted a room"
+        );
+        // And the room opens normally afterwards (the cold read let go of its locks).
+        let room = registry
+            .get_or_create_ledger(&key, dir.clone())
+            .await
+            .unwrap();
+        assert_eq!(room.version_json().await["origins"][&local], 2);
     }
 }

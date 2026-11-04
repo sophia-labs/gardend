@@ -20,11 +20,10 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use serde_json::Value;
 use tracing::{instrument::WithSubscriber, Instrument};
 
 use crate::crdt_engine::ledger_room::LedgerRoom;
-use crate::crdt_engine::rooms::{serve_convergent, RoomAccess, RoomRegistry};
+use crate::crdt_engine::rooms::{serve_convergent, LedgerAdmissionError, RoomAccess, RoomRegistry};
 use crate::graph_paths::existing_graph_dir;
 use crate::ids::validate_local_id;
 use crate::loopback_hocuspocus_routes::room_access;
@@ -71,30 +70,33 @@ fn checked_graph(state: &LoopbackState, graph_id: &str, vocab: &str) -> Result<P
         .map_err(|message| loopback_error(StatusCode::NOT_FOUND, &message))
 }
 
-/// Open (or fetch) the ledger room for `(graph_id, vocab)` in the shared registry.
+/// Open (or fetch) the ledger room for `(graph_id, vocab)` in the shared registry, under the
+/// graph's shared lifecycle lease and only for a graph that is not deleted
+/// ([`RoomRegistry::open_ledger`]).
 async fn ledger_room(
     state: &LoopbackState,
-    graph_dir: &FsPath,
     graph_id: &str,
     vocab: &str,
-) -> Result<Arc<LedgerRoom>, String> {
+) -> Result<Arc<LedgerRoom>, Response> {
     let registry = state.app.state::<RoomRegistry>();
     registry
-        .get_or_create_ledger(
-            &ledger_room_key(graph_id, vocab),
-            ledger_dir_in(graph_dir, vocab),
-        )
+        .open_ledger(&state.app, graph_id, vocab)
         .await
-}
-
-/// The version map of a room as JSON. Kept in one place so the room's accessor is called once.
-async fn room_version(room: &LedgerRoom) -> Value {
-    room.version_json().await
+        .map_err(|error| match error {
+            LedgerAdmissionError::NotFound(message) => {
+                loopback_error(StatusCode::NOT_FOUND, &message)
+            }
+            LedgerAdmissionError::Other(message) => {
+                loopback_error(StatusCode::INTERNAL_SERVER_ERROR, &message)
+            }
+        })
 }
 
 /// `GET /graphs/{graph_id}/ledger/{vocab}/version` — `{origins: {origin: seq}, durable:
-/// {origin: seq}, local: origin}`. Requires `rdf.query`. Opens the ledger (and so creates its
-/// directory and the cell's `origin` file) when this vocab has none yet.
+/// {origin: seq}, local: origin}`. Requires `rdf.query`. A read: it never creates a ledger. A
+/// hosted room answers from memory; otherwise the ledger on disk is read without minting an
+/// `origin` file or a stream, and a vocab with no ledger yet answers
+/// `{origins: {}, durable: {}, local: null}` (200).
 pub(crate) async fn loopback_ledger_version(
     Path((graph_id, vocab)): Path<(String, String)>,
     headers: HeaderMap,
@@ -107,12 +109,17 @@ pub(crate) async fn loopback_ledger_version(
         Ok(dir) => dir,
         Err(response) => return response,
     };
-    let room = match ledger_room(&state, &graph_dir, &graph_id, &vocab).await {
-        Ok(room) => room,
-        Err(error) => return loopback_error(StatusCode::INTERNAL_SERVER_ERROR, &error),
-    };
-    let body = room_version(&room).await;
-    (StatusCode::OK, Json(body)).into_response()
+    let registry = state.app.state::<RoomRegistry>();
+    match registry
+        .ledger_version(
+            &ledger_room_key(&graph_id, &vocab),
+            &ledger_dir_in(&graph_dir, &vocab),
+        )
+        .await
+    {
+        Ok(body) => (StatusCode::OK, Json(body)).into_response(),
+        Err(error) => loopback_error(StatusCode::INTERNAL_SERVER_ERROR, &error),
+    }
 }
 
 /// `GET /hocuspocus/ledger/{graph_id}/{vocab}` — the ledger room. ReadWrite only: a Viewer /
@@ -135,13 +142,12 @@ pub(crate) async fn ledger_room_ws(
             "the ledger room admits read-write credentials only",
         );
     }
-    let graph_dir = match checked_graph(&state, &graph_id, &vocab) {
-        Ok(dir) => dir,
-        Err(response) => return response,
-    };
-    let room = match ledger_room(&state, &graph_dir, &graph_id, &vocab).await {
+    if let Err(response) = checked_graph(&state, &graph_id, &vocab) {
+        return response;
+    }
+    let room = match ledger_room(&state, &graph_id, &vocab).await {
         Ok(room) => room,
-        Err(error) => return loopback_error(StatusCode::INTERNAL_SERVER_ERROR, &error),
+        Err(response) => return response,
     };
     let ws = match subprotocol {
         Some(protocol) => ws.protocols([protocol]),
