@@ -416,25 +416,6 @@ fn class_triple(subject: &str, class: &str) -> Option<Triple> {
         .map(|c| (subject.to_string(), RDF_TYPE.to_string(), Term::Uri(c)))
 }
 
-/// The same set with no values: what a one-valued set leaves of the set layer (it clears what it
-/// observed and adds nothing).
-fn set_clear_of(op: &Op) -> Op {
-    match op {
-        Op::Set {
-            subject,
-            class,
-            predicate,
-            ..
-        } => Op::Set {
-            subject: subject.clone(),
-            class: class.clone(),
-            predicate: predicate.clone(),
-            values: Vec::new(),
-        },
-        other => other.clone(),
-    }
-}
-
 impl HeadTable {
     pub(crate) fn new() -> HeadTable {
         HeadTable::default()
@@ -563,6 +544,12 @@ impl HeadTable {
                 )
             })
             .count()
+    }
+
+    /// True when any head sits in the single layer (tests: a contractless fold never writes it).
+    #[cfg(test)]
+    pub(crate) fn holds_single_layer(&self) -> bool {
+        self.heads.keys().any(|k| !k.set)
     }
 
     /// The keys flagged contested.
@@ -711,43 +698,13 @@ impl HeadTable {
             }
         }
         let merge = policy.merge_for(predicate, op);
-        if let (Op::Set { values, .. }, true) = (op, policy.sets_both_layers(predicate)) {
-            // A contractless vocabulary (W7c): a set replaces the predicate's whole value set, in
-            // both layers. The single layer is cleared (lww) or takes the one value; the set layer
-            // is cleared of what the set observed, and takes the values when there are not one.
-            if let [value] = values.as_slice() {
-                self.apply_set(
-                    &set_clear_of(op),
-                    subject,
-                    predicate,
-                    stamp.clone(),
-                    &ev.id,
-                    parents,
-                    cx,
-                );
-                self.apply_single(
-                    subject,
-                    predicate,
-                    Some(value.clone()),
-                    stamp,
-                    &ev.id,
-                    parents,
-                    false,
-                    cx,
-                );
-            } else {
-                self.apply_single(
-                    subject,
-                    predicate,
-                    None,
-                    stamp.clone(),
-                    &ev.id,
-                    parents,
-                    false,
-                    cx,
-                );
-                self.apply_set(op, subject, predicate, stamp, &ev.id, parents, cx);
-            }
+        if let (Op::Set { .. }, true) = (op, policy.sets_both_layers(predicate)) {
+            // A contractless vocabulary (W7d): a set of any arity, one included, is an observed
+            // replace in the set layer, so a later add/remove composes with it and "a scalar is
+            // the one-element case" is literally true. The single layer is never written in this
+            // mode (add and remove go to the set layer too), so there is nothing to clear there.
+            // Strict lww for a functional column comes with the contract (W8).
+            self.apply_set(op, subject, predicate, stamp, &ev.id, parents, cx);
             return;
         }
         if merge.is_set() {

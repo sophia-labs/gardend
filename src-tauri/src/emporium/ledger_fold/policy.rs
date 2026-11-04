@@ -75,7 +75,7 @@ pub(crate) struct FoldPolicy {
     /// Per-predicate policy, keyed by the expanded predicate IRI.
     pub by_predicate: BTreeMap<String, Merge>,
     /// Contractless vocabularies (decision 1.2): for a predicate not in `by_predicate`, `set` is
-    /// lww and `add`/`remove` are add-wins. The two layers of one predicate are independent.
+    /// an observed replace (set layer) and `add`/`remove` are add-wins (W7d: one layer).
     pub by_op: bool,
 }
 
@@ -129,9 +129,9 @@ impl FoldPolicy {
         }
     }
 
-    /// True when a `set` on `predicate` replaces the value set of both layers: a contractless
-    /// vocabulary (`by_op`) for a predicate the table does not name, where `add`/`remove` write the
-    /// set layer and a scalar `set` the single layer (W7c).
+    /// True when a `set` on `predicate` is an observed replace in the set layer, whatever its arity
+    /// (W7d): a contractless vocabulary (`by_op`) for a predicate the table does not name, where
+    /// `add`/`remove` write the set layer too and the single layer is never written.
     pub(crate) fn sets_both_layers(&self, predicate: &str) -> bool {
         self.by_op && !self.by_predicate.contains_key(predicate)
     }

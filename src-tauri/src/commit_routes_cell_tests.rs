@@ -1041,3 +1041,109 @@ fn a_json_whole_and_members_rewritten_with_set_values_leave_one_whole() {
         });
     });
 }
+
+/// W7d, Nidra's own case end to end: the aliases column rewritten to the empty list as the whole
+/// `[]` alone (one value), then the documented `remove [whole]` + `add [whole2, members]` in one
+/// request leaves exactly one `rdf:JSON` whole (the readers' `FILTER(datatype(?v) = rdf:JSON)`), and
+/// a scalar set followed by a remove of that value leaves nothing. An oracle replay is equal.
+/// Mutation: put a one-element set back into the single layer and the remove leaves the old whole
+/// (two wholes, one scalar left over).
+#[test]
+fn a_set_of_one_value_composes_with_remove_and_add_through_the_router() {
+    with_cell("setone", |profile| {
+        block_on(async {
+            create_fixture_graph();
+            let state = state_for(profile);
+            let col = "urn:ao:column#aliases";
+            let json_t = "http://www.w3.org/1999/02/22-rdf-syntax-ns#JSON";
+            let whole = |text: &str| json!({"@value": text, "@type": json_t});
+            let op = |kind: &str, values: Value| {
+                json!({"op": kind, "subject": "urn:ao:column/id=2", "class": "urn:ao:column",
+                       "predicate": col, "values": values})
+            };
+            let write = |ops: Vec<Value>| json!({"witness": "w", "ops": ops});
+            let ask = |sparql: String| {
+                let state = state.clone();
+                async move {
+                    let (status, rows) = send(
+                        &state,
+                        "POST",
+                        "/api/sparql/query",
+                        serde_json::to_vec(&json!({"graphId": GRAPH, "sparql": sparql})).unwrap(),
+                    )
+                    .await;
+                    assert_eq!(status, StatusCode::OK, "{rows}");
+                    rows["rows"].as_array().unwrap().len()
+                }
+            };
+            let q = |filter: &str| {
+                format!(
+                    "SELECT ?o WHERE {{ GRAPH ?g {{ <urn:ao:column/id=2> <{col}> ?o {filter} }} }}"
+                )
+            };
+            let wholes_q = format!("FILTER(datatype(?o) = <{json_t}>)");
+
+            // the column held members, then is rewritten to the empty list: the whole alone
+            let (status, r) = commit(
+                &state,
+                AO,
+                "?wait=folded",
+                write(vec![op("set", json!([whole("[\"a\"]"), "a"]))]),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{r}");
+            let (status, r) = commit(
+                &state,
+                AO,
+                "?wait=folded",
+                write(vec![op("set", json!([whole("[]")]))]),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{r}");
+            assert_eq!(ask(q("")).await, 1);
+            assert_eq!(ask(q(&wholes_q)).await, 1);
+
+            // remove [whole] + add [whole2, members] in one request
+            let (status, r) = commit(
+                &state,
+                AO,
+                "?wait=folded",
+                write(vec![
+                    op("remove", json!([whole("[]")])),
+                    op("add", json!([whole("[\"m1\",\"m2\"]"), "m1", "m2"])),
+                ]),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{r}");
+            assert_eq!(r["folded"], true, "{r}");
+            assert_eq!(ask(q("")).await, 3, "whole2 and two members, nothing else");
+            assert_eq!(ask(q(&wholes_q)).await, 1, "exactly one rdf:JSON whole");
+
+            // a scalar set, then a remove of that value, leaves nothing
+            let scalar = json!({"op": "set", "subject": "urn:ao:column/id=2", "class": "urn:ao:column",
+                                "predicate": "urn:ao:column#label", "value": "W"});
+            let drop = json!({"op": "remove", "subject": "urn:ao:column/id=2", "class": "urn:ao:column",
+                              "predicate": "urn:ao:column#label", "values": ["W"]});
+            for op in [scalar, drop] {
+                let (status, r) = commit(&state, AO, "?wait=folded", write(vec![op])).await;
+                assert_eq!(status, StatusCode::OK, "{r}");
+            }
+            assert_eq!(
+                ask("SELECT ?o WHERE { GRAPH ?g { <urn:ao:column/id=2> <urn:ao:column#label> ?o } }"
+                    .to_string())
+                .await,
+                0
+            );
+
+            let (status, report) = send(
+                &state,
+                "POST",
+                &format!("/emporium/fold/{GRAPH}/{AO}/replay?into=oracle"),
+                Vec::new(),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{report}");
+            assert_eq!(report["equal"], true, "{report}");
+        });
+    });
+}

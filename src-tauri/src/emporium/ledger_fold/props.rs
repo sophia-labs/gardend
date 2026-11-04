@@ -742,7 +742,10 @@ fn set_on_a_set_key_replaces_what_it_observed() {
 
 #[test]
 fn from_ops_policy_reads_the_nidra_shape() {
-    // the contractless vocabulary: set is lww, add and remove are add-wins
+    // the contractless vocabulary (W7d): set is an observed replace in the set layer, add and
+    // remove are add-wins. Before W7d a scalar set was strict lww across origins, so ob's set
+    // (no parent) displaced oa's; now a set replaces what it observed, so ob names oa's frame as
+    // its parent here (see `from_ops_concurrent_scalar_sets_both_survive` for the unobserved case).
     let policy = FoldPolicy::from_ops();
     let s = "urn:ao:term/id=1";
     let name = "urn:ao:term#name";
@@ -756,7 +759,10 @@ fn from_ops_policy_reads_the_nidra_shape() {
     };
     let mut t = HeadTable::new();
     t.apply(&policy, &ev("oa", 1, 1, &[], vec![set_name("Customer")]));
-    t.apply(&policy, &ev("ob", 1, 2, &[], vec![set_name("Client")]));
+    t.apply(
+        &policy,
+        &ev("ob", 1, 2, &["oa#1"], vec![set_name("Client")]),
+    );
     t.apply(
         &policy,
         &ev(
@@ -1158,5 +1164,204 @@ fn a_json_whole_plus_members_rewritten_twice_leaves_exactly_one_whole() {
             nts(&[json_whole("[4]"), lit("d")]),
             "{name}"
         );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// W7d: in a contractless vocabulary a set of ANY arity is an observed replace in the set layer,
+// so a scalar set is the one-element case and add/remove compose with it
+// ---------------------------------------------------------------------------
+
+const AO_S: &str = "urn:ao:column/id=1";
+const AO_COL: &str = "urn:ao:column#aliases";
+const AO_CLASS: &str = "urn:ao:column";
+
+fn ao_set(vs: Vec<Term>) -> Op {
+    Op::Set {
+        subject: AO_S.into(),
+        class: AO_CLASS.into(),
+        predicate: AO_COL.into(),
+        values: vs,
+    }
+}
+fn ao_add(vs: Vec<Term>) -> Op {
+    Op::Add {
+        subject: AO_S.into(),
+        class: AO_CLASS.into(),
+        predicate: AO_COL.into(),
+        values: vs,
+    }
+}
+fn ao_rem(vs: Vec<Term>) -> Op {
+    Op::Remove {
+        subject: AO_S.into(),
+        class: AO_CLASS.into(),
+        predicate: AO_COL.into(),
+        values: vs,
+    }
+}
+fn ao_wholes(t: &HeadTable) -> usize {
+    t.triples_of(AO_S)
+        .into_iter()
+        .filter(|(_, p, o)| {
+            p == AO_COL && matches!(o, Term::Lit(l) if l.datatype().as_str() == RDF_JSON)
+        })
+        .count()
+}
+
+#[test]
+fn from_ops_set_of_one_value_composes_with_add_and_remove() {
+    let policy = FoldPolicy::from_ops();
+    // set [W] then remove [W] leaves nothing
+    let mut t = HeadTable::new();
+    t.apply(&policy, &ev("oa", 1, 1, &[], vec![ao_set(vec![lit("W")])]));
+    assert_eq!(values_of(&t, AO_S, AO_COL), nts(&[lit("W")]));
+    t.apply(&policy, &ev("oa", 2, 2, &[], vec![ao_rem(vec![lit("W")])]));
+    assert!(values_of(&t, AO_S, AO_COL).is_empty());
+
+    // set [a], add [c], remove [a] leaves {c}
+    let mut t = HeadTable::new();
+    t.apply(&policy, &ev("oa", 1, 1, &[], vec![ao_set(vec![lit("a")])]));
+    t.apply(&policy, &ev("oa", 2, 2, &[], vec![ao_add(vec![lit("c")])]));
+    t.apply(&policy, &ev("oa", 3, 3, &[], vec![ao_rem(vec![lit("a")])]));
+    assert_eq!(values_of(&t, AO_S, AO_COL), nts(&[lit("c")]));
+
+    // a later one-element set replaces what it observed, add's values included
+    t.apply(&policy, &ev("oa", 4, 4, &[], vec![ao_set(vec![lit("z")])]));
+    assert_eq!(values_of(&t, AO_S, AO_COL), nts(&[lit("z")]));
+    // and a clear still clears
+    t.apply(&policy, &ev("oa", 5, 5, &[], vec![ao_set(vec![])]));
+    assert!(values_of(&t, AO_S, AO_COL).is_empty());
+}
+
+#[test]
+fn from_ops_the_single_layer_is_never_written() {
+    let policy = FoldPolicy::from_ops();
+    let mut t = HeadTable::new();
+    for (i, vs) in [vec![lit("a")], vec![lit("b"), lit("c")], vec![], vec![lit("d")]]
+        .into_iter()
+        .enumerate()
+    {
+        t.apply(
+            &policy,
+            &ev("oa", i as u64 + 1, i as u64 + 1, &[], vec![ao_set(vs)]),
+        );
+    }
+    assert!(
+        !t.holds_single_layer(),
+        "a contractless vocabulary holds only set-layer heads"
+    );
+}
+
+/// Nidra's own case: the column rewritten to the empty list as the whole `[]` alone (one value),
+/// then the documented remove [whole] + add [whole2, members] leaves exactly one `rdf:JSON` whole.
+#[test]
+fn from_ops_the_nidra_empty_list_then_remove_add_leaves_one_whole() {
+    let policy = FoldPolicy::from_ops();
+    let mut t = HeadTable::new();
+    t.apply(
+        &policy,
+        &ev(
+            "oa",
+            1,
+            1,
+            &[],
+            vec![ao_add(vec![json_whole("[\"a\"]"), lit("a")])],
+        ),
+    );
+    t.apply(
+        &policy,
+        &ev("oa", 2, 2, &[], vec![ao_set(vec![json_whole("[]")])]),
+    );
+    assert_eq!(ao_wholes(&t), 1);
+    assert_eq!(values_of(&t, AO_S, AO_COL), nts(&[json_whole("[]")]));
+    t.apply(
+        &policy,
+        &ev(
+            "oa",
+            3,
+            3,
+            &[],
+            vec![
+                ao_rem(vec![json_whole("[]")]),
+                ao_add(vec![json_whole("[\"m1\",\"m2\"]"), lit("m1"), lit("m2")]),
+            ],
+        ),
+    );
+    assert_eq!(ao_wholes(&t), 1, "exactly one whole after remove + add");
+    assert_eq!(
+        values_of(&t, AO_S, AO_COL),
+        nts(&[json_whole("[\"m1\",\"m2\"]"), lit("m1"), lit("m2")])
+    );
+}
+
+/// The consequence of the observed-replace reading, pinned: two cells that set one scalar without
+/// seeing each other both survive (union) until the next set that observes them. Strict lww for a
+/// functional column comes with the contract.
+#[test]
+fn from_ops_concurrent_scalar_sets_both_survive() {
+    let policy = FoldPolicy::from_ops();
+    let ea = ev("oa", 1, 1, &[], vec![ao_set(vec![lit("x")])]);
+    let eb = ev("ob", 1, 2, &[], vec![ao_set(vec![lit("y")])]);
+    for order in [[&ea, &eb], [&eb, &ea]] {
+        let mut t = HeadTable::new();
+        for e in order {
+            t.apply(&policy, e);
+        }
+        assert_eq!(values_of(&t, AO_S, AO_COL), nts(&[lit("x"), lit("y")]));
+        // a set that observed both replaces both
+        t.apply(
+            &policy,
+            &ev("oa", 2, 3, &["ob#1"], vec![ao_set(vec![lit("z")])]),
+        );
+        assert_eq!(values_of(&t, AO_S, AO_COL), nts(&[lit("z")]));
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(96))]
+
+    /// 1 and 8 under `from_ops` (W7d), one-element sets included (kinds 0..=3 are scalar sets):
+    /// any per-origin-order interleaving folds to the same table, and the incremental fold equals
+    /// the rebuild.
+    #[test]
+    fn p1_p8_from_ops_arrival_order_and_rebuild(
+        frames in prop::collection::vec(raw_frame(5), 1..14),
+        picks in prop::collection::vec(any::<u8>(), 1..24),
+    ) {
+        let policy = FoldPolicy::from_ops();
+        let events = build_events(&frames);
+        let base = fold(&policy, &events);
+        for alt in [interleave(&events, &picks), by_origin(&events)] {
+            let t = fold(&policy, &alt);
+            prop_assert_eq!(base.canonical(), t.canonical());
+            prop_assert_eq!(canon_set(&all_triples(&base)), canon_set(&all_triples(&t)));
+        }
+        let (rebuilt, _) = HeadTable::rebuild(&policy, events.iter());
+        prop_assert_eq!(rebuilt.canonical(), base.canonical());
+        prop_assert!(!base.holds_single_layer());
+    }
+
+    /// 2 and 3 under `from_ops`: applying an event twice changes nothing, and a one-element set
+    /// re-asserted from a later stamp of the same origin is an empty delta.
+    #[test]
+    fn p2_p3_from_ops_idempotence_and_noop_reassert(
+        frames in prop::collection::vec(raw_frame(5), 1..14),
+        v in 0u8..9,
+    ) {
+        let policy = FoldPolicy::from_ops();
+        let events = build_events(&frames);
+        let mut t = fold(&policy, &events);
+        let before = t.canonical();
+        for e in &events {
+            t.apply(&policy, e);
+        }
+        prop_assert_eq!(before, t.canonical());
+
+        let mut t = HeadTable::new();
+        let s = SUBJECTS[0];
+        t.apply(&policy, &ev("oa", 1, 1, &[], vec![set(s, P1, Some(term(v)))]));
+        let d = t.apply(&policy, &ev("oa", 2, 2, &[], vec![set(s, P1, Some(term(v)))]));
+        prop_assert!(d.is_empty(), "value-equal re-assert changed triples: {:?}", d);
     }
 }
