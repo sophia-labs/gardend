@@ -1,0 +1,28 @@
+{
+  "note": "payload zeroed in place; id unchanged; reads Redacted",
+  "id": "705e3c22045e2e5cca0804763face1db8c3a2f7cd6d3d4a1c10528ed47033066",
+  "canonical": true,
+  "payload_state": "redacted",
+  "payload_hex": "0000000000000000000000000000000000000000",
+  "header": {
+    "hlc": {
+      "count": 0,
+      "ms": 1700000000003
+    },
+    "mode": "assert",
+    "origin": "cell-a.1",
+    "payload_hash": "c7d20819806648b9420fda5ae2d332d795652875e95f9465309f800a987431ff",
+    "payload_len": 20,
+    "seq": 4,
+    "subjects": [
+      {
+        "class": "urn:c:Thing",
+        "parents": [],
+        "subject": "urn:s:4"
+      }
+    ],
+    "v": 1,
+    "vocab": "urn:vocab:fixtures",
+    "witness": "https://witness.example/vera"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "note": "mode commit (unknown to v1 readers) and an unknown header field future:1",
+  "id": "b8de8ab91c4d605937d573d2b14ecc11234a0fbf7644a0c42f0f82f09801a960",
+  "canonical": true,
+  "payload_state": "intact",
+  "payload_hex": "",
+  "header": {
+    "future": 1,
+    "hlc": {
+      "count": 0,
+      "ms": 1700000000004
+    },
+    "mode": "commit",
+    "origin": "cell-a.1",
+    "payload_hash": "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262",
+    "payload_len": 0,
+    "seq": 5,
+    "subjects": [
+      {
+        "class": "urn:c:Thing",
+        "parents": [],
+        "subject": "urn:s:5"
+      }
+    ],
+    "v": 1,
+    "vocab": "urn:vocab:fixtures",
+    "witness": "https://witness.example/vera"
+  }
+}

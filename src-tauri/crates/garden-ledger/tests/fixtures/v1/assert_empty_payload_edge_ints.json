@@ -1,0 +1,28 @@
+{
+  "note": "empty payload; seq and hlc.ms at 2^53 - 1 and 2^53",
+  "id": "9a92d6c09051ba636b385fce049827de567d02a0ad294d202e917be3d9df0ede",
+  "canonical": true,
+  "payload_state": "intact",
+  "payload_hex": "",
+  "header": {
+    "hlc": {
+      "count": 4294967295,
+      "ms": 9007199254740992
+    },
+    "mode": "assert",
+    "origin": "edge",
+    "payload_hash": "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262",
+    "payload_len": 0,
+    "seq": 9007199254740991,
+    "subjects": [
+      {
+        "class": "urn:c:E",
+        "parents": [],
+        "subject": "urn:s:e"
+      }
+    ],
+    "v": 1,
+    "vocab": "urn:vocab:fixtures",
+    "witness": "https://witness.example/vera"
+  }
+}

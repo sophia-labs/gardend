@@ -1,0 +1,30 @@
+{
+  "note": "a redact frame naming (cell-a.1, 1)",
+  "id": "591a947ea26cc85631fc48be58a2b14539712c2148eddd4fe8e7cc2dfb711382",
+  "canonical": true,
+  "payload_state": "intact",
+  "payload_hex": "7b227461726765745f6f726967696e223a2263656c6c2d612e31222c227461726765745f736571223a312c227461726765745f6964223a2266666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666227d",
+  "header": {
+    "hlc": {
+      "count": 0,
+      "ms": 1700000000100
+    },
+    "mode": "redact",
+    "origin": "cell-b.2",
+    "payload_hash": "d44aa7da5e37ec777080c2344b45b9f938f2d8344350ac2d0b0f6f8c987af6b2",
+    "payload_len": 122,
+    "seq": 1,
+    "subjects": [
+      {
+        "class": "urn:c:Thing",
+        "parents": [
+          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ],
+        "subject": "urn:s:1"
+      }
+    ],
+    "v": 1,
+    "vocab": "urn:vocab:fixtures",
+    "witness": "https://witness.example/vera"
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "note": "crcs hold, hash does not, payload not all zero: reads Damaged",
+  "id": "63ad0324038ab6837c137bed9c772d94924a570b16a85fccb420155303cfe1c5",
+  "canonical": false,
+  "payload_state": "damaged",
+  "payload_hex": "6f726967696e616c",
+  "header": {
+    "hlc": {
+      "count": 0,
+      "ms": 1700000000007
+    },
+    "mode": "assert",
+    "origin": "cell-a.1",
+    "payload_hash": "6eadef8919824b7afbe0f6998130151536842154bdfa566cdd491fd23b1ba949",
+    "payload_len": 8,
+    "seq": 8,
+    "subjects": [
+      {
+        "class": "urn:c:Thing",
+        "parents": [],
+        "subject": "urn:s:8"
+      }
+    ],
+    "v": 1,
+    "vocab": "urn:vocab:fixtures",
+    "witness": "https://witness.example/vera"
+  }
+}

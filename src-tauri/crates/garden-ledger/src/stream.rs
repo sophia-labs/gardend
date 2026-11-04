@@ -3,21 +3,39 @@
 //! A stream owns a single writer identity. Frames are appended with one `write_all` on a file opened
 //! `O_APPEND`; nothing is cached except a sparse `seq -> offset` index (every 64th frame) rebuilt by the
 //! open-time scan. The stream never syncs by itself: `sync_barrier` / `sync_full` belong to the host's
-//! cadence, and a dirty flag tells the ledger which streams were appended to since the last sync.
+//! cadence, and two flags tell the ledger what each stream still owes (see [`Stream::dirty_since_barrier`]).
+//!
+//! # Recovery on open
+//!
+//! The scan reads every frame once. On the first frame that cannot be accepted at offset `X` (short,
+//! bad header crc, bad lengths, bad payload crc) it looks for evidence that the damage is not a torn
+//! tail: a decodable frame of this origin anywhere in `(X, file_len)`. If one exists the stream refuses
+//! to open with [`StreamError::Corrupt`] at `X` and the file is untouched; if none exists the file is cut
+//! at `X`. A zero-filled tail therefore falls out as a cut. The resync scan reads the rest of the file,
+//! so it is O(file) in the corrupt case only; the clean path is the single pass. A frame whose header is
+//! good but whose payload crc fails is held as a *suspect*: it may be a redaction that tore, which the
+//! ledger repairs from the durable `redact` frame before the stream is judged (see `ledger.rs`).
+//!
+//! A damaged length prefix on the very last frame is indistinguishable from a tear and is cut.
 
 use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
-use crate::frame::{decode, encode, redact_body, Decoded, Event, FrameError, Header, Id, OriginId};
+use crate::frame::{
+    decode, encode, inspect, redact_body, Decoded, Event, FrameError, Header, Id, Mode, OriginId,
+    RedactPayload, LEN_PREFIX, MAX_BODY,
+};
 use crate::sync::{sync_barrier as fs_sync_barrier, sync_dir, sync_full as fs_sync_full};
 
 /// Every `INDEX_EVERY`th frame (seq 1, 65, 129, ...) is remembered in the sparse index.
 const INDEX_EVERY: u64 = 64;
-/// Bytes of the `u32` length prefix plus the `u32` crc trailer around a frame body.
-const FRAME_OVERHEAD: u64 = 8;
+/// Bytes the resync scan reads per step.
+const RESYNC_WINDOW: usize = 1 << 20;
+/// Largest candidate the resync scan must see whole: prefix, `hdr_len`, a full header, `hdr_crc`.
+const RESYNC_MARGIN: usize = LEN_PREFIX + 2 + u16::MAX as usize + 4;
 
 /// Errors a stream can report.
 #[derive(Debug)]
@@ -31,7 +49,8 @@ pub enum StreamError {
         /// The envelope error.
         source: FrameError,
     },
-    /// A damaged frame at `offset` that is followed by more bytes: the stream refuses to open.
+    /// A damaged frame at `offset` with decodable frames after it (or a length no writer produces):
+    /// the stream refuses to open and nothing is cut.
     Corrupt {
         /// Byte offset of the damaged frame.
         offset: u64,
@@ -112,7 +131,7 @@ pub struct Appended {
     pub seq: u64,
     /// Byte offset of the frame in the stream file.
     pub offset: u64,
-    /// The frame's id (blake3 of its canonical header).
+    /// The frame's id (blake3 of its stored header bytes).
     pub id: Id,
 }
 
@@ -128,6 +147,13 @@ pub enum Recovery {
         /// Bytes removed.
         dropped_bytes: u64,
     },
+    /// `redactions` redact frames named a target whose payload was not yet zero (a redaction that
+    /// tore, or crashed before it began); the targets were re-zeroed. Reported only when no tail was
+    /// cut, which is reported instead.
+    Repaired {
+        /// Targets re-zeroed in this stream.
+        redactions: usize,
+    },
 }
 
 /// One decoded frame with the offset it sits at.
@@ -137,6 +163,19 @@ pub struct FrameAt {
     pub offset: u64,
     /// The decoded frame.
     pub decoded: Decoded,
+}
+
+/// Where a frame sits and what its id is.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Located {
+    /// The frame's seq.
+    pub seq: u64,
+    /// Byte offset of the frame in the stream file.
+    pub offset: u64,
+    /// Bytes the frame occupies.
+    pub frame_len: u64,
+    /// blake3 of the stored header bytes.
+    pub id: Id,
 }
 
 /// A run of raw frames, what sync ships.
@@ -151,7 +190,7 @@ pub struct RawChunk {
     pub from_seq: u64,
     /// Seq of the last frame in `bytes`.
     pub to_seq: u64,
-    /// True when frames remain after `to_seq`.
+    /// True when frames remain after `to_seq` (below the synced length).
     pub more: bool,
 }
 
@@ -165,12 +204,18 @@ pub struct Stream {
     last_offset: Option<u64>,
     /// `(seq, offset)` of every 64th frame, starting at seq 1.
     index: Vec<(u64, u64)>,
-    dirty: AtomicBool,
+    /// Bytes appended or redacted since the last barrier or full flush.
+    dirty_since_barrier: AtomicBool,
+    /// A barrier has covered writes that no full flush has yet.
+    full_owed: AtomicBool,
+    /// Bytes of the file covered by the last successful barrier or full flush (or present at open).
+    synced_len: AtomicU64,
 }
 
 enum Raw {
     Eof,
     Short,
+    TooLarge,
     Frame(Vec<u8>),
 }
 
@@ -180,19 +225,22 @@ fn read_raw<R: Read>(r: &mut R, offset: u64, limit: u64) -> io::Result<Raw> {
         return Ok(Raw::Eof);
     }
     let avail = limit - offset;
-    if avail < 4 {
+    if avail < LEN_PREFIX as u64 {
         return Ok(Raw::Short);
     }
-    let mut prefix = [0u8; 4];
+    let mut prefix = [0u8; LEN_PREFIX];
     r.read_exact(&mut prefix)?;
     let body_len = u32::from_le_bytes(prefix) as u64;
-    let total = body_len + FRAME_OVERHEAD;
+    if body_len > MAX_BODY as u64 {
+        return Ok(Raw::TooLarge);
+    }
+    let total = body_len + LEN_PREFIX as u64;
     if total > avail {
         return Ok(Raw::Short);
     }
     let mut buf = vec![0u8; total as usize];
-    buf[..4].copy_from_slice(&prefix);
-    r.read_exact(&mut buf[4..])?;
+    buf[..LEN_PREFIX].copy_from_slice(&prefix);
+    r.read_exact(&mut buf[LEN_PREFIX..])?;
     Ok(Raw::Frame(buf))
 }
 
@@ -223,109 +271,380 @@ fn write_all_at(f: &File, mut buf: &[u8], mut offset: u64) -> io::Result<()> {
     Ok(())
 }
 
-impl Stream {
-    /// Open (create if missing), scan every frame, cut a torn tail, leave the file positioned for `O_APPEND`.
-    pub fn open(dir: &Path, origin: &OriginId) -> Result<(Stream, Recovery), StreamError> {
-        if !valid_origin(origin) {
-            return Err(StreamError::Io(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("invalid origin id {:?}", origin.0),
-            )));
+/// Zero the payload of the frame in `bytes` (read from `offset`) and write the changed region
+/// (payload through its crc) back with one write on a separate non-append handle.
+///
+/// Returns whether anything changed. The header and its crc are never written.
+fn redact_in_place(path: &Path, offset: u64, bytes: &mut [u8]) -> Result<bool, StreamError> {
+    match redact_body(bytes).map_err(|source| StreamError::Frame { offset, source })? {
+        None => Ok(false),
+        Some(range) => {
+            let w = OpenOptions::new().write(true).open(path)?;
+            write_all_at(&w, &bytes[range.clone()], offset + range.start as u64)?;
+            Ok(true)
         }
-        std::fs::create_dir_all(dir)?;
-        let path = dir.join(format!("{}.log", origin.0));
-        let existed = path.exists();
-        if !existed {
-            OpenOptions::new().create(true).write(true).open(&path)?;
-            sync_dir(dir)?;
+    }
+}
+
+/// Find the frames numbered `first..=last` (all below `limit`) from the sparse index and a forward
+/// walk that reads only the length prefixes of the frames it skips and the header of the ones it wants.
+fn walk(
+    path: &Path,
+    index: &[(u64, u64)],
+    limit: u64,
+    first: u64,
+    last: u64,
+) -> Result<Vec<Located>, StreamError> {
+    let mut out = Vec::new();
+    if first == 0 || first > last {
+        return Ok(out);
+    }
+    let pos = index.partition_point(|&(s, _)| s <= first);
+    let (mut seq, mut offset) = if pos == 0 { (1, 0) } else { index[pos - 1] };
+    let mut r = BufReader::new(File::open(path)?);
+    r.seek(SeekFrom::Start(offset))?;
+    while seq <= last {
+        if offset + LEN_PREFIX as u64 > limit {
+            break;
         }
-
-        let file_len = std::fs::metadata(&path)?.len();
-        let mut reader = BufReader::new(File::open(&path)?);
-        let mut offset: u64 = 0;
-        let mut next_seq: u64 = 1;
-        let mut last_offset: Option<u64> = None;
-        let mut index: Vec<(u64, u64)> = Vec::new();
-        let mut cut: Option<u64> = None;
-
-        loop {
-            let raw = match read_raw(&mut reader, offset, file_len)? {
-                Raw::Eof => break,
-                Raw::Short => {
-                    cut = Some(offset);
-                    break;
-                }
-                Raw::Frame(raw) => raw,
-            };
-            let end = offset + raw.len() as u64;
-            let d = match decode(&raw) {
-                Ok(d) => d,
-                Err(FrameError::Short { .. }) => {
-                    cut = Some(offset);
-                    break;
-                }
-                Err(FrameError::Crc { .. }) => {
-                    if end == file_len {
-                        cut = Some(offset);
-                        break;
-                    }
-                    return Err(StreamError::Corrupt { offset });
-                }
-                Err(FrameError::Header { .. }) | Err(FrameError::PayloadHash { .. }) => {
-                    return Err(StreamError::Corrupt { offset });
-                }
-                Err(source) => return Err(StreamError::Frame { offset, source }),
-            };
-            if d.header.origin != *origin {
-                return Err(StreamError::Origin {
-                    expected: origin.0.clone(),
-                    found: d.header.origin.0.clone(),
-                });
+        let mut prefix = [0u8; LEN_PREFIX];
+        r.read_exact(&mut prefix)?;
+        let body_len = u32::from_le_bytes(prefix) as u64;
+        let frame_len = body_len + LEN_PREFIX as u64;
+        if body_len > MAX_BODY as u64 || offset + frame_len > limit || body_len < 10 {
+            return Err(StreamError::Corrupt { offset });
+        }
+        let mut skip = body_len;
+        if seq >= first {
+            let mut hl = [0u8; 2];
+            r.read_exact(&mut hl)?;
+            let hlen = u16::from_le_bytes(hl) as u64;
+            if 10 + hlen > body_len {
+                return Err(StreamError::Corrupt { offset });
             }
-            if d.header.seq != next_seq {
-                return Err(StreamError::Gap {
+            let mut hb = vec![0u8; hlen as usize];
+            r.read_exact(&mut hb)?;
+            out.push(Located {
+                seq,
+                offset,
+                frame_len,
+                id: *blake3::hash(&hb).as_bytes(),
+            });
+            skip -= 2 + hlen;
+        }
+        r.seek_relative(skip as i64)?;
+        offset += frame_len;
+        seq += 1;
+    }
+    Ok(out)
+}
+
+/// True when some offset in `[from, file_len)` starts something that decodes as a frame header of
+/// `origin`: a plausible `hdr_len`, a header whose crc holds, and `origin` equal. This is the evidence
+/// that a damaged frame before `from` has company and is therefore corruption, not a torn tail.
+fn resync_finds_frame(
+    path: &Path,
+    from: u64,
+    file_len: u64,
+    origin: &OriginId,
+) -> io::Result<bool> {
+    #[derive(serde::Deserialize)]
+    struct OriginOnly {
+        origin: OriginId,
+    }
+    let mut f = File::open(path)?;
+    let mut pos = from;
+    while pos < file_len {
+        let want = ((file_len - pos) as usize).min(RESYNC_WINDOW + RESYNC_MARGIN);
+        f.seek(SeekFrom::Start(pos))?;
+        let mut buf = vec![0u8; want];
+        f.read_exact(&mut buf)?;
+        let at_eof = pos + want as u64 >= file_len;
+        let starts = if at_eof { want } else { RESYNC_WINDOW };
+        for y in 0..starts {
+            if y + LEN_PREFIX + 2 > buf.len() {
+                break;
+            }
+            let hlen = u16::from_le_bytes([buf[y + 4], buf[y + 5]]) as usize;
+            let hdr_end = y + 6 + hlen;
+            if hlen < 2 || hdr_end + 4 > buf.len() {
+                continue;
+            }
+            if buf[y + 6] != b'{' || buf[hdr_end - 1] != b'}' {
+                continue;
+            }
+            let stored = u32::from_le_bytes([
+                buf[hdr_end],
+                buf[hdr_end + 1],
+                buf[hdr_end + 2],
+                buf[hdr_end + 3],
+            ]);
+            if crc32c::crc32c(&buf[y + 4..hdr_end]) != stored {
+                continue;
+            }
+            if let Ok(o) = serde_json::from_slice::<OriginOnly>(&buf[y + 6..hdr_end]) {
+                if o.origin == *origin {
+                    return Ok(true);
+                }
+            }
+        }
+        if at_eof {
+            break;
+        }
+        pos += RESYNC_WINDOW as u64;
+    }
+    Ok(false)
+}
+
+/// The result of reading a stream file front to back, before any repair or cut.
+pub(crate) struct Scan {
+    path: PathBuf,
+    origin: OriginId,
+    file_len: u64,
+    /// Seq the next frame must carry.
+    next_seq: u64,
+    /// End of the accepted frames.
+    end: u64,
+    last_offset: Option<u64>,
+    prev_offset: Option<u64>,
+    index: Vec<(u64, u64)>,
+    /// Frames with a good header and a bad payload crc.
+    suspects: Vec<u64>,
+    /// Redact frames found, with their parsed targets.
+    redactions: Vec<RedactPayload>,
+    /// Where a torn tail begins, when the scan stopped on a failure with nothing after it.
+    cut: Option<u64>,
+    /// Targets re-zeroed in this file by `repair_redactions`.
+    repaired: usize,
+}
+
+impl Scan {
+    pub(crate) fn origin(&self) -> &OriginId {
+        &self.origin
+    }
+}
+
+/// Open (creating if missing) and read one stream file. Writes nothing but the empty file.
+pub(crate) fn scan_file(dir: &Path, origin: &OriginId) -> Result<Scan, StreamError> {
+    if !valid_origin(origin) {
+        return Err(StreamError::Io(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("invalid origin id {:?}", origin.0),
+        )));
+    }
+    std::fs::create_dir_all(dir)?;
+    let path = dir.join(format!("{}.log", origin.0));
+    if !path.exists() {
+        OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(false)
+            .open(&path)?;
+        sync_dir(dir)?;
+    }
+    let file_len = std::fs::metadata(&path)?.len();
+    let mut reader = BufReader::new(File::open(&path)?);
+    let mut s = Scan {
+        path,
+        origin: origin.clone(),
+        file_len,
+        next_seq: 1,
+        end: 0,
+        last_offset: None,
+        prev_offset: None,
+        index: Vec::new(),
+        suspects: Vec::new(),
+        redactions: Vec::new(),
+        cut: None,
+        repaired: 0,
+    };
+
+    loop {
+        let offset = s.end;
+        let raw = match read_raw(&mut reader, offset, file_len)? {
+            Raw::Eof => break,
+            Raw::Short => {
+                fail_at(&mut s, offset)?;
+                break;
+            }
+            Raw::TooLarge => return Err(StreamError::Corrupt { offset }),
+            Raw::Frame(raw) => raw,
+        };
+        let ins = match inspect(&raw) {
+            Ok(i) => i,
+            Err(
+                FrameError::Short { .. }
+                | FrameError::HeaderCrc
+                | FrameError::PayloadCrc
+                | FrameError::Geometry(_),
+            ) => {
+                fail_at(&mut s, offset)?;
+                break;
+            }
+            Err(FrameError::Version(v)) => {
+                return Err(StreamError::Frame {
                     offset,
-                    expected: next_seq,
-                    found: d.header.seq,
-                });
+                    source: FrameError::Version(v),
+                })
             }
-            if next_seq % INDEX_EVERY == 1 {
-                index.push((next_seq, offset));
-            }
-            last_offset = Some(offset);
-            next_seq += 1;
-            offset = end;
+            // A frame whose crc holds but whose header means nothing is not a tear.
+            Err(_) => return Err(StreamError::Corrupt { offset }),
+        };
+        if ins.header.origin != *origin {
+            return Err(StreamError::Origin {
+                expected: origin.0.clone(),
+                found: ins.header.origin.0.clone(),
+            });
         }
-        drop(reader);
+        if ins.header.seq != s.next_seq {
+            return Err(StreamError::Gap {
+                offset,
+                expected: s.next_seq,
+                found: ins.header.seq,
+            });
+        }
+        if !ins.payload_crc_ok {
+            s.suspects.push(offset);
+        } else if ins.header.mode == Mode::Redact {
+            if let Ok(r) = RedactPayload::from_bytes(ins.payload) {
+                s.redactions.push(r);
+            }
+        }
+        if s.next_seq % INDEX_EVERY == 1 {
+            s.index.push((s.next_seq, offset));
+        }
+        s.prev_offset = s.last_offset;
+        s.last_offset = Some(offset);
+        s.next_seq += 1;
+        s.end = offset + raw.len() as u64;
+    }
+    Ok(s)
+}
 
+/// The first unacceptable frame is at `offset`: corruption if a decodable frame follows, else a tail.
+fn fail_at(s: &mut Scan, offset: u64) -> Result<(), StreamError> {
+    if resync_finds_frame(&s.path, offset + 1, s.file_len, &s.origin)? {
+        return Err(StreamError::Corrupt { offset });
+    }
+    s.cut = Some(offset);
+    Ok(())
+}
+
+/// Re-zero every redact frame's target (in any of `scans`) whose payload is not already zero.
+///
+/// The redact frame is appended and barriered before the target is touched, so on open it is on disk
+/// whenever a half-zeroed target is: the repair is idempotent and never needs to guess. A target in a
+/// stream not among `scans`, past what was accepted, or whose id differs from the one named is left alone.
+pub(crate) fn repair_redactions(scans: &mut [Scan]) -> Result<(), StreamError> {
+    let work: Vec<RedactPayload> = scans
+        .iter()
+        .flat_map(|s| s.redactions.iter().cloned())
+        .collect();
+    for r in work {
+        let Some(ti) = scans.iter().position(|s| s.origin.0 == r.target_origin) else {
+            continue;
+        };
+        let Ok(id) = r.id() else { continue };
+        let t = &mut scans[ti];
+        if r.target_seq == 0 || r.target_seq >= t.next_seq {
+            continue;
+        }
+        let found = walk(&t.path, &t.index, t.end, r.target_seq, r.target_seq)?;
+        let Some(l) = found.first() else { continue };
+        if l.id != id {
+            continue;
+        }
+        if zero_target(&t.path, l)? {
+            t.repaired += 1;
+        }
+    }
+    Ok(())
+}
+
+/// Read the located frame and zero its payload if it is not already.
+fn zero_target(path: &Path, l: &Located) -> Result<bool, StreamError> {
+    let mut f = File::open(path)?;
+    f.seek(SeekFrom::Start(l.offset))?;
+    let mut bytes = vec![0u8; l.frame_len as usize];
+    f.read_exact(&mut bytes)?;
+    drop(f);
+    redact_in_place(path, l.offset, &mut bytes)
+}
+
+impl Scan {
+    /// Judge the suspects, cut what must be cut, and open the stream for appending.
+    pub(crate) fn finish(mut self) -> Result<(Stream, Recovery), StreamError> {
+        let mut bad: Vec<u64> = Vec::new();
+        if !self.suspects.is_empty() {
+            let mut f = File::open(&self.path)?;
+            for &off in &self.suspects {
+                f.seek(SeekFrom::Start(off))?;
+                match read_raw(&mut f, off, self.end)? {
+                    Raw::Frame(raw) => match inspect(&raw) {
+                        Ok(i) if i.payload_crc_ok => {}
+                        _ => bad.push(off),
+                    },
+                    _ => bad.push(off),
+                }
+            }
+        }
+        let mut cut = self.cut;
+        if !bad.is_empty() {
+            // Only the last accepted frame can be a tail; a bad payload anywhere earlier has company.
+            if bad.len() > 1 || Some(bad[0]) != self.last_offset {
+                return Err(StreamError::Corrupt { offset: bad[0] });
+            }
+            self.next_seq -= 1;
+            self.end = bad[0];
+            self.last_offset = self.prev_offset;
+            if self.index.last().map(|&(s, _)| s) == Some(self.next_seq) {
+                self.index.pop();
+            }
+            cut = Some(bad[0]);
+        }
         let recovery = match cut {
-            None => Recovery::Clean,
             Some(from) => {
-                let w = OpenOptions::new().write(true).open(&path)?;
+                let w = OpenOptions::new().write(true).open(&self.path)?;
                 w.set_len(from)?;
                 fs_sync_full(&w)?;
                 Recovery::TruncatedTail {
                     from,
-                    dropped_bytes: file_len - from,
+                    dropped_bytes: self.file_len - from,
                 }
             }
+            None if self.repaired > 0 => Recovery::Repaired {
+                redactions: self.repaired,
+            },
+            None => Recovery::Clean,
         };
-        let len = cut.unwrap_or(offset);
-
-        let file = OpenOptions::new().append(true).open(&path)?;
+        let file = OpenOptions::new().append(true).open(&self.path)?;
         Ok((
             Stream {
-                path,
+                path: self.path,
                 file,
-                origin: origin.clone(),
-                next_seq,
-                len,
-                last_offset,
-                index,
-                dirty: AtomicBool::new(false),
+                origin: self.origin,
+                next_seq: self.next_seq,
+                len: self.end,
+                last_offset: self.last_offset,
+                index: self.index,
+                dirty_since_barrier: AtomicBool::new(self.repaired > 0),
+                full_owed: AtomicBool::new(false),
+                synced_len: AtomicU64::new(self.end),
             },
             recovery,
         ))
+    }
+}
+
+impl Stream {
+    /// Open (create if missing), scan every frame, recover (see the module docs), and leave the file
+    /// positioned for `O_APPEND`. Redact frames in this file repair targets in this file; a ledger
+    /// repairs targets across its streams in `Ledger::open`.
+    pub fn open(dir: &Path, origin: &OriginId) -> Result<(Stream, Recovery), StreamError> {
+        let mut scans = [scan_file(dir, origin)?];
+        repair_redactions(&mut scans)?;
+        let [scan] = scans;
+        scan.finish()
     }
 
     /// The writer identity of this stream.
@@ -353,9 +672,21 @@ impl Stream {
         self.last_offset
     }
 
-    /// True when frames were appended or redacted since the last sync.
-    pub fn is_dirty(&self) -> bool {
-        self.dirty.load(Ordering::Acquire)
+    /// True when frames were appended or redacted since the last barrier or full flush.
+    pub fn dirty_since_barrier(&self) -> bool {
+        self.dirty_since_barrier.load(Ordering::Acquire)
+    }
+
+    /// True when a barrier has covered writes that no full flush has covered yet: the host still owes
+    /// this stream one `sync_full` for the window.
+    pub fn full_owed(&self) -> bool {
+        self.full_owed.load(Ordering::Acquire)
+    }
+
+    /// Bytes of the file covered by the last successful barrier or full flush (everything that was on
+    /// disk at open). Sync ships only frames below this.
+    pub fn synced_len(&self) -> u64 {
+        self.synced_len.load(Ordering::Acquire)
     }
 
     /// Path of the stream file.
@@ -378,25 +709,32 @@ impl Stream {
             });
         }
         let offset = self.len;
-        let d = decode(frame).map_err(|source| StreamError::Frame { offset, source })?;
-        if d.frame_len != frame.len() {
+        let ins = inspect(frame).map_err(|source| StreamError::Frame { offset, source })?;
+        if !ins.payload_crc_ok {
+            return Err(StreamError::Frame {
+                offset,
+                source: FrameError::PayloadCrc,
+            });
+        }
+        if ins.frame_len != frame.len() {
             return Err(StreamError::Io(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "append: buffer holds more than one frame",
             )));
         }
-        if d.header.origin != self.origin {
+        if ins.header.origin != self.origin {
             return Err(StreamError::Origin {
                 expected: self.origin.0.clone(),
-                found: d.header.origin.0.clone(),
+                found: ins.header.origin.0.clone(),
             });
         }
-        if d.header.seq != self.next_seq {
+        if ins.header.seq != self.next_seq {
             return Err(StreamError::Seq {
                 expected: self.next_seq,
-                found: d.header.seq,
+                found: ins.header.seq,
             });
         }
+        let id = ins.id;
         if let Err(e) = self.file.write_all(frame) {
             // Best effort: do not leave half a frame behind for the next append to follow.
             let _ = self.file.set_len(offset);
@@ -409,12 +747,8 @@ impl Stream {
         self.last_offset = Some(offset);
         self.len = offset + frame.len() as u64;
         self.next_seq += 1;
-        self.dirty.store(true, Ordering::Release);
-        Ok(Appended {
-            seq,
-            offset,
-            id: d.id,
-        })
+        self.dirty_since_barrier.store(true, Ordering::Release);
+        Ok(Appended { seq, offset, id })
     }
 
     /// Encode and append an event (sets nothing; the caller built the header with the right seq).
@@ -433,10 +767,44 @@ impl Stream {
         ScanIter::new(&self.path, self.origin.clone(), offset, self.len)
     }
 
+    /// Where frame `seq` sits and its id, via the sparse index and a forward walk that never loads
+    /// payloads. `None` when `seq` is 0 or past the end.
+    pub fn locate(&self, seq: u64) -> Result<Option<Located>, StreamError> {
+        if seq == 0 || seq >= self.next_seq {
+            return Ok(None);
+        }
+        Ok(walk(&self.path, &self.index, self.len, seq, seq)?.pop())
+    }
+
+    /// The header of a located frame, read without its payload.
+    pub fn header_at(&self, loc: &Located) -> Result<Header, StreamError> {
+        let mut f = File::open(&self.path)?;
+        f.seek(SeekFrom::Start(loc.offset + LEN_PREFIX as u64))?;
+        let mut hl = [0u8; 2];
+        f.read_exact(&mut hl)?;
+        let mut hb = vec![0u8; u16::from_le_bytes(hl) as usize];
+        f.read_exact(&mut hb)?;
+        serde_json::from_slice(&hb).map_err(|e| StreamError::Frame {
+            offset: loc.offset,
+            source: FrameError::Header(e.to_string()),
+        })
+    }
+
+    /// Ids of frames `first..=last` (clipped to the stream), in order, in one forward walk.
+    pub fn ids_range(&self, first: u64, last: u64) -> Result<Vec<Id>, StreamError> {
+        let last = last.min(self.next_seq.saturating_sub(1));
+        Ok(walk(&self.path, &self.index, self.len, first, last)?
+            .into_iter()
+            .map(|l| l.id)
+            .collect())
+    }
+
     /// Raw frame bytes from a seq (exclusive) onward: what sync ships. Chunked by `max_bytes`.
     ///
-    /// At least one frame is returned when any exist after `seq`, even if it alone exceeds `max_bytes`,
-    /// so a caller looping on `more` always makes progress.
+    /// Only frames below [`Stream::synced_len`] are shipped: a frame no barrier has covered may yet be
+    /// lost in a crash, and a peer that held it would see the origin reuse its seq (a fork).
+    /// At least one frame is returned when any shippable ones exist after `seq`, even if it alone
+    /// exceeds `max_bytes`, so a caller looping on `more` always makes progress.
     pub fn raw_after(&self, seq: u64, max_bytes: usize) -> Result<RawChunk, StreamError> {
         let empty = RawChunk {
             bytes: Vec::new(),
@@ -447,6 +815,7 @@ impl Stream {
         if seq.saturating_add(1) >= self.next_seq {
             return Ok(empty);
         }
+        let limit = self.synced_len();
         let want = seq + 1;
         let pos = self.index.partition_point(|&(s, _)| s <= want);
         let (mut cur_seq, start) = if pos == 0 {
@@ -464,9 +833,9 @@ impl Stream {
         let mut more = false;
 
         loop {
-            let raw = match read_raw(&mut reader, offset, self.len)? {
+            let raw = match read_raw(&mut reader, offset, limit)? {
                 Raw::Eof => break,
-                Raw::Short => return Err(StreamError::Corrupt { offset }),
+                Raw::Short | Raw::TooLarge => return Err(StreamError::Corrupt { offset }),
                 Raw::Frame(raw) => raw,
             };
             let flen = raw.len() as u64;
@@ -495,10 +864,13 @@ impl Stream {
         })
     }
 
-    /// Zero the payload of the frame at `offset` and rewrite its crc: the one in-place write.
+    /// Zero the payload of the frame at `offset` and rewrite its payload crc: the one in-place write.
     ///
-    /// The file length never changes and the frame's id stays verifiable. The write goes through a
-    /// separate non-append handle because `pwrite` on an `O_APPEND` descriptor appends on Linux.
+    /// The file length never changes, the header and its crc are not written, and the frame's id stays
+    /// verifiable. The payload and its crc go out in one contiguous write through a separate non-append
+    /// handle (`pwrite` on an `O_APPEND` descriptor appends on Linux). A frame that is already redacted
+    /// is left alone. This is the second step of a redaction: `Ledger::redact` appends and barriers the
+    /// `redact` frame first.
     pub fn redact_at(&mut self, offset: u64) -> Result<(), StreamError> {
         if offset >= self.len {
             return Err(StreamError::BadOffset(offset));
@@ -508,43 +880,61 @@ impl Stream {
         let mut bytes = match read_raw(&mut reader, offset, self.len)? {
             Raw::Frame(raw) => raw,
             Raw::Eof => return Err(StreamError::BadOffset(offset)),
-            Raw::Short => return Err(StreamError::Corrupt { offset }),
+            Raw::Short | Raw::TooLarge => return Err(StreamError::Corrupt { offset }),
         };
         drop(reader);
-        let original_len = bytes.len();
-        let before = decode(&bytes).map_err(|source| StreamError::Frame { offset, source })?;
-        let _ = redact_body(&mut bytes);
-        let after = decode(&bytes).map_err(|source| StreamError::Frame { offset, source })?;
-        if bytes.len() != original_len || after.frame_len != original_len || after.id != before.id {
-            return Err(StreamError::Corrupt { offset });
+        if redact_in_place(&self.path, offset, &mut bytes)? {
+            self.dirty_since_barrier.store(true, Ordering::Release);
         }
-        let w = OpenOptions::new().write(true).open(&self.path)?;
-        write_all_at(&w, &bytes, offset)?;
-        self.dirty.store(true, Ordering::Release);
         Ok(())
     }
 
-    /// Ordered durability barrier (the host's cadence); clears the dirty flag on success.
+    /// Ordered durability barrier (the host's cadence). On success the stream is no longer dirty
+    /// since a barrier, a full flush is owed if there was anything to cover, and everything written so
+    /// far counts as synced.
     pub fn sync_barrier(&self) -> io::Result<()> {
-        self.dirty.store(false, Ordering::Release);
-        let r = fs_sync_barrier(&self.file);
-        if r.is_err() {
-            self.dirty.store(true, Ordering::Release);
+        let covered = self.len;
+        let was_dirty = self.dirty_since_barrier.swap(false, Ordering::AcqRel);
+        match fs_sync_barrier(&self.file) {
+            Ok(()) => {
+                if was_dirty {
+                    self.full_owed.store(true, Ordering::Release);
+                }
+                self.synced_len.fetch_max(covered, Ordering::AcqRel);
+                Ok(())
+            }
+            Err(e) => {
+                if was_dirty {
+                    self.dirty_since_barrier.store(true, Ordering::Release);
+                }
+                Err(e)
+            }
         }
-        r
     }
 
-    /// Full flush to stable storage (the host's cadence); clears the dirty flag on success.
+    /// Full flush to stable storage (the host's cadence): clears both flags on success.
     ///
     /// The redact path writes through its own handle, so the barrier/full here is issued on the append
     /// handle of the same inode, which covers those pages as well on the platforms we target.
     pub fn sync_full(&self) -> io::Result<()> {
-        self.dirty.store(false, Ordering::Release);
-        let r = fs_sync_full(&self.file);
-        if r.is_err() {
-            self.dirty.store(true, Ordering::Release);
+        let covered = self.len;
+        let was_dirty = self.dirty_since_barrier.swap(false, Ordering::AcqRel);
+        let was_owed = self.full_owed.swap(false, Ordering::AcqRel);
+        match fs_sync_full(&self.file) {
+            Ok(()) => {
+                self.synced_len.fetch_max(covered, Ordering::AcqRel);
+                Ok(())
+            }
+            Err(e) => {
+                if was_dirty {
+                    self.dirty_since_barrier.store(true, Ordering::Release);
+                }
+                if was_owed {
+                    self.full_owed.store(true, Ordering::Release);
+                }
+                Err(e)
+            }
         }
-        r
     }
 }
 
@@ -597,7 +987,7 @@ impl ScanIter {
         };
         let raw = match read_raw(reader, offset, self.limit)? {
             Raw::Eof => return Ok(None),
-            Raw::Short => return Err(StreamError::Corrupt { offset }),
+            Raw::Short | Raw::TooLarge => return Err(StreamError::Corrupt { offset }),
             Raw::Frame(raw) => raw,
         };
         let decoded = decode(&raw).map_err(|source| StreamError::Frame { offset, source })?;
@@ -651,6 +1041,7 @@ impl Iterator for ScanIter {
 mod tests {
     use super::*;
     use crate::frame::{Hlc, Mode};
+    use std::collections::BTreeMap;
 
     fn origin(name: &str) -> OriginId {
         OriginId(name.to_string())
@@ -674,6 +1065,7 @@ mod tests {
                 payload_len: payload.len() as u32,
                 txn: None,
                 sig: None,
+                extra: BTreeMap::new(),
             },
             payload: payload.to_vec(),
         }
@@ -697,7 +1089,7 @@ mod tests {
         assert_eq!(s.next_seq(), 1);
         assert_eq!(s.len(), 0);
         assert_eq!(s.last_offset(), None);
-        assert!(!s.is_dirty());
+        assert!(!s.dirty_since_barrier() && !s.full_owed());
         assert_eq!(s.scan_from(0).count(), 0);
         assert!(dir.path().join("a.log").exists());
     }
@@ -708,9 +1100,9 @@ mod tests {
         let o = origin("a");
         let (mut s, _) = Stream::open(dir.path(), &o).unwrap();
         let ap = fill(&mut s, 3);
-        assert!(s.is_dirty());
+        assert!(s.dirty_since_barrier());
         s.sync_full().unwrap();
-        assert!(!s.is_dirty());
+        assert!(!s.dirty_since_barrier());
         assert_eq!(ap[0].offset, 0);
         assert_eq!(s.next_seq(), 4);
         let len = s.len();
@@ -721,6 +1113,7 @@ mod tests {
         assert_eq!(rec, Recovery::Clean);
         assert_eq!(s2.next_seq(), 4);
         assert_eq!(s2.len(), len);
+        assert_eq!(s2.synced_len(), len);
         assert_eq!(s2.last_offset(), last);
         let seqs: Vec<u64> = s2
             .scan_from(0)
@@ -786,11 +1179,113 @@ mod tests {
     }
 
     #[test]
+    fn zero_filled_tail_is_cut_and_a_flipped_prefix_is_not() {
+        let dir = tempfile::tempdir().unwrap();
+        let o = origin("a");
+        let (mut s, _) = Stream::open(dir.path(), &o).unwrap();
+        let ap = fill(&mut s, 3);
+        let len = s.len();
+        drop(s);
+        let path = dir.path().join("a.log");
+        let good = std::fs::read(&path).unwrap();
+
+        for zeros in [1usize, 3, 4, 7, 40, 300] {
+            let mut b = good.clone();
+            b.resize(b.len() + zeros, 0);
+            std::fs::write(&path, &b).unwrap();
+            let (s2, rec) = Stream::open(dir.path(), &o).unwrap();
+            assert_eq!(
+                rec,
+                Recovery::TruncatedTail {
+                    from: len,
+                    dropped_bytes: zeros as u64
+                },
+                "{zeros} zero bytes"
+            );
+            assert_eq!(s2.next_seq(), 4);
+            assert_eq!(std::fs::metadata(&path).unwrap().len(), len);
+        }
+
+        // A flipped length prefix on frame 2 (valid frame 3 follows) is corruption: no cut.
+        let mut b = good.clone();
+        b[ap[1].offset as usize + 1] ^= 0x40;
+        std::fs::write(&path, &b).unwrap();
+        assert!(matches!(
+            Stream::open(dir.path(), &o),
+            Err(StreamError::Corrupt { offset }) if offset == ap[1].offset
+        ));
+        assert_eq!(std::fs::read(&path).unwrap(), b);
+    }
+
+    #[test]
+    fn bad_payload_crc_is_cut_at_the_tail_and_corrupt_elsewhere() {
+        let dir = tempfile::tempdir().unwrap();
+        let o = origin("a");
+        let (mut s, _) = Stream::open(dir.path(), &o).unwrap();
+        let ap = fill(&mut s, 3);
+        let len = s.len();
+        drop(s);
+        let path = dir.path().join("a.log");
+        let good = std::fs::read(&path).unwrap();
+
+        let mut b = good.clone();
+        b[len as usize - 6] ^= 1; // payload byte of the last frame
+        std::fs::write(&path, &b).unwrap();
+        let (s2, rec) = Stream::open(dir.path(), &o).unwrap();
+        assert_eq!(
+            rec,
+            Recovery::TruncatedTail {
+                from: ap[2].offset,
+                dropped_bytes: len - ap[2].offset
+            }
+        );
+        assert_eq!(s2.next_seq(), 3);
+        assert_eq!(s2.last_offset(), Some(ap[1].offset));
+        drop(s2);
+
+        let mut b = good.clone();
+        b[ap[1].offset as usize + 20] ^= 1; // inside frame 2
+        std::fs::write(&path, &b).unwrap();
+        assert!(matches!(
+            Stream::open(dir.path(), &o),
+            Err(StreamError::Corrupt { offset }) if offset == ap[1].offset
+        ));
+    }
+
+    #[test]
+    fn resync_looks_past_the_first_read_window() {
+        // A damaged 1.5 MB frame followed by a small valid one: the evidence lies beyond the first
+        // 1 MiB window of the resync scan, so the scan must keep reading.
+        let dir = tempfile::tempdir().unwrap();
+        let o = origin("a");
+        let (mut s, _) = Stream::open(dir.path(), &o).unwrap();
+        let big = vec![b'x'; 1_500_000];
+        let first = s.append_event(&event(&o, 1, &big)).unwrap();
+        let second = s.append_event(&event(&o, 2, b"after")).unwrap();
+        drop(s);
+        let path = dir.path().join("a.log");
+        let good = std::fs::read(&path).unwrap();
+        let mut b = good.clone();
+        b[first.offset as usize + 1_000_000] ^= 1;
+        std::fs::write(&path, &b).unwrap();
+        assert!(matches!(
+            Stream::open(dir.path(), &o),
+            Err(StreamError::Corrupt { offset: 0 })
+        ));
+        // The same damage with nothing after it is a tail.
+        std::fs::write(&path, &b[..second.offset as usize]).unwrap();
+        let (s2, rec) = Stream::open(dir.path(), &o).unwrap();
+        assert!(matches!(rec, Recovery::TruncatedTail { from: 0, .. }));
+        assert_eq!(s2.next_seq(), 1);
+    }
+
+    #[test]
     fn raw_after_chunking_boundaries() {
         let dir = tempfile::tempdir().unwrap();
         let o = origin("a");
         let (mut s, _) = Stream::open(dir.path(), &o).unwrap();
         fill(&mut s, 130);
+        s.sync_barrier().unwrap();
 
         let all = s.raw_after(0, usize::MAX).unwrap();
         assert_eq!((all.from_seq, all.to_seq, all.more), (1, 130, false));
@@ -831,6 +1326,65 @@ mod tests {
     }
 
     #[test]
+    fn raw_after_ships_only_what_a_barrier_covered() {
+        let dir = tempfile::tempdir().unwrap();
+        let o = origin("a");
+        let (mut s, _) = Stream::open(dir.path(), &o).unwrap();
+        fill(&mut s, 3);
+        assert_eq!(s.synced_len(), 0);
+        assert!(s.raw_after(0, usize::MAX).unwrap().bytes.is_empty());
+        s.sync_barrier().unwrap();
+        let fourth = s.append_event(&event(&o, 4, b"unsynced")).unwrap();
+        let chunk = s.raw_after(0, usize::MAX).unwrap();
+        assert_eq!((chunk.from_seq, chunk.to_seq, chunk.more), (1, 3, false));
+        assert_eq!(chunk.bytes.len() as u64, fourth.offset);
+        assert_eq!(s.synced_len(), fourth.offset);
+        s.sync_full().unwrap();
+        assert_eq!(s.raw_after(0, usize::MAX).unwrap().to_seq, 4);
+    }
+
+    #[test]
+    fn flags_follow_the_barrier_then_full_protocol() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut s, _) = Stream::open(dir.path(), &origin("a")).unwrap();
+        assert!(!s.dirty_since_barrier() && !s.full_owed());
+        // A barrier on a stream with nothing written owes nothing.
+        s.sync_barrier().unwrap();
+        assert!(!s.full_owed());
+        fill(&mut s, 2);
+        assert!(s.dirty_since_barrier() && !s.full_owed());
+        s.sync_barrier().unwrap();
+        assert!(!s.dirty_since_barrier() && s.full_owed());
+        assert_eq!(s.synced_len(), s.len());
+        s.sync_barrier().unwrap();
+        assert!(s.full_owed(), "a second barrier keeps the debt");
+        s.sync_full().unwrap();
+        assert!(!s.dirty_since_barrier() && !s.full_owed());
+    }
+
+    #[test]
+    fn locate_and_ids_range_find_frames_without_loading_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let o = origin("a");
+        let (mut s, _) = Stream::open(dir.path(), &o).unwrap();
+        let ap = fill(&mut s, 200);
+        for seq in [1u64, 2, 63, 64, 65, 66, 129, 130, 200] {
+            let l = s.locate(seq).unwrap().unwrap();
+            assert_eq!(l.seq, seq);
+            assert_eq!(l.offset, ap[seq as usize - 1].offset);
+            assert_eq!(l.id, ap[seq as usize - 1].id);
+        }
+        assert_eq!(s.locate(0).unwrap(), None);
+        assert_eq!(s.locate(201).unwrap(), None);
+        let ids = s.ids_range(60, 70).unwrap();
+        assert_eq!(ids.len(), 11);
+        for (i, id) in ids.iter().enumerate() {
+            assert_eq!(*id, ap[59 + i].id);
+        }
+        assert_eq!(s.ids_range(195, 999).unwrap().len(), 6);
+    }
+
+    #[test]
     fn redact_at_keeps_length() {
         let dir = tempfile::tempdir().unwrap();
         let o = origin("a");
@@ -839,10 +1393,10 @@ mod tests {
         s.sync_barrier().unwrap();
         let len = s.len();
         let before = s.scan_from(ap[1].offset).next().unwrap().unwrap();
-        assert!(!before.decoded.redacted);
+        assert!(!before.decoded.is_redacted());
 
         s.redact_at(ap[1].offset).unwrap();
-        assert!(s.is_dirty());
+        assert!(s.dirty_since_barrier());
         assert_eq!(s.len(), len);
         assert_eq!(
             std::fs::metadata(dir.path().join("a.log")).unwrap().len(),
@@ -850,10 +1404,15 @@ mod tests {
         );
 
         let after = s.scan_from(ap[1].offset).next().unwrap().unwrap();
-        assert!(after.decoded.redacted);
+        assert!(after.decoded.is_redacted());
         assert_eq!(after.decoded.id, before.decoded.id);
         assert_eq!(after.decoded.frame_len, before.decoded.frame_len);
         assert!(after.decoded.payload.iter().all(|b| *b == 0));
+
+        // A second redaction of the same frame changes nothing and dirties nothing.
+        s.sync_barrier().unwrap();
+        s.redact_at(ap[1].offset).unwrap();
+        assert!(!s.dirty_since_barrier());
 
         assert!(matches!(s.redact_at(len), Err(StreamError::BadOffset(_))));
         drop(s);

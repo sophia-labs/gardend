@@ -1,0 +1,28 @@
+{
+  "note": "header stored pretty-printed, keys in reverse order; id = blake3 of these bytes",
+  "id": "4aef55b4df21e1a57e379dfef902ecf506fb60f4722a8ca1ef911824cfcd03c3",
+  "canonical": false,
+  "payload_state": "intact",
+  "payload_hex": "5b5d",
+  "header": {
+    "witness": "https://witness.example/vera",
+    "vocab": "urn:vocab:fixtures",
+    "v": 1,
+    "subjects": [
+      {
+        "class": "urn:c:Thing",
+        "parents": [],
+        "subject": "urn:s:7"
+      }
+    ],
+    "seq": 7,
+    "payload_len": 2,
+    "payload_hash": "d53d18c23212ea7b6300594bb89bce60218f6eff2b9d628b8cc42d3e79bbd5ab",
+    "origin": "cell-a.1",
+    "mode": "assert",
+    "hlc": {
+      "count": 0,
+      "ms": 1700000000006
+    }
+  }
+}

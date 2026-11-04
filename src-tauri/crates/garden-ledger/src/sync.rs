@@ -26,10 +26,10 @@ pub fn sync_barrier(file: &File) -> io::Result<()> {
             return Ok(());
         }
         let err = io::Error::last_os_error();
-        return match err.raw_os_error() {
+        match err.raw_os_error() {
             Some(EINVAL) | Some(ENOTSUP) | Some(ENOTTY) => file.sync_data(),
             _ => Err(err),
-        };
+        }
     }
     #[cfg(not(target_os = "macos"))]
     {

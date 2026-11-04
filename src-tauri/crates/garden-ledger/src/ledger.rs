@@ -6,9 +6,13 @@ use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::frame::{self, Event, FrameError, Header, Id, Mode, OriginId, Subject};
+use crate::frame::{
+    self, Event, FrameError, Header, Id, Mode, OriginId, PayloadState, RedactPayload, Subject,
+};
 use crate::hlc::HlcClock;
-use crate::stream::{Appended, FrameAt, RawChunk, Recovery, Stream, StreamError};
+use crate::stream::{
+    repair_redactions, scan_file, Appended, FrameAt, RawChunk, Recovery, Stream, StreamError,
+};
 
 /// Errors from ledger operations.
 #[derive(Debug)]
@@ -19,8 +23,6 @@ pub enum LedgerError {
     Stream(StreamError),
     /// A frame failed to encode or decode.
     Frame(FrameError),
-    /// `apply` was asked to write the local origin's stream; only this process appends there.
-    LocalOrigin,
     /// An origin id that is invalid, mismatched with its frames, or unknown to this ledger.
     BadOrigin(String),
     /// A peer chunk starts beyond our last seq + 1.
@@ -32,6 +34,25 @@ pub enum LedgerError {
         /// The seq the chunk offered.
         found: u64,
     },
+    /// A peer's frame at `seq` has a different id from ours: the origin wrote two different events
+    /// at one position. Nothing was written.
+    Fork {
+        /// The origin that forked.
+        origin: OriginId,
+        /// The position both frames claim.
+        seq: u64,
+        /// The id we hold at that position.
+        ours: Id,
+        /// The id the peer sent.
+        theirs: Id,
+    },
+    /// No frame at that position.
+    NoSuchFrame {
+        /// The origin asked about.
+        origin: OriginId,
+        /// The missing position.
+        seq: u64,
+    },
 }
 
 impl fmt::Display for LedgerError {
@@ -40,7 +61,6 @@ impl fmt::Display for LedgerError {
             LedgerError::Io(e) => write!(f, "ledger io: {e}"),
             LedgerError::Stream(e) => write!(f, "ledger stream: {e}"),
             LedgerError::Frame(e) => write!(f, "ledger frame: {e}"),
-            LedgerError::LocalOrigin => write!(f, "refusing to apply frames to the local origin"),
             LedgerError::BadOrigin(s) => write!(f, "bad origin: {s}"),
             LedgerError::Gap {
                 origin,
@@ -51,6 +71,21 @@ impl fmt::Display for LedgerError {
                 "gap in origin {}: expected seq {expected}, found {found}",
                 origin.0
             ),
+            LedgerError::Fork {
+                origin,
+                seq,
+                ours,
+                theirs,
+            } => write!(
+                f,
+                "fork in origin {} at seq {seq}: ours {}, theirs {}",
+                origin.0,
+                frame::to_hex(ours),
+                frame::to_hex(theirs)
+            ),
+            LedgerError::NoSuchFrame { origin, seq } => {
+                write!(f, "no frame at seq {seq} in origin {}", origin.0)
+            }
         }
     }
 }
@@ -153,25 +188,14 @@ pub fn sync_dir_once(dir: &Path) -> io::Result<()> {
     }
 }
 
-fn hex(bytes: &[u8]) -> String {
-    const T: &[u8; 16] = b"0123456789abcdef";
-    let mut s = String::with_capacity(bytes.len() * 2);
-    for b in bytes {
-        s.push(T[(b >> 4) as usize] as char);
-        s.push(T[(b & 15) as usize] as char);
-    }
-    s
-}
-
-/// The event id: blake3 of the canonical (RFC 8785) header bytes.
-fn header_id(h: &Header) -> Result<Id, LedgerError> {
-    let bytes = serde_json_canonicalizer::to_vec(h)
-        .map_err(|e| LedgerError::Io(io::Error::new(io::ErrorKind::InvalidData, e.to_string())))?;
-    Ok(*blake3::hash(&bytes).as_bytes())
-}
-
 impl Ledger {
     /// Open every `*.log` in `dir` (create dir if missing); recover each; report recoveries.
+    ///
+    /// Recovery is two-phase because a redaction can name a frame in another origin's stream. Every
+    /// file is read first (no writes); then every `redact` frame's target is re-zeroed if it is not
+    /// already (the redact frame is durable before its target is ever touched, so a half-zeroed
+    /// target always has its redact frame on disk); only then is each stream judged, so a target that
+    /// tore at the tail of a peer's file is repaired rather than cut.
     pub fn open(
         dir: &Path,
         local: OriginId,
@@ -206,11 +230,16 @@ impl Ledger {
             created = true;
             names.insert(local.0.clone());
         }
+        let mut scans = Vec::with_capacity(names.len());
+        for name in names {
+            scans.push(scan_file(dir, &OriginId(name))?);
+        }
+        repair_redactions(&mut scans)?;
         let mut streams = BTreeMap::new();
         let mut recoveries = Vec::new();
-        for name in names {
-            let origin = OriginId(name);
-            let (stream, rec) = Stream::open(dir, &origin)?;
+        for scan in scans {
+            let origin = scan.origin().clone();
+            let (stream, rec) = scan.finish()?;
             recoveries.push((origin.clone(), rec));
             streams.insert(origin, stream);
         }
@@ -244,6 +273,11 @@ impl Ledger {
         &self.local
     }
 
+    /// Read-only view of one origin's stream (its durability flags, lengths, lookups).
+    pub fn stream(&self, origin: &OriginId) -> Option<&Stream> {
+        self.streams.get(origin)
+    }
+
     /// Build the header (seq = local next, origin = local, hlc from the clock), encode, append to
     /// the local stream.
     pub fn append(
@@ -254,14 +288,14 @@ impl Ledger {
     ) -> Result<Appended, LedgerError> {
         let payload_len = u32::try_from(draft.payload.len())
             .map_err(|_| LedgerError::Frame(FrameError::TooLarge(draft.payload.len())))?;
-        let payload_hash = hex(blake3::hash(&draft.payload).as_bytes());
+        let payload_hash = frame::payload_hash(&draft.payload);
         let local = self.local.clone();
         let stream = self
             .streams
             .get_mut(&local)
             .ok_or_else(|| LedgerError::BadOrigin(format!("local stream {} missing", local.0)))?;
         let header = Header {
-            v: 1,
+            v: frame::VERSION,
             origin: local,
             seq: stream.next_seq(),
             hlc: clock.now(wall_ms),
@@ -273,6 +307,7 @@ impl Ledger {
             payload_len,
             txn: draft.txn,
             sig: None,
+            extra: BTreeMap::new(),
         };
         let event = Event {
             header,
@@ -282,6 +317,8 @@ impl Ledger {
     }
 
     /// Frames another replica lacks: for each origin where ours > theirs, raw chunks after their seq.
+    /// Only frames a barrier has covered are shipped (see [`Stream::raw_after`]), so call
+    /// `sync_barrier` first if freshly appended frames should go.
     pub fn diff(
         &self,
         since: &VersionVector,
@@ -301,13 +338,19 @@ impl Ledger {
         Ok(out)
     }
 
-    /// Apply raw frames from a peer for one origin: validates, skips seq <= ours (dedup by
-    /// position), refuses a gap, appends the rest to that origin's stream. Returns how many frames
-    /// were new. Nothing is written unless every frame in `raw` validates.
+    /// Apply raw frames from a peer for one origin.
+    ///
+    /// Every frame must decode with both crcs and carry `origin`, and the chunk's seqs must be
+    /// consecutive and start at or below our next seq (else [`LedgerError::Gap`]). Frames at positions
+    /// we already hold are compared by id: a different id is a [`LedgerError::Fork`] and nothing is
+    /// written; the same id is a duplicate and is skipped. The rest are appended. Nothing is written
+    /// unless every frame validates. Returns how many frames were new.
+    ///
+    /// `origin` may be the local origin: that is how a replica gets back its own frames that a crash cut
+    /// from its tail but a peer kept (they extend our tail contiguously and match on any overlap).
+    /// New `redact` frames zero the local copy of their target, after a barrier on the stream they were
+    /// appended to.
     pub fn apply(&mut self, origin: &OriginId, raw: &[u8]) -> Result<usize, LedgerError> {
-        if *origin == self.local {
-            return Err(LedgerError::LocalOrigin);
-        }
         if !origin_is_valid(&origin.0) {
             return Err(LedgerError::BadOrigin(origin.0.clone()));
         }
@@ -317,10 +360,12 @@ impl Ledger {
             .map(|s| s.next_seq().saturating_sub(1))
             .unwrap_or(0);
 
-        // Pass 1: decode and validate every frame, simulate the seq rule.
+        // Pass 1: decode and validate every frame, check the seq chain, collect what overlaps.
+        let mut overlap: Vec<(u64, Id)> = Vec::new();
         let mut fresh: Vec<(std::ops::Range<usize>, Header)> = Vec::new();
+        let mut redactions: Vec<RedactPayload> = Vec::new();
         let mut pos = 0usize;
-        let mut expected = ours + 1;
+        let mut prev: Option<u64> = None;
         while pos < raw.len() {
             let d = frame::decode(&raw[pos..])?;
             let end = pos + d.frame_len;
@@ -330,21 +375,50 @@ impl Ledger {
                     d.header.origin.0, origin.0
                 )));
             }
-            if header_id(&d.header)? != d.id {
-                return Err(LedgerError::Frame(FrameError::Header("id mismatch".into())));
+            let expected = prev.map_or(ours + 1, |p| p + 1);
+            let seq = d.header.seq;
+            let in_chain = match prev {
+                Some(_) => seq == expected,
+                None => seq <= expected,
+            };
+            if !in_chain {
+                return Err(LedgerError::Gap {
+                    origin: origin.clone(),
+                    expected,
+                    found: seq,
+                });
             }
-            if d.header.seq > ours {
-                if d.header.seq != expected {
-                    return Err(LedgerError::Gap {
-                        origin: origin.clone(),
-                        expected,
-                        found: d.header.seq,
-                    });
+            prev = Some(seq);
+            if seq <= ours {
+                overlap.push((seq, d.id));
+            } else {
+                if d.header.mode == Mode::Redact && d.state == PayloadState::Intact {
+                    if let Ok(r) = RedactPayload::from_bytes(&d.payload) {
+                        redactions.push(r);
+                    }
                 }
-                expected += 1;
                 fresh.push((pos..end, d.header));
             }
             pos = end;
+        }
+
+        // Overlap: same position must mean the same event.
+        if let (Some(&(first, _)), Some(&(last, _))) = (overlap.first(), overlap.last()) {
+            let stream = self
+                .streams
+                .get(origin)
+                .ok_or_else(|| LedgerError::BadOrigin(origin.0.clone()))?;
+            let held = stream.ids_range(first, last)?;
+            for ((seq, theirs), mine) in overlap.iter().zip(&held) {
+                if mine != theirs {
+                    return Err(LedgerError::Fork {
+                        origin: origin.clone(),
+                        seq: *seq,
+                        ours: *mine,
+                        theirs: *theirs,
+                    });
+                }
+            }
         }
         if fresh.is_empty() {
             return Ok(0);
@@ -367,7 +441,28 @@ impl Ledger {
         if created {
             sync_dir_once(&self.dir)?;
         }
+        if !redactions.is_empty() {
+            // The redact frames must be durable before any target is touched.
+            self.streams[origin].sync_barrier()?;
+            for r in &redactions {
+                self.zero_target(r)?;
+            }
+        }
         Ok(fresh.len())
+    }
+
+    /// Zero the payload of the frame a `redact` payload names, when we hold it and its id matches.
+    fn zero_target(&mut self, r: &RedactPayload) -> Result<(), LedgerError> {
+        let Ok(id) = r.id() else { return Ok(()) };
+        let Some(stream) = self.streams.get_mut(&OriginId(r.target_origin.clone())) else {
+            return Ok(());
+        };
+        if let Some(loc) = stream.locate(r.target_seq)? {
+            if loc.id == id {
+                stream.redact_at(loc.offset)?;
+            }
+        }
+        Ok(())
     }
 
     /// Iterate one origin's frames from a byte offset (0 = all).
@@ -383,29 +478,91 @@ impl Ledger {
         Ok(s.scan_from(from_offset))
     }
 
-    /// Redact the frame at `offset` in `origin`'s stream (payload zeroed in place).
-    pub fn redact(&mut self, origin: &OriginId, offset: u64) -> Result<(), LedgerError> {
-        let s = self
+    /// Redact the payload of frame `(target_origin, target_seq)`, durably, in two steps.
+    ///
+    /// 1. Append a `redact` frame to the local stream (payload `{target_origin, target_seq,
+    ///    target_id}`, subjects copied from the target with the target as parent) and barrier it.
+    /// 2. Zero the target's payload and rewrite its payload crc in place (one write; the header, the id
+    ///    and the file length are unchanged).
+    ///
+    /// A crash between or during the steps is repaired by `Ledger::open`, which re-zeroes every redact
+    /// frame's target. The target may be in another origin's stream. Returns the redact frame.
+    pub fn redact(
+        &mut self,
+        clock: &mut HlcClock,
+        wall_ms: u64,
+        witness: String,
+        vocab: String,
+        target_origin: &OriginId,
+        target_seq: u64,
+    ) -> Result<Appended, LedgerError> {
+        let target = self
             .streams
-            .get_mut(origin)
-            .ok_or_else(|| LedgerError::BadOrigin(format!("unknown origin {}", origin.0)))?;
-        Ok(s.redact_at(offset)?)
+            .get(target_origin)
+            .ok_or_else(|| LedgerError::BadOrigin(format!("unknown origin {}", target_origin.0)))?;
+        let loc = target
+            .locate(target_seq)?
+            .ok_or_else(|| LedgerError::NoSuchFrame {
+                origin: target_origin.clone(),
+                seq: target_seq,
+            })?;
+        let target_header = target.header_at(&loc)?;
+        let id_hex = frame::to_hex(&loc.id);
+        let subjects = target_header
+            .subjects
+            .into_iter()
+            .map(|s| Subject {
+                subject: s.subject,
+                class: s.class,
+                parents: vec![id_hex.clone()],
+            })
+            .collect();
+        let payload = RedactPayload {
+            target_origin: target_origin.0.clone(),
+            target_seq,
+            target_id: id_hex,
+        }
+        .to_bytes();
+        let appended = self.append(
+            clock,
+            wall_ms,
+            Draft {
+                witness,
+                vocab,
+                subjects,
+                mode: Mode::Redact,
+                payload,
+                txn: None,
+            },
+        )?;
+        let local = self.streams.get(&self.local).ok_or_else(|| {
+            LedgerError::BadOrigin(format!("local stream {} missing", self.local.0))
+        })?;
+        local.sync_barrier()?;
+        let target = self
+            .streams
+            .get_mut(target_origin)
+            .ok_or_else(|| LedgerError::BadOrigin(format!("unknown origin {}", target_origin.0)))?;
+        target.redact_at(loc.offset)?;
+        Ok(appended)
     }
 
-    /// Ordered-durability barrier on every stream appended since the last sync.
+    /// Ordered-durability barrier on every stream appended to since the last barrier. Each stream that
+    /// had writes then owes a full flush (see [`Stream::full_owed`]).
     pub fn sync_barrier(&self) -> io::Result<()> {
         for s in self.streams.values() {
-            if s.is_dirty() {
+            if s.dirty_since_barrier() {
                 s.sync_barrier()?;
             }
         }
         Ok(())
     }
 
-    /// Full flush on every stream appended since the last sync.
+    /// Full flush on every stream that appended or redacted since its last full flush: the ones that
+    /// owe one after a barrier, and the ones never barriered at all.
     pub fn sync_full(&self) -> io::Result<()> {
         for s in self.streams.values() {
-            if s.is_dirty() {
+            if s.full_owed() || s.dirty_since_barrier() {
                 s.sync_full()?;
             }
         }

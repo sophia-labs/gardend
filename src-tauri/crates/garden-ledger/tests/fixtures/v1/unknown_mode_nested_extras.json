@@ -1,0 +1,38 @@
+{
+  "note": "unknown mode with array, object and float extras, kept in canonical order",
+  "id": "afe97275c76ee327b9f51bc349eea3a44c556a79114d7b1d677952d55a8fa0e4",
+  "canonical": true,
+  "payload_state": "intact",
+  "payload_hex": "7b7d",
+  "header": {
+    "aa": "x",
+    "hlc": {
+      "count": 0,
+      "ms": 1700000000005
+    },
+    "mode": "tombstone-v9",
+    "origin": "cell-a.1",
+    "payload_hash": "6e46dd10defc9b56c29a6ec56b508c21f54c08192194e4df25bf36f0c9c3c279",
+    "payload_len": 2,
+    "pi": 3.5,
+    "seq": 6,
+    "subjects": [
+      {
+        "class": "urn:c:Thing",
+        "parents": [],
+        "subject": "urn:s:6"
+      }
+    ],
+    "v": 1,
+    "vocab": "urn:vocab:fixtures",
+    "witness": "https://witness.example/vera",
+    "zz": [
+      1,
+      2,
+      {
+        "a": true,
+        "b": null
+      }
+    ]
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "note": "non-ASCII and escaped characters in header strings (JCS escaping)",
+  "id": "14b908a8da4e330af3f12bd18b3a11388d99f6ec7fe276130a73326260498838",
+  "canonical": true,
+  "payload_state": "intact",
+  "payload_hex": "5b7b226f223a22c3a9e29883227d5d",
+  "header": {
+    "hlc": {
+      "count": 0,
+      "ms": 1700000000002
+    },
+    "mode": "retract",
+    "origin": "cell-e",
+    "payload_hash": "630862805683f8a960279089ea764361a8e47ad51c6ffa176a3d23e53af64678",
+    "payload_len": 15,
+    "seq": 3,
+    "subjects": [
+      {
+        "class": "urn:c:Tü",
+        "parents": [],
+        "subject": "urn:s:café☃😀\"q\"\\\n"
+      }
+    ],
+    "v": 1,
+    "vocab": "urn:vocab:fixtures",
+    "witness": "https://witness.example/vera"
+  }
+}

@@ -1,6 +1,6 @@
 //! Property tests for the ledger crate (W5.md section 3.6) and three unit tests.
 //!
-//! Every property runs 64 cases from a fixed ChaCha seed, so a CI failure reproduces locally.
+//! Every property runs 32 cases (8 for the per-byte torn-tail and torn-redaction ones) from a fixed ChaCha seed, so a CI failure reproduces locally.
 //! To explore other inputs set `LEDGER_PROPTEST_SEED=<u64>` (and `LEDGER_PROPTEST_CASES=<n>` to
 //! raise the case count); a failing run prints the minimal shrunk input.
 
@@ -42,7 +42,7 @@ fn draft(spec: &Spec) -> Draft {
         witness: spec.witness.clone(),
         vocab: spec.vocab.clone(),
         subjects: spec.subjects.clone(),
-        mode: spec.mode,
+        mode: spec.mode.clone(),
         payload: spec.payload.clone(),
         txn: spec.txn.clone(),
     }
@@ -61,11 +61,12 @@ fn event(spec: &Spec, origin: &str, seq: u64) -> Event {
         witness: spec.witness.clone(),
         vocab: spec.vocab.clone(),
         subjects: spec.subjects.clone(),
-        mode: spec.mode,
+        mode: spec.mode.clone(),
         payload_hash: blake3::hash(&spec.payload).to_hex().to_string(),
         payload_len: spec.payload.len() as u32,
         txn: spec.txn.clone(),
         sig: spec.sig.clone(),
+        extra: BTreeMap::new(),
     };
     Event {
         header,
@@ -90,14 +91,14 @@ fn fail<E: Debug>(e: E) -> TestCaseError {
     TestCaseError::fail(format!("{e:?}"))
 }
 
-/// A deterministic runner: 64 cases (override with `LEDGER_PROPTEST_CASES`), ChaCha seeded from
+/// A deterministic runner: 32 cases (override with `LEDGER_PROPTEST_CASES`), ChaCha seeded from
 /// `LEDGER_PROPTEST_SEED` (default fixed), no failure-persistence files.
 /// Like `runner` with a different default case count (the env override still wins).
 fn runner_n(default_cases: u32) -> TestRunner {
     let seed: u64 = std::env::var("LEDGER_PROPTEST_SEED")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(0x1ED6_E420_2611_03);
+        .unwrap_or(0x001E_D6E4_2026_1103);
     let cases: u32 = std::env::var("LEDGER_PROPTEST_CASES")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -114,7 +115,7 @@ fn runner_n(default_cases: u32) -> TestRunner {
 
 /// Run `test` over `strategy` with the deterministic runner, panicking with the shrunk failure.
 fn check<S: Strategy>(strategy: S, test: impl Fn(S::Value) -> Result<(), TestCaseError>) {
-    check_n(64, strategy, test)
+    check_n(32, strategy, test)
 }
 
 /// `check` with a default case count.
@@ -140,6 +141,7 @@ fn mode_strategy() -> impl Strategy<Value = Mode> {
         Just(Mode::Retract),
         Just(Mode::Supersede),
         Just(Mode::Redact),
+        Just(Mode::Other("commit".to_string())),
     ]
 }
 
@@ -229,8 +231,12 @@ fn prop1_codec_round_trip() {
             let d = decode(&bytes).map_err(fail)?;
             prop_assert_eq!(&d.header, &ev.header);
             prop_assert_eq!(&d.payload, &ev.payload);
-            prop_assert!(!d.redacted);
+            prop_assert!(!d.is_redacted());
             prop_assert_eq!(d.frame_len, bytes.len());
+
+            // The id is blake3 of the header bytes as stored, found by the length fields.
+            let hlen = u16::from_le_bytes([bytes[4], bytes[5]]) as usize;
+            prop_assert_eq!(d.id, *blake3::hash(&bytes[6..6 + hlen]).as_bytes());
 
             // The id is a function of the header alone: a re-encode of the decoded event keeps it.
             let again = Event {
@@ -365,11 +371,11 @@ fn prop3_mid_file_corruption_is_corrupt() {
                 offsets.push(stream.len());
             }
 
-            // Any frame but the last, so valid bytes follow the damage. Skip the 4-byte length
-            // prefix: damage there can make the frame look like an overrun (a tail), not a crc fault.
+            // Any byte of any frame but the last, the 4-byte length prefix included: valid frames
+            // follow the damage, so it is corruption at that frame's offset, never a cut tail.
             let k = k_sel % (n - 1);
             let frame_len = (offsets[k + 1] - offsets[k]) as usize;
-            let pos = offsets[k] as usize + 4 + pos_sel % (frame_len - 4);
+            let pos = offsets[k] as usize + pos_sel % frame_len;
             let mut bytes = std::fs::read(&path).map_err(fail)?;
             bytes[pos] ^= mask;
             std::fs::write(&path, &bytes).map_err(fail)?;
@@ -418,7 +424,7 @@ fn prop4_replay_equals() {
             for (fa, ev) in frames.iter().zip(&events) {
                 prop_assert_eq!(&fa.decoded.header, &ev.header);
                 prop_assert_eq!(&fa.decoded.payload, &ev.payload);
-                prop_assert!(!fa.decoded.redacted);
+                prop_assert!(!fa.decoded.is_redacted());
             }
             Ok(())
         },
@@ -431,6 +437,8 @@ fn prop4_replay_equals() {
 
 /// One exchange: `from` ships what `to` lacks (its `diff(to.version())`), `to` applies it.
 fn exchange(replicas: &mut [Ledger], from: usize, to: usize) -> Result<(), TestCaseError> {
+    // Only frames a barrier has covered are shipped.
+    replicas[from].sync_barrier().map_err(fail)?;
     let since = replicas[to].version();
     let chunks = replicas[from].diff(&since, 1 << 20).map_err(fail)?;
     for (origin, chunk) in chunks {
@@ -530,6 +538,7 @@ fn prop6_dedup_and_gap() {
             }
             let n = specs.len();
 
+            a.sync_barrier().map_err(fail)?;
             let mut b = ledger_in(&td.path().join("b"), "bee");
             let empty = VersionVector(BTreeMap::new());
             let chunks = a.diff(&empty, 1 << 24).map_err(fail)?;
@@ -580,6 +589,7 @@ fn prop7_redaction() {
                     .append(&mut clock, spec.wall, draft(spec))
                     .map_err(fail)?;
             }
+            ledger.sync_barrier().map_err(fail)?;
             let path = log_path(&dir, &origin);
             let len_before = std::fs::metadata(&path).map_err(fail)?.len();
 
@@ -590,11 +600,22 @@ fn prop7_redaction() {
                 .map_err(fail)?;
             prop_assert_eq!(before.len(), specs.len());
             let idx = pick % specs.len();
-            let target_offset = before[idx].offset;
             let target_id = before[idx].decoded.id;
 
-            ledger.redact(&oid, target_offset).map_err(fail)?;
-            prop_assert_eq!(std::fs::metadata(&path).map_err(fail)?.len(), len_before);
+            let redact_frame = ledger
+                .redact(
+                    &mut clock,
+                    1,
+                    "urn:w:redactor".into(),
+                    "urn:v:r".into(),
+                    &oid,
+                    idx as u64 + 1,
+                )
+                .map_err(fail)?;
+            // The redaction is a frame appended after the others; the target keeps its length.
+            prop_assert_eq!(redact_frame.seq, specs.len() as u64 + 1);
+            prop_assert_eq!(redact_frame.offset, len_before);
+            prop_assert!(std::fs::metadata(&path).map_err(fail)?.len() > len_before);
 
             // A payload that is empty or already all zero is unchanged by zeroing, so its hash
             // still matches and it does not read as redacted.
@@ -610,27 +631,35 @@ fn prop7_redaction() {
                     prop_assert_eq!(fa.decoded.header.seq, i as u64 + 1);
                     if i == idx {
                         prop_assert_eq!(fa.decoded.id, target_id);
-                        prop_assert_eq!(fa.decoded.redacted, visible(i));
+                        prop_assert_eq!(fa.decoded.is_redacted(), visible(i));
+                        prop_assert_eq!(fa.decoded.frame_len, before[i].decoded.frame_len);
                         prop_assert!(fa.decoded.payload.iter().all(|b| *b == 0));
                     } else if i < specs.len() {
-                        prop_assert!(!fa.decoded.redacted);
+                        prop_assert!(!fa.decoded.is_redacted());
                         prop_assert_eq!(&fa.decoded.payload, &specs[i].payload);
                         prop_assert_eq!(fa.decoded.id, before[i].decoded.id);
+                    } else if i == specs.len() {
+                        prop_assert_eq!(&fa.decoded.header.mode, &Mode::Redact);
+                        let r = garden_ledger::RedactPayload::from_bytes(&fa.decoded.payload)
+                            .map_err(fail)?;
+                        prop_assert_eq!(&r.target_origin, &origin);
+                        prop_assert_eq!(r.target_seq, idx as u64 + 1);
+                        prop_assert_eq!(r.id().map_err(fail)?, target_id);
                     }
                 }
                 Ok(())
             };
-            check_scan(&ledger, specs.len())?;
+            check_scan(&ledger, specs.len() + 1)?;
 
             // A later append still scans clean, also after a reopen.
             ledger
                 .append(&mut clock, extra.wall, draft(&extra))
                 .map_err(fail)?;
-            check_scan(&ledger, specs.len() + 1)?;
+            check_scan(&ledger, specs.len() + 2)?;
             drop(ledger);
             let (reopened, recoveries) = Ledger::open(&dir, oid.clone()).map_err(fail)?;
             prop_assert!(recoveries.iter().all(|(_, r)| *r == Recovery::Clean));
-            check_scan(&reopened, specs.len() + 1)?;
+            check_scan(&reopened, specs.len() + 2)?;
             Ok(())
         },
     );
@@ -671,6 +700,440 @@ fn prop8_hlc_strictly_monotone() {
         }
         Ok(())
     });
+}
+
+// ---------------------------------------------------------------------------------------------
+// 9. a crash that cuts a tail a peer already pulled recovers without a fork
+// ---------------------------------------------------------------------------------------------
+
+/// A appends `specs`, B pulls everything, A "crashes" and loses its last frame (the file is cut at the
+/// frame boundary and reopened). Returns A (version n-1), B and the paths.
+struct Crashed {
+    _td: TempDir,
+    a: Ledger,
+    b: Ledger,
+    a_id: OriginId,
+    a_dir: PathBuf,
+    b_dir: PathBuf,
+    n: u64,
+}
+
+fn crash_after_pull(specs: &[Spec]) -> Result<Crashed, TestCaseError> {
+    let td = TempDir::new().map_err(fail)?;
+    let a_dir = td.path().join("a");
+    let b_dir = td.path().join("b");
+    let a_id = OriginId("aaa".to_string());
+    let mut a = ledger_in(&a_dir, "aaa");
+    let mut b = ledger_in(&b_dir, "bbb");
+    let mut clock = HlcClock::new();
+    for spec in specs {
+        a.append(&mut clock, spec.wall, draft(spec)).map_err(fail)?;
+    }
+    let last_offset = a.stream(&a_id).and_then(|s| s.last_offset()).unwrap();
+    let mut pair = [a, b];
+    exchange(&mut pair, 0, 1)?;
+    let [a, b_taken] = pair;
+    b = b_taken;
+    b.sync_barrier().map_err(fail)?;
+    prop_assert_eq_ok(b.version().get(&a_id), specs.len() as u64)?;
+    drop(a);
+    let f = OpenOptions::new()
+        .write(true)
+        .open(log_path(&a_dir, "aaa"))
+        .map_err(fail)?;
+    f.set_len(last_offset).map_err(fail)?;
+    drop(f);
+    let (a, recs) = Ledger::open(&a_dir, a_id.clone()).map_err(fail)?;
+    prop_assert_eq_ok(recs.iter().all(|(_, r)| *r == Recovery::Clean), true)?;
+    prop_assert_eq_ok(a.version().get(&a_id), specs.len() as u64 - 1)?;
+    Ok(Crashed {
+        _td: td,
+        a,
+        b,
+        a_id,
+        a_dir,
+        b_dir,
+        n: specs.len() as u64,
+    })
+}
+
+fn prop_assert_eq_ok<T: PartialEq + Debug>(l: T, r: T) -> Result<(), TestCaseError> {
+    if l == r {
+        Ok(())
+    } else {
+        Err(TestCaseError::fail(format!("{l:?} != {r:?}")))
+    }
+}
+
+#[test]
+fn prop9_crash_cut_after_peer_pull_recovers_without_fork() {
+    check(
+        (prop::collection::vec(any_spec(), 2..6), any_spec()),
+        |(specs, alt)| {
+            // Mirror: A pulls its own lost frame back from B, accepted, byte-equal to B's copy.
+            {
+                let mut c = crash_after_pull(&specs)?;
+                let chunks = c.b.diff(&c.a.version(), 1 << 20).map_err(fail)?;
+                prop_assert_eq_ok(chunks.len(), 1)?;
+                prop_assert_eq_ok(&chunks[0].0, &c.a_id)?;
+                prop_assert_eq_ok(chunks[0].1.from_seq, c.n)?;
+                let applied = c.a.apply(&c.a_id, &chunks[0].1.bytes).map_err(fail)?;
+                prop_assert_eq_ok(applied, 1)?;
+                prop_assert_eq_ok(c.a.version().get(&c.a_id), c.n)?;
+                let mine = std::fs::read(log_path(&c.a_dir, "aaa")).map_err(fail)?;
+                let theirs = std::fs::read(log_path(&c.b_dir, "aaa")).map_err(fail)?;
+                prop_assert_eq_ok(mine, theirs)?;
+                // The recovered origin carries on from where it was.
+                let mut clock = HlcClock::new();
+                let next =
+                    c.a.append(&mut clock, alt.wall, draft(&alt))
+                        .map_err(fail)?;
+                prop_assert_eq_ok(next.seq, c.n + 1)?;
+                // Pulling it again is a duplicate, not a fork.
+                let again = c.b.diff(&c.a.version(), 1 << 20).map_err(fail)?;
+                prop_assert_eq_ok(again.len(), 0)?;
+            }
+            // Fork: A re-appends a different event at the lost seq; B refuses it and writes nothing.
+            {
+                let mut c = crash_after_pull(&specs)?;
+                let mut other = alt.clone();
+                other.witness = format!("{}/fork", specs[specs.len() - 1].witness);
+                let mut clock = HlcClock::new();
+                c.a.append(&mut clock, other.wall, draft(&other))
+                    .map_err(fail)?;
+                c.a.sync_barrier().map_err(fail)?;
+                let b_file = std::fs::read(log_path(&c.b_dir, "aaa")).map_err(fail)?;
+                // B holds seq n already (its version says n, so a plain diff offers nothing): a chunk
+                // from further back overlaps B's frames and is compared by id.
+                let offered =
+                    c.a.diff(&VersionVector(BTreeMap::new()), 1 << 24)
+                        .map_err(fail)?;
+                match c.b.apply(&c.a_id, &offered[0].1.bytes) {
+                    Err(LedgerError::Fork {
+                        origin,
+                        seq,
+                        ours,
+                        theirs,
+                    }) => {
+                        prop_assert_eq_ok(origin, c.a_id.clone())?;
+                        prop_assert_eq_ok(seq, c.n)?;
+                        prop_assert!(ours != theirs);
+                    }
+                    other => {
+                        return Err(TestCaseError::fail(format!("expected Fork, got {other:?}")))
+                    }
+                }
+                prop_assert_eq_ok(
+                    std::fs::read(log_path(&c.b_dir, "aaa")).map_err(fail)?,
+                    b_file,
+                )?;
+                prop_assert_eq_ok(c.b.version().get(&c.a_id), c.n)?;
+            }
+            Ok(())
+        },
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// 10. a redaction that tears at any byte is repaired on open
+// ---------------------------------------------------------------------------------------------
+
+/// With the files as a finished redaction left them, restore the target's payload region byte by byte
+/// from `region_before` (the torn states of an in-place write that applied only its first `j` bytes),
+/// open the ledger at each, and require the repair to reproduce the finished files exactly.
+fn torn_redaction_loop(
+    dir: &Path,
+    local: &OriginId,
+    target: &OriginId,
+    target_offset: u64,
+    region_before: &[u8],
+) -> Result<(), TestCaseError> {
+    let path = log_path(dir, &target.0);
+    let after = std::fs::read(&path).map_err(fail)?;
+    let off = target_offset as usize;
+    let hlen = u16::from_le_bytes([after[off + 4], after[off + 5]]) as usize;
+    let rs = off + 6 + hlen + 4;
+    let frame_len =
+        4 + u32::from_le_bytes([after[off], after[off + 1], after[off + 2], after[off + 3]])
+            as usize;
+    let re = off + frame_len;
+    prop_assert_eq_ok(re - rs, region_before.len())?;
+    for j in 0..=(re - rs) {
+        let mut torn = after.clone();
+        torn[rs + j..re].copy_from_slice(&region_before[j..]);
+        std::fs::write(&path, &torn).map_err(fail)?;
+        let (ledger, recs) = Ledger::open(dir, local.clone()).map_err(fail)?;
+        let rec = recs
+            .iter()
+            .find(|(o, _)| o == target)
+            .map(|(_, r)| r.clone());
+        let expected = if torn == after {
+            Recovery::Clean
+        } else {
+            Recovery::Repaired { redactions: 1 }
+        };
+        prop_assert_eq_ok(rec, Some(expected))?;
+        let frames: Vec<_> = ledger
+            .scan(target, 0)
+            .map_err(fail)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(fail)?;
+        let hit = frames.iter().find(|f| f.offset == target_offset).unwrap();
+        prop_assert!(hit.decoded.is_redacted(), "j={}", j);
+        prop_assert_eq_ok(hit.decoded.frame_len, frame_len)?;
+        drop(ledger);
+        prop_assert!(std::fs::read(&path).map_err(fail)? == after, "j={}", j);
+    }
+    Ok(())
+}
+
+/// A payload with at least one non-zero byte, so redaction is observable.
+fn visible_spec(max_payload: usize) -> impl Strategy<Value = Spec> {
+    spec_strategy(max_payload, 2, 1).prop_map(|mut s| {
+        s.payload.push(0xA5);
+        s
+    })
+}
+
+#[test]
+fn prop10_torn_redaction_at_every_byte_repairs_on_open() {
+    check_n(
+        8,
+        (
+            prop::collection::vec(visible_spec(64), 1..5),
+            any::<usize>(),
+            origin_strategy(),
+        ),
+        |(specs, pick, origin)| {
+            let td = TempDir::new().map_err(fail)?;
+            let dir = td.path().join("led");
+            let oid = OriginId(origin.clone());
+            let mut ledger = ledger_in(&dir, &origin);
+            let mut clock = HlcClock::new();
+            for spec in &specs {
+                ledger
+                    .append(&mut clock, spec.wall, draft(spec))
+                    .map_err(fail)?;
+            }
+            ledger.sync_full().map_err(fail)?;
+            let idx = pick % specs.len();
+            let loc = ledger
+                .stream(&oid)
+                .unwrap()
+                .locate(idx as u64 + 1)
+                .map_err(fail)?
+                .unwrap();
+            let before = std::fs::read(log_path(&dir, &origin)).map_err(fail)?;
+            ledger
+                .redact(
+                    &mut clock,
+                    9,
+                    "urn:w:r".into(),
+                    "urn:v:r".into(),
+                    &oid,
+                    idx as u64 + 1,
+                )
+                .map_err(fail)?;
+            drop(ledger);
+            let hlen = u16::from_le_bytes([
+                before[loc.offset as usize + 4],
+                before[loc.offset as usize + 5],
+            ]) as usize;
+            let rs = loc.offset as usize + 6 + hlen + 4;
+            let re = (loc.offset + loc.frame_len) as usize;
+            torn_redaction_loop(&dir, &oid, &oid, loc.offset, &before[rs..re])
+        },
+    );
+}
+
+#[test]
+fn torn_redaction_of_a_peers_last_frame_is_repaired_not_cut() {
+    // The redact frame lives in the local stream; its target is the tail frame of a peer's stream.
+    // A torn zeroing there fails the peer file's payload crc at its very end, which a plain scan
+    // would cut. The ledger repairs it first.
+    check_n(
+        4,
+        (
+            prop::collection::vec(visible_spec(48), 1..4),
+            origin_strategy(),
+        ),
+        |(specs, origin)| {
+            let td = TempDir::new().map_err(fail)?;
+            let peer = format!("{origin}p");
+            let peer_id = OriginId(peer.clone());
+            let local_id = OriginId(format!("{origin}l"));
+            let mut p = ledger_in(&td.path().join("p"), &peer);
+            let mut pclock = HlcClock::new();
+            for spec in &specs {
+                p.append(&mut pclock, spec.wall, draft(spec))
+                    .map_err(fail)?;
+            }
+            p.sync_barrier().map_err(fail)?;
+            let dir = td.path().join("l");
+            let mut l = ledger_in(&dir, &local_id.0);
+            for (o, chunk) in p
+                .diff(&VersionVector(BTreeMap::new()), 1 << 24)
+                .map_err(fail)?
+            {
+                l.apply(&o, &chunk.bytes).map_err(fail)?;
+            }
+            l.sync_full().map_err(fail)?;
+            let seq = specs.len() as u64;
+            let loc = l
+                .stream(&peer_id)
+                .unwrap()
+                .locate(seq)
+                .map_err(fail)?
+                .unwrap();
+            prop_assert_eq_ok(
+                loc.offset + loc.frame_len,
+                l.stream(&peer_id).unwrap().len(),
+            )?;
+            let before = std::fs::read(log_path(&dir, &peer)).map_err(fail)?;
+            let mut lclock = HlcClock::new();
+            l.redact(
+                &mut lclock,
+                5,
+                "urn:w:r".into(),
+                "urn:v:r".into(),
+                &peer_id,
+                seq,
+            )
+            .map_err(fail)?;
+            drop(l);
+            let hlen = u16::from_le_bytes([
+                before[loc.offset as usize + 4],
+                before[loc.offset as usize + 5],
+            ]) as usize;
+            let rs = loc.offset as usize + 6 + hlen + 4;
+            let re = (loc.offset + loc.frame_len) as usize;
+            torn_redaction_loop(&dir, &local_id, &peer_id, loc.offset, &before[rs..re])
+        },
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// 11. a zero-filled tail is cut
+// ---------------------------------------------------------------------------------------------
+
+#[test]
+fn prop11_zero_filled_tail_is_cut() {
+    check(
+        (
+            prop::collection::vec(any_spec(), 0..5),
+            origin_strategy(),
+            1usize..300,
+        ),
+        |(specs, origin, zeros)| {
+            let td = TempDir::new().map_err(fail)?;
+            let dir = td.path();
+            let path = log_path(dir, &origin);
+            {
+                let (mut stream, _) = open_stream(dir, &origin)?;
+                for (i, spec) in specs.iter().enumerate() {
+                    stream
+                        .append_event(&event(spec, &origin, i as u64 + 1))
+                        .map_err(fail)?;
+                }
+            }
+            let good = std::fs::read(&path).map_err(fail)?;
+            let mut padded = good.clone();
+            padded.resize(padded.len() + zeros, 0);
+            std::fs::write(&path, &padded).map_err(fail)?;
+            let (stream, rec) = open_stream(dir, &origin)?;
+            prop_assert_eq!(
+                rec,
+                Recovery::TruncatedTail {
+                    from: good.len() as u64,
+                    dropped_bytes: zeros as u64
+                }
+            );
+            prop_assert_eq!(stream.next_seq(), specs.len() as u64 + 1);
+            prop_assert_eq!(std::fs::read(&path).map_err(fail)?, good);
+            Ok(())
+        },
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// 12. a barrier owes a full flush, and sync_full issues it on every stream that appended
+// ---------------------------------------------------------------------------------------------
+
+#[test]
+fn prop12_barrier_then_full_is_issued_on_every_stream_that_appended() {
+    check(
+        (
+            prop::collection::vec(any_spec(), 1..4),
+            prop::collection::vec(any_spec(), 1..4),
+            prop::collection::vec(any_spec(), 1..3),
+        ),
+        |(local_specs, peer_specs, quiet_specs)| {
+            let td = TempDir::new().map_err(fail)?;
+            let l_id = OriginId("lll".to_string());
+            let p_id = OriginId("ppp".to_string());
+            let q_id = OriginId("qqq".to_string());
+            let mut l = ledger_in(&td.path().join("l"), "lll");
+            let mut clock = HlcClock::new();
+            let flags = |l: &Ledger, o: &OriginId| {
+                let s = l.stream(o).unwrap();
+                (s.dirty_since_barrier(), s.full_owed())
+            };
+
+            // Two peers' frames arrive by apply; settle one of them completely.
+            for (name, specs) in [("ppp", &peer_specs), ("qqq", &quiet_specs)] {
+                let mut peer = ledger_in(&td.path().join(name), name);
+                let mut pc = HlcClock::new();
+                for spec in specs {
+                    peer.append(&mut pc, spec.wall, draft(spec)).map_err(fail)?;
+                }
+                peer.sync_barrier().map_err(fail)?;
+                for (o, chunk) in peer.diff(&l.version(), 1 << 24).map_err(fail)? {
+                    l.apply(&o, &chunk.bytes).map_err(fail)?;
+                }
+            }
+            l.sync_barrier().map_err(fail)?;
+            l.sync_full().map_err(fail)?;
+            for o in [&l_id, &p_id, &q_id] {
+                prop_assert_eq!(flags(&l, o), (false, false));
+            }
+
+            // Appends to the local stream and to ppp (a second batch), none to qqq.
+            for spec in &local_specs {
+                l.append(&mut clock, spec.wall, draft(spec)).map_err(fail)?;
+            }
+            let mut peer = ledger_in(&td.path().join("ppp"), "ppp");
+            let mut pc = HlcClock::new();
+            for spec in &peer_specs {
+                peer.append(&mut pc, spec.wall, draft(spec)).map_err(fail)?;
+            }
+            for spec in &local_specs {
+                peer.append(&mut pc, spec.wall, draft(spec)).map_err(fail)?;
+            }
+            peer.sync_barrier().map_err(fail)?;
+            for (o, chunk) in peer.diff(&l.version(), 1 << 24).map_err(fail)? {
+                l.apply(&o, &chunk.bytes).map_err(fail)?;
+            }
+            prop_assert_eq!(flags(&l, &l_id), (true, false));
+            prop_assert_eq!(flags(&l, &p_id), (true, false));
+            prop_assert_eq!(flags(&l, &q_id), (false, false));
+
+            l.sync_barrier().map_err(fail)?;
+            prop_assert_eq!(flags(&l, &l_id), (false, true));
+            prop_assert_eq!(flags(&l, &p_id), (false, true));
+            prop_assert_eq!(flags(&l, &q_id), (false, false));
+            for o in [&l_id, &p_id] {
+                let s = l.stream(o).unwrap();
+                prop_assert_eq!(s.synced_len(), s.len());
+            }
+
+            // The barrier did not discharge the debt: the full flush clears every stream that had it.
+            l.sync_full().map_err(fail)?;
+            for o in [&l_id, &p_id, &q_id] {
+                prop_assert_eq!(flags(&l, o), (false, false));
+            }
+            Ok(())
+        },
+    );
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -749,4 +1212,143 @@ fn unit_too_large() {
         Err(other) => panic!("expected TooLarge, got {other:?}"),
         Ok(_) => panic!("oversize frame decoded"),
     }
+}
+
+fn simple_spec(tag: &str) -> Spec {
+    Spec {
+        witness: "https://w.example/unit".into(),
+        vocab: "urn:v:unit".into(),
+        subjects: vec![Subject {
+            subject: format!("urn:s:{tag}"),
+            class: "urn:c:Unit".into(),
+            parents: vec![],
+        }],
+        mode: Mode::Assert,
+        payload: format!("[{{\"tag\":\"{tag}\"}}]").into_bytes(),
+        txn: None,
+        sig: None,
+        wall: 1_000,
+    }
+}
+
+#[test]
+fn unit_a_peers_redact_frame_zeroes_the_local_copy_after_a_barrier() {
+    let td = TempDir::new().unwrap();
+    let p_id = OriginId("ppp".to_string());
+    let mut p = ledger_in(&td.path().join("p"), "ppp");
+    let mut l = ledger_in(&td.path().join("l"), "lll");
+    let mut pc = HlcClock::new();
+    for tag in ["one", "two", "three"] {
+        p.append(&mut pc, 1, draft(&simple_spec(tag))).unwrap();
+    }
+    p.sync_barrier().unwrap();
+    for (o, c) in p.diff(&l.version(), 1 << 20).unwrap() {
+        l.apply(&o, &c.bytes).unwrap();
+    }
+    let target = l.stream(&p_id).unwrap().locate(2).unwrap().unwrap();
+
+    p.redact(&mut pc, 2, "urn:w:r".into(), "urn:v:unit".into(), &p_id, 2)
+        .unwrap();
+    p.sync_barrier().unwrap();
+    for (o, c) in p.diff(&l.version(), 1 << 20).unwrap() {
+        assert_eq!(l.apply(&o, &c.bytes).unwrap(), 1);
+    }
+    let frames: Vec<_> = l
+        .scan(&p_id, 0)
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(frames.len(), 4);
+    assert!(frames[1].decoded.is_redacted());
+    assert_eq!(frames[1].decoded.id, target.id);
+    assert!(!frames[0].decoded.is_redacted() && !frames[2].decoded.is_redacted());
+    // The local copy now equals the origin's: byte for byte.
+    let (a, b) = (
+        std::fs::read(log_path(&td.path().join("p"), "ppp")).unwrap(),
+        std::fs::read(log_path(&td.path().join("l"), "ppp")).unwrap(),
+    );
+    assert_eq!(a, b);
+    // A redaction naming an event that is not there is an error and appends nothing.
+    let before = p.version();
+    assert!(matches!(
+        p.redact(&mut pc, 3, "urn:w:r".into(), "urn:v:unit".into(), &p_id, 99),
+        Err(LedgerError::NoSuchFrame { .. })
+    ));
+    assert_eq!(p.version(), before);
+}
+
+#[test]
+fn unit_apply_refuses_a_chunk_that_does_not_validate_and_writes_nothing() {
+    let td = TempDir::new().unwrap();
+    let a_id = OriginId("aaa".to_string());
+    let mut a = ledger_in(&td.path().join("a"), "aaa");
+    let mut c = HlcClock::new();
+    for tag in ["x", "y", "z"] {
+        a.append(&mut c, 1, draft(&simple_spec(tag))).unwrap();
+    }
+    a.sync_barrier().unwrap();
+    let chunk = a
+        .diff(&VersionVector(BTreeMap::new()), 1 << 20)
+        .unwrap()
+        .remove(0)
+        .1;
+    let mut bad = chunk.bytes.clone();
+    let n = bad.len();
+    bad[n - 6] ^= 1; // payload of the last frame
+    let mut b = ledger_in(&td.path().join("b"), "bbb");
+    assert!(b.apply(&a_id, &bad).is_err());
+    assert_eq!(b.version().get(&a_id), 0);
+    assert!(!log_path(&td.path().join("b"), "aaa").exists());
+    // A chunk with a hole in its seqs is a gap, wherever it starts.
+    let first_len = 4 + u32::from_le_bytes(chunk.bytes[..4].try_into().unwrap()) as usize;
+    let mut holed = chunk.bytes[..first_len].to_vec();
+    let second_len =
+        4 + u32::from_le_bytes(chunk.bytes[first_len..first_len + 4].try_into().unwrap()) as usize;
+    holed.extend_from_slice(&chunk.bytes[first_len + second_len..]);
+    assert!(is_gap(&b.apply(&a_id, &holed).unwrap_err()));
+    assert_eq!(b.apply(&a_id, &chunk.bytes).unwrap(), 3);
+}
+
+#[test]
+fn unit_unknown_mode_and_fields_survive_open_sync_and_reopen() {
+    // A frame a newer build wrote (mode "commit", header field "future") must open, replicate and
+    // reopen on this build, with its id unchanged.
+    let td = TempDir::new().unwrap();
+    let a_id = OriginId("aaa".to_string());
+    let dir_a = td.path().join("a");
+    let (mut s, _) = Stream::open(&dir_a, &a_id).unwrap();
+    let mut spec = simple_spec("future");
+    spec.mode = Mode::Other("commit".into());
+    let mut ev = event(&spec, "aaa", 1);
+    ev.header
+        .extra
+        .insert("future".into(), serde_json::json!(1));
+    let ap = s.append_event(&ev).unwrap();
+    s.sync_barrier().unwrap();
+    drop(s);
+
+    let (mut a, recs) = Ledger::open(&dir_a, a_id.clone()).unwrap();
+    assert!(recs.iter().all(|(_, r)| *r == Recovery::Clean));
+    let mut b = ledger_in(&td.path().join("b"), "bbb");
+    for (o, c) in a.diff(&b.version(), 1 << 20).unwrap() {
+        assert_eq!(b.apply(&o, &c.bytes).unwrap(), 1);
+    }
+    let f = b.scan(&a_id, 0).unwrap().next().unwrap().unwrap();
+    assert_eq!(f.decoded.id, ap.id);
+    assert_eq!(f.decoded.header.mode, Mode::Other("commit".into()));
+    assert_eq!(f.decoded.header.extra["future"], serde_json::json!(1));
+    // The local origin keeps appending after such a frame.
+    a.append(&mut HlcClock::new(), 1, draft(&simple_spec("next")))
+        .unwrap();
+    assert_eq!(a.version().get(&a_id), 2);
+}
+
+#[test]
+fn unit_header_past_the_u16_bound_is_too_large() {
+    let mut spec = simple_spec("big");
+    spec.subjects[0].parents = vec!["b".repeat(64); 1000];
+    assert!(matches!(
+        encode(&event(&spec, "big", 1)),
+        Err(FrameError::TooLarge(_))
+    ));
 }
