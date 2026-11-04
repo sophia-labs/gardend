@@ -73,6 +73,13 @@ struct Shipping {
     shipped: BTreeMap<OriginId, u64>,
     /// The version at the last successful full flush (frames at or below it are durable).
     durable_vv: VersionVector,
+    /// The version every successful barrier or full flush has covered. The barrier is an ordering
+    /// point (F_BARRIERFSYNC: earlier writes reach the platter before later ones), not a flush:
+    /// frames at or below this are ordered before every later write and inside the accepted 1 s
+    /// loss window, not guaranteed to survive a power cut (only `durable_vv`, a full flush, is
+    /// that). A superset of `durable_vv`; the fold reads no further, so the sink is never ahead of
+    /// the ledger's own on-disk order (W7b F8).
+    barriered_vv: VersionVector,
     /// Bundles waiting for [`Convergent::shippable`].
     outbox: Vec<Vec<u8>>,
 }
@@ -85,7 +92,7 @@ pub(crate) struct LedgerRoom {
     clock: StdMutex<HlcClock>,
     shipping: Arc<StdMutex<Shipping>>,
     /// Frames written since the last barrier.
-    barrier_owed: AtomicBool,
+    barrier_owed: Arc<AtomicBool>,
     /// Frames written since the last full flush.
     ship_owed: AtomicBool,
     /// Set (once, first) by [`LedgerRoom::evict`]; fences `apply`, `append` and `diff`.
@@ -103,6 +110,54 @@ pub(crate) struct LedgerRoom {
     /// at eviction so a watcher wakes to notice the flag). The fold host watches it instead of
     /// subscribing to `frames`, which would count as a waiting peer and change the ship cadence.
     changes: watch::Sender<VersionVector>,
+    /// Test seam for W7b F4: held open around the next barrier's fsync.
+    #[cfg(test)]
+    barrier_hook: StdMutex<Option<Arc<BarrierHook>>>,
+}
+
+/// Holds the next barrier's fsync open so a test can race a second `persist` against it.
+#[cfg(test)]
+#[derive(Default)]
+pub(crate) struct BarrierHook {
+    entered: AtomicBool,
+    release: AtomicBool,
+    fsynced: AtomicBool,
+    /// When set, the held barrier fails instead of syncing (a failing fsync).
+    fail: AtomicBool,
+}
+
+#[cfg(test)]
+impl BarrierHook {
+    /// Let the parked fsync run.
+    pub(crate) fn release(&self) {
+        self.release.store(true, Ordering::SeqCst);
+    }
+
+    /// True once a barrier is parked in (or past) its fsync.
+    pub(crate) fn entered(&self) -> bool {
+        self.entered.load(Ordering::SeqCst)
+    }
+
+    fn before_fsync(&self) {
+        self.entered.store(true, Ordering::SeqCst);
+        let deadline = std::time::Instant::now() + Duration::from_secs(20);
+        while !self.release.load(Ordering::SeqCst) && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+
+    /// Make the held barrier fail instead of syncing.
+    pub(crate) fn fail_the_fsync(&self) {
+        self.fail.store(true, Ordering::SeqCst);
+    }
+
+    fn fails(&self) -> bool {
+        self.fail.load(Ordering::SeqCst)
+    }
+
+    fn after_fsync(&self) {
+        self.fsynced.store(true, Ordering::SeqCst);
+    }
 }
 
 fn lock<T>(m: &StdMutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -377,12 +432,17 @@ fn fold_step(decoded: &Decoded) -> FoldStep {
     }
 }
 
-/// Walk every stream from the first frame past `since`.
-fn collect_steps(ledger: &Ledger, since: &VersionVector) -> Result<Vec<FoldStep>, ConvergeError> {
+/// Walk every stream from the first frame past `since`, up to and including `covered`.
+fn collect_steps(
+    ledger: &Ledger,
+    since: &VersionVector,
+    covered: &VersionVector,
+) -> Result<Vec<FoldStep>, ConvergeError> {
     let mut out = Vec::new();
     for (origin, last) in &ledger.version().0 {
         let held = since.get(origin);
-        if held >= *last {
+        let last = (*last).min(covered.get(origin));
+        if held >= last {
             continue;
         }
         let Some(stream) = ledger.stream(origin) else {
@@ -401,6 +461,9 @@ fn collect_steps(ledger: &Ledger, since: &VersionVector) -> Result<Vec<FoldStep>
         };
         for item in ledger.scan(origin, offset).map_err(from_ledger)? {
             let at = item.map_err(|e| from_ledger(LedgerError::Stream(e)))?;
+            if at.decoded.header.seq > last {
+                break;
+            }
             out.push(fold_step(&at.decoded));
         }
     }
@@ -408,6 +471,14 @@ fn collect_steps(ledger: &Ledger, since: &VersionVector) -> Result<Vec<FoldStep>
 }
 
 impl LedgerRoom {
+    /// Park the next barrier in its fsync until the returned hook is released (tests only).
+    #[cfg(test)]
+    pub(crate) fn hold_next_barrier(&self) -> Arc<BarrierHook> {
+        let hook = Arc::new(BarrierHook::default());
+        *lock(&self.barrier_hook) = Some(hook.clone());
+        hook
+    }
+
     /// Open (creating if missing) the ledger at `graph_dir/ledger/{vocab}` with `local` as this
     /// cell's writer id. `vocab` must be a single safe path component. Every frame found on open is
     /// durable (the crate fsyncs recovered files), so it counts as already shipped.
@@ -428,7 +499,8 @@ impl LedgerRoom {
         let at_open = ledger.version();
         let shipping = Shipping {
             shipped: at_open.0.clone(),
-            durable_vv: at_open,
+            durable_vv: at_open.clone(),
+            barriered_vv: at_open,
             outbox: Vec::new(),
         };
         let (frames, _) = broadcast::channel(FRAME_CHANNEL_CAPACITY);
@@ -438,7 +510,7 @@ impl LedgerRoom {
             ledger: Arc::new(Mutex::new(ledger)),
             clock: StdMutex::new(HlcClock::new()),
             shipping: Arc::new(StdMutex::new(shipping)),
-            barrier_owed: AtomicBool::new(false),
+            barrier_owed: Arc::new(AtomicBool::new(false)),
             ship_owed: AtomicBool::new(false),
             evicted: AtomicBool::new(false),
             persist_armed: AtomicBool::new(false),
@@ -447,6 +519,8 @@ impl LedgerRoom {
             frames,
             awareness: AwarenessTable::new(),
             changes,
+            #[cfg(test)]
+            barrier_hook: StdMutex::new(None),
         }))
     }
 
@@ -646,8 +720,14 @@ impl LedgerRoom {
     /// fold quarantines it) and never fails the walk. `commit`, `redact` and unknown-mode frames
     /// carry no records and are not decoded; a redacted or damaged payload is not folded either.
     ///
-    /// Reads frames not yet flushed too (the fold waits for the barrier first). The scan runs on a
-    /// blocking thread holding the ledger lock, as `persist` does.
+    /// **Only frames a barrier has covered** (W7b F8): the walk stops, per origin, at the version
+    /// recorded by the last successful `persist` or full flush, so the fold never reads a frame no
+    /// barrier was issued for. The barrier is an ordering point, not a flush: a power cut inside
+    /// the accepted 1 s window can still lose the newest frames, so the sink may be ahead of the
+    /// recovered ledger by that window (recovery is the live replay), never by an unbarriered
+    /// frame. A frame appended after that barrier
+    /// is picked up by the cycle its append wakes. The scan runs on a blocking thread holding the
+    /// ledger lock, as `persist` does.
     pub(crate) async fn events_since(
         &self,
         since: &VersionVector,
@@ -655,7 +735,8 @@ impl LedgerRoom {
         self.check_live()?;
         let ledger = self.ledger.clone().lock_owned().await;
         let since = since.clone();
-        tokio::task::spawn_blocking(move || collect_steps(&ledger, &since))
+        let covered = lock(&self.shipping).barriered_vv.clone();
+        tokio::task::spawn_blocking(move || collect_steps(&ledger, &since, &covered))
             .await
             .map_err(|e| ConvergeError::Persistence(persistence(e, "ledger scan task")))?
     }
@@ -676,6 +757,32 @@ impl LedgerRoom {
                 }
             }
             Ok(open)
+        })
+        .await
+        .map_err(|e| ConvergeError::Persistence(persistence(e, "ledger txn scan task")))?
+    }
+
+    /// This cell's origin and the seq of its newest frame (0 when it has none). One short lock, no
+    /// maps built: the commit gate's cheap "has anything been appended since" test (W7b F1).
+    pub(crate) async fn local_tip(&self) -> (OriginId, u64) {
+        let ledger = self.ledger.lock().await;
+        let local = ledger.local().clone();
+        let tip = ledger
+            .stream(&local)
+            .map_or(0, |stream| stream.next_seq().saturating_sub(1));
+        (local, tip)
+    }
+
+    /// Every transaction run of this cell's own stream, closed or open, in seq order (see
+    /// [`Ledger::txn_runs`]). A full header walk on a blocking thread holding the ledger lock: the
+    /// commit gate calls it once per ledger per process, to learn the runs a restart forgot (W7b F1).
+    pub(crate) async fn local_txn_runs(&self) -> Result<(OriginId, Vec<TxnRun>), ConvergeError> {
+        self.check_live()?;
+        let ledger = self.ledger.clone().lock_owned().await;
+        tokio::task::spawn_blocking(move || {
+            let local = ledger.local().clone();
+            let runs = ledger.txn_runs(&local, 0).map_err(from_ledger)?;
+            Ok((local, runs))
         })
         .await
         .map_err(|e| ConvergeError::Persistence(persistence(e, "ledger txn scan task")))?
@@ -788,16 +895,57 @@ impl Convergent for LedgerRoom {
     }
 
     async fn persist(&self) -> Result<(), PersistenceError> {
-        if !self.barrier_owed.load(Ordering::Acquire) {
-            return Ok(());
-        }
+        // No unlocked early return (W7b F4): `barrier_owed` is cleared by whoever takes the barrier
+        // *before* its fsync runs, so a caller that read `false` here could return while the
+        // barrier covering its frame was still in flight. The ledger lock is held across that
+        // fsync (the guard moves onto the blocking thread), so taking it is the wait; the flag is
+        // only the "nothing to do" test once we are the one holding it.
         let ledger = self.ledger.clone().lock_owned().await;
-        if !self.barrier_owed.swap(false, Ordering::AcqRel) {
+        // What the caller needs covered is every frame in the ledger now (its own frame is in it:
+        // the lock is ours). A barrier or full flush that already covered that version is enough; a
+        // clear flag is not (W7b-2 a): another persist may have cleared it, failed its fsync and
+        // restored it only after dropping the guard, and a caller trusting the clear flag would
+        // return Ok over an uncovered frame.
+        let required = ledger.version();
+        let covered_already = lock(&self.shipping).barriered_vv.dominates(&required);
+        self.barrier_owed.swap(false, Ordering::AcqRel);
+        if covered_already {
             return Ok(());
         }
         // The fsync runs on a blocking thread holding the owned guard: appends wait for it as they
         // always did, but no executor worker does.
-        match tokio::task::spawn_blocking(move || ledger.sync_barrier()).await {
+        #[cfg(test)]
+        let hook = lock(&self.barrier_hook).take();
+        let shipping = self.shipping.clone();
+        let owed_flag = self.barrier_owed.clone();
+        match tokio::task::spawn_blocking(move || {
+            #[cfg(test)]
+            if let Some(hook) = &hook {
+                hook.before_fsync();
+            }
+            #[cfg(test)]
+            let injected = hook.as_ref().is_some_and(|hook| hook.fails());
+            #[cfg(not(test))]
+            let injected = false;
+            let synced = if injected {
+                Err(std::io::Error::other("injected fsync failure"))
+            } else {
+                ledger.sync_barrier()
+            };
+            #[cfg(test)]
+            if let Some(hook) = &hook {
+                hook.after_fsync();
+            }
+            match &synced {
+                Ok(()) => lock(&shipping).barriered_vv.merge(&required),
+                // Restore the debt while the guard is still held: no other persist can see the
+                // ledger with the flag clear and the frame uncovered.
+                Err(_) => owed_flag.store(true, Ordering::Release),
+            }
+            synced
+        })
+        .await
+        {
             Ok(Ok(())) => Ok(()),
             Ok(Err(e)) => {
                 self.barrier_owed.store(true, Ordering::Release);
@@ -827,6 +975,9 @@ impl Convergent for LedgerRoom {
             if let Err(e) = ledger.sync_full() {
                 return Flushed::Full(e);
             }
+            // The flush covers these frames whether or not shipping them works: the fold may read
+            // them now, so a Ship error must not hide flushed frames from it (W7b-2 b).
+            lock(&shipping).barriered_vv.merge(&covered);
             if let Err(e) = queue_shippable(&ledger, &shipping, &covered) {
                 return Flushed::Ship(e);
             }
@@ -917,6 +1068,7 @@ mod tests {
             mode: Mode::Assert,
             payload: format!("{{\"tag\":\"{tag}\"}}").into_bytes(),
             txn: None,
+            extra: Default::default(),
         }
     }
 
@@ -1300,6 +1452,154 @@ mod tests {
         }
         assert!(!a.ship_owed(), "ship_owed did not clear within 2 s");
         assert_eq!(a.version_json().await["durable"]["cell-a"], 1);
+    }
+
+    /// W7b F4: a `persist` that arrives while another barrier is in its fsync does not return until
+    /// that fsync is done, even though the other barrier already cleared `barrier_owed`. This is
+    /// what the commit route's ack rides. Mutation: put the unlocked `if !barrier_owed { return }`
+    /// back at the top of `persist` and the second caller returns at once, with the fsync still held
+    /// open by the hook.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_persist_racing_another_barrier_waits_for_that_barriers_fsync() {
+        let d = Scratch::new();
+        let a = LedgerRoom::open(&d.0, "test", o("cell-a")).unwrap();
+        let hook = a.hold_next_barrier();
+        a.append(draft("raced")).await.unwrap();
+
+        // The first barrier (this call, or the room's own armed task) takes the hook and parks in
+        // its fsync with the flag already cleared and the ledger lock held.
+        let first = tokio::spawn({
+            let a = a.clone();
+            async move { a.persist().await }
+        });
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        while !hook.entered() && tokio::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert!(hook.entered(), "no barrier reached its fsync");
+        assert!(
+            !a.barrier_owed(),
+            "the barrier clears the debt before its fsync"
+        );
+
+        let second = tokio::spawn({
+            let a = a.clone();
+            let hook = hook.clone();
+            async move {
+                a.persist().await.unwrap();
+                hook.fsynced.load(Ordering::SeqCst)
+            }
+        });
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(
+            !second.is_finished(),
+            "persist returned while another barrier was still in its fsync"
+        );
+
+        hook.release();
+        first.await.unwrap().unwrap();
+        assert!(
+            second.await.unwrap(),
+            "persist returned before the fsync that covered its frame finished"
+        );
+    }
+
+    /// W7b-2 a. A persist that waits behind a barrier whose fsync fails must not return `Ok` over
+    /// the frame that failed to sync: it decides by the version the barrier covered (not by the
+    /// flag the failed barrier cleared), so it takes its own barrier. Mutation: decide by the flag
+    /// alone and the second persist returns `Ok` with `events_since` still empty.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_persist_behind_a_failed_barrier_does_not_ack_an_uncovered_frame() {
+        let d = Scratch::new();
+        let a = LedgerRoom::open(&d.0, "test", o("cell-a")).unwrap();
+        let hook = a.hold_next_barrier();
+        hook.fail_the_fsync();
+        a.append(draft("lost")).await.unwrap();
+
+        let first = tokio::spawn({
+            let a = a.clone();
+            async move { a.persist().await }
+        });
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        while !hook.entered() && tokio::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert!(hook.entered(), "no barrier reached its fsync");
+        let second = tokio::spawn({
+            let a = a.clone();
+            async move { a.persist().await }
+        });
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        hook.release();
+        assert!(
+            first.await.unwrap().is_err(),
+            "the failed barrier must say so"
+        );
+        // The second caller either failed too or took a barrier of its own and covered the frame;
+        // it never returns Ok with the frame uncovered.
+        let second = second.await.unwrap();
+        let covered = a
+            .events_since(&VersionVector::default())
+            .await
+            .unwrap()
+            .len();
+        if second.is_ok() {
+            assert_eq!(
+                covered, 1,
+                "persist returned Ok over a frame no barrier covered"
+            );
+        }
+        assert!(a.barrier_owed() || covered == 1, "the debt was lost");
+        // And a later persist (the hook is spent) covers it for good.
+        a.persist().await.unwrap();
+        assert_eq!(
+            a.events_since(&VersionVector::default())
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    /// W7b F8: `events_since` stops at the version the last barrier recorded. A frame appended after
+    /// it is invisible until a barrier covers it. Mutation: read to the end of the stream (the
+    /// pre-W7b `collect_steps`) and the first assertion goes red.
+    #[tokio::test]
+    async fn events_since_reads_only_what_a_barrier_has_covered() {
+        let d = Scratch::new();
+        let a = LedgerRoom::open(&d.0, "test", o("cell-a")).unwrap();
+        a.append(draft("one")).await.unwrap();
+        assert_eq!(a.version_json().await["origins"]["cell-a"], 1);
+        assert!(
+            a.events_since(&VersionVector::default())
+                .await
+                .unwrap()
+                .is_empty(),
+            "a frame no barrier has covered was handed to the fold"
+        );
+        a.persist().await.unwrap();
+        let steps = a.events_since(&VersionVector::default()).await.unwrap();
+        assert_eq!(steps.len(), 1);
+        assert_eq!(steps[0].seq, 1);
+
+        a.append(draft("two")).await.unwrap();
+        let mut seen = VersionVector::default();
+        seen.0.insert(o("cell-a"), 1);
+        assert!(a.events_since(&seen).await.unwrap().is_empty());
+        a.persist().await.unwrap();
+        let steps = a.events_since(&seen).await.unwrap();
+        assert_eq!(steps.iter().map(|s| s.seq).collect::<Vec<_>>(), vec![2]);
+
+        // A reopened ledger counts what it found as covered (the crate fsyncs recovered files).
+        drop(a);
+        let b = LedgerRoom::open(&d.0, "test", o("cell-a")).unwrap();
+        assert_eq!(
+            b.events_since(&VersionVector::default())
+                .await
+                .unwrap()
+                .len(),
+            2
+        );
     }
 
     /// An idle-armed ship task does not hold a waiting peer back for a second: a subscriber that
