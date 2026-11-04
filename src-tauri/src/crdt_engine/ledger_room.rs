@@ -397,6 +397,9 @@ fn queue_shippable(
 pub(crate) struct FoldStep {
     pub(crate) origin: OriginId,
     pub(crate) seq: u64,
+    /// The frame's id (blake3 of its stored header bytes): what the fold's watermark names beside
+    /// the seq, so a load can tell the frame it folded from another one at the same seq (W7d).
+    pub(crate) id: garden_ledger::Id,
     /// The frame's `txn`, if it carries one (a `commit` frame always does).
     pub(crate) txn: Option<String>,
     pub(crate) mode: Mode,
@@ -425,6 +428,7 @@ fn fold_step(decoded: &Decoded) -> FoldStep {
     FoldStep {
         origin: header.origin.clone(),
         seq: header.seq,
+        id: decoded.id,
         txn: header.txn.clone(),
         mode: header.mode.clone(),
         subjects: header.subjects.iter().map(|s| s.subject.clone()).collect(),

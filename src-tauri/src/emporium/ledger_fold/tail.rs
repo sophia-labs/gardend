@@ -34,9 +34,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
-use garden_ledger::{Mode, OriginId, VersionVector};
+use garden_ledger::frame::to_hex;
+use garden_ledger::{Id, Mode, OriginId, VersionVector};
 use oxigraph::model::{GraphName, GraphNameRef, NamedNode, NamedOrBlankNode, Quad, Term as OxTerm};
-use oxigraph::store::Store;
+use oxigraph::store::{Store, Transaction};
 use serde::Serialize;
 use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot, watch};
@@ -173,6 +174,8 @@ pub(crate) struct Quarantined {
 pub(crate) struct Unit {
     pub(crate) origin: OriginId,
     pub(crate) last_seq: u64,
+    /// The id of the frame at `last_seq`: what the watermark names beside the seq (W7d).
+    pub(crate) last_frame: Id,
     pub(crate) events: Vec<FoldEvent>,
     /// Subject IRIs the frames' headers name.
     pub(crate) subjects: Vec<String>,
@@ -192,6 +195,7 @@ struct RunBuf {
     txn: String,
     first_seq: u64,
     last_seq: u64,
+    last_frame: Id,
     events: Vec<FoldEvent>,
     subjects: Vec<String>,
 }
@@ -209,6 +213,7 @@ impl Plan {
             if let Some(last) = self.units.last_mut() {
                 if last.events.is_empty() && last.origin == unit.origin {
                     last.last_seq = unit.last_seq;
+                    last.last_frame = unit.last_frame;
                     return;
                 }
             }
@@ -238,6 +243,7 @@ impl OriginPlan {
             plan.push_unit(Unit {
                 origin: self.origin.clone(),
                 last_seq: run.last_seq,
+                last_frame: run.last_frame,
                 events: Vec::new(),
                 subjects: Vec::new(),
             });
@@ -260,6 +266,7 @@ impl OriginPlan {
         let FoldStep {
             origin,
             seq,
+            id,
             txn,
             mode,
             subjects,
@@ -271,6 +278,7 @@ impl OriginPlan {
             let mut unit = Unit {
                 origin: origin.clone(),
                 last_seq: seq,
+                last_frame: id,
                 events: Vec::new(),
                 subjects: Vec::new(),
             };
@@ -299,6 +307,7 @@ impl OriginPlan {
             plan.push_unit(Unit {
                 origin,
                 last_seq: seq,
+                last_frame: id,
                 events,
                 subjects,
             });
@@ -308,10 +317,12 @@ impl OriginPlan {
             txn,
             first_seq: seq,
             last_seq: seq,
+            last_frame: id,
             events: Vec::new(),
             subjects: Vec::new(),
         });
         run.last_seq = seq;
+        run.last_frame = id;
         match event {
             Some(Ok(event)) => {
                 run.events.push(event);
@@ -364,6 +375,34 @@ fn chunk_units(units: Vec<Unit>) -> Vec<Vec<Unit>> {
         chunks.push(current);
     }
     chunks
+}
+
+/// Per origin, the highest `last_seq` of `units` with the id of the frame there: what a watermark
+/// write stages (W7d).
+fn advance_of<'a>(units: impl IntoIterator<Item = &'a Unit>) -> BTreeMap<OriginId, (u64, Id)> {
+    let mut advance: BTreeMap<OriginId, (u64, Id)> = BTreeMap::new();
+    for unit in units {
+        let slot = advance
+            .entry(unit.origin.clone())
+            .or_insert((unit.last_seq, unit.last_frame));
+        if unit.last_seq >= slot.0 {
+            *slot = (unit.last_seq, unit.last_frame);
+        }
+    }
+    advance
+}
+
+/// Stage every origin's watermark with the id of the frame it stands on, in `txn`.
+fn stage_marks(
+    txn: &mut Transaction<'_>,
+    control: &NamedNode,
+    vocab: &str,
+    advance: &BTreeMap<OriginId, (u64, Id)>,
+) -> Result<(), String> {
+    for (origin, (seq, frame)) in advance {
+        watermark::stage_watermark(txn, control, vocab, origin, *seq, &to_hex(frame))?;
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -436,6 +475,8 @@ struct Resolved {
     kind: SinkKind,
     generation: u64,
     watermark: VersionVector,
+    /// The folded-frame marks beside the watermark (W7d); empty for a watermark written before.
+    marks: BTreeMap<OriginId, (u64, String)>,
 }
 
 /// Everything the tail reads from the store at (re)load: the policy, the sink, the stored
@@ -456,11 +497,13 @@ fn resolve_config(
         }
     };
     let stored = watermark::read_watermarks(store, control, vocab)?;
+    let marks = watermark::read_folded_frames(store, control, vocab)?;
     Ok(Resolved {
         policy,
         kind,
         generation,
         watermark: stored,
+        marks,
     })
 }
 
@@ -675,7 +718,8 @@ struct ChunkCtx {
 
 #[derive(Default)]
 struct ChunkOut {
-    advance: BTreeMap<OriginId, u64>,
+    /// Per origin, the seq the watermark moves to and the id of the frame there.
+    advance: BTreeMap<OriginId, (u64, Id)>,
     touched: BTreeSet<String>,
     applied: u64,
     contested: u64,
@@ -704,14 +748,11 @@ fn apply_chunk_blocking(
             out.touched.extend(delta.touched);
             out.applied += 1;
         }
-        let slot = out.advance.entry(unit.origin.clone()).or_insert(0);
-        *slot = (*slot).max(unit.last_seq);
     }
+    out.advance = advance_of(units);
     out.delta_ms = ms_since(staging);
     let committing = Instant::now();
-    for (origin, seq) in &out.advance {
-        watermark::stage_watermark(&mut txn, &ctx.control, &ctx.vocab, origin, *seq)?;
-    }
+    stage_marks(&mut txn, &ctx.control, &ctx.vocab, &out.advance)?;
     if ctx.fault.load(Ordering::SeqCst) {
         return Err("injected fault between the delta and the commit".to_string());
     }
@@ -745,7 +786,7 @@ fn rebuild_blocking(
     generation: u64,
     policy: &FoldPolicy,
     units: &[Unit],
-    advance: &BTreeMap<OriginId, u64>,
+    advance: &BTreeMap<OriginId, (u64, Id)>,
     owned_before: &BTreeSet<String>,
 ) -> Result<RebuildOut, String> {
     let started = Instant::now();
@@ -781,9 +822,7 @@ fn rebuild_blocking(
             for quad in desired.difference(&current) {
                 txn.insert(quad);
             }
-            for (origin, seq) in advance {
-                watermark::stage_watermark(&mut txn, control, vocab, origin, *seq)?;
-            }
+            stage_marks(&mut txn, control, vocab, advance)?;
             txn.commit()
                 .map_err(|e| format!("commit rebuild transaction: {e}"))?;
             crate::cell_durability::mark_rdf_store_written(store);
@@ -815,9 +854,7 @@ fn rebuild_blocking(
                 .start_transaction()
                 .map_err(|e| format!("start swap transaction: {e}"))?;
             watermark::stage_generation(&mut txn, control, base, next)?;
-            for (origin, seq) in advance {
-                watermark::stage_watermark(&mut txn, control, vocab, origin, *seq)?;
-            }
+            stage_marks(&mut txn, control, vocab, advance)?;
             txn.commit()
                 .map_err(|e| format!("commit swap transaction: {e}"))?;
             crate::cell_durability::mark_rdf_store_written(store);
@@ -1369,27 +1406,33 @@ impl Core {
             .events_since(&VersionVector::default())
             .await
             .map_err(|e| e.to_string())?;
+        let stored = resolved.watermark;
+        let marks = resolved.marks;
         let mut last_seen: BTreeMap<OriginId, u64> = BTreeMap::new();
+        // The id of the frame the ledger holds at each folded-frame mark's seq (W7d).
+        let mut at_marks: BTreeMap<OriginId, String> = BTreeMap::new();
         for step in &steps {
             let slot = last_seen.entry(step.origin.clone()).or_insert(0);
             *slot = (*slot).max(step.seq);
+            if marks
+                .get(&step.origin)
+                .is_some_and(|(seq, _)| *seq == step.seq)
+            {
+                at_marks.insert(step.origin.clone(), to_hex(&step.id));
+            }
         }
         let mut plan = plan_steps(steps);
         self.absorb_meta(&mut plan);
 
-        let stored = resolved.watermark;
-        let ahead = stored
-            .0
-            .iter()
-            .find(|(origin, seq)| **seq > last_seen.get(*origin).copied().unwrap_or(0));
-        if let Some((origin, seq)) = ahead {
-            // The sink was folded from frames this ledger no longer has (a crash inside the
-            // durability window, or a ledger replaced). Only a rebuild makes the two agree.
+        if let Some(reason) = watermark::untrusted_watermark(&stored, &marks, &last_seen, &at_marks)
+        {
+            // The sink was folded from frames this ledger no longer has at those seqs (a crash
+            // inside the durability window, frames re-appended at the same seqs, or a ledger
+            // replaced). Only a rebuild makes the two agree.
             log::warn!(
-                "ledger fold {}/{}: watermark {} at {seq} is ahead of the ledger; rebuilding the sink",
+                "ledger fold {}/{}: {reason}; rebuilding the sink",
                 self.graph_id,
                 self.vocab,
-                origin.0
             );
             drop(plan);
             self.rebuild_live(room).await?;
@@ -1512,7 +1555,7 @@ impl Core {
         // sink never got, so it is dropped and the next cycle reloads from the store.
         let out = out?;
         self.heads = Some(heads);
-        for (origin, seq) in out.advance {
+        for (origin, (seq, _)) in out.advance {
             let slot = self.wm.0.entry(origin).or_insert(0);
             *slot = (*slot).max(seq);
         }
@@ -1600,11 +1643,7 @@ impl Core {
             .map_err(|e| e.to_string())?;
         let mut plan = plan_steps(steps);
         self.absorb_meta(&mut plan);
-        let mut advance: BTreeMap<OriginId, u64> = BTreeMap::new();
-        for unit in &plan.units {
-            let slot = advance.entry(unit.origin.clone()).or_insert(0);
-            *slot = (*slot).max(unit.last_seq);
-        }
+        let advance = advance_of(&plan.units);
         let units = plan.units;
         let _lease = self.hot_lease().await?;
         let store = self.store()?;
@@ -1633,7 +1672,12 @@ impl Core {
         self.sink = out.sink;
         self.generation = out.generation;
         self.owned = out.owned;
-        self.wm = VersionVector(advance);
+        self.wm = VersionVector(
+            advance
+                .into_iter()
+                .map(|(origin, (seq, _))| (origin, seq))
+                .collect(),
+        );
         self.publish();
         if let Some(old) = out.retire {
             schedule_retire(store, old);
@@ -1810,6 +1854,16 @@ mod tests {
 
     // ---- pure planning -------------------------------------------------------------------
 
+    /// A stand-in frame id, distinct per (origin, seq).
+    fn fake_id(origin: &str, seq: u64) -> Id {
+        let mut id = [0u8; 32];
+        id[..8].copy_from_slice(&seq.to_be_bytes());
+        for (slot, b) in id[8..].iter_mut().zip(origin.bytes()) {
+            *slot = b;
+        }
+        id
+    }
+
     fn step(origin: &str, seq: u64, txn: Option<&str>, mode: Mode, bad: Option<&str>) -> FoldStep {
         // The planner never looks inside an event, so a synthetic one with no ops stands in; a
         // commit frame carries none, and a frame that does not decode carries its error.
@@ -1827,6 +1881,7 @@ mod tests {
         FoldStep {
             origin: o(origin),
             seq,
+            id: fake_id(origin, seq),
             txn: txn.map(str::to_string),
             mode,
             subjects: vec![format!("urn:s:{origin}:{seq}")],
@@ -1977,12 +2032,52 @@ mod tests {
         assert_eq!(plan.open_tail[0].first_seq, 2);
     }
 
+    /// W7d item 2: every unit names the frame at its `last_seq` (the id the watermark stores), on
+    /// every path: a plain frame, a committed run (its commit frame), an abandoned run, and an
+    /// event-less unit merged into the one before it. Mutation: leave `last_frame` alone when
+    /// `push_unit` merges, and the merged unit names the frame it no longer ends at.
+    #[test]
+    fn host_plan_every_unit_names_the_frame_at_its_last_seq() {
+        let plan = plan_steps(vec![
+            step("a", 1, Some("t"), Mode::Assert, None),
+            // a commit of another txn: abandons t (an event-less unit at 1), then closes a run of
+            // none (an event-less unit at 2, merged into the one at 1)
+            step("a", 2, Some("u"), Mode::Commit, None),
+            step("a", 3, None, Mode::Assert, None),
+            step("a", 4, Some("v"), Mode::Assert, None),
+            step("a", 5, Some("v"), Mode::Commit, None),
+            step("b", 1, None, Mode::Assert, Some("bad payload")),
+        ]);
+        assert_eq!(
+            bounds(&plan),
+            vec![
+                ("a".into(), 2),
+                ("a".into(), 3),
+                ("a".into(), 5),
+                ("b".into(), 1)
+            ]
+        );
+        for unit in &plan.units {
+            assert_eq!(
+                unit.last_frame,
+                fake_id(&unit.origin.0, unit.last_seq),
+                "unit ending at {}#{}",
+                unit.origin.0,
+                unit.last_seq
+            );
+        }
+        let advance = advance_of(&plan.units);
+        assert_eq!(advance.get(&o("a")), Some(&(5, fake_id("a", 5))));
+        assert_eq!(advance.get(&o("b")), Some(&(1, fake_id("b", 1))));
+    }
+
     #[test]
     fn host_chunks_never_split_a_unit_and_keep_order() {
         let units: Vec<Unit> = (1..=5)
             .map(|seq| Unit {
                 origin: o("a"),
                 last_seq: seq,
+                last_frame: fake_id("a", seq),
                 events: Vec::new(),
                 subjects: Vec::new(),
             })
@@ -2264,6 +2359,125 @@ mod tests {
         assert_eq!(status["applied_events"], 0, "{status}");
         assert_eq!(status["watermark"]["cell-test"], last);
         assert_eq!(rig.quads_in_sink().len(), sink_before.len());
+    }
+
+    /// A further tail on the rig's room and store, returned once its load is done.
+    async fn spawn_ready_tail(rig: &Rig) -> Arc<FoldTail> {
+        let tail = FoldTail::spawn(
+            FoldConfig {
+                graph_id: rig.graph_id.clone(),
+                vocab: rig.vocab.clone(),
+                graph_dir: rig._dir.0.clone(),
+                store: Some(rig.store.clone()),
+                app: None,
+            },
+            &rig.room,
+        );
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !tail.status_json()["ready"].as_bool().unwrap_or(false) {
+            assert!(
+                Instant::now() < deadline,
+                "the tail never became ready: {}",
+                tail.status_json()
+            );
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        tail
+    }
+
+    /// W7d item 2. The stored watermark names the frame it stands on, and a load trusts it only while
+    /// the ledger holds that frame at that seq. A triple taken out of the sink by hand shows which
+    /// loads rebuilt: a matching mark loads without a rebuild (the triple stays missing); a mark
+    /// naming another frame at the same seq rebuilds (the triple is back, the mark is the ledger's
+    /// again); a watermark with no mark (written before W7d) loads by its seq alone, as before.
+    /// Mutation: drop the id comparison from `untrusted_watermark` and the forged mark is trusted.
+    #[tokio::test]
+    async fn host_a_watermark_naming_another_frame_rebuilds_and_a_matching_one_does_not() {
+        let rig = Rig::new("ao").await;
+        let mut last = None;
+        for n in 1..=2u64 {
+            let appended = rig
+                .room
+                .append(assert_draft(
+                    "ao",
+                    &[n],
+                    vec![set_op(n, "name", &format!("t{n}"))],
+                    None,
+                ))
+                .await
+                .unwrap();
+            last = Some(appended);
+        }
+        let last = last.unwrap();
+        rig.folded(last.seq).await;
+        let mark = |rig: &Rig| {
+            watermark::read_folded_frames(&rig.store, &rig.control(), &rig.vocab)
+                .unwrap()
+                .get(&o("cell-test"))
+                .cloned()
+        };
+        assert_eq!(
+            mark(&rig),
+            Some((last.seq, to_hex(&last.id))),
+            "the watermark names the frame it stands on"
+        );
+        let victim = rig
+            .quads_in_sink()
+            .into_iter()
+            .find(|q| q.subject.to_string().contains("id=1"))
+            .expect("the sink holds subject 1");
+
+        // A matching mark: trusted, no rebuild.
+        rig.store.remove(&victim).unwrap();
+        let _matching = spawn_ready_tail(&rig).await;
+        assert!(
+            !rig.store.contains(&victim).unwrap(),
+            "a load with a matching mark rebuilt the sink"
+        );
+
+        // Another frame's id at the same seq: untrusted, rebuilt.
+        let mut txn = rig.store.start_transaction().unwrap();
+        watermark::stage_watermark(
+            &mut txn,
+            &rig.control(),
+            &rig.vocab,
+            &o("cell-test"),
+            last.seq,
+            &"0".repeat(64),
+        )
+        .unwrap();
+        txn.commit().unwrap();
+        let _mismatched = spawn_ready_tail(&rig).await;
+        assert!(
+            rig.store.contains(&victim).unwrap(),
+            "a load with a mark naming another frame did not rebuild the sink"
+        );
+        assert_eq!(mark(&rig), Some((last.seq, to_hex(&last.id))));
+        assert_eq!(rig.watermark_in_store(), last.seq);
+
+        // No mark at all (a watermark written before W7d): judged by its seq alone, no rebuild.
+        rig.store.remove(&victim).unwrap();
+        let frame_pred = NamedNode::new(watermark::FOLDED_FRAME_PRED).unwrap();
+        let marks: Vec<Quad> = rig
+            .store
+            .quads_for_pattern(
+                None,
+                Some(frame_pred.as_ref()),
+                None,
+                Some(GraphNameRef::NamedNode(rig.control().as_ref())),
+            )
+            .map(Result::unwrap)
+            .collect();
+        assert_eq!(marks.len(), 1);
+        for quad in &marks {
+            rig.store.remove(quad).unwrap();
+        }
+        let _idless = spawn_ready_tail(&rig).await;
+        assert!(
+            !rig.store.contains(&victim).unwrap(),
+            "an id-less watermark rebuilt the sink"
+        );
+        assert_eq!(rig.watermark_in_store(), last.seq);
     }
 
     #[tokio::test]
