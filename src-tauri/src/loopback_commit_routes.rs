@@ -115,6 +115,11 @@ fn txn_wait() -> Duration {
 
 const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
 
+/// The prefix of the transaction ids this route mints for a multi-frame request that named none.
+/// Reserved: a caller may not name a transaction with it (400, W7d), so the gate's rule that a
+/// minted id is never remembered closed can never forget a caller's committed transaction.
+const AUTO_TXN_PREFIX: &str = "commit-";
+
 /// The two commit routes, merged into the loopback router.
 pub(crate) fn loopback_commit_router() -> Router<Arc<LoopbackState>> {
     Router::new()
@@ -312,6 +317,12 @@ fn check_txn(value: &str) -> Result<(), CommitError> {
         return Err(CommitError::bad(
             "txn may contain only letters, digits and - _ . : = @ +",
         ));
+    }
+    if value.starts_with(AUTO_TXN_PREFIX) {
+        return Err(CommitError::bad(format!(
+            "txn ids starting with {AUTO_TXN_PREFIX:?} are reserved for the ids this route mints; \
+             name the transaction otherwise"
+        )));
     }
     Ok(())
 }
@@ -603,7 +614,10 @@ pub(crate) fn plan_commit(body: CommitBody, limits: &Limits) -> Result<CommitPla
             (Some(txn), close, close)
         }
         None if frames.len() > 1 => (
-            Some(format!("commit-{}", uuid::Uuid::new_v4().simple())),
+            Some(format!(
+                "{AUTO_TXN_PREFIX}{}",
+                uuid::Uuid::new_v4().simple()
+            )),
             true,
             true,
         ),
@@ -747,9 +761,10 @@ async fn enter_gate<'a>(
 }
 
 /// A transaction id this route minted itself for a multi-frame request that named none (see
-/// [`plan_commit`]). Nobody can retry one, so the gate does not remember it as closed.
+/// [`plan_commit`]). Nobody can retry one, so the gate does not remember it as closed. A caller
+/// cannot name one: [`check_txn`] refuses the prefix (W7d).
 fn is_auto_txn(txn: &str) -> bool {
-    txn.strip_prefix("commit-")
+    txn.strip_prefix(AUTO_TXN_PREFIX)
         .is_some_and(|rest| rest.len() == 32 && rest.bytes().all(|b| b.is_ascii_hexdigit()))
 }
 
@@ -1586,6 +1601,15 @@ mod tests {
         assert!(check_txn("has space").is_err());
         assert!(check_txn("").is_err());
         assert!(check_txn(&"x".repeat(129)).is_err());
+        // W7d: the prefix of the minted ids is reserved, whatever follows it; the word elsewhere is
+        // fine. Mutation: drop the prefix check and the first two are accepted.
+        for reserved in ["commit-0123456789abcdef0123456789abcdef", "commit-1"] {
+            let refusal = check_txn(reserved).expect_err(reserved);
+            assert_eq!(refusal.status, StatusCode::BAD_REQUEST);
+            assert!(refusal.message.contains("reserved"), "{}", refusal.message);
+        }
+        assert!(check_txn("import-commit-1").is_ok());
+        assert!(check_txn("commit").is_ok());
     }
 
     #[test]

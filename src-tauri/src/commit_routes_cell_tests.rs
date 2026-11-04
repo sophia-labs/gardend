@@ -1147,3 +1147,63 @@ fn a_set_of_one_value_composes_with_remove_and_add_through_the_router() {
         });
     });
 }
+
+/// W7d item 3: a caller may not name a transaction `commit-...`, the prefix of the ids this route
+/// mints (and whose commit the gate does not remember, so a caller-named one could be committed
+/// twice). An ops request, an ops + commit request and a commit-only request naming one are each
+/// 400 in the route's error shape (`{"ok": false, "error": ...}`, no conflict code), and nothing is
+/// appended; a name that merely contains the word passes. Mutation: drop the prefix test in
+/// `check_txn` and the first request is appended and acked.
+#[test]
+fn a_caller_named_commit_prefixed_txn_is_400_and_appends_nothing() {
+    with_cell("reserved", |profile| {
+        block_on(async {
+            create_fixture_graph();
+            let state = state_for(profile);
+            let (status, body) = commit(
+                &state,
+                AO,
+                "",
+                json!({"witness": "w", "ops": [set_name("urn:ao:term/id=1", "x")]}),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{body}");
+            let before = seq_of(&version(&state, AO).await);
+            assert_eq!(before, 1);
+
+            for bad in [
+                json!({"witness": "w", "txn": "commit-0123456789abcdef0123456789abcdef",
+                       "commit": true, "ops": [set_name("urn:ao:term/id=2", "y")]}),
+                json!({"witness": "w", "txn": "commit-mine",
+                       "ops": [set_name("urn:ao:term/id=2", "y")]}),
+                json!({"witness": "w", "txn": "commit-mine", "commit": true}),
+            ] {
+                let (status, body) = commit(&state, AO, "", bad.clone()).await;
+                assert_eq!(status, StatusCode::BAD_REQUEST, "{bad} -> {body}");
+                assert_eq!(body["ok"], false, "{body}");
+                assert!(
+                    body["error"].as_str().unwrap_or("").contains("reserved"),
+                    "{body}"
+                );
+                assert!(body.get("code").is_none(), "{body}");
+            }
+            assert_eq!(
+                seq_of(&version(&state, AO).await),
+                before,
+                "a refused request appended"
+            );
+
+            let (status, body) = commit(
+                &state,
+                AO,
+                "",
+                json!({"witness": "w", "txn": "import-commit-1", "commit": true,
+                       "ops": [set_name("urn:ao:term/id=3", "z")]}),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{body}");
+            assert_eq!(body["txn"], "import-commit-1");
+            assert_eq!(body["committed"], true);
+        });
+    });
+}
