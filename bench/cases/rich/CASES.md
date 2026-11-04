@@ -110,6 +110,21 @@ selected by these cases. Set `GBENCH_SKIP_MODEL=1` to skip every case that prepa
 `swarm_load` of it, then `swarm_query` / `swarm_traverse` with `exclude_graphs` under 8-way concurrency (the point of the store is that reads
 never touch the CRDT queue). See `docs/swarm-store-design.md`.
 
+## ledger room (`/hocuspocus/ledger/{graph}/{vocab}`, `GET /graphs/{graph}/ledger/{vocab}/version`)
+
+The ledger of streams (ARCHITECTURE.md sections 3 and 4) hosted in a room: y-sync message tags, version vectors (`ledger-vv/1`) for SyncStep1 and
+frame bundles (`ledger-bundle/1`) for SyncStep2 and Update. `bench/lib/ledger.mjs` is the client (frame codec in JS: JCS header, blake3 via
+`@noble/hashes`, crc32c, byte for byte the crate's frame v1) and the relay a browser is. File: `ledger-sync.mjs`. These cases run in the `smoke`
+suite as well as `standard` and `rich`, because the W6 gate is `gbench run --suite smoke --cases 'rich.ledger' --twin`. On a binary whose version
+route 404s each case is skipped with a note; without `--twin` the two sync cases are skipped (needs `twin`).
+
+| id | measures | fixture | iter | cost |
+|---|---|---|---|---|
+| `rich.ledger.sync.cold.n10k` | n frames (tier `small`: 1,000 / 10,000 / 10,000 at tiers s / m / l) seeded into cell A by a writer client; a fresh client cold-syncs A and the relay carries it into cell B; ms from the relay start until B's `version.origins[writer] == n` | fresh graph per iteration, same id on both cells | 1+0 smoke, 3+1 | L |
+| `rich.ledger.sync.cold.n100k` | the same at tier `large` (10,000 / 100,000 / 100,000); not in `smoke` | as above | 3+1 | XL |
+| `rich.ledger.sync.delta` | with the pair synced and the relay live (writer W and subscriber X on A, Y on B): one frame appended by W; ms until B's `version.origins[W]` increments (the append, A's apply and 20 ms eager ship, the relay, B's apply) | 100 frames | 3+1 smoke, 20+3 | S |
+| `rich.ledger.awareness.echo` | awareness state sent at 20 Hz by client 1 on the ledger room, ms until client 2 on the same room holds it; lost states are failed calls | none, one cell | 100 smoke, 600 | S |
+
 ## The fixture part
 
 `bench/fixture/parts/rich-seed.mjs` (name `rich`) adds to `ctx.fixture`: `board` (a 50-shape whiteboard document id), `boardShapes`,

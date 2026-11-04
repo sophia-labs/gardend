@@ -2,6 +2,11 @@
   "name": "gbench",
   "private": true,
   "type": "module",
-  "description": "gardend benchmark protocol and runner. Only the ws cases need dependencies.",
-  "dependencies": { "yjs": "13.6.20", "y-protocols": "1.0.6", "lib0": "0.2.99" }
+  "description": "gardend benchmark protocol and runner. Only the ws cases need dependencies (yjs/y-protocols/lib0 for the emporium log room, @noble/hashes for the ledger room).",
+  "dependencies": {
+    "yjs": "13.6.20",
+    "y-protocols": "1.0.6",
+    "lib0": "0.2.99",
+    "@noble/hashes": "1.8.0"
+  }
 }
