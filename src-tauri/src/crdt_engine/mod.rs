@@ -11,6 +11,7 @@
 //!   blocks, plain text). Verified against captured fixtures in
 //!   tests/fixtures/yrs_wire_compat/.
 
+pub(crate) mod awareness;
 #[doc(hidden)]
 pub mod block_ops;
 pub mod builder;
@@ -19,6 +20,7 @@ pub(crate) mod content_parse;
 pub(crate) use content_parse::block_contract;
 #[cfg(test)]
 mod block_contract_tests;
+pub(crate) mod convergent;
 pub(crate) mod create_once;
 #[doc(hidden)]
 pub mod document_ops;
@@ -31,6 +33,7 @@ mod forward_restore_tests;
 #[doc(hidden)]
 pub mod import_archive_ops;
 pub(crate) mod import_vault_ops;
+pub(crate) mod ledger_room;
 pub(crate) mod markdown_export;
 pub(crate) mod minimal_edit;
 pub(crate) mod persistence_coordinator;

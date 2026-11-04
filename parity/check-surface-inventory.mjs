@@ -596,6 +596,8 @@ const specialHandlerScopes = new Map([
   // the hosted cell's Viewer floor (a Viewer lease reads, never writes).
   ['doc_room', ['documents.read']],
   ['workspace_room', ['workspace.read']],
+  // The ledger room writes (a peer's frames land in it): admission needs the CRDT write scope, ReadWrite only.
+  ['ledger_room_ws', ['workspace.write.crdt']],
   // Service facade handlers delegate authorization to this common helper.
   ['proxy_service_path', ['services.proxy']],
   ['loopback_mcp', ['mcp.tools.read', 'mcp.tools.call']],

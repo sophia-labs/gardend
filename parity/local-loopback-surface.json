@@ -1529,6 +1529,19 @@
       "status": "implemented-websocket",
       "scopes": ["workspace.read"],
       "scopeMode": "bearer-token"
+    },
+    {
+      "method": "GET",
+      "path": "/hocuspocus/ledger/{graph_id}/{vocab}",
+      "status": "implemented-websocket",
+      "scopes": ["workspace.write.crdt"],
+      "scopeMode": "bearer-token"
+    },
+    {
+      "method": "GET",
+      "path": "/graphs/{graph_id}/ledger/{vocab}/version",
+      "status": "implemented-local-emporium",
+      "scopes": ["rdf.query"]
     }
   ],
   "mcpTools": [

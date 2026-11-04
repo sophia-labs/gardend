@@ -66,6 +66,7 @@ mod document_mcp_write_payloads;
 #[cfg(test)]
 mod integrity_mcp_tests;
 mod loopback_custom_css_routes;
+mod loopback_ledger_routes;
 pub mod self_update;
 /// `gardend serve|url|token|service`: running your own Sophia.
 #[cfg(not(feature = "desktop"))]

@@ -135,6 +135,11 @@ impl PersistenceError {
         Self::Permanent(message.into())
     }
 
+    /// A failure a later attempt may clear (I/O, a lock, a busy store).
+    pub(crate) fn transient(message: impl Into<String>) -> Self {
+        Self::Transient(message.into())
+    }
+
     pub(crate) fn with_context(self, context: impl fmt::Display) -> Self {
         match self {
             Self::Permanent(message) => Self::Permanent(format!("{context}: {message}")),

@@ -13,6 +13,7 @@ use crate::{
     loopback_files_routes::loopback_files_router,
     loopback_graph_routes::loopback_graph_router,
     loopback_hocuspocus_routes::loopback_hocuspocus_router,
+    loopback_ledger_routes::loopback_ledger_router,
     loopback_mcp_routes::loopback_mcp_router,
     loopback_navigation_routes::loopback_navigation_router,
     loopback_rdf_routes::loopback_rdf_router,
@@ -110,6 +111,7 @@ pub(super) fn loopback_router(state: Arc<LoopbackState>) -> Router {
         .merge(loopback_rdf_router())
         .merge(loopback_crdt_router())
         .merge(loopback_hocuspocus_router())
+        .merge(loopback_ledger_router())
         .merge(loopback_time_travel_router())
         .merge(loopback_restore_router())
         .merge(loopback_emporium_router())

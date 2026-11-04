@@ -25,7 +25,7 @@ use crate::{
     app_runtime::AppHandle,
     crdt_engine::{
         persistence_coordinator::{GraphPersistenceCoordinator, SharedLease},
-        rooms::{serve_room_with, RoomAccess, RoomRegistry},
+        rooms::{serve_convergent, RoomAccess, RoomRegistry},
     },
     document_paths::document_dir,
     document_record_store::{read_document_record_for_identity, SidecarBackfill},
@@ -517,7 +517,7 @@ async fn doc_room(
     ws.on_upgrade(move |socket| {
         async move {
             let _socket_lease = socket_lease;
-            serve_room_with(socket, room, app, graph_id, access).await;
+            serve_convergent(socket, room, app, graph_id, access).await;
         }
         .instrument(parent)
         .with_subscriber(dispatch)
@@ -607,7 +607,7 @@ async fn workspace_room(
     ws.on_upgrade(move |socket| {
         async move {
             let _socket_lease = socket_lease;
-            serve_room_with(socket, room, app, graph_id, access).await;
+            serve_convergent(socket, room, app, graph_id, access).await;
         }
         .instrument(parent)
         .with_subscriber(dispatch)

@@ -13706,6 +13706,146 @@
           }
         ]
       }
+    },
+    "/hocuspocus/ledger/{graph_id}/{vocab}": {
+      "get": {
+        "operationId": "getHocuspocusLedgerGraphIdVocab",
+        "tags": [
+          "hocuspocus"
+        ],
+        "summary": "GET /hocuspocus/ledger/{graph_id}/{vocab}",
+        "description": "Local native loopback route. Surface status: implemented-websocket. Scope mode: bearer-token.",
+        "x-sophia-status": "implemented-websocket",
+        "x-sophia-required-scopes": [
+          "workspace.write.crdt"
+        ],
+        "x-sophia-scope-mode": "bearer-token",
+        "parameters": [
+          {
+            "name": "graph_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "vocab",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonObject"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Rejected request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Missing, invalid, or forbidden local loopback bearer token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/graphs/{graph_id}/ledger/{vocab}/version": {
+      "get": {
+        "operationId": "getGraphsGraphIdLedgerVocabVersion",
+        "tags": [
+          "graphs"
+        ],
+        "summary": "GET /graphs/{graph_id}/ledger/{vocab}/version",
+        "description": "Local native loopback route. Surface status: implemented-local-emporium. Scope mode: all.",
+        "x-sophia-status": "implemented-local-emporium",
+        "x-sophia-required-scopes": [
+          "rdf.query"
+        ],
+        "x-sophia-scope-mode": "all",
+        "parameters": [
+          {
+            "name": "graph_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "vocab",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonObject"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Rejected request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Missing, invalid, or forbidden local loopback bearer token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
     }
   },
   "components": {

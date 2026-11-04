@@ -11,6 +11,9 @@
 //! awareness as merged AwarenessUpdate entries (plain Send data) — the
 //! server is a relay + late-joiner answerer, not an awareness participant.
 
+use super::awareness::AwarenessTable;
+use super::convergent::{Applied, ConvergeError, Convergent, RoomKind};
+use super::ledger_room::{LedgerRoom, LEDGER_SHIP_WINDOW};
 use crate::app_error::PersistenceError;
 use crate::app_runtime::AppHandle;
 use crate::app_runtime::Manager;
@@ -19,7 +22,6 @@ use crate::storage_atomic::{
 };
 use axum::extract::ws::{Message as WsMessage, WebSocket};
 use futures_util::{SinkExt, StreamExt};
-use serde::Deserialize;
 use std::collections::HashMap;
 use std::future::Future;
 use std::path::PathBuf;
@@ -30,8 +32,6 @@ use std::sync::{OnceLock, Weak};
 use std::time::{Duration, Instant};
 use tokio::sync::{broadcast, Mutex, Notify};
 use tracing::{instrument::WithSubscriber, Instrument};
-use yrs::block::ClientID;
-use yrs::sync::awareness::AwarenessUpdateEntry;
 use yrs::sync::{AwarenessUpdate, Message, SyncMessage};
 use yrs::updates::decoder::Decode;
 use yrs::updates::encoder::Encode;
@@ -39,8 +39,11 @@ use yrs::{Doc, ReadTxn, Transact, Update};
 
 pub struct Room {
     doc: Mutex<Doc>,
-    awareness: Mutex<HashMap<ClientID, RoomAwarenessEntry>>,
-    presence_sessions: Mutex<HashMap<PresenceSessionKey, PresenceSessionLease>>,
+    /// Ephemeral presence (see [`AwarenessTable`]).
+    awareness: AwarenessTable,
+    /// This room's own `Arc`, so the [`Convergent`] adapter (which only has `&self`) can arm the
+    /// group commit and schedule the cold projection, both of which need an `Arc<Room>`.
+    me: Weak<Room>,
     /// Raw payloads for in-process observers (tests). Sockets use `frames`.
     tx: broadcast::Sender<Vec<u8>>,
     /// What the websocket loops deliver: the same payloads, tagged with the
@@ -92,23 +95,33 @@ pub struct Room {
     projection_flush: OnceLock<Arc<ProjectionFlushTarget>>,
 }
 
-type ConnectionId = u64;
+/// A websocket's id within a room: awareness ownership and echo suppression key on it.
+pub(crate) type ConnectionId = u64;
 
+/// What a [`RoomFrame`] carries.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum FrameKind {
-    /// A Y.Doc update: graph content, so delivery is linearized with deletion.
+pub(crate) enum FrameKind {
+    /// A room update (Y.Doc update or ledger bundle): graph content, so delivery is linearized
+    /// with deletion.
     State,
     /// Ephemeral presence: no graph content, so delivery takes no lease.
     Awareness,
+    /// The room was evicted from the registry (carries no payload). A [`serve_convergent`] loop
+    /// that receives it closes its socket; it is how a ledger room, which has no eviction flag of
+    /// its own, tells its sockets to go.
+    Evicted,
 }
 
+/// One message on a room's fan-out channel.
 #[derive(Clone)]
-struct RoomFrame {
+pub(crate) struct RoomFrame {
     /// The socket whose frame this is, when that socket already has it. Its
     /// own loop skips it: y-websocket clients do not need their own echo.
-    origin: Option<ConnectionId>,
-    kind: FrameKind,
-    payload: Vec<u8>,
+    pub(crate) origin: Option<ConnectionId>,
+    /// What the payload is.
+    pub(crate) kind: FrameKind,
+    /// The encoded y-sync message to deliver.
+    pub(crate) payload: Vec<u8>,
 }
 
 /// Where a room's deferred persistence runs: the graph whose lifecycle lease it
@@ -167,75 +180,6 @@ impl DirSyncCadence {
         *self.last.lock().unwrap_or_else(|error| error.into_inner()) = Some(now);
         self.pending.store(false, Ordering::SeqCst);
     }
-}
-
-#[derive(Clone)]
-struct RoomAwarenessEntry {
-    entry: AwarenessUpdateEntry,
-    /// The websocket currently responsible for a live state. Tombstones keep
-    /// only the protocol clock, so they are never replayed as a collaborator.
-    owner: Option<ConnectionId>,
-    session: Option<PresenceSession>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct PresenceSession {
-    key: PresenceSessionKey,
-    connection_epoch: u64,
-}
-
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-struct PresenceSessionKey {
-    human_id: String,
-    device_id: String,
-    client_id: String,
-}
-
-/// High-water state for one logical browser tab while any socket that has
-/// participated in that tab's lifecycle is still connected. Keeping each
-/// owner's own epoch prevents an older socket from claiming a newer epoch
-/// during the small gap between replacement removal and transport teardown.
-struct PresenceSessionLease {
-    high_water_epoch: u64,
-    owner_epochs: HashMap<ConnectionId, u64>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct PresenceEnvelope {
-    presence: Option<PresenceWireIdentity>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct PresenceWireIdentity {
-    human_id: String,
-    device_id: String,
-    client_id: String,
-    connection_epoch: u64,
-}
-
-fn presence_session(entry: &AwarenessUpdateEntry) -> Option<PresenceSession> {
-    let envelope: PresenceEnvelope = serde_json::from_str(entry.json.as_ref()).ok()?;
-    let identity = envelope.presence?;
-    if identity.human_id.trim().is_empty()
-        || identity.device_id.trim().is_empty()
-        || identity.client_id.trim().is_empty()
-    {
-        return None;
-    }
-    Some(PresenceSession {
-        key: PresenceSessionKey {
-            human_id: identity.human_id,
-            device_id: identity.device_id,
-            client_id: identity.client_id,
-        },
-        connection_epoch: identity.connection_epoch,
-    })
-}
-
-fn is_awareness_removal(entry: &AwarenessUpdateEntry) -> bool {
-    entry.json.trim() == "null"
 }
 
 struct ProjectionFlushTarget {
@@ -330,7 +274,7 @@ pub struct RoomRegistry {
     // Registry operations never await while the map is locked. A synchronous
     // mutex lets graph deletion evict/cancel rooms before returning from its
     // otherwise-synchronous service path.
-    rooms: StdMutex<HashMap<String, Arc<Room>>>,
+    rooms: StdMutex<HashMap<String, RoomEntry>>,
     // A disk-only restore may start only without live graph rooms. Every
     // opener takes this admission mutex before the room map, closing the
     // check-to-open race without evicting existing runtime authority.
@@ -355,8 +299,120 @@ impl Drop for DiskRestoreRoomGuard<'_> {
     }
 }
 
+/// Whether a registry key names a room of `graph_id`, of either kind: the workspace Y.Doc
+/// (`workspace:{g}`), a document Y.Doc (`doc:{g}:{d}`) or a ledger (`ledger:{g}:{vocab}`).
 fn room_key_belongs_to_graph(key: &str, graph_id: &str) -> bool {
-    key == format!("workspace:{graph_id}") || key.starts_with(&format!("doc:{graph_id}:"))
+    key == format!("workspace:{graph_id}")
+        || key.starts_with(&format!("doc:{graph_id}:"))
+        || key.starts_with(&format!("ledger:{graph_id}:"))
+}
+
+#[allow(dead_code)]
+/// One hosted room, tagged by what it holds. The registry's operations that are about a key
+/// (admission, eviction, graph scans, flushes) cover both kinds; the ones that return a `Room`
+/// (`get_or_create`, `peek`, ...) are Y.Doc-only and say so.
+#[derive(Clone)]
+pub(crate) enum RoomEntry {
+    /// A Y.Doc room: a document, the workspace or a board.
+    YDoc(Arc<Room>),
+    /// A ledger room: one `(graph, vocab)` ledger of streams.
+    Ledger(Arc<LedgerRoom>),
+}
+
+#[allow(dead_code)]
+impl RoomEntry {
+    /// What the entry hosts.
+    pub(crate) fn kind(&self) -> RoomKind {
+        match self {
+            RoomEntry::YDoc(_) => RoomKind::YDoc,
+            RoomEntry::Ledger(_) => RoomKind::Ledger,
+        }
+    }
+
+    /// The Y.Doc room, when this is one.
+    pub(crate) fn ydoc(&self) -> Option<&Arc<Room>> {
+        match self {
+            RoomEntry::YDoc(room) => Some(room),
+            RoomEntry::Ledger(_) => None,
+        }
+    }
+
+    /// The ledger room, when this is one.
+    pub(crate) fn ledger(&self) -> Option<&Arc<LedgerRoom>> {
+        match self {
+            RoomEntry::Ledger(room) => Some(room),
+            RoomEntry::YDoc(_) => None,
+        }
+    }
+
+    /// A Y.Doc room carries an eviction flag; a ledger room is evicted by leaving the registry,
+    /// so an entry still in the map is live.
+    fn is_evicted(&self) -> bool {
+        match self {
+            RoomEntry::YDoc(room) => room.is_evicted(),
+            RoomEntry::Ledger(_) => false,
+        }
+    }
+
+    /// Whether `self` and `other` hold the very same room (pointer identity, same kind).
+    fn same_room(&self, other: &RoomEntry) -> bool {
+        match (self, other) {
+            (RoomEntry::YDoc(a), RoomEntry::YDoc(b)) => Arc::ptr_eq(a, b),
+            (RoomEntry::Ledger(a), RoomEntry::Ledger(b)) => Arc::ptr_eq(a, b),
+            _ => false,
+        }
+    }
+
+    /// Invalidate the room. A Y.Doc room sets its flag and cancels its projection generation. A
+    /// ledger room tells every socket to go (a [`FrameKind::Evicted`] frame), then makes what it
+    /// holds durable on a spawned task that keeps the room alive until it has finished, so the
+    /// ledger's stream locks are released only after the last flush. Idempotent for Y.Doc rooms;
+    /// the registry calls it exactly once per removed entry.
+    fn evict(&self) {
+        match self {
+            RoomEntry::YDoc(room) => room.evict(),
+            RoomEntry::Ledger(room) => {
+                let _ = room.frames().send(RoomFrame {
+                    origin: None,
+                    kind: FrameKind::Evicted,
+                    payload: Vec::new(),
+                });
+                let room = room.clone();
+                crate::app_runtime::async_runtime::spawn(async move {
+                    if let Err(error) = room.persist().await {
+                        log::warn!("ledger barrier at eviction failed: {error}");
+                    }
+                    if let Err(error) = room.durable().await {
+                        log::warn!("ledger full flush at eviction failed: {error}");
+                    }
+                });
+            }
+        }
+    }
+
+    /// Whether a graph-wide flush has work here: a Y.Doc room only when its sidecar lags, a
+    /// ledger room always (its barrier is a no-op when nothing was written).
+    fn needs_flush(&self) -> bool {
+        match self {
+            RoomEntry::YDoc(room) => room.state_is_dirty(),
+            RoomEntry::Ledger(_) => true,
+        }
+    }
+}
+
+/// Run a future to completion from synchronous code that may itself sit on a runtime worker: the
+/// future runs on a fresh OS thread, which is never a runtime thread, so `block_on` is legal there.
+fn block_on_fresh_thread<F>(future: F) -> F::Output
+where
+    F: Future + Send,
+    F::Output: Send,
+{
+    std::thread::scope(|scope| {
+        scope
+            .spawn(|| crate::app_runtime::async_runtime::block_on(future))
+            .join()
+            .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+    })
 }
 
 #[cfg(test)]
@@ -568,14 +624,19 @@ impl RoomRegistry {
         })
     }
 
-    /// Non-healing, fallible occupancy read. Do not turn a poisoned registry
+    /// Non-healing, fallible occupancy read of a Y.Doc room (a key held by a
+    /// ledger room is an error). Do not turn a poisoned registry
     /// into absence when deciding whether a first creation is admissible.
     pub(crate) fn existing_room(&self, key: &str) -> Result<Option<Arc<Room>>, String> {
         let rooms = self
             .rooms
             .lock()
             .map_err(|_| "room registry lock poisoned")?;
-        Ok(rooms.get(key).cloned())
+        match rooms.get(key) {
+            Some(RoomEntry::YDoc(room)) => Ok(Some(room.clone())),
+            Some(RoomEntry::Ledger(_)) => Err(format!("room key {key} is hosted by a ledger room")),
+            None => Ok(None),
+        }
     }
 
     /// Get or create the room for `key`, hydrating the Doc from
@@ -617,10 +678,16 @@ impl RoomRegistry {
         state_path: PathBuf,
         policy: TombstoneOpenPolicy<'_>,
     ) -> Result<Arc<Room>, PersistenceError> {
+        if key.starts_with("ledger:") {
+            return Err(PersistenceError::permanent(format!(
+                "room key {key} names a ledger room; open it with get_or_create_ledger"
+            )));
+        }
         crate::document_body_availability::require_state_path_available(&state_path)
             .map_err(PersistenceError::permanent)?;
         let observed_tombstone =
-            crate::document_tombstone_store::tombstone_for_ydoc_state_path(&state_path)?;
+            crate::document_tombstone_store::tombstone_for_ydoc_state_path(&state_path)
+                .map_err(PersistenceError::transient)?;
         match (&policy, observed_tombstone.as_ref()) {
             (TombstoneOpenPolicy::Reject, Some(tombstone)) => {
                 return Err(PersistenceError::permanent(format!(
@@ -672,20 +739,33 @@ impl RoomRegistry {
             let restores = self
                 .disk_restores
                 .lock()
-                .map_err(|_| "restore room admission lock poisoned")?;
+                .map_err(|_| "restore room admission lock poisoned")
+                .map_err(PersistenceError::permanent)?;
             if restores
                 .iter()
                 .any(|graph_id| room_key_belongs_to_graph(key, graph_id))
             {
-                return Err("graph room is unavailable during disk archive restore".into());
+                return Err(PersistenceError::transient(
+                    "graph room is unavailable during disk archive restore",
+                ));
             }
             let waiting = crate::telemetry::timer();
             let rooms = self
                 .rooms
                 .lock()
-                .map_err(|_| "room registry lock poisoned".to_string())?;
+                .map_err(|_| "room registry lock poisoned".to_string())
+                .map_err(PersistenceError::permanent)?;
             lock_wait_ms += crate::telemetry::elapsed_ms(waiting);
-            if let Some(room) = rooms.get(key).cloned() {
+            let cached = match rooms.get(key) {
+                Some(RoomEntry::YDoc(room)) => Some(room.clone()),
+                Some(RoomEntry::Ledger(_)) => {
+                    return Err(PersistenceError::permanent(format!(
+                        "room key {key} is hosted by a ledger room"
+                    )));
+                }
+                None => None,
+            };
+            if let Some(room) = cached {
                 if !room.is_evicted() && matches!(&policy, TombstoneOpenPolicy::Reject) {
                     drop(rooms);
                     drop(restores);
@@ -760,10 +840,10 @@ impl RoomRegistry {
 
         let (tx, _) = broadcast::channel(256);
         let (frames, _) = broadcast::channel(256);
-        let room = Arc::new(Room {
+        let room = Arc::new_cyclic(|me| Room {
             doc: Mutex::new(doc),
-            awareness: Mutex::new(HashMap::new()),
-            presence_sessions: Mutex::new(HashMap::new()),
+            awareness: AwarenessTable::new(),
+            me: me.clone(),
             tx,
             frames,
             next_connection_id: AtomicU64::new(1),
@@ -793,18 +873,22 @@ impl RoomRegistry {
             let restores = self
                 .disk_restores
                 .lock()
-                .map_err(|_| "restore room admission lock poisoned")?;
+                .map_err(|_| "restore room admission lock poisoned")
+                .map_err(PersistenceError::permanent)?;
             if restores
                 .iter()
                 .any(|graph_id| room_key_belongs_to_graph(key, graph_id))
             {
-                return Err("graph room is unavailable during disk archive restore".into());
+                return Err(PersistenceError::transient(
+                    "graph room is unavailable during disk archive restore",
+                ));
             }
             let waiting = crate::telemetry::timer();
             let mut rooms = self
                 .rooms
                 .lock()
-                .map_err(|_| "room registry lock poisoned".to_string())?;
+                .map_err(|_| "room registry lock poisoned".to_string())
+                .map_err(PersistenceError::permanent)?;
             lock_wait_ms += crate::telemetry::elapsed_ms(waiting);
             let held = crate::telemetry::timer();
             // A hot-authority write failure invalidates the in-memory Doc.
@@ -815,7 +899,7 @@ impl RoomRegistry {
             if let Some(removed) = rooms.remove(key) {
                 removed.evict();
             }
-            rooms.insert(key.to_string(), room.clone());
+            rooms.insert(key.to_string(), RoomEntry::YDoc(room.clone()));
             span.record(
                 "sophia.room.registry_lock_held_ms",
                 crate::telemetry::elapsed_ms(held),
@@ -882,7 +966,7 @@ impl RoomRegistry {
                         // this key while we held no lock.
                         self.evict_room_if_identity(key, &room);
                     }
-                    return Err(error.into());
+                    return Err(PersistenceError::transient(error));
                 }
             };
         let valid = match (policy, current.as_ref()) {
@@ -915,12 +999,132 @@ impl RoomRegistry {
     /// "is this doc live?" without warming a room as a side effect.
     #[doc(hidden)]
     pub async fn peek(&self, key: &str) -> Option<Arc<Room>> {
-        self.rooms
-            .lock()
-            .ok()?
-            .get(key)
-            .filter(|room| !room.is_evicted())
-            .cloned()
+        match self.rooms.lock().ok()?.get(key) {
+            Some(RoomEntry::YDoc(room)) if !room.is_evicted() => Some(room.clone()),
+            _ => None,
+        }
+    }
+
+    /// [`Self::peek`] for a ledger room: Some only when `key` is already hosted as one.
+    pub(crate) fn peek_ledger(&self, key: &str) -> Option<Arc<LedgerRoom>> {
+        match self.rooms.lock().ok()?.get(key) {
+            Some(RoomEntry::Ledger(room)) => Some(room.clone()),
+            _ => None,
+        }
+    }
+
+    /// Get or open the ledger room for `key` (`ledger:{graph}:{vocab}`),
+    /// whose ledger lives at `ledger_dir` (`{graph_dir}/ledger/{vocab}`). The cell's writer id is
+    /// read from `{ledger_dir}/origin`, minted there once on first open.
+    ///
+    /// The same admission rules as a Y.Doc open apply: a graph with a disk restore in progress
+    /// refuses, and cold opens of one key queue on its opening slot. A key held by a Y.Doc room is
+    /// an error. The open (a recovery scan of the ledger) runs on the calling thread, as the Y.Doc
+    /// open does.
+    pub(crate) async fn get_or_create_ledger(
+        &self,
+        key: &str,
+        ledger_dir: PathBuf,
+    ) -> Result<Arc<LedgerRoom>, String> {
+        self.open_ledger_room(key, &ledger_dir)
+    }
+
+    fn open_ledger_room(
+        &self,
+        key: &str,
+        ledger_dir: &std::path::Path,
+    ) -> Result<Arc<LedgerRoom>, String> {
+        if !key.starts_with("ledger:") {
+            return Err(format!(
+                "room key {key} is not a ledger key (ledger:{{graph}}:{{vocab}})"
+            ));
+        }
+        let vocab = ledger_dir
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| {
+                format!(
+                    "ledger directory {} has no vocab name",
+                    ledger_dir.display()
+                )
+            })?
+            .to_string();
+        if !key.ends_with(&format!(":{vocab}")) {
+            return Err(format!(
+                "ledger key {key} does not name the vocab of {}",
+                ledger_dir.display()
+            ));
+        }
+        let graph_dir = ledger_dir
+            .parent()
+            .filter(|parent| parent.file_name().is_some_and(|name| name == "ledger"))
+            .and_then(|parent| parent.parent())
+            .ok_or_else(|| {
+                format!(
+                    "ledger directory {} is not {{graph_dir}}/ledger/{{vocab}}",
+                    ledger_dir.display()
+                )
+            })?
+            .to_path_buf();
+
+        let slot = self.opening_slot(key);
+        let open_guard = slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        // Phase 1: admission and the cache hit, under the locks.
+        {
+            let restores = self
+                .disk_restores
+                .lock()
+                .map_err(|_| "restore room admission lock poisoned".to_string())?;
+            if restores
+                .iter()
+                .any(|graph_id| room_key_belongs_to_graph(key, graph_id))
+            {
+                return Err("graph room is unavailable during disk archive restore".to_string());
+            }
+            let rooms = self
+                .rooms
+                .lock()
+                .map_err(|_| "room registry lock poisoned".to_string())?;
+            match rooms.get(key) {
+                Some(RoomEntry::Ledger(room)) => return Ok(room.clone()),
+                Some(RoomEntry::YDoc(_)) => {
+                    return Err(format!("room key {key} is hosted by a Y.Doc room"));
+                }
+                None => {}
+            }
+        }
+
+        // Phase 2: recover and open with no registry lock held.
+        let local = garden_ledger::ledger::read_or_mint_origin(ledger_dir)
+            .map_err(|error| format!("ledger origin in {}: {error}", ledger_dir.display()))?;
+        let room = LedgerRoom::open(&graph_dir, &vocab, local)
+            .map_err(|error| format!("open ledger {}: {error}", ledger_dir.display()))?;
+
+        // Phase 3: admission again (a disk restore may have begun while this opener was
+        // recovering), then insert. Only this function inserts ledger keys and it holds the key's
+        // opening slot, so nothing was added since phase 1.
+        {
+            let restores = self
+                .disk_restores
+                .lock()
+                .map_err(|_| "restore room admission lock poisoned".to_string())?;
+            if restores
+                .iter()
+                .any(|graph_id| room_key_belongs_to_graph(key, graph_id))
+            {
+                return Err("graph room is unavailable during disk archive restore".to_string());
+            }
+            let mut rooms = self
+                .rooms
+                .lock()
+                .map_err(|_| "room registry lock poisoned".to_string())?;
+            if let Some(removed) = rooms.insert(key.to_string(), RoomEntry::Ledger(room.clone())) {
+                removed.evict();
+            }
+        }
+        drop(open_guard);
+        Ok(room)
     }
 
     /// Remove and invalidate one hosted room. Document deletion uses this under
@@ -954,9 +1158,9 @@ impl RoomRegistry {
     pub(crate) fn evict_room_if_identity(&self, key: &str, expected: &Arc<Room>) -> bool {
         let removed = match self.rooms.lock() {
             Ok(mut rooms) => {
-                let is_same = rooms
-                    .get(key)
-                    .is_some_and(|current| Arc::ptr_eq(current, expected));
+                let is_same = rooms.get(key).is_some_and(
+                    |current| matches!(current, RoomEntry::YDoc(room) if Arc::ptr_eq(room, expected)),
+                );
                 if is_same {
                     rooms.remove(key)
                 } else {
@@ -980,20 +1184,24 @@ impl RoomRegistry {
     /// opened, but retain any concurrent reader/writer/socket or newer dirt.
     pub(crate) fn evict_repaired_idle_room(&self, key: &str, expected: &Arc<Room>) {
         if let Ok(mut rooms) = self.rooms.lock() {
-            if rooms.get(key).is_some_and(|room| {
-                Arc::ptr_eq(room, expected)
-                    && Arc::strong_count(room) == 2
-                    && !room.needs_projection_flush()
-                    && !room.state_is_dirty()
+            if rooms.get(key).is_some_and(|entry| match entry {
+                RoomEntry::YDoc(room) => {
+                    Arc::ptr_eq(room, expected)
+                        && Arc::strong_count(room) == 2
+                        && !room.needs_projection_flush()
+                        && !room.state_is_dirty()
+                }
+                RoomEntry::Ledger(_) => false,
             }) {
-                if let Some(room) = rooms.remove(key) {
-                    room.evict();
+                if let Some(entry) = rooms.remove(key) {
+                    entry.evict();
                 }
             }
         }
     }
 
-    /// Snapshot hosted rooms whose keys start with `prefix`. Sorting makes a
+    /// Snapshot hosted Y.Doc rooms whose keys start with `prefix` (ledger
+    /// rooms are skipped; see [`Self::entries_with_prefix`]). Sorting makes a
     /// graph-wide flush deterministic and avoids holding the registry lock
     /// while filesystem/RDF persistence runs.
     pub(crate) async fn rooms_with_prefix(&self, prefix: &str) -> Vec<(String, Arc<Room>)> {
@@ -1002,35 +1210,58 @@ impl RoomRegistry {
         };
         let mut matches: Vec<_> = rooms
             .iter()
-            .filter(|(key, room)| key.starts_with(prefix) && !room.is_evicted())
-            .map(|(key, room)| (key.clone(), room.clone()))
+            .filter(|(key, _)| key.starts_with(prefix))
+            .filter_map(|(key, entry)| match entry {
+                RoomEntry::YDoc(room) if !room.is_evicted() => Some((key.clone(), room.clone())),
+                _ => None,
+            })
             .collect();
         matches.sort_by(|(left, _), (right, _)| left.cmp(right));
         matches
     }
 
-    fn live_rooms_for_graph(&self, graph_id: &str) -> Vec<Arc<Room>> {
-        let workspace_key = format!("workspace:{graph_id}");
-        let document_prefix = format!("doc:{graph_id}:");
+    /// [`Self::rooms_with_prefix`] over rooms of either kind.
+    pub(crate) fn entries_with_prefix(&self, prefix: &str) -> Vec<(String, RoomEntry)> {
+        let Ok(rooms) = self.rooms.lock() else {
+            return Vec::new();
+        };
+        let mut matches: Vec<_> = rooms
+            .iter()
+            .filter(|(key, entry)| key.starts_with(prefix) && !entry.is_evicted())
+            .map(|(key, entry)| (key.clone(), entry.clone()))
+            .collect();
+        matches.sort_by(|(left, _), (right, _)| left.cmp(right));
+        matches
+    }
+
+    /// The rooms of `graph_id`, of either kind, that have something to flush.
+    fn live_rooms_for_graph(&self, graph_id: &str) -> Vec<RoomEntry> {
         let Ok(rooms) = self.rooms.lock() else {
             return Vec::new();
         };
         rooms
             .iter()
-            .filter(|(key, room)| {
-                (**key == workspace_key || key.starts_with(&document_prefix))
-                    && !room.is_evicted()
-                    && room.state_is_dirty()
+            .filter(|(key, entry)| {
+                room_key_belongs_to_graph(key, graph_id)
+                    && !entry.is_evicted()
+                    && entry.needs_flush()
             })
-            .map(|(_, room)| room.clone())
+            .map(|(_, entry)| entry.clone())
             .collect()
     }
 
     /// Write every dirty room of `graph_id` to its sidecar. For callers that
     /// read sidecar bytes directly and hold the graph's lease (source pull).
     pub(crate) async fn flush_graph_rooms(&self, graph_id: &str) -> Result<(), PersistenceError> {
-        for room in self.live_rooms_for_graph(graph_id) {
-            room.flush_state_if_dirty(false).await?;
+        for entry in self.live_rooms_for_graph(graph_id) {
+            match entry {
+                RoomEntry::YDoc(room) => {
+                    room.flush_state_if_dirty(false).await?;
+                }
+                // The ordered-durability barrier: the bytes a source pull or a restore point reads
+                // are on the file. Shipping to peers rides `durable`, not this.
+                RoomEntry::Ledger(room) => room.persist().await?,
+            }
         }
         Ok(())
     }
@@ -1041,8 +1272,13 @@ impl RoomRegistry {
         &self,
         graph_id: &str,
     ) -> Result<(), PersistenceError> {
-        for room in self.live_rooms_for_graph(graph_id) {
-            room.flush_state_blocking()?;
+        for entry in self.live_rooms_for_graph(graph_id) {
+            match entry {
+                RoomEntry::YDoc(room) => room.flush_state_blocking()?,
+                RoomEntry::Ledger(room) => {
+                    block_on_fresh_thread(async move { room.persist().await })?
+                }
+            }
         }
         Ok(())
     }
@@ -1051,22 +1287,43 @@ impl RoomRegistry {
     /// Returns the number of rooms written. A failure is logged and does not
     /// stop the remaining rooms.
     pub(crate) async fn flush_dirty_rooms(&self) -> usize {
-        let dirty: Vec<Arc<Room>> = match self.rooms.lock() {
+        let dirty: Vec<RoomEntry> = match self.rooms.lock() {
             Ok(rooms) => rooms
                 .values()
-                .filter(|room| !room.is_evicted() && room.state_is_dirty())
+                .filter(|entry| !entry.is_evicted() && entry.needs_flush())
                 .cloned()
                 .collect(),
             Err(_) => Vec::new(),
         };
         let mut written = 0;
-        for room in dirty {
-            match room.flush_state_under_lifecycle(true).await {
-                Ok(true) => written += 1,
-                Ok(false) => {}
-                Err(error) => log::error!("shutdown room flush failed: {error}"),
+        for entry in dirty {
+            match entry {
+                RoomEntry::YDoc(room) => {
+                    match room.flush_state_under_lifecycle(true).await {
+                        Ok(true) => written += 1,
+                        Ok(false) => {}
+                        Err(error) => log::error!("shutdown room flush failed: {error}"),
+                    }
+                    room.settle_state_dir().await;
+                }
+                // Shutdown is the durability point for a ledger: the barrier, then the full flush
+                // that lets every frame ship.
+                RoomEntry::Ledger(room) => {
+                    let barrier = room.persist().await;
+                    let full = room.durable().await;
+                    match (barrier, full) {
+                        (Ok(()), Ok(())) => written += 1,
+                        (barrier, full) => {
+                            if let Err(error) = barrier {
+                                log::error!("shutdown ledger barrier failed: {error}");
+                            }
+                            if let Err(error) = full {
+                                log::error!("shutdown ledger flush failed: {error}");
+                            }
+                        }
+                    }
+                }
             }
-            room.settle_state_dir().await;
         }
         // Shutdown is a durability point: the ordered writes above (and any the flusher still owes) reach the
         // media with a full flush, synchronously, before the caller goes on to exit.
@@ -1085,8 +1342,6 @@ impl RoomRegistry {
     /// room Arc briefly, but an evicted room rejects further client updates and
     /// cannot enqueue another cold projection.
     pub(crate) fn evict_graph(&self, graph_id: &str) -> usize {
-        let workspace_key = format!("workspace:{graph_id}");
-        let document_prefix = format!("doc:{graph_id}:");
         let removed = {
             let Ok(mut rooms) = self.rooms.lock() else {
                 log::error!("room registry lock poisoned while evicting graph {graph_id}");
@@ -1094,15 +1349,15 @@ impl RoomRegistry {
             };
             let keys = rooms
                 .keys()
-                .filter(|key| **key == workspace_key || key.starts_with(&document_prefix))
+                .filter(|key| room_key_belongs_to_graph(key, graph_id))
                 .cloned()
                 .collect::<Vec<_>>();
             keys.into_iter()
                 .filter_map(|key| rooms.remove(&key))
                 .collect::<Vec<_>>()
         };
-        for room in &removed {
-            room.evict();
+        for entry in &removed {
+            entry.evict();
         }
         removed.len()
     }
@@ -1221,34 +1476,14 @@ impl Room {
         notified.await;
     }
 
-    /// Merge one websocket's awareness update into the room's live state.
-    ///
-    /// Awareness is ephemeral connection state, not durable document state:
-    /// every live entry has an owning socket. JSON `null` becomes an invisible
-    /// clock tombstone, never something late joiners replay; retaining that
-    /// clock is what prevents delayed pre-close frames from resurrecting a
-    /// removed collaborator. Shrubbery additionally
-    /// supplies a stable human/device/tab key and a monotonically increasing
-    /// connection epoch. A newer incarnation supersedes that exact tab only;
-    /// two tabs belonging to the same human remain independently present.
-    ///
-    /// The returned update is the canonical subset safe to broadcast. It may
-    /// include synthetic clock+1 removals for client IDs superseded by a newer
-    /// incarnation. Stale or non-owning frames are omitted.
     /// The entries of `update` whose client id no other live socket holds
     /// (a visitor's awareness; `None` when nothing is left).
     async fn awareness_held_by_this_socket(
         &self,
-        mut update: AwarenessUpdate,
+        update: AwarenessUpdate,
         owner: ConnectionId,
     ) -> Option<AwarenessUpdate> {
-        let state = self.awareness.lock().await;
-        update.clients.retain(|client, _| {
-            !state
-                .get(client)
-                .is_some_and(|existing| existing.owner.is_some_and(|holder| holder != owner))
-        });
-        (!update.clients.is_empty()).then_some(update)
+        self.awareness.held_by_this_socket(update, owner)
     }
 
     #[cfg(test)]
@@ -1262,187 +1497,21 @@ impl Room {
             .map(|(accepted, _)| accepted)
     }
 
-    /// [`Self::merge_awareness`], plus whether every accepted entry belongs to
-    /// `owner`'s own live client ids. Only then may the sender skip its echo:
-    /// synthetic removals of superseded ids are news to the sender too.
+    /// Merge one websocket's awareness update into the room's live state
+    /// (see [`AwarenessTable::merge_detailed`]), plus whether every accepted
+    /// entry belongs to `owner`'s own live client ids. Only then may the
+    /// sender skip its echo: synthetic removals of superseded ids are news to
+    /// the sender too.
     async fn merge_awareness_tagged(
         &self,
         update: &AwarenessUpdate,
         owner: ConnectionId,
     ) -> Option<(AwarenessUpdate, bool)> {
-        let mut state = self.awareness.lock().await;
-        let mut sessions = self.presence_sessions.lock().await;
-        let mut accepted = HashMap::new();
-
-        for (client, entry) in &update.clients {
-            if is_awareness_removal(entry) {
-                let existing = state.get(client).cloned();
-                if let Some(current) = existing.as_ref() {
-                    if current.entry.clock > entry.clock {
-                        continue;
-                    }
-                    if current
-                        .owner
-                        .is_some_and(|current_owner| current_owner != owner)
-                    {
-                        // A delayed close from an old socket must never delete
-                        // live state already transferred to its replacement.
-                        continue;
-                    }
-                    if current.owner.is_none() && current.entry.clock >= entry.clock {
-                        continue;
-                    }
-                }
-
-                if let Some(session) = existing.and_then(|current| current.session) {
-                    let owner_still_live = state.iter().any(|(other_client, live)| {
-                        other_client != client
-                            && live.owner == Some(owner)
-                            && live
-                                .session
-                                .as_ref()
-                                .is_some_and(|candidate| candidate.key == session.key)
-                    });
-                    if !owner_still_live {
-                        let drop_lease = if let Some(lease) = sessions.get_mut(&session.key) {
-                            lease.owner_epochs.remove(&owner);
-                            lease.owner_epochs.is_empty()
-                        } else {
-                            false
-                        };
-                        if drop_lease {
-                            sessions.remove(&session.key);
-                        }
-                    }
-                }
-                state.insert(
-                    *client,
-                    RoomAwarenessEntry {
-                        entry: entry.clone(),
-                        owner: None,
-                        session: None,
-                    },
-                );
-                accepted.insert(*client, entry.clone());
-                continue;
-            }
-
-            // Awareness clocks are the protocol-level ordering for one Yjs
-            // client ID. Validate this before mutating logical session state.
-            if state
-                .get(client)
-                .is_some_and(|existing| existing.entry.clock >= entry.clock)
-            {
-                continue;
-            }
-
-            let incoming_session = presence_session(entry);
-            if let Some(incoming) = incoming_session.as_ref() {
-                if let Some(lease) = sessions.get(&incoming.key) {
-                    if incoming.connection_epoch < lease.high_water_epoch {
-                        continue;
-                    }
-                    if incoming.connection_epoch == lease.high_water_epoch {
-                        let owner_is_current = lease
-                            .owner_epochs
-                            .get(&owner)
-                            .is_some_and(|epoch| *epoch == incoming.connection_epoch);
-                        let live_for_key = state.iter().find_map(|(other_client, existing)| {
-                            existing.session.as_ref().and_then(|session| {
-                                (session.key == incoming.key)
-                                    .then_some((*other_client, existing.owner))
-                            })
-                        });
-                        let live_is_compatible = match live_for_key {
-                            Some((live_client, live_owner)) => {
-                                live_client == *client && live_owner == Some(owner)
-                            }
-                            None => owner_is_current,
-                        };
-                        if !owner_is_current || !live_is_compatible {
-                            // Equal epochs are heartbeats/republication by the
-                            // already-known socket, never ownership transfer.
-                            continue;
-                        }
-                    }
-                }
-
-                let superseded: Vec<_> = state
-                    .iter()
-                    .filter_map(|(other_client, existing)| {
-                        existing.session.as_ref().and_then(|session| {
-                            (session.key == incoming.key
-                                && session.connection_epoch < incoming.connection_epoch)
-                                .then_some((*other_client, existing.entry.clock))
-                        })
-                    })
-                    .collect();
-                for (other_client, clock) in superseded {
-                    state.insert(
-                        other_client,
-                        RoomAwarenessEntry {
-                            entry: AwarenessUpdateEntry {
-                                clock: clock.saturating_add(1),
-                                json: "null".into(),
-                            },
-                            owner: None,
-                            session: None,
-                        },
-                    );
-                    if other_client != *client {
-                        accepted.insert(
-                            other_client,
-                            AwarenessUpdateEntry {
-                                clock: clock.saturating_add(1),
-                                json: "null".into(),
-                            },
-                        );
-                    }
-                }
-
-                let lease =
-                    sessions
-                        .entry(incoming.key.clone())
-                        .or_insert_with(|| PresenceSessionLease {
-                            high_water_epoch: incoming.connection_epoch,
-                            owner_epochs: HashMap::new(),
-                        });
-                lease.high_water_epoch = lease.high_water_epoch.max(incoming.connection_epoch);
-                lease.owner_epochs.insert(owner, incoming.connection_epoch);
-            }
-
-            state.insert(
-                *client,
-                RoomAwarenessEntry {
-                    entry: entry.clone(),
-                    owner: Some(owner),
-                    session: incoming_session,
-                },
-            );
-            accepted.insert(*client, entry.clone());
-        }
-
-        if accepted.is_empty() {
-            None
-        } else {
-            let own_only = accepted.keys().all(|client| {
-                state
-                    .get(client)
-                    .is_some_and(|live| live.owner == Some(owner))
-            });
-            Some((AwarenessUpdate { clients: accepted }, own_only))
-        }
+        self.awareness.merge_detailed(update, owner)
     }
 
     async fn full_awareness(&self) -> Option<AwarenessUpdate> {
-        let state = self.awareness.lock().await;
-        let clients = state
-            .iter()
-            .filter_map(|(client, live)| {
-                (!is_awareness_removal(&live.entry)).then_some((*client, live.entry.clone()))
-            })
-            .collect::<HashMap<_, _>>();
-        (!clients.is_empty()).then_some(AwarenessUpdate { clients })
+        self.awareness.full()
     }
 
     /// Remove every awareness entry still owned by one websocket. Ownership
@@ -1451,39 +1520,7 @@ impl Room {
         &self,
         owner: ConnectionId,
     ) -> Option<AwarenessUpdate> {
-        let mut state = self.awareness.lock().await;
-        let mut sessions = self.presence_sessions.lock().await;
-        let owned: Vec<_> = state
-            .iter()
-            .filter_map(|(client, live)| {
-                (live.owner == Some(owner)).then_some((*client, live.entry.clock))
-            })
-            .collect();
-        let mut clients = HashMap::with_capacity(owned.len());
-        for (client, clock) in owned {
-            let tombstone = AwarenessUpdateEntry {
-                clock: clock.saturating_add(1),
-                json: "null".into(),
-            };
-            state.insert(
-                client,
-                RoomAwarenessEntry {
-                    entry: tombstone.clone(),
-                    owner: None,
-                    session: None,
-                },
-            );
-            clients.insert(client, tombstone);
-        }
-        sessions.retain(|_, lease| {
-            lease.owner_epochs.remove(&owner);
-            !lease.owner_epochs.is_empty()
-        });
-        if clients.is_empty() {
-            None
-        } else {
-            Some(AwarenessUpdate { clients })
-        }
+        self.awareness.remove_connection(owner)
     }
 
     /// Run a local (server-originated) mutation inside one transaction:
@@ -1960,7 +1997,8 @@ impl Room {
             }),
         )
         .await
-        .map_err(|error| format!("room persist join: {error}"))?;
+        .map_err(|error| format!("room persist join: {error}"))
+        .map_err(PersistenceError::transient)?;
         if let Err(error) = persisted {
             self.evict();
             return Err(error);
@@ -2000,7 +2038,8 @@ impl Room {
                 Some(coordinator) => Some(
                     coordinator
                         .acquire_lifecycle_shared(&scope.graph_id)
-                        .await?,
+                        .await
+                        .map_err(PersistenceError::permanent)?,
                 ),
                 None => None,
             },
@@ -2046,7 +2085,7 @@ impl Room {
                 }
             }
             if started.elapsed() > Duration::from_secs(10) {
-                return Err(PersistenceError::from(
+                return Err(PersistenceError::transient(
                     "timed out waiting for the room to flush its state",
                 ));
             }
@@ -2184,6 +2223,84 @@ impl Room {
     #[cfg(test)]
     pub(crate) fn subscribe_updates_for_test(&self) -> broadcast::Receiver<Vec<u8>> {
         self.tx.subscribe()
+    }
+}
+
+/// The Y.Doc side of the [`Convergent`] seam: an adapter over the room's existing methods, so a
+/// generic loop (and any in-process caller) can drive a Y.Doc room exactly as it drives a ledger.
+///
+/// * `version` is the encoded state vector, `diff` is `encode_state_as_update_v1(since)` as one
+///   payload (a Y.Doc update is not splittable, so `max_bytes` does not apply).
+/// * `apply` is [`Room::apply_client_update_inner`] (the broadcast, the epoch bumps, the evict on a
+///   failed integrate). On a room the websocket host bound (see `bind_persist_scope`) the sidecar
+///   write is deferred to the group commit and the cold projection is scheduled, as the websocket
+///   loop does; on any other room the update is on disk before `apply` returns.
+/// * `persist` is the sidecar write if the room is dirty; `durable` is a no-op (the sidecar write is
+///   its own durability point and shutdown ends with a full flush); `shippable` is empty (the
+///   update was broadcast when it was applied).
+impl Convergent for Room {
+    fn kind(&self) -> RoomKind {
+        RoomKind::YDoc
+    }
+
+    async fn version(&self) -> Vec<u8> {
+        let doc = self.doc.lock().await;
+        let state_vector = doc.transact().state_vector();
+        state_vector.encode_v1()
+    }
+
+    async fn diff(&self, since: &[u8], _max_bytes: usize) -> Result<Vec<Vec<u8>>, ConvergeError> {
+        let state_vector = yrs::StateVector::decode_v1(since)
+            .map_err(|error| ConvergeError::Decode(format!("state vector: {error}")))?;
+        let doc = self.doc.lock().await;
+        let update = doc.transact().encode_state_as_update_v1(&state_vector);
+        Ok(vec![update])
+    }
+
+    async fn apply(&self, payload: &[u8], from: ConnectionId) -> Result<Applied, ConvergeError> {
+        let defer = self.persist_scope.get().is_some();
+        let changed = self
+            .apply_client_update_inner(payload, Some(from), defer)
+            .await
+            .map_err(|error| {
+                if error.starts_with("decode client ydoc update") {
+                    ConvergeError::Decode(error)
+                } else {
+                    ConvergeError::Refused(error)
+                }
+            })?;
+        if changed {
+            if let (Some(room), Some(scope)) = (self.me.upgrade(), self.persist_scope.get()) {
+                if defer {
+                    room.arm_state_persist();
+                }
+                room.schedule_projection_flush(scope.app.clone());
+            }
+        }
+        Ok(Applied {
+            changed,
+            reply: None,
+        })
+    }
+
+    async fn persist(&self) -> Result<(), PersistenceError> {
+        self.flush_state_if_dirty(false).await.map(|_| ())
+    }
+
+    async fn durable(&self) -> Result<(), PersistenceError> {
+        Ok(())
+    }
+
+    async fn shippable(&self) -> Vec<Vec<u8>> {
+        Vec::new()
+    }
+
+    fn awareness(&self) -> &AwarenessTable {
+        &self.awareness
+    }
+
+    fn frames(&self) -> &broadcast::Sender<RoomFrame> {
+        &self.frames
     }
 }
 
@@ -2572,6 +2689,42 @@ pub(super) async fn run_projection_flush_for_test(
 
 const WS_STATE_SEND_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// A room that can say whether graph deletion has evicted it. The delivery helpers below check
+/// this under the graph's shared lifecycle lease; a hosted ledger room has no flag (leaving the
+/// registry is its eviction, announced by a [`FrameKind::Evicted`] frame), so the generic loop
+/// passes [`YDocFlag`], which is `false` for it.
+pub(crate) trait Evictable {
+    /// Whether the room has been evicted.
+    fn is_evicted(&self) -> bool;
+}
+
+impl Evictable for Room {
+    fn is_evicted(&self) -> bool {
+        self.evicted.load(Ordering::SeqCst)
+    }
+}
+
+impl<T: Evictable + ?Sized> Evictable for Arc<T> {
+    fn is_evicted(&self) -> bool {
+        (**self).is_evicted()
+    }
+}
+
+impl<T: Evictable + ?Sized> Evictable for &T {
+    fn is_evicted(&self) -> bool {
+        (**self).is_evicted()
+    }
+}
+
+/// The eviction flag of whatever Y.Doc room a generic loop serves; `false` for a ledger room.
+struct YDocFlag(Option<Arc<Room>>);
+
+impl Evictable for YDocFlag {
+    fn is_evicted(&self) -> bool {
+        self.0.as_ref().is_some_and(|room| room.is_evicted())
+    }
+}
+
 /// Hold graph lifecycle authority from before a state-bearing frame is built
 /// until the socket sink has accepted it. The delivery future is created by
 /// the caller but is first polled here, after the lease and active-graph/room
@@ -2584,7 +2737,7 @@ const WS_STATE_SEND_TIMEOUT: Duration = Duration::from_secs(5);
 async fn linearize_state_bearing_delivery<F>(
     app: &AppHandle,
     graph_id: &str,
-    room: &Room,
+    room: &(impl Evictable + ?Sized),
     delivery: F,
 ) -> Result<(), String>
 where
@@ -2609,7 +2762,7 @@ where
 async fn broadcast_state_delivery<F>(
     app: &AppHandle,
     graph_id: &str,
-    room: &Room,
+    room: &(impl Evictable + ?Sized),
     delivery: F,
 ) -> Result<(), String>
 where
@@ -2625,7 +2778,7 @@ where
 async fn linearize_state_bearing_delivery_inner<F>(
     app: &AppHandle,
     graph_id: &str,
-    room: &Room,
+    room: &(impl Evictable + ?Sized),
     check_graph_record: bool,
     delivery: F,
 ) -> Result<(), String>
@@ -2689,7 +2842,7 @@ where
 pub(super) async fn initial_sync_delivery<F>(
     app: &AppHandle,
     graph_id: &str,
-    room: &Room,
+    room: &(impl Evictable + ?Sized),
     delivery: F,
 ) -> Result<(), String>
 where
@@ -3050,6 +3203,9 @@ pub(crate) async fn serve_room_with(
                             break;
                         }
                     }
+                    // Only ledger rooms announce eviction this way; a Y.Doc room's loop
+                    // selects on its own flag. Harmless to honour.
+                    FrameKind::Evicted => break,
                 }
             }
         }
@@ -3065,6 +3221,624 @@ pub(crate) async fn serve_room_with(
         // Other subscribers receive the synthetic removals even when this
         // transport disappeared without a graceful Awareness null.
         room.publish(
+            None,
+            FrameKind::Awareness,
+            Message::Awareness(removal).encode_v1(),
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The generic room loop (W6 lane R)
+// ---------------------------------------------------------------------------------------------
+
+/// Connection ids for [`serve_convergent`] sockets. A Y.Doc room's own counter (used by
+/// [`serve_room_with`]) starts at 1; these start high so a room served by both loops can never hand
+/// out one id twice.
+static NEXT_CONVERGENT_CONNECTION: AtomicU64 = AtomicU64::new(1 << 40);
+
+/// The size each diff payload is cut to: half the websocket's 16 MiB cap.
+const CONVERGENT_DIFF_CHUNK_BYTES: usize = 8 * 1024 * 1024;
+
+/// The close code a connection gets when a frame it sent contradicts one we hold (a fork).
+pub(crate) const LEDGER_FORK_CLOSE: u16 = 4409;
+
+/// y-sync message tag for a sync message.
+const MSG_SYNC: u8 = 0;
+/// y-sync sync sub-tags.
+const SYNC_STEP1: u8 = 0;
+const SYNC_STEP2: u8 = 1;
+const SYNC_UPDATE: u8 = 2;
+
+/// Append `value` as a lib0 variable-length unsigned integer.
+fn write_var_u64(out: &mut Vec<u8>, mut value: u64) {
+    loop {
+        let byte = (value & 0x7f) as u8;
+        value >>= 7;
+        if value == 0 {
+            out.push(byte);
+            return;
+        }
+        out.push(byte | 0x80);
+    }
+}
+
+/// Read a lib0 variable-length unsigned integer at `*pos`, advancing it; `None` on a short or
+/// over-long encoding.
+fn read_var_u64(buf: &[u8], pos: &mut usize) -> Option<u64> {
+    let mut value: u64 = 0;
+    let mut shift = 0u32;
+    loop {
+        let byte = *buf.get(*pos)?;
+        *pos += 1;
+        value |= u64::from(byte & 0x7f).checked_shl(shift)?;
+        if byte & 0x80 == 0 {
+            return Some(value);
+        }
+        shift += 7;
+        if shift > 63 {
+            return None;
+        }
+    }
+}
+
+/// One y-sync sync message carrying an opaque payload: `[0][sub][varuint len][payload]`. For a
+/// Y.Doc this is byte-for-byte what yrs encodes for `SyncStep1` / `SyncStep2` / `Update`; for a
+/// ledger the payload is a `ledger-vv/1` or `ledger-bundle/1` (W6.md section 3).
+fn sync_message(sub: u8, payload: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(payload.len() + 12);
+    out.push(MSG_SYNC);
+    out.push(sub);
+    write_var_u64(&mut out, payload.len() as u64);
+    out.extend_from_slice(payload);
+    out
+}
+
+/// A decoded inbound websocket message.
+enum Inbound {
+    /// SyncStep1: the peer's version (state vector or version vector), wire-encoded.
+    Step1(Vec<u8>),
+    /// SyncStep2: what the peer says we lack.
+    Step2(Vec<u8>),
+    /// Update: a new change from the peer.
+    Update(Vec<u8>),
+    /// Presence.
+    Awareness(AwarenessUpdate),
+    /// A request for the room's full presence.
+    AwarenessQuery,
+    /// Auth, custom or unknown sub-tags: nothing to do.
+    Ignored,
+}
+
+/// Decode one binary websocket message. Sync messages are parsed here because their payload is
+/// opaque (a ledger version vector is not a yrs `StateVector`); presence and the rest go through
+/// yrs. `None` for a message that does not decode, which the loop skips as it always has.
+fn decode_inbound(data: &[u8]) -> Option<Inbound> {
+    if data.first() == Some(&MSG_SYNC) {
+        let mut pos = 1usize;
+        let sub = read_var_u64(data, &mut pos)?;
+        let len = usize::try_from(read_var_u64(data, &mut pos)?).ok()?;
+        let end = pos.checked_add(len)?;
+        let payload = data.get(pos..end)?.to_vec();
+        return Some(match sub {
+            0 => Inbound::Step1(payload),
+            1 => Inbound::Step2(payload),
+            2 => Inbound::Update(payload),
+            _ => Inbound::Ignored,
+        });
+    }
+    Some(match Message::decode_v1(data).ok()? {
+        Message::Awareness(update) => Inbound::Awareness(update),
+        Message::AwarenessQuery => Inbound::AwarenessQuery,
+        _ => Inbound::Ignored,
+    })
+}
+
+/// `room` as the Y.Doc `Room` it is, when it is one: the generic loop's few Y.Doc-only needs (the
+/// persist scope, the connection count, the visitor dry-run, the fence, the eviction flag) go
+/// through this.
+fn as_ydoc<C: Convergent>(room: &Arc<C>) -> Option<Arc<Room>> {
+    let any: Arc<dyn std::any::Any + Send + Sync> = room.clone();
+    any.downcast::<Room>().ok()
+}
+
+/// Hand one encoded message to every subscriber of the room. A Y.Doc room goes through
+/// `Room::publish` (which also feeds the in-process observers tests use).
+fn publish_to<C: Convergent>(
+    room: &C,
+    ydoc: Option<&Arc<Room>>,
+    origin: Option<ConnectionId>,
+    kind: FrameKind,
+    payload: Vec<u8>,
+) {
+    match ydoc {
+        Some(ydoc) => ydoc.publish(origin, kind, payload),
+        None => {
+            let _ = room.frames().send(RoomFrame {
+                origin,
+                kind,
+                payload,
+            });
+        }
+    }
+}
+
+/// A barrier, a full flush, then fan out whatever became shippable as Update messages to every
+/// subscriber (no origin: the frames may have come from any peer, and a peer that already holds
+/// them applies zero new). This is the ledger's ship step; for a Y.Doc room all three are no-ops
+/// or empty. Errors are logged: a failed full flush leaves the room owing it, so the next call
+/// retries and nothing ships that is not durable.
+pub(crate) async fn ship_pending<C: Convergent>(room: &C) {
+    if let Err(error) = room.persist().await {
+        log::warn!("room barrier before shipping failed: {error}");
+    }
+    if let Err(error) = room.durable().await {
+        log::warn!("room full flush before shipping failed: {error}");
+        return;
+    }
+    for payload in room.shippable().await {
+        let _ = room.frames().send(RoomFrame {
+            origin: None,
+            kind: FrameKind::State,
+            payload: sync_message(SYNC_UPDATE, &payload),
+        });
+    }
+}
+
+/// Whether a peer's sync payload carries nothing: an empty yrs update, or a ledger bundle with no
+/// entries. An empty frame costs nothing and is never refused.
+fn payload_is_empty(kind: RoomKind, payload: &[u8]) -> bool {
+    match kind {
+        RoomKind::YDoc => Update::decode_v1(payload).is_ok_and(|decoded| decoded.is_empty()),
+        RoomKind::Ledger => {
+            super::ledger_room::decode_bundle(payload).is_ok_and(|entries| entries.is_empty())
+        }
+    }
+}
+
+/// Whether applying `payload` would add a frame this ledger lacks: some entry holds a seq past
+/// what we have for its origin. (The tip frame every diff repeats does not count.)
+async fn ledger_payload_would_change<C: Convergent>(
+    room: &C,
+    payload: &[u8],
+) -> Result<bool, String> {
+    let ours =
+        super::ledger_room::decode_vv(&room.version().await).map_err(|error| error.to_string())?;
+    let entries = super::ledger_room::decode_bundle(payload).map_err(|error| error.to_string())?;
+    for (origin, raw) in entries {
+        let held = ours.get(&origin);
+        let mut offset = 0usize;
+        while offset < raw.len() {
+            let inspected = garden_ledger::frame::inspect(&raw[offset..])
+                .map_err(|error| format!("ledger frame: {error:?}"))?;
+            if inspected.header.seq > held {
+                return Ok(true);
+            }
+            offset += inspected.frame_len;
+        }
+    }
+    Ok(false)
+}
+
+/// Drive one client connection through a room of any kind (y-websocket protocol).
+///
+/// This is [`serve_room_with`] with the Y.Doc calls behind [`Convergent`]: the leases (initial sync,
+/// every state-bearing delivery, every client frame), the visitor gate with its no-op budget and
+/// refusal close, presence, and fan-out are the same code paths; what a state vector, a diff, an
+/// update and a flush *are* comes from the room.
+///
+/// * SyncStep1 from the room is `room.version()`; a peer's SyncStep1 is answered with
+///   `room.diff(..)`, one SyncStep2 message per payload, each delivered under its own lease so a
+///   cold sync of a large ledger is bounded per chunk, not per ledger.
+/// * A peer's SyncStep2 / Update goes to `room.apply(..)` under the client-frame lease. For a Y.Doc
+///   room that is the existing apply path. For a ledger room, a change arms the ship window
+///   ([`LEDGER_SHIP_WINDOW`] when another socket is subscribed, [`ROOM_PERSIST_WINDOW`] otherwise);
+///   when it fires the loop runs [`ship_pending`], which fans the shippable bundles out to every
+///   subscriber. A [`ConvergeError::Fork`] closes the socket with [`LEDGER_FORK_CLOSE`].
+/// * At close the room is made durable (a Y.Doc room: the sidecar under the lifecycle lease; a
+///   ledger room: barrier, full flush, ship) and the socket's presence is removed.
+///
+/// A Y.Doc room served here behaves as under [`serve_room_with`] (the doc and workspace routes
+/// still use that loop; see the lane R debts). A ledger room has no eviction flag: leaving the
+/// registry sends [`FrameKind::Evicted`], which ends this loop.
+#[tracing::instrument(target = "gardend_otel", name = "room.connection", skip_all,
+    fields(sophia.graph.id = %graph_id))]
+pub(crate) async fn serve_convergent<C: Convergent>(
+    socket: WebSocket,
+    room: Arc<C>,
+    app: AppHandle,
+    graph_id: String,
+    access: RoomAccess,
+) {
+    let connection_id = NEXT_CONVERGENT_CONNECTION.fetch_add(1, Ordering::Relaxed);
+    let kind = room.kind();
+    let ydoc = as_ydoc(&room);
+    let evictable = YDocFlag(ydoc.clone());
+    let _connection = ydoc.as_ref().map(|ydoc| ConnectionGuard::new(ydoc, &app));
+    if let Some(ydoc) = ydoc.as_ref() {
+        // From here the room's websocket frames are broadcast first and made
+        // durable by the group commit (within ROOM_PERSIST_WINDOW).
+        ydoc.bind_persist_scope(&app, &graph_id);
+    }
+    // W6: a visitor's frames that change nothing still cost a look at the room;
+    // a connection gets a few, then it is closed.
+    let mut visitor_noop_frames: u32 = 0;
+    const VISITOR_NOOP_FRAMES: u32 = 16;
+    // When the ship window of a ledger room fires; armed by a change.
+    let mut ship_deadline: Option<tokio::time::Instant> = None;
+    let (mut sink, mut stream) = socket.split();
+    let mut rx = room.frames().subscribe();
+
+    // Server-initiated SyncStep1 is graph content: deletion must either wait
+    // until the socket accepted it or win the lease and evict the room first.
+    if let Err(error) = initial_sync_delivery(&app, &graph_id, &evictable, async {
+        let step1 = sync_message(SYNC_STEP1, &room.version().await);
+        sink.send(WsMessage::binary(step1))
+            .await
+            .map_err(|error| format!("send websocket SyncStep1: {error}"))
+    })
+    .await
+    {
+        log::warn!("closing websocket initial sync for {graph_id}: {error}");
+        return;
+    }
+    if let Some(msg) = room.awareness().encode_all() {
+        let result =
+            tokio::time::timeout(WS_STATE_SEND_TIMEOUT, sink.send(WsMessage::binary(msg))).await;
+        if !matches!(result, Ok(Ok(()))) {
+            return;
+        }
+    }
+
+    loop {
+        let ship_at = ship_deadline;
+        tokio::select! {
+            _ = async {
+                match ydoc.as_ref() {
+                    Some(ydoc) => ydoc.wait_until_evicted().await,
+                    None => std::future::pending::<()>().await,
+                }
+            } => break,
+            _ = async {
+                match ship_at {
+                    Some(at) => tokio::time::sleep_until(at).await,
+                    None => std::future::pending::<()>().await,
+                }
+            } => {
+                ship_deadline = None;
+                ship_pending(&*room).await;
+            }
+            frame = stream.next() => {
+                let Some(Ok(frame)) = frame else {
+                    break;
+                };
+                let data = match frame {
+                    WsMessage::Binary(data) => data,
+                    // Complete the RFC 6455 close handshake. Dropping the sink
+                    // without echoing the peer's close makes real browsers
+                    // report an abnormal 1006 even though the room exited.
+                    WsMessage::Close(_) => {
+                        // Tungstenite queues the symmetric reply while reading
+                        // the peer close. Drive that queued frame to the wire;
+                        // trying to enqueue a second close is rejected because
+                        // the protocol state is already ClosedByPeer.
+                        if let Err(error) = sink.flush().await {
+                            log::warn!("flush websocket close reply for {graph_id}: {error}");
+                        }
+                        break;
+                    }
+                    _ => continue,
+                };
+                let Some(message) = decode_inbound(&data) else {
+                    continue;
+                };
+                match message {
+                    Inbound::Step1(since) => {
+                        let parts = match room.diff(&since, CONVERGENT_DIFF_CHUNK_BYTES).await {
+                            Ok(parts) => parts,
+                            // An undecodable version is skipped, as an undecodable message is.
+                            Err(ConvergeError::Decode(error)) => {
+                                log::warn!("ignoring undecodable SyncStep1 on {graph_id}: {error}");
+                                continue;
+                            }
+                            Err(error) => {
+                                log::warn!("closing websocket sync reply for {graph_id}: {error}");
+                                break;
+                            }
+                        };
+                        let mut failed = false;
+                        let parts = if parts.is_empty() {
+                            room.empty_diff().into_iter().collect()
+                        } else {
+                            parts
+                        };
+                        for part in parts {
+                            let reply = sync_message(SYNC_STEP2, &part);
+                            let result = linearize_state_bearing_delivery(
+                                &app,
+                                &graph_id,
+                                &evictable,
+                                async {
+                                    sink.send(WsMessage::binary(reply))
+                                        .await
+                                        .map_err(|error| format!("send websocket SyncStep2: {error}"))
+                                },
+                            )
+                            .await;
+                            if let Err(error) = result {
+                                log::warn!("closing websocket sync reply for {graph_id}: {error}");
+                                failed = true;
+                                break;
+                            }
+                        }
+                        if failed {
+                            break;
+                        }
+                    }
+                    Inbound::Step2(update) | Inbound::Update(update) => {
+                        // W6: what a visitor may send.
+                        // An empty update (a fresh client's SyncStep2) costs nothing.
+                        let empty = !matches!(access, RoomAccess::ReadWrite)
+                            && payload_is_empty(kind, &update);
+                        if empty {
+                            continue;
+                        }
+                        let refused = match &access {
+                            RoomAccess::ReadWrite => None,
+                            RoomAccess::ReadOnly { .. } | RoomAccess::Viewer { .. } => {
+                                let would_change = match ydoc.as_ref() {
+                                    Some(ydoc) => ydoc.shadow_apply(&update, |_, _, _| Ok(())).await,
+                                    None => ledger_payload_would_change(&*room, &update).await,
+                                };
+                                match would_change {
+                                    Ok(false) => {
+                                        visitor_noop_frames += 1;
+                                        if visitor_noop_frames <= VISITOR_NOOP_FRAMES {
+                                            continue;
+                                        }
+                                        Some("too many frames that change nothing".to_string())
+                                    }
+                                    Ok(true) if matches!(access, RoomAccess::Viewer { .. }) => {
+                                        Some("read-only: viewers read this room".to_string())
+                                    }
+                                    Ok(true) => Some("read-only: visitors read this room".to_string()),
+                                    Err(error) => Some(error),
+                                }
+                            }
+                            RoomAccess::Fenced { fence, document_id } => match ydoc.as_ref() {
+                                Some(ydoc) => {
+                                    match crate::visitor_fence::admit_room_update(
+                                        &app, &graph_id, fence, document_id, ydoc, &update,
+                                    )
+                                    .await
+                                    {
+                                        Ok(true) => None,
+                                        Ok(false) => {
+                                            visitor_noop_frames += 1;
+                                            if visitor_noop_frames <= VISITOR_NOOP_FRAMES {
+                                                continue;
+                                            }
+                                            Some("too many frames that change nothing".to_string())
+                                        }
+                                        Err(error) => Some(error),
+                                    }
+                                }
+                                None => Some("a write fence applies to documents only".to_string()),
+                            },
+                        };
+                        if let Some(reason) = refused {
+                            log::info!("visitor room frame refused on {graph_id}: {reason}");
+                            let reason: String = reason.chars().take(110).collect();
+                            let _ = sink
+                                .send(WsMessage::Close(Some(axum::extract::ws::CloseFrame {
+                                    code: VISITOR_REFUSED_CLOSE,
+                                    reason: reason.into(),
+                                })))
+                                .await;
+                            break;
+                        }
+                        // A frame needs the graph's shared lifecycle lease, so deletion
+                        // and the other exclusive roots still order against it, and
+                        // nothing more: it never queues behind an API write holding the
+                        // hot-write gate (an agent mid-`insert_blocks` used to stall
+                        // Vera's typing). Operations that need a quiet room (a forward
+                        // restore applies a diff, then verifies the room equals the
+                        // target) raise an explicit frame fence, which waits for frames
+                        // in flight and holds new ones back.
+                        let _frame_lease = if let Some(coordinator) = app.try_state::<
+                            super::persistence_coordinator::GraphPersistenceCoordinator,
+                        >() {
+                            match coordinator.acquire_client_frame(&graph_id).await {
+                                Ok(lease) => Some(lease),
+                                Err(error) => {
+                                    log::error!(
+                                        "websocket frame lease failed for {graph_id}: {error}"
+                                    );
+                                    continue;
+                                }
+                            }
+                        } else {
+                            None
+                        };
+                        match room.apply(&update, connection_id).await {
+                            Ok(applied) => {
+                                if applied.changed
+                                    && kind == RoomKind::Ledger
+                                    && ship_deadline.is_none()
+                                {
+                                    // Frames ship once a full flush covers them: soon when
+                                    // another socket waits, at the group-commit window if not.
+                                    let window = if room.frames().receiver_count() > 1 {
+                                        LEDGER_SHIP_WINDOW
+                                    } else {
+                                        ROOM_PERSIST_WINDOW
+                                    };
+                                    ship_deadline = Some(tokio::time::Instant::now() + window);
+                                }
+                                if let Some(reply) = applied.reply {
+                                    let result = tokio::time::timeout(
+                                        WS_STATE_SEND_TIMEOUT,
+                                        sink.send(WsMessage::binary(sync_message(SYNC_UPDATE, &reply))),
+                                    )
+                                    .await;
+                                    if !matches!(result, Ok(Ok(()))) {
+                                        break;
+                                    }
+                                }
+                            }
+                            Err(ConvergeError::Fork { origin, seq }) => {
+                                // The ledger is untouched. Say why, and go.
+                                log::error!(
+                                    "fork on {graph_id}: origin {origin} wrote two different events at seq {seq}; closing the connection"
+                                );
+                                let _ = sink
+                                    .send(WsMessage::Close(Some(axum::extract::ws::CloseFrame {
+                                        code: LEDGER_FORK_CLOSE,
+                                        reason: format!("fork: {origin} seq {seq}")
+                                            .chars()
+                                            .take(110)
+                                            .collect::<String>()
+                                            .into(),
+                                    })))
+                                    .await;
+                                break;
+                            }
+                            Err(error) => {
+                                // Deletion marks extant room Arcs evicted before it
+                                // releases the graph lease. Close instead of silently
+                                // accepting and dropping every later client write.
+                                log::warn!("closing websocket room for {graph_id}: {error}");
+                                break;
+                            }
+                        }
+                    }
+                    Inbound::Awareness(update) => {
+                        // W6: a visitor's presence is the account's own (or
+                        // none, for an anonymous visitor).
+                        let update = match &access {
+                            RoomAccess::ReadWrite => update,
+                            RoomAccess::ReadOnly { account } => {
+                                match crate::visitor_fence::stamp_awareness_update(&app, account.as_deref(), update) {
+                                    Some(update) => update,
+                                    None => continue,
+                                }
+                            }
+                            RoomAccess::Fenced { fence, .. } => {
+                                match crate::visitor_fence::stamp_awareness_update(&app, Some(&fence.account), update) {
+                                    Some(update) => update,
+                                    None => continue,
+                                }
+                            }
+                            // A Viewer's presence is its lease principal.
+                            RoomAccess::Viewer { principal } => {
+                                match crate::visitor_fence::stamp_viewer_awareness_update(principal, update) {
+                                    Some(update) => update,
+                                    None => continue,
+                                }
+                            }
+                        };
+                        // A visitor never takes over a client id another live
+                        // socket holds (sealed exam 2026-10-15: a higher clock
+                        // displaced a collaborator's presence).
+                        let update = match &access {
+                            RoomAccess::ReadWrite => update,
+                            _ => match room.awareness().held_by_this_socket(update, connection_id) {
+                                Some(update) => update,
+                                None => continue,
+                            },
+                        };
+                        if let Some((accepted, own_only)) =
+                            room.awareness().merge_detailed(&update, connection_id)
+                        {
+                            let rebroadcast = Message::Awareness(accepted).encode_v1();
+                            publish_to(
+                                &*room,
+                                ydoc.as_ref(),
+                                own_only.then_some(connection_id),
+                                FrameKind::Awareness,
+                                rebroadcast,
+                            );
+                        }
+                    }
+                    Inbound::AwarenessQuery => {
+                        if let Some(msg) = room.awareness().encode_all() {
+                            let result = tokio::time::timeout(
+                                WS_STATE_SEND_TIMEOUT,
+                                sink.send(WsMessage::binary(msg)),
+                            )
+                            .await;
+                            if !matches!(result, Ok(Ok(()))) {
+                                break;
+                            }
+                        }
+                    }
+                    Inbound::Ignored => {}
+                }
+            }
+            broadcasted = rx.recv() => {
+                let Ok(frame) = broadcasted else {
+                    break;
+                };
+                // A client that produced the frame already has it.
+                if frame.origin == Some(connection_id) {
+                    continue;
+                }
+                let RoomFrame { kind: frame_kind, payload, .. } = frame;
+                match frame_kind {
+                    // Presence is ephemeral and carries no graph content:
+                    // nothing for deletion to order against, so no lease.
+                    FrameKind::Awareness => {
+                        let result = tokio::time::timeout(
+                            WS_STATE_SEND_TIMEOUT,
+                            sink.send(WsMessage::binary(payload)),
+                        )
+                        .await;
+                        if !matches!(result, Ok(Ok(()))) {
+                            log::warn!("closing websocket awareness broadcast for {graph_id}");
+                            break;
+                        }
+                    }
+                    FrameKind::State => {
+                        let result = broadcast_state_delivery(
+                            &app,
+                            &graph_id,
+                            &evictable,
+                            async {
+                                sink.send(WsMessage::binary(payload))
+                                    .await
+                                    .map_err(|error| format!("send websocket room update: {error}"))
+                            },
+                        )
+                        .await;
+                        if let Err(error) = result {
+                            log::warn!("closing websocket broadcast for {graph_id}: {error}");
+                            break;
+                        }
+                    }
+                    FrameKind::Evicted => break,
+                }
+            }
+        }
+    }
+
+    // The socket is gone: bring the room's unpersisted tail to disk now,
+    // rather than waiting out the window.
+    match ydoc.as_ref() {
+        Some(ydoc) => {
+            // With the directory entry, under the graph's lifecycle lease.
+            if let Err(error) = ydoc.flush_state_under_lifecycle(true).await {
+                log::warn!("room state flush at close failed for {graph_id}: {error}");
+            }
+            ydoc.settle_state_dir().await;
+        }
+        None => ship_pending(&*room).await,
+    }
+    if let Some(removal) = room.awareness().remove_connection(connection_id) {
+        // Other subscribers receive the synthetic removals even when this
+        // transport disappeared without a graceful Awareness null.
+        publish_to(
+            &*room,
+            ydoc.as_ref(),
             None,
             FrameKind::Awareness,
             Message::Awareness(removal).encode_v1(),
@@ -3171,6 +3945,8 @@ mod tests {
 
     use super::*;
     use uuid::Uuid;
+    use yrs::block::ClientID;
+    use yrs::sync::awareness::AwarenessUpdateEntry;
     use yrs::{Map, StateVector, WriteTxn};
 
     fn awareness_update(entries: Vec<(u64, u32, String)>) -> AwarenessUpdate {
@@ -3441,7 +4217,7 @@ mod tests {
                 .await
                 .is_none());
             assert!(room.remove_awareness_for_connection(10).await.is_none());
-            let state = room.awareness.lock().await;
+            let state = room.awareness.entries_for_test();
             assert_eq!(
                 state.get(&client).expect("replacement remains").owner,
                 Some(20)
@@ -3476,7 +4252,7 @@ mod tests {
                 .await
                 .is_none());
             assert!(room.remove_awareness_for_connection(20).await.is_none());
-            let state = room.awareness.lock().await;
+            let state = room.awareness.entries_for_test();
             let live = state.get(&client).expect("original socket remains owner");
             assert_eq!(live.owner, Some(10));
             assert_eq!(live.entry.clock, 1);

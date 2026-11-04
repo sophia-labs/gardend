@@ -37,7 +37,7 @@ name = "gardend"
 path = "examples/gardend.rs"
 required-features = ["headless"]
 
-# The ledger crate (W5) lives beside the app; the root package does not depend on it yet.
+# The ledger crate (W5) lives beside the app; the root package depends on it from W6 (the ledger room).
 [workspace]
 members = ["crates/garden-ledger"]
 
@@ -59,6 +59,7 @@ headless = [
 tauri-build = { version = "2.5.6", features = [], optional = true }
 
 [dependencies]
+garden-ledger = { path = "crates/garden-ledger" }
 # `preserve_order` makes serde_json::Map iterate in insertion order (IndexMap),
 # required for the emporium ingest doc builders to reproduce Python
 # `json.dumps` (which preserves dict order) byte-for-byte — see
