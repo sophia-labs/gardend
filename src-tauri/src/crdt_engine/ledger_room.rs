@@ -466,8 +466,9 @@ impl LedgerRoom {
         self.ship_owed.store(true, Ordering::Release);
     }
 
-    /// Arm the two background tasks a change owes (W6.md section 4). `peers_waiting`: someone other
-    /// than the writer is subscribed, so shipping is eager.
+    /// Arm the two background tasks a change owes (W6.md section 4). `peers_waiting`: at least one
+    /// connection is subscribed, so shipping is eager ([`LEDGER_SHIP_WINDOW`]); with none it rides
+    /// the idle cadence ([`LEDGER_IDLE_FLUSH_WINDOW`]).
     fn arm(&self, peers_waiting: bool) {
         self.arm_persist();
         self.arm_ship(peers_waiting);
@@ -640,8 +641,9 @@ impl Convergent for LedgerRoom {
         drop(ledger);
         if new_frames > 0 {
             self.mark_dirty();
-            // The writer's own socket is one of the subscribers; a peer waits only if there is another.
-            self.arm(self.frames.receiver_count() > 1);
+            // Section 4: eager as soon as any connection is subscribed (the writer's own socket
+            // counts), idle cadence otherwise.
+            self.arm(self.frames.receiver_count() > 0);
         }
         Ok(Applied {
             changed: new_frames > 0,
@@ -1105,8 +1107,8 @@ mod tests {
         assert!(!a.ship_owed());
     }
 
-    /// M1: a changed apply ships to a *second* subscriber (the first is the writer's own socket)
-    /// within 200 ms, on the room's timer, with nothing else happening.
+    /// M1: a changed apply ships to every subscriber (the writer's own socket and a second one) within
+    /// 200 ms, on the room's timer, with nothing else happening.
     #[tokio::test]
     async fn an_apply_ships_to_the_other_subscriber() {
         let (da, db) = (Scratch::new(), Scratch::new());
@@ -1122,6 +1124,24 @@ mod tests {
             .await
             .is_some());
         assert!(frame_within(&mut writer, Duration::from_millis(50))
+            .await
+            .is_some());
+        assert!(!a.ship_owed());
+    }
+
+    /// Section 4 literally: one subscribed connection (here the writer's own) is enough for the eager window.
+    #[tokio::test]
+    async fn an_apply_with_one_subscriber_ships_on_the_eager_window() {
+        let (da, db) = (Scratch::new(), Scratch::new());
+        let a = LedgerRoom::open(&da.0, "test", o("cell-a")).unwrap();
+        let b = LedgerRoom::open(&db.0, "test", o("cell-b")).unwrap();
+        b.append(draft("from b")).await.unwrap();
+        b.durable().await.unwrap();
+        let mut only = a.frames().subscribe();
+        for bundle in b.diff(&a.version().await, 1 << 20).await.unwrap() {
+            assert!(a.apply(&bundle, 3).await.unwrap().changed);
+        }
+        assert!(frame_within(&mut only, Duration::from_millis(200))
             .await
             .is_some());
         assert!(!a.ship_owed());
