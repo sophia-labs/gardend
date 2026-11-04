@@ -269,7 +269,7 @@ pub(crate) async fn apply_classified(
         }
         Ok(None) => {}
         Err(error) => {
-            return Err(ApplyOperationError::retryable_after_hot_commit(format!(
+            return Err(ApplyOperationError::RetryableAfterHotCommit(format!(
                 "read upload ingest completion ledger: {error}"
             )));
         }
@@ -286,7 +286,7 @@ pub(crate) async fn apply_classified(
         result: Some(result.clone()),
     };
     crate::operation_completion_ledger::append_completion_entry(app, entry)
-        .map_err(ApplyOperationError::retryable_after_hot_commit)?;
+        .map_err(ApplyOperationError::RetryableAfterHotCommit)?;
     if let Some(path) = pending_path.as_deref() {
         cleanup_pending_best_effort(app, &operation.graph_id, path);
     }
@@ -368,7 +368,7 @@ async fn apply_steps_classified(
                     pending_path: pending.clone(),
                 },
             )
-            .map_err(ApplyOperationError::retryable_after_hot_commit)?;
+            .map_err(ApplyOperationError::RetryableAfterHotCommit)?;
             record.data_base64
         }
         (None, None) => unreachable!(),
@@ -424,7 +424,7 @@ async fn apply_steps_classified(
                 ApplyOperationError::terminal(format!("document.uploadIngest: {message}"))
             }
             PoolRefusal::Transient(message) => {
-                ApplyOperationError::retryable_after_hot_commit(message)
+                ApplyOperationError::RetryableAfterHotCommit(message)
             }
         })?;
         (

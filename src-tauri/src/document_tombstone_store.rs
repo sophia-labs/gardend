@@ -87,7 +87,7 @@ pub(crate) fn require_document_not_tombstoned(
 ) -> Result<(), PersistenceError> {
     crate::document_body_availability::require_available(graph_dir, document_id)
         .map_err(PersistenceError::permanent)?;
-    if document_is_tombstoned(graph_dir, document_id)? {
+    if document_is_tombstoned(graph_dir, document_id).map_err(PersistenceError::transient)? {
         return Err(PersistenceError::permanent(format!(
             "document tombstoned: {document_id}"
         )));
@@ -105,11 +105,13 @@ pub(crate) fn require_document_tombstone_matches(
 ) -> Result<DocumentTombstone, PersistenceError> {
     crate::document_body_availability::require_available(graph_dir, document_id)
         .map_err(PersistenceError::permanent)?;
-    let current = read_document_tombstone(graph_dir, document_id)?.ok_or_else(|| {
-        PersistenceError::permanent(format!(
-            "document tombstone missing during recreation: {document_id}"
-        ))
-    })?;
+    let current = read_document_tombstone(graph_dir, document_id)
+        .map_err(PersistenceError::transient)?
+        .ok_or_else(|| {
+            PersistenceError::permanent(format!(
+                "document tombstone missing during recreation: {document_id}"
+            ))
+        })?;
     if current.deletion_id != expected_deletion_id {
         return Err(PersistenceError::permanent(format!(
             "document deletion boundary changed during recreation: {document_id}"
@@ -168,7 +170,9 @@ pub(crate) fn clear_document_tombstone_if_matches(
         graph_dir,
         document_id,
         || {
-            let Some(current) = read_document_tombstone(graph_dir, document_id)? else {
+            let Some(current) = read_document_tombstone(graph_dir, document_id)
+                .map_err(PersistenceError::transient)?
+            else {
                 return Ok(false);
             };
             if current.deletion_id != expected_deletion_id {
@@ -176,8 +180,11 @@ pub(crate) fn clear_document_tombstone_if_matches(
                     "stale document recreation for {document_id}: deletion boundary changed"
                 )));
             }
-            remove_file_if_exists(&document_tombstone_path(graph_dir, document_id)?)
-                .map_err(Into::into)
+            remove_file_if_exists(
+                &document_tombstone_path(graph_dir, document_id)
+                    .map_err(PersistenceError::permanent)?,
+            )
+            .map_err(Into::into)
         },
     )
 }

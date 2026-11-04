@@ -205,9 +205,10 @@ pub(crate) fn prepare_tombstoned_document_recreation(
     graph_id: &str,
     document_id: &str,
 ) -> Result<Option<crate::document_tombstone_store::DocumentTombstone>, PersistenceError> {
-    let graph_dir = existing_graph_dir(app, graph_id)?;
+    let graph_dir = existing_graph_dir(app, graph_id).map_err(PersistenceError::permanent)?;
     let Some(tombstone) =
-        crate::document_tombstone_store::read_document_tombstone(&graph_dir, document_id)?
+        crate::document_tombstone_store::read_document_tombstone(&graph_dir, document_id)
+            .map_err(PersistenceError::transient)?
     else {
         return Ok(None);
     };
@@ -219,14 +220,15 @@ pub(crate) fn prepare_tombstoned_document_recreation(
             document_id,
             DeleteBoundary::Preserve(&tombstone.deletion_id),
         )
-    })?;
-    let current =
-        crate::document_tombstone_store::read_document_tombstone(&graph_dir, document_id)?
-            .ok_or_else(|| {
-                PersistenceError::permanent(format!(
-                    "document tombstone disappeared during recreation: {document_id}"
-                ))
-            })?;
+    })
+    .map_err(PersistenceError::transient)?;
+    let current = crate::document_tombstone_store::read_document_tombstone(&graph_dir, document_id)
+        .map_err(PersistenceError::transient)?
+        .ok_or_else(|| {
+            PersistenceError::permanent(format!(
+                "document tombstone disappeared during recreation: {document_id}"
+            ))
+        })?;
     if current.deletion_id != tombstone.deletion_id {
         return Err(PersistenceError::permanent(format!(
             "document deletion boundary changed during recreation: {document_id}"

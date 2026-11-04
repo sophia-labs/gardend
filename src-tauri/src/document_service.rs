@@ -152,8 +152,9 @@ fn create_document_record_with_lease(
     title: String,
 ) -> Result<DocumentRecord, PersistenceError> {
     let _durability_guard = crate::cell_durability::write_guard();
-    require_no_active_restore(&app, &input.graph_id)?;
-    let graph_dir = existing_graph_dir(&app, &input.graph_id)?;
+    require_no_active_restore(&app, &input.graph_id).map_err(PersistenceError::transient)?;
+    let graph_dir =
+        existing_graph_dir(&app, &input.graph_id).map_err(PersistenceError::permanent)?;
     let document_id = match input.document_id {
         Some(document_id) => {
             validate_local_id(&document_id, "document_id").map_err(PersistenceError::permanent)?;
@@ -161,11 +162,15 @@ fn create_document_record_with_lease(
         }
         None => make_document_id(&title),
     };
-    let document_dir = document_dir(&graph_dir, &document_id)?;
+    let document_dir =
+        document_dir(&graph_dir, &document_id).map_err(PersistenceError::permanent)?;
     let now = timestamp();
-    crate::document_body_availability::require_available(&graph_dir, &document_id)?;
+    crate::document_body_availability::require_available(&graph_dir, &document_id)
+        .map_err(PersistenceError::permanent)?;
 
-    if crate::document_tombstone_store::document_is_tombstoned(&graph_dir, &document_id)? {
+    if crate::document_tombstone_store::document_is_tombstoned(&graph_dir, &document_id)
+        .map_err(PersistenceError::transient)?
+    {
         return Err(PersistenceError::permanent(format!(
             "document tombstoned: {document_id}; a deleted document is not created again (create a new document)"
         )));
@@ -180,7 +185,7 @@ fn create_document_record_with_lease(
         return Ok(document);
     }
 
-    ensure_document_dirs(&graph_dir, &document_id)?;
+    ensure_document_dirs(&graph_dir, &document_id).map_err(PersistenceError::transient)?;
 
     let ydoc_state_path = display_path(&document_ydoc_state_path(&graph_dir, &document_id));
     let document = DocumentRecord {

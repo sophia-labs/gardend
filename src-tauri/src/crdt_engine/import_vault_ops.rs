@@ -2161,7 +2161,7 @@ fn maybe_fail_vault_step_for_test(
         })
     {
         pending.take();
-        return Err(ApplyOperationError::retryable_after_hot_commit(format!(
+        return Err(ApplyOperationError::RetryableAfterHotCommit(format!(
             "injected import.vault failure at {point:?} for {operation_id}"
         )));
     }
@@ -2185,7 +2185,7 @@ fn finish_vault_completion(
         result: Some(envelope.clone()),
     };
     crate::operation_completion_ledger::append_completion_entry(app, entry)
-        .map_err(ApplyOperationError::retryable_after_hot_commit)?;
+        .map_err(ApplyOperationError::RetryableAfterHotCommit)?;
     if let Some(pending) = pending_archive_path {
         if let Err(error) = cleanup_pending_archive(app, graph_id, pending) {
             log::warn!("[import.vault] pending archive cleanup failed: {error}");
@@ -2247,7 +2247,7 @@ pub(crate) async fn apply_classified(
         }
         Ok(None) => {}
         Err(error) => {
-            return Err(ApplyOperationError::retryable_after_hot_commit(format!(
+            return Err(ApplyOperationError::RetryableAfterHotCommit(format!(
                 "read import.vault completion ledger: {error}"
             )));
         }
@@ -2261,7 +2261,7 @@ pub(crate) async fn apply_classified(
                 pending_path: pending.clone(),
             },
         )
-        .map_err(ApplyOperationError::retryable_after_hot_commit)?;
+        .map_err(ApplyOperationError::RetryableAfterHotCommit)?;
         decode_bytes_base64(&pending_upload.data_base64)?
     } else {
         decode_bytes_base64(zip_base64.as_deref().unwrap_or(""))?

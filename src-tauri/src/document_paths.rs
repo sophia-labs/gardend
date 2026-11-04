@@ -28,7 +28,7 @@ pub(crate) fn existing_document_dir(
     graph_dir: &Path,
     document_id: &str,
 ) -> Result<PathBuf, PersistenceError> {
-    let document_dir = document_dir(graph_dir, document_id)?;
+    let document_dir = document_dir(graph_dir, document_id).map_err(PersistenceError::permanent)?;
     if !document_dir.join("document.json").is_file() {
         return Err(PersistenceError::permanent(format!(
             "document not found: {document_id}"

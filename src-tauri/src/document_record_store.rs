@@ -64,7 +64,7 @@ pub(super) fn read_document_record_if_title_changed(
     title: &str,
 ) -> Result<Option<DocumentRecord>, PersistenceError> {
     let document = read_json::<DocumentRecord>(manifest_path)?;
-    validate_document_record_ids(&document)?;
+    validate_document_record_ids(&document).map_err(PersistenceError::permanent)?;
     crate::document_tombstone_store::require_document_not_tombstoned(
         graph_dir,
         &document.document_id,
@@ -454,7 +454,8 @@ fn write_document_record_inner(
     // The manifest title is about to change or be confirmed: the workspace title
     // sweep must look at this document again.
     crate::crdt_engine::workspace_ops::forget_reconciled_title(graph_dir, &document.document_id);
-    let (document_dir, _) = ensure_document_dirs(graph_dir, &document.document_id)?;
+    let (document_dir, _) = ensure_document_dirs(graph_dir, &document.document_id)
+        .map_err(PersistenceError::transient)?;
     if write_authority {
         write_document_state_files(graph_dir, document)?;
     } else {

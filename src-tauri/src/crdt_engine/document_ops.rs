@@ -105,7 +105,7 @@ fn maybe_fail_document_write_after_hot_for_test(
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     if pending.as_deref() == Some(operation_id) {
         pending.take();
-        return Err(ApplyOperationError::retryable_after_hot_commit(format!(
+        return Err(ApplyOperationError::RetryableAfterHotCommit(format!(
             "injected document.write failure after hot commit for {operation_id}"
         )));
     }
@@ -122,7 +122,7 @@ fn maybe_fail_document_recreation_before_workspace_for_test(
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     if pending.as_deref() == Some(operation_id) {
         pending.take();
-        return Err(ApplyOperationError::retryable_after_hot_commit(format!(
+        return Err(ApplyOperationError::RetryableAfterHotCommit(format!(
             "injected document recreation failure before workspace commit for {operation_id}"
         )));
     }
@@ -592,7 +592,7 @@ pub(crate) async fn document_write_classified(
             .is_some_and(|record| record.title == title);
     let record_result = match (no_op_write, existing_record.as_ref()) {
         (true, Some(record)) => serde_json::to_value(record).map_err(|error| {
-            PersistenceError::from(format!("serialize unchanged document record: {error}"))
+            PersistenceError::permanent(format!("serialize unchanged document record: {error}"))
         }),
         _ => {
             persist_room_document_with_expected_revision(
@@ -1967,8 +1967,10 @@ pub(super) fn reconcile_matching_document_projection(
     document_id: &str,
     candidate: &Value,
 ) -> Result<Option<Value>, PersistenceError> {
-    let graph_dir = existing_graph_dir(app, graph_id)?;
-    let manifest = document_dir(&graph_dir, document_id)?.join("document.json");
+    let graph_dir = existing_graph_dir(app, graph_id).map_err(PersistenceError::permanent)?;
+    let manifest = document_dir(&graph_dir, document_id)
+        .map_err(PersistenceError::permanent)?
+        .join("document.json");
     if !manifest.is_file() {
         return Ok(None);
     }
@@ -1985,10 +1987,13 @@ pub(super) fn reconcile_matching_document_projection(
         snapshot.clone_into(&mut record.ydoc_update_base64);
     }
     let raw_record_value = serde_json::to_value(&raw_record)
-        .map_err(|error| format!("serialize raw document record: {error}"))?;
+        .map_err(|error| format!("serialize raw document record: {error}"))
+        .map_err(PersistenceError::permanent)?;
     let record_value = serde_json::to_value(&record)
-        .map_err(|error| format!("serialize existing document record: {error}"))?;
-    let fields_match = projection_semantics_match(&raw_record_value, candidate)?;
+        .map_err(|error| format!("serialize existing document record: {error}"))
+        .map_err(PersistenceError::permanent)?;
+    let fields_match = projection_semantics_match(&raw_record_value, candidate)
+        .map_err(PersistenceError::permanent)?;
 
     if let Some(expected) = candidate.get("expectedRevision").and_then(Value::as_u64) {
         // Preserve save_document's optimistic-concurrency contract. Equality at
@@ -2034,7 +2039,9 @@ async fn persist_room_document_locked(
     if room.is_evicted() {
         return Err(PersistenceError::permanent("room was evicted"));
     }
-    let document_kind = resolve_document_kind(app, graph_id, document_id).await?;
+    let document_kind = resolve_document_kind(app, graph_id, document_id)
+        .await
+        .map_err(PersistenceError::transient)?;
     let materialized = materialize_room_document(
         graph_id,
         document_id,
@@ -2044,7 +2051,8 @@ async fn persist_room_document_locked(
         expected_revision,
         document_kind.as_deref(),
     )
-    .await?;
+    .await
+    .map_err(PersistenceError::permanent)?;
     persist_materialized_room_document_with_tombstone_fence(
         app,
         graph_id,
@@ -2084,7 +2092,7 @@ fn persist_materialized_room_document_with_tombstone_fence(
         return Err(PersistenceError::permanent("room was evicted"));
     }
     let record_value = if let Some(expected_deletion_id) = expected_deletion_id {
-        let graph_dir = existing_graph_dir(app, graph_id)?;
+        let graph_dir = existing_graph_dir(app, graph_id).map_err(PersistenceError::permanent)?;
         crate::document_tombstone_store::require_document_tombstone_matches(
             &graph_dir,
             document_id,
@@ -2095,7 +2103,9 @@ fn persist_materialized_room_document_with_tombstone_fence(
             materialized.save_input,
             expected_deletion_id,
         )?;
-        serde_json::to_value(&record).map_err(|error| format!("serialize record: {error}"))?
+        serde_json::to_value(&record)
+            .map_err(|error| format!("serialize record: {error}"))
+            .map_err(PersistenceError::permanent)?
     } else {
         match reconcile_matching_document_projection(
             app,
@@ -2110,7 +2120,8 @@ fn persist_materialized_room_document_with_tombstone_fence(
                     materialized.save_input,
                 )?;
                 serde_json::to_value(&record)
-                    .map_err(|error| format!("serialize record: {error}"))?
+                    .map_err(|error| format!("serialize record: {error}"))
+                    .map_err(PersistenceError::permanent)?
             }
         }
     };
@@ -2146,8 +2157,10 @@ pub(crate) async fn sync_room_document_title(
     operation_id: &str,
 ) -> Result<bool, PersistenceError> {
     let _projection_guard = room.lock_projection_flush().await;
-    let graph_dir = existing_graph_dir(app, graph_id)?;
-    let manifest = document_dir(&graph_dir, document_id)?.join("document.json");
+    let graph_dir = existing_graph_dir(app, graph_id).map_err(PersistenceError::permanent)?;
+    let manifest = document_dir(&graph_dir, document_id)
+        .map_err(PersistenceError::permanent)?
+        .join("document.json");
     if !manifest.is_file() {
         return Ok(false);
     }
@@ -2184,9 +2197,11 @@ pub(crate) async fn sync_room_document_title(
     } else {
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(&record.ydoc_update_base64)
-            .map_err(|error| format!("decode document Y.Doc state for title sync: {error}"))?;
+            .map_err(|error| format!("decode document Y.Doc state for title sync: {error}"))
+            .map_err(PersistenceError::permanent)?;
         !Update::decode_v1(&bytes)
-            .map_err(|error| format!("decode document Y.Doc update for title sync: {error}"))?
+            .map_err(|error| format!("decode document Y.Doc update for title sync: {error}"))
+            .map_err(PersistenceError::permanent)?
             .is_empty()
     };
 
@@ -2250,10 +2265,12 @@ fn save_record_with_workspace_title(
     operation_id: &str,
 ) -> Result<(), PersistenceError> {
     let mut input_value = serde_json::to_value(record)
-        .map_err(|error| format!("serialize document title sync input: {error}"))?;
+        .map_err(|error| format!("serialize document title sync input: {error}"))
+        .map_err(PersistenceError::permanent)?;
     let input = input_value
         .as_object_mut()
-        .ok_or_else(|| "document title sync input is not an object".to_string())?;
+        .ok_or_else(|| "document title sync input is not an object".to_string())
+        .map_err(PersistenceError::permanent)?;
     input.insert("title".to_string(), json!(title));
     input.insert("traceOperationId".to_string(), json!(operation_id));
     input.remove("revision");
@@ -2268,7 +2285,8 @@ fn save_record_with_workspace_title(
     input.remove("ydocStatePath");
     input.remove("rdfTripleCount");
     let save_input: SaveDocumentInput = serde_json::from_value(input_value)
-        .map_err(|error| format!("assemble document title sync input: {error}"))?;
+        .map_err(|error| format!("assemble document title sync input: {error}"))
+        .map_err(PersistenceError::permanent)?;
     crate::document_persistence_service::save_document_with_lease(app.clone(), save_input)?;
     Ok(())
 }
@@ -3059,7 +3077,7 @@ fn maybe_fail_edit_comment_after_hot_for_test(
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     if pending.as_deref() == Some(operation_id) {
         pending.take();
-        return Err(ApplyOperationError::retryable_after_hot_commit(format!(
+        return Err(ApplyOperationError::RetryableAfterHotCommit(format!(
             "injected editComment failure after hot commit for {operation_id}"
         )));
     }
@@ -3425,7 +3443,7 @@ fn maybe_fail_ingest_step_for_test(
         })
     {
         pending.take();
-        return Err(ApplyOperationError::retryable_after_hot_commit(format!(
+        return Err(ApplyOperationError::RetryableAfterHotCommit(format!(
             "injected ingest failure after {point:?} for {operation_id}"
         )));
     }
@@ -3470,7 +3488,7 @@ pub(crate) async fn ingest_markdown_original_classified(
         }
         Ok(None) => {}
         Err(error) => {
-            return Err(ApplyOperationError::retryable_after_hot_commit(format!(
+            return Err(ApplyOperationError::RetryableAfterHotCommit(format!(
                 "read ingest completion ledger: {error}"
             )));
         }
@@ -3487,7 +3505,7 @@ pub(crate) async fn ingest_markdown_original_classified(
         result: Some(result.clone()),
     };
     crate::operation_completion_ledger::append_completion_entry(app, entry)
-        .map_err(ApplyOperationError::retryable_after_hot_commit)?;
+        .map_err(ApplyOperationError::RetryableAfterHotCommit)?;
     if let Some(pending_path) = pending_original_path.as_deref() {
         cleanup_ingest_pending_best_effort(app, &operation.graph_id, pending_path);
     }

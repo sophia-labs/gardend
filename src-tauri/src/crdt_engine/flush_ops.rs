@@ -33,13 +33,18 @@ pub(crate) async fn flush_document_background(
         crate::app_runtime::async_runtime::block_on(async {
             let coordinator =
                 app.state::<super::persistence_coordinator::GraphPersistenceCoordinator>();
-            let _lifecycle = coordinator.acquire_lifecycle_shared(&graph_id).await?;
-            coordinator.require_generation(&graph_id, graph_generation)?;
+            let _lifecycle = coordinator
+                .acquire_lifecycle_shared(&graph_id)
+                .await
+                .map_err(PersistenceError::permanent)?;
+            coordinator
+                .require_generation(&graph_id, graph_generation)
+                .map_err(PersistenceError::permanent)?;
             flush_document_under_lifecycle(&app, &graph_id, &document_id, &room).await
         })
     }))
     .await
-    .map_err(|error| PersistenceError::from(format!("document projection join: {error}")))?
+    .map_err(|error| PersistenceError::transient(format!("document projection join: {error}")))?
 }
 
 async fn flush_document_under_lifecycle(
@@ -51,7 +56,8 @@ async fn flush_document_under_lifecycle(
     if room.is_evicted() {
         return Err(PersistenceError::permanent("room was evicted"));
     }
-    let graph_dir = crate::graph_paths::existing_graph_dir(app, graph_id)?;
+    let graph_dir = crate::graph_paths::existing_graph_dir(app, graph_id)
+        .map_err(PersistenceError::permanent)?;
     crate::document_tombstone_store::require_document_not_tombstoned(&graph_dir, document_id)?;
     let registry = app.state::<RoomRegistry>();
     let title = live_workspace_title(&registry, graph_id, document_id)
@@ -655,6 +661,14 @@ pub(crate) async fn apply(app: &AppHandle, operation: &CrdtOperation) -> Result<
         .map_err(ApplyOperationError::into_message)
 }
 
+/// A flush failure that arrives as a bare `String` from an untyped helper (path lookups, tombstone reads, the room
+/// registry). It is sorted by the keyword list in `classify_flush_error`: the terminal markers there are permanent,
+/// everything else is a cold-tail fault that may clear, so Transient. This is the one place a message is inspected on
+/// purpose; no `String` becomes a retry class anywhere else.
+pub(super) fn classify_flush_text(message: String) -> ApplyOperationError {
+    classify_flush_error(PersistenceError::transient(message))
+}
+
 pub(super) fn classify_flush_error(error: impl Into<PersistenceError>) -> ApplyOperationError {
     let error = match error.into() {
         PersistenceError::Permanent(error) => return ApplyOperationError::terminal(error),
@@ -687,7 +701,7 @@ pub(super) fn classify_flush_error(error: impl Into<PersistenceError>) -> ApplyO
     } else {
         // Filesystem, RDF, history, and other cold-tail failures retain the
         // exact journal operation until the scheduled retry repairs them.
-        ApplyOperationError::retryable_after_hot_commit(error)
+        ApplyOperationError::RetryableAfterHotCommit(error)
     }
 }
 
@@ -710,7 +724,7 @@ pub(crate) async fn apply_classified(
         }
     }
     let graph_dir =
-        crate::graph_paths::existing_graph_dir(app, graph_id).map_err(classify_flush_error)?;
+        crate::graph_paths::existing_graph_dir(app, graph_id).map_err(classify_flush_text)?;
     let registry = app.state::<RoomRegistry>();
     let recovered = operation
         .payload
@@ -781,7 +795,7 @@ pub(crate) async fn apply_classified(
     let named_document_hydrated = hydrate_rooms && !named_document_was_live;
     let outcome: ApplyOperationResult<Value> = async {
         #[cfg(test)]
-        maybe_fail_flush_for_test(graph_id).map_err(classify_flush_error)?;
+        maybe_fail_flush_for_test(graph_id).map_err(classify_flush_text)?;
 
         // Desktop flushes the filesystem/workspace channel before document
         // channels. Preserve that ordering so a just-created browser document
@@ -809,7 +823,7 @@ pub(crate) async fn apply_classified(
         for (document_id, room) in rooms {
             processed_live_ids.insert(document_id.clone());
             if crate::document_tombstone_store::document_is_tombstoned(&graph_dir, &document_id)
-                .map_err(classify_flush_error)?
+                .map_err(classify_flush_text)?
             {
                 registry.evict_room(&format!("doc:{graph_id}:{document_id}"));
                 continue;
@@ -849,7 +863,7 @@ pub(crate) async fn apply_classified(
         // decoded room would rebuild the leak one retry at a time).
         if enumerate_graph_documents {
             for (document_id, state_path) in
-                persisted_document_sidecars(graph_id, &graph_dir).map_err(classify_flush_error)?
+                persisted_document_sidecars(graph_id, &graph_dir).map_err(classify_flush_text)?
             {
                 if processed_live_ids.contains(&document_id) {
                     continue;
@@ -858,7 +872,7 @@ pub(crate) async fn apply_classified(
                 let room = registry
                     .get_or_create(&room_key, state_path)
                     .await
-                    .map_err(classify_flush_error)?;
+                    .map_err(classify_flush_text)?;
                 let title = live_workspace_title(&registry, graph_id, &document_id)
                     .await
                     .or_else(|| stored_document_title(&graph_dir, &document_id))
@@ -931,7 +945,8 @@ async fn hydrate_workspace_and_named_document_room(
         // marker is authoritative and may not be replayed into a room.
         crate::document_tombstone_store::require_document_not_tombstoned(graph_dir, document_id)?;
         let state_path =
-            crate::ydoc_paths::checked_document_ydoc_state_path(graph_dir, document_id)?;
+            crate::ydoc_paths::checked_document_ydoc_state_path(graph_dir, document_id)
+                .map_err(PersistenceError::permanent)?;
         if state_path.is_file() {
             registry
                 .get_or_create_classified(&format!("doc:{graph_id}:{document_id}"), state_path)
@@ -2818,13 +2833,13 @@ mod tests {
     #[test]
     fn an_unparseable_projection_is_terminal_and_engine_or_storage_faults_still_retry() {
         use crate::crdt_engine::executor::ApplyOperationError;
-        let shacl = super::classify_flush_error(
+        let shacl = super::classify_flush_text(
             "crdt.flush workspace g: SHACL: 1 violation(s) in desired graph for vocab 'w': w: SHACL: \
              failed to parse desired graph for validation: N-Triples error"
                 .to_string(),
         );
         assert!(matches!(shacl, ApplyOperationError::Terminal(_)));
-        let engine = super::classify_flush_error(
+        let engine = super::classify_flush_text(
             "crdt.flush workspace g: SHACL: 1 violation(s) in desired graph for vocab 'w': w: SHACL: \
              failed to compile vocab-derived shapes: busy"
                 .to_string(),
@@ -2833,7 +2848,7 @@ mod tests {
             engine,
             ApplyOperationError::RetryableAfterHotCommit(_)
         ));
-        let storage = super::classify_flush_error("write store: disk I/O error".to_string());
+        let storage = super::classify_flush_text("write store: disk I/O error".to_string());
         assert!(matches!(
             storage,
             ApplyOperationError::RetryableAfterHotCommit(_)

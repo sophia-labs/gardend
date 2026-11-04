@@ -4219,7 +4219,7 @@ pub(super) fn apply(
         )?;
         Ok(result)
     };
-    let result = perform().map_err(ApplyOperationError::retryable_after_hot_commit)?;
+    let result = perform().map_err(ApplyOperationError::RetryableAfterHotCommit)?;
     crate::operation_completion_ledger::append_completion_entry(
         app,
         crate::operation_completion_ledger::OperationCompletionEntry {
@@ -4232,7 +4232,7 @@ pub(super) fn apply(
             result: Some(result.clone()),
         },
     )
-    .map_err(ApplyOperationError::retryable_after_hot_commit)?;
+    .map_err(ApplyOperationError::RetryableAfterHotCommit)?;
     if let Some(path) = pending {
         cleanup_pending_archive(app, path, Some(graph));
     }

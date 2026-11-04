@@ -123,7 +123,7 @@ impl Error for AppError {}
 
 /// Failure of a persistence tail whose room state may already be committed.
 /// Keep permanent refusals typed until the executor decides whether to retain
-/// the operation. Legacy string-only storage failures remain retryable.
+/// the operation. Every site names its class (`permanent`, `transient`, `io`); no `String` converts implicitly.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum PersistenceError {
     Permanent(String),
@@ -135,7 +135,8 @@ impl PersistenceError {
         Self::Permanent(message.into())
     }
 
-    /// A failure a later attempt may clear (I/O, a lock, a busy store).
+    /// A failure a later attempt may clear (I/O, a lock, a busy store). Say it at the site: no `String` converts to a
+    /// retry class by accident any more.
     pub(crate) fn transient(message: impl Into<String>) -> Self {
         Self::Transient(message.into())
     }
@@ -155,18 +156,6 @@ impl PersistenceError {
             }
             _ => Self::Transient(message),
         }
-    }
-}
-
-impl From<String> for PersistenceError {
-    fn from(message: String) -> Self {
-        Self::Transient(message)
-    }
-}
-
-impl From<&str> for PersistenceError {
-    fn from(message: &str) -> Self {
-        Self::Transient(message.to_string())
     }
 }
 

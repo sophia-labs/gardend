@@ -2699,7 +2699,8 @@ fn require_restore_marker_unchanged(
     contract: &CellArchiveRestoreContract,
 ) -> Result<(), PersistenceError> {
     let current: CellArchiveRestoreMarker = crate::storage::read_json(&contract.marker_path)
-        .map_err(crate::app_error::AppError::message)?;
+        .map_err(crate::app_error::AppError::message)
+        .map_err(PersistenceError::transient)?;
     if current == contract.marker {
         Ok(())
     } else {
@@ -2719,13 +2720,9 @@ pub(crate) async fn apply(app: &AppHandle, operation: &CrdtOperation) -> Result<
         .map_err(ApplyOperationError::into_message)
 }
 
-fn archive_failure(
-    error: impl Into<PersistenceError>,
-    durable_started: bool,
-) -> ApplyOperationError {
-    let error = error.into();
+fn archive_failure(error: String, durable_started: bool) -> ApplyOperationError {
     if durable_started {
-        ApplyOperationError::retryable_after_hot_commit(error)
+        ApplyOperationError::RetryableAfterHotCommit(error)
     } else {
         ApplyOperationError::terminal(error)
     }
@@ -2769,7 +2766,7 @@ fn maybe_fail_archive_step_for_test(
         })
     {
         pending.take();
-        return Err(ApplyOperationError::retryable_after_hot_commit(format!(
+        return Err(ApplyOperationError::RetryableAfterHotCommit(format!(
             "injected graph.importArchive failure at {point:?} for {operation_id}"
         )));
     }
@@ -2829,7 +2826,7 @@ pub(crate) async fn apply_classified(
     // written only after the full handler succeeds (see end of this function).
     let ledger_hit = crate::operation_completion_ledger::completion_entry_for(app, operation_id)
         .map_err(|error| {
-            ApplyOperationError::retryable_after_hot_commit(format!(
+            ApplyOperationError::RetryableAfterHotCommit(format!(
                 "read {operation_kind} completion ledger: {error}"
             ))
         })?;
@@ -2871,7 +2868,7 @@ pub(crate) async fn apply_classified(
     // on graph_id. Mismatch is a hard error; match means the prior attempt
     // crashed mid-way and we continue from per-step idempotency.
     let existing = crate::graph_service::list_graphs(app.clone())
-        .map_err(ApplyOperationError::retryable_after_hot_commit)?
+        .map_err(ApplyOperationError::RetryableAfterHotCommit)?
         .into_iter()
         .find(|graph| graph.graph_id == new_graph_id);
     if restore_existing && existing.is_none() {
@@ -2982,7 +2979,7 @@ pub(crate) async fn apply_classified(
         )
         .map_err(|error| {
             if error.starts_with(CELL_RESTORE_MARKER_STORAGE_ERROR) {
-                ApplyOperationError::retryable_after_hot_commit(error)
+                ApplyOperationError::RetryableAfterHotCommit(error)
             } else {
                 ApplyOperationError::terminal(error)
             }
@@ -3049,9 +3046,7 @@ pub(crate) async fn apply_classified(
             "traceOperationId": operation_id,
         }))
         .map_err(|error| {
-            ApplyOperationError::retryable_after_hot_commit(format!(
-                "assemble save_workspace input: {error}"
-            ))
+            ApplyOperationError::terminal(format!("assemble save_workspace input: {error}"))
         })?;
         crate::document_persistence_service::save_workspace_with_lease(app.clone(), save_input)
             .map_err(ApplyOperationError::retryable_after_hot_commit)?;
@@ -3126,7 +3121,7 @@ pub(crate) async fn apply_classified(
                 target_graph_iri: None,
             },
         )
-        .map_err(ApplyOperationError::retryable_after_hot_commit)?;
+        .map_err(ApplyOperationError::RetryableAfterHotCommit)?;
         rdf_triple_count = restore_contract
             .as_ref()
             .map(|contract| contract.marker.expected_rdf_triple_count)
@@ -3140,7 +3135,7 @@ pub(crate) async fn apply_classified(
     }
 
     let graph_value = serde_json::to_value(&graph).map_err(|error| {
-        ApplyOperationError::retryable_after_hot_commit(format!("serialize graph record: {error}"))
+        ApplyOperationError::terminal(format!("serialize graph record: {error}"))
     })?;
     let mut envelope = json!({
         "type": "import_graph",
@@ -3233,7 +3228,7 @@ pub(crate) async fn apply_classified(
     };
     let ledger_started = Instant::now();
     crate::operation_completion_ledger::append_completion_entry(app, entry)
-        .map_err(ApplyOperationError::retryable_after_hot_commit)?;
+        .map_err(ApplyOperationError::RetryableAfterHotCommit)?;
     record_import_phase(
         app,
         operation_id,
@@ -3319,7 +3314,8 @@ fn import_one_document(
         "title": document_title,
         "documentId": document_id,
     }))
-    .map_err(|error| format!("assemble create_document input: {error}"))?;
+    .map_err(|error| format!("assemble create_document input: {error}"))
+    .map_err(PersistenceError::permanent)?;
     crate::document_service::create_imported_document_with_lease(app.clone(), create_input)?;
 
     let candidate = json!({
@@ -3344,7 +3340,8 @@ fn import_one_document(
     {
         let save_input: crate::document_types::SaveDocumentInput =
             serde_json::from_value(candidate)
-                .map_err(|error| format!("assemble save_document input: {error}"))?;
+                .map_err(|error| format!("assemble save_document input: {error}"))
+                .map_err(PersistenceError::permanent)?;
         crate::document_persistence_service::save_document_with_lease(app.clone(), save_input)?;
     }
     Ok((document_id.to_string(), audit))

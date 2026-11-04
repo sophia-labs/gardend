@@ -61,15 +61,15 @@ async fn seed_board(
     hot_committed: &mut bool,
 ) -> Result<Value, PersistenceError> {
     let graph_id = operation.graph_id.clone();
-    let graph_dir = crate::graph_paths::existing_graph_dir(app, &graph_id)?;
+    let graph_dir = crate::graph_paths::existing_graph_dir(app, &graph_id)
+        .map_err(PersistenceError::permanent)?;
     let payload = &operation.payload;
 
     let json_text = payload
         .get("json")
         .and_then(Value::as_str)
-        .ok_or_else(|| {
-            "flow.seed: json (the Flow board file, as a string) is required".to_string()
-        })?
+        .ok_or_else(|| "flow.seed: json (the Flow board file, as a string) is required".to_string())
+        .map_err(PersistenceError::permanent)?
         .to_string();
     // A recovered replay of a committed seed re-runs against the board it
     // already seeded; treating it as replace keeps recovery idempotent
@@ -89,8 +89,9 @@ async fn seed_board(
     // room: a replace must never destroy a board over unparseable JSON, and
     // the stats of the validated input are — by construction — the stats of
     // the room after the seed (same `seed_board_txn` body, same input).
-    let validated =
-        crate::flow_board::board_from_json(&json_text).map_err(|e| format!("flow.seed: {e}"))?;
+    let validated = crate::flow_board::board_from_json(&json_text)
+        .map_err(|e| format!("flow.seed: {e}"))
+        .map_err(PersistenceError::permanent)?;
     let rows = board_rows(&validated);
     let report = board_derive_report(&rows);
     let mut row_counts = JsonMap::new();
@@ -113,7 +114,8 @@ async fn seed_board(
     let entry_ts: u64 = operation
         .enqueue_timestamp
         .parse()
-        .map_err(|_| "flow.seed: operation enqueue timestamp is not epoch-ms".to_string())?;
+        .map_err(|_| "flow.seed: operation enqueue timestamp is not epoch-ms".to_string())
+        .map_err(PersistenceError::permanent)?;
 
     // ── Ensure the workspace entry `flow-board` with the kind flag ────────
     let ws_room = super::workspace_ops::workspace_room(app, &graph_id, &graph_dir).await?;

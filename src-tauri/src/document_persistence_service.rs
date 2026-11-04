@@ -92,20 +92,22 @@ pub(crate) fn ensure_document_persistence_tail_with_tombstone_fence(
             expected_deletion_id,
         )?;
     }
-    if document_tail_commit_is_current(graph_dir, document)? {
+    if document_tail_commit_is_current(graph_dir, document).map_err(PersistenceError::transient)? {
         return Ok(false);
     }
 
-    let store = open_graph_store(graph_dir)?;
-    reconcile_document_record(&store, document)?;
+    let store = open_graph_store(graph_dir).map_err(PersistenceError::transient)?;
+    reconcile_document_record(&store, document).map_err(PersistenceError::transient)?;
     // Flow boards additionally reconcile the graph's `:projection:flow` lane
     // from the record's Y.Doc bytes (a no-op for every other kind) — same
     // repairable tail slot as the document MO reconcile above, so a crashed
     // tail replays it under the same revision. Unit G3.
-    crate::flow_board_reconcile::reconcile_flow_board_record(&store, graph_dir, document)?;
-    crate::pdf_source::reconcile(&store, document)?;
+    crate::flow_board_reconcile::reconcile_flow_board_record(&store, graph_dir, document)
+        .map_err(PersistenceError::transient)?;
+    crate::pdf_source::reconcile(&store, document).map_err(PersistenceError::transient)?;
     // Whiteboards additionally reconcile the graph's `:projection:whiteboard` lane (a no-op for every other kind).
-    crate::whiteboard::lane::reconcile_record(&store, graph_dir, document)?;
+    crate::whiteboard::lane::reconcile_record(&store, graph_dir, document)
+        .map_err(PersistenceError::transient)?;
     let snapshot = if let Some(expected_deletion_id) = expected_deletion_id {
         ensure_document_snapshot_for_revision_with_tombstone_fence(
             graph_dir,
@@ -130,7 +132,8 @@ pub(crate) fn ensure_document_persistence_tail_with_tombstone_fence(
             snapshot_id: snapshot.snapshot_id,
             graph_content_revision,
         },
-    )?;
+    )
+    .map_err(PersistenceError::transient)?;
     Ok(true)
 }
 
@@ -192,10 +195,11 @@ pub(crate) fn save_workspace_with_lease(
     input: SaveWorkspaceInput,
 ) -> Result<WorkspaceRecord, PersistenceError> {
     let _flush_guard = crate::cell_durability::write_guard();
-    require_no_active_restore(&app, &input.graph_id)?;
+    require_no_active_restore(&app, &input.graph_id).map_err(PersistenceError::transient)?;
     let trace_operation_id = input.trace_operation_id.clone();
     let load_started = Instant::now();
-    let graph_dir = existing_graph_dir(&app, &input.graph_id)?;
+    let graph_dir =
+        existing_graph_dir(&app, &input.graph_id).map_err(PersistenceError::permanent)?;
     record_crdt_phase(
         &app,
         trace_operation_id.as_deref(),
@@ -247,8 +251,9 @@ pub(crate) fn save_workspace_with_lease(
         // (and the revision bump below) changes nothing except the storms.
         if workspace_content_changed {
             let materialize_started = Instant::now();
-            let store = open_graph_store(&graph_dir)?;
-            reconcile_workspace_snapshot(&store, &input.graph_id, &snapshot)?;
+            let store = open_graph_store(&graph_dir).map_err(PersistenceError::transient)?;
+            reconcile_workspace_snapshot(&store, &input.graph_id, &snapshot)
+                .map_err(PersistenceError::transient)?;
             record_crdt_phase(
                 &app,
                 trace_operation_id.as_deref(),
@@ -275,7 +280,7 @@ pub(crate) fn save_workspace_with_lease(
         "rustReadWorkspaceRecordMs",
         read_started.elapsed(),
     );
-    record.map_err(Into::into)
+    record.map_err(crate::app_error::PersistenceError::transient)
 }
 
 /// Hot-path workspace persistence: write only the workspace Y.Doc binary state
@@ -411,10 +416,11 @@ fn save_document_with_tombstone_fence(
     write_authority: bool,
 ) -> Result<DocumentRecord, PersistenceError> {
     let _flush_guard = crate::cell_durability::write_guard();
-    require_no_active_restore(&app, &input.graph_id)?;
+    require_no_active_restore(&app, &input.graph_id).map_err(PersistenceError::transient)?;
     let trace_operation_id = input.trace_operation_id.clone();
     let load_started = Instant::now();
-    let graph_dir = existing_graph_dir(&app, &input.graph_id)?;
+    let graph_dir =
+        existing_graph_dir(&app, &input.graph_id).map_err(PersistenceError::permanent)?;
     if let Some(expected_deletion_id) = expected_deletion_id {
         crate::document_tombstone_store::require_document_tombstone_matches(
             &graph_dir,
@@ -427,7 +433,7 @@ fn save_document_with_tombstone_fence(
             &input.document_id,
         )?;
     }
-    let title = normalize_stored_title(&input.title)?;
+    let title = normalize_stored_title(&input.title).map_err(PersistenceError::permanent)?;
     let mut document = read_or_initialize_document_record(
         &graph_dir,
         &input.graph_id,
@@ -519,13 +525,13 @@ fn read_or_initialize_document_record(
     document_id: &str,
     title: &str,
 ) -> Result<DocumentRecord, PersistenceError> {
-    let document_dir = document_dir(graph_dir, document_id)?;
+    let document_dir = document_dir(graph_dir, document_id).map_err(PersistenceError::permanent)?;
     if document_dir.join("document.json").is_file() {
         return read_json::<DocumentRecord>(&document_dir.join("document.json"))
             .map_err(Into::into);
     }
 
-    ensure_document_dirs(graph_dir, document_id)?;
+    ensure_document_dirs(graph_dir, document_id).map_err(PersistenceError::transient)?;
     let now = timestamp();
     Ok(DocumentRecord {
         document_id: document_id.to_string(),

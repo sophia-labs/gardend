@@ -233,7 +233,8 @@ pub(crate) fn with_document_history_lock_classified<T>(
     operation: impl FnOnce() -> Result<T, crate::app_error::PersistenceError>,
 ) -> Result<T, crate::app_error::PersistenceError> {
     let _durability_guard = crate::cell_durability::write_guard();
-    let _guard = acquire_document_history_mutation_lock(graph_dir, document_id)?;
+    let _guard = acquire_document_history_mutation_lock(graph_dir, document_id)
+        .map_err(crate::app_error::PersistenceError::transient)?;
     operation()
 }
 
@@ -403,7 +404,8 @@ pub(super) fn ensure_document_snapshot_for_revision_with_tombstone_fence(
     expected_deletion_id: Option<&str>,
 ) -> Result<LocalDocumentSnapshotMeta, crate::app_error::PersistenceError> {
     let _durability_guard = crate::cell_durability::write_guard();
-    let _history_guard = acquire_document_history_mutation_lock(graph_dir, &document.document_id)?;
+    let _history_guard = acquire_document_history_mutation_lock(graph_dir, &document.document_id)
+        .map_err(crate::app_error::PersistenceError::transient)?;
     if let Some(expected_deletion_id) = expected_deletion_id {
         crate::document_tombstone_store::require_document_tombstone_matches(
             graph_dir,
@@ -416,7 +418,8 @@ pub(super) fn ensure_document_snapshot_for_revision_with_tombstone_fence(
             &document.document_id,
         )?;
     }
-    ensure_document_snapshot_for_revision_locked(graph_dir, document).map_err(Into::into)
+    ensure_document_snapshot_for_revision_locked(graph_dir, document)
+        .map_err(crate::app_error::PersistenceError::transient)
 }
 
 fn ensure_document_snapshot_for_revision_locked(

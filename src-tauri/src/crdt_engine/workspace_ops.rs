@@ -58,7 +58,7 @@ pub(super) async fn apply_classified_with_prior_hot_commit(
     let mut hot_committed = prior_hot_commit;
     let outcome: Result<Value, PersistenceError> = async {
         let graph_id = operation.graph_id.clone();
-        let graph_dir = crate::graph_paths::existing_graph_dir(app, &graph_id)?;
+        let graph_dir = crate::graph_paths::existing_graph_dir(app, &graph_id).map_err(PersistenceError::permanent)?;
         let room = workspace_room(app, &graph_id, &graph_dir).await?;
         let payload = &operation.payload;
         let recovered = payload
@@ -81,9 +81,9 @@ pub(super) async fn apply_classified_with_prior_hot_commit(
             }))
         }
         "workspace.createDocument" => {
-            refuse_uncreatable_document(&graph_dir, payload)?;
+            refuse_uncreatable_document(&graph_dir, payload).map_err(PersistenceError::permanent)?;
             let admission =
-                admit_document_create(app, operation, &room, &graph_dir, recovered).await?;
+                admit_document_create(app, operation, &room, &graph_dir, recovered).await.map_err(PersistenceError::permanent)?;
             let kept = matches!(admission, CreateAdmission::Keep(_));
             let value = match admission {
                 CreateAdmission::Keep(existing) => existing,
@@ -102,7 +102,7 @@ pub(super) async fn apply_classified_with_prior_hot_commit(
                 .and_then(Value::as_str)
                 .ok_or_else(|| {
                     "workspace.createDocument result is missing documentId".to_string()
-                })?
+                }).map_err(PersistenceError::permanent)?
                 .to_string();
             let title = value
                 .get("title")
@@ -140,7 +140,7 @@ pub(super) async fn apply_classified_with_prior_hot_commit(
                 .document_id
                 .clone()
                 .or_else(|| string_payload(payload, "documentId"))
-                .ok_or_else(|| "update document operation is missing documentId".to_string())?;
+                .ok_or_else(|| "update document operation is missing documentId".to_string()).map_err(PersistenceError::permanent)?;
             commit_hot!(
                 update_workspace_doc_checked(&room, |_doc, txn| {
                     update_workspace_document(txn, &document_id, payload)
@@ -152,7 +152,7 @@ pub(super) async fn apply_classified_with_prior_hot_commit(
                 .document_id
                 .clone()
                 .or_else(|| string_payload(payload, "documentId"))
-                .ok_or_else(|| "delete document operation is missing documentId".to_string())?;
+                .ok_or_else(|| "delete document operation is missing documentId".to_string()).map_err(PersistenceError::permanent)?;
             if crate::ids::validate_local_id(&document_id, "document_id").is_err() {
                 // A client may write any key into the workspace map. A row
                 // whose id is not a local id names no document and has no
@@ -186,7 +186,7 @@ pub(super) async fn apply_classified_with_prior_hot_commit(
                     graph_id.clone(),
                     document_id,
                     Some(&operation.operation_id),
-                )?;
+                ).map_err(PersistenceError::transient)?;
                 value
             }
         }
@@ -200,7 +200,7 @@ pub(super) async fn apply_classified_with_prior_hot_commit(
                     "id": string_value(pick(&value, &["folderId", "folder_id", "id"])),
                     "parentId": string_value(pick(&value, &["parentId", "parent_id"])),
                 }),
-            )?;
+            ).map_err(PersistenceError::permanent)?;
             commit_hot!(update_workspace_doc_checked(&room, |_doc, txn| {
                 write_workspace_folder(txn, payload)
             }))
@@ -210,7 +210,7 @@ pub(super) async fn apply_classified_with_prior_hot_commit(
                 .document_id
                 .clone()
                 .or_else(|| string_payload(payload, "folderId"))
-                .ok_or_else(|| "update folder operation is missing folderId".to_string())?;
+                .ok_or_else(|| "update folder operation is missing folderId".to_string()).map_err(PersistenceError::permanent)?;
             commit_hot!(
                 update_workspace_doc_checked(&room, |_doc, txn| {
                     update_workspace_folder(txn, &folder_id, payload)
@@ -222,7 +222,7 @@ pub(super) async fn apply_classified_with_prior_hot_commit(
                 .document_id
                 .clone()
                 .or_else(|| string_payload(payload, "folderId"))
-                .ok_or_else(|| "delete folder operation is missing folderId".to_string())?;
+                .ok_or_else(|| "delete folder operation is missing folderId".to_string()).map_err(PersistenceError::permanent)?;
             let value = object_payload(payload);
             let cascade = boolean_value(value.get("cascade"), false);
             let hard = boolean_value(value.get("hard"), true);
@@ -244,7 +244,7 @@ pub(super) async fn apply_classified_with_prior_hot_commit(
                 persist_workspace(app, &graph_id, &graph_dir, &room, &operation.operation_id)
                     .await?;
                 if recovered_folder_still_exists
-                    && recovered_folder_delete_targets(&graph_dir, &graph_id, &folder_id)?.is_none()
+                    && recovered_folder_delete_targets(&graph_dir, &graph_id, &folder_id).map_err(PersistenceError::permanent)?.is_none()
                 {
                     return Err(PersistenceError::permanent(format!(
                         "recovered hard folder cascade snapshot does not contain {folder_id}"
@@ -262,7 +262,7 @@ pub(super) async fn apply_classified_with_prior_hot_commit(
                 }));
             if recovered && !folder_existed && hard && cascade {
                 if let Some((documents, artifacts, folders)) =
-                    recovered_folder_delete_targets(&graph_dir, &graph_id, &folder_id)?
+                    recovered_folder_delete_targets(&graph_dir, &graph_id, &folder_id).map_err(PersistenceError::permanent)?
                 {
                     child_documents = documents;
                     child_artifacts = artifacts;
@@ -277,7 +277,7 @@ pub(super) async fn apply_classified_with_prior_hot_commit(
                         graph_id.clone(),
                         document_id.clone(),
                         Some(&operation.operation_id),
-                    )?;
+                    ).map_err(PersistenceError::transient)?;
                 }
             }
             json!({
@@ -296,7 +296,7 @@ pub(super) async fn apply_classified_with_prior_hot_commit(
         "workspace.moveFolder" => {
             let value = object_payload(payload);
             let folder_id = string_value(pick(&value, &["folderId", "folder_id", "id"]))
-                .ok_or_else(|| "move folder operation is missing folderId".to_string())?;
+                .ok_or_else(|| "move folder operation is missing folderId".to_string()).map_err(PersistenceError::permanent)?;
             let update_payload = json!({
                 "newParentId": pick(&value, &["newParentId", "new_parent_id", "parentId", "parent_id"])
                     .cloned()
@@ -321,7 +321,7 @@ pub(super) async fn apply_classified_with_prior_hot_commit(
                 .document_id
                 .clone()
                 .or_else(|| string_value(pick(&value, &["artifactId", "artifact_id", "id"])))
-                .ok_or_else(|| "put artifact operation is missing artifactId".to_string())?;
+                .ok_or_else(|| "put artifact operation is missing artifactId".to_string()).map_err(PersistenceError::permanent)?;
             if !value.get("patch").and_then(Value::as_bool).unwrap_or(false) {
                 refuse_unprojectable(
                     &graph_id,
@@ -335,7 +335,7 @@ pub(super) async fn apply_classified_with_prior_hot_commit(
                             .cloned()
                             .unwrap_or(Value::Null),
                     }),
-                )?;
+                ).map_err(PersistenceError::permanent)?;
             }
             commit_hot!(update_workspace_doc_checked(&room, |_doc, txn| {
                 put_workspace_artifact(txn, &graph_id, &artifact_id, &value)
@@ -347,7 +347,7 @@ pub(super) async fn apply_classified_with_prior_hot_commit(
                 .document_id
                 .clone()
                 .or_else(|| string_value(pick(&value, &["artifactId", "artifact_id", "id"])))
-                .ok_or_else(|| "delete artifact operation is missing artifactId".to_string())?;
+                .ok_or_else(|| "delete artifact operation is missing artifactId".to_string()).map_err(PersistenceError::permanent)?;
             commit_hot!(update_workspace_doc_checked(&room, |_doc, txn| {
                 delete_workspace_artifact_in_doc(txn, &artifact_id, recovered)
             }));
@@ -368,7 +368,7 @@ pub(super) async fn apply_classified_with_prior_hot_commit(
                         .as_ref()
                         .and_then(|_| string_value(pick(&value, &["sceneDocumentId", "scene_document_id"])))
                 })
-                .ok_or_else(|| "create wire operation is missing source documentId".to_string())?;
+                .ok_or_else(|| "create wire operation is missing source documentId".to_string()).map_err(PersistenceError::permanent)?;
             refuse_unprojectable(
                 &graph_id,
                 WorkspaceEntityKind::Wire,
@@ -390,7 +390,7 @@ pub(super) async fn apply_classified_with_prior_hot_commit(
                     "predicate": string_value(value.get("predicate"))
                         .unwrap_or_else(|| "isWiredTo".to_string()),
                 }),
-            )?;
+            ).map_err(PersistenceError::permanent)?;
             // The snippets come from files on disk. Read them here, before the
             // workspace room's authority lock is taken, not inside its transaction.
             let snippets = {
@@ -418,11 +418,11 @@ pub(super) async fn apply_classified_with_prior_hot_commit(
         "workspace.refreshWire" => {
             let value = object_payload(payload);
             let wire_id = string_value(pick(&value, &["wireId", "wire_id", "id"]))
-                .ok_or_else(|| "refresh wire operation is missing wireId".to_string())?;
+                .ok_or_else(|| "refresh wire operation is missing wireId".to_string()).map_err(PersistenceError::permanent)?;
             let updated_at_ms = finite_number(value.get("updatedAt")).ok_or_else(|| {
                 "workspace.refreshWire: updatedAt is required — normalize_payload_ids must inject it from enqueueTimestamp (A2 item 11)"
                     .to_string()
-            })?;
+            }).map_err(PersistenceError::permanent)?;
             let data = commit_hot!(update_workspace_doc_checked(&room, |_doc, txn| {
                     refresh_workspace_wire_in_doc(
                         txn,
@@ -437,7 +437,7 @@ pub(super) async fn apply_classified_with_prior_hot_commit(
         "workspace.deleteWire" => {
             let value = object_payload(payload);
             let wire_id = string_value(pick(&value, &["wireId", "wire_id", "id"]))
-                .ok_or_else(|| "delete wire operation is missing wireId".to_string())?;
+                .ok_or_else(|| "delete wire operation is missing wireId".to_string()).map_err(PersistenceError::permanent)?;
             commit_hot!(update_workspace_doc_checked(&room, |_doc, txn| {
                 let wires = txn.get_or_insert_map("wires");
                 if !wires.contains_key(&*txn, &wire_id) {
@@ -479,7 +479,8 @@ pub(crate) async fn upsert_document_entry(
     payload: &Value,
     operation_id: &str,
 ) -> Result<Value, PersistenceError> {
-    let graph_dir = crate::graph_paths::existing_graph_dir(app, graph_id)?;
+    let graph_dir = crate::graph_paths::existing_graph_dir(app, graph_id)
+        .map_err(PersistenceError::permanent)?;
     let room = workspace_room(app, graph_id, &graph_dir).await?;
     let result =
         update_workspace_doc_checked(&room, |_doc, txn| write_workspace_document(txn, payload))
@@ -623,12 +624,14 @@ pub(super) fn persist_materialized_workspace(
         &crate::ydoc_paths::workspace_snapshot_path(graph_dir),
         snapshot,
     )?;
-    let store = crate::rdf_service::open_graph_store(graph_dir)?;
+    let store =
+        crate::rdf_service::open_graph_store(graph_dir).map_err(PersistenceError::transient)?;
     // Only the entities this save changed are reconciled when the previous
     // snapshot is known; otherwise the whole workspace is.
     crate::rdf_service::reconcile_workspace_snapshot_remembering(
         &store, graph_dir, graph_id, snapshot,
-    )?;
+    )
+    .map_err(PersistenceError::transient)?;
     // The snapshot's RDF is in `store`: carry the seed marker across the bump.
     crate::rdf_seed_service::touch_graph_content_revision_keeping_seed(graph_dir, &store)?;
     Ok(())
@@ -780,8 +783,9 @@ async fn sync_workspace_document_titles(
         if title_is_reconciled(graph_dir, document_id, title) {
             continue;
         }
-        let manifest =
-            crate::document_paths::document_dir(graph_dir, document_id)?.join("document.json");
+        let manifest = crate::document_paths::document_dir(graph_dir, document_id)
+            .map_err(PersistenceError::permanent)?
+            .join("document.json");
         if !manifest.is_file() {
             // Document creation remains owned by its content channel. The
             // desktop analogue creates an empty record here, but doing that in
@@ -789,7 +793,8 @@ async fn sync_workspace_document_titles(
             continue;
         }
         let tombstoned =
-            crate::document_tombstone_store::document_is_tombstoned(graph_dir, document_id)?;
+            crate::document_tombstone_store::document_is_tombstoned(graph_dir, document_id)
+                .map_err(PersistenceError::transient)?;
         // Reading normally backfills a legacy inline Y.Doc into update-v1.bin.
         // A trusted recreation keeps its tombstone until this workspace write
         // is durable, so inspect only the freshly-written manifest there and
