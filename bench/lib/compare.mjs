@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { bootstrapRatio, verdict, median, p95stat, r2 } from './stats.mjs'
 import { roundHealth } from './power.mjs'
+import { measuredAt } from './report.mjs'
 
 export const loadRun = (dirOrFile) => JSON.parse(readFileSync(dirOrFile.endsWith('.json') ? dirOrFile : path.join(dirOrFile, 'run.json'), 'utf8'))
 
@@ -25,7 +26,7 @@ export function compareRuns(A, B, { resamples = 10000, seed = 20261025 } = {}) {
     // Thresholds marked `ab: true` are B/A ratios no single run can judge (report.mjs leaves them `deferred`); here they are judged
     // by this comparison's median ratio: pass when the ratio meets the limit or the comparison's verdict is `same` / `faster`.
     const abSpecs = (cb.thresholds ?? []).filter((t) => t.ab)
-    if (abSpecs.length) row.thresholds = abSpecs.map((t) => abVerdict(t, row))
+    if (abSpecs.length) row.thresholds = abSpecs.map((t) => ({ ...abVerdict(t, row), at: measuredAt(t, cb, B.tier ?? null) }))
     rows.push(row)
   }
   return rows
@@ -59,7 +60,7 @@ export function compareMd(A, B, rows, judge = judgeOf(A, B)) {
     if (r.skipped) { L.push(`| ${r.caseId} | | | | | skipped: ${r.skipped} |${pairs ? ' |' : ''} | | | |`); continue }
     L.push(`| ${r.caseId} | ${f(r.p50A, 1)} | ${f(r.p50B, 1)} | ${f(r.median.ratio)} | ${f(r.median.lo)}–${f(r.median.hi)} | **${r.median.verdict}** |${pairs ? ` ${(r.pairs ?? []).map((x) => f(x)).join(' / ')} |` : ''} ${f(r.p95.ratio)} | ${r.p95.verdict} | ${r.fsyncsPerOpP50 ? `${r.fsyncsPerOpP50.a}→${r.fsyncsPerOpP50.b} (${r.fsyncsPerOpP50.verdict})${r.fullFsyncsPerOpP50 ? `; full ${r.fullFsyncsPerOpP50.a}→${r.fullFsyncsPerOpP50.b}` : ''}` : '-'} | ${r.leaseHoldP95 ? `${f(r.leaseHoldP95.a, 1)}→${f(r.leaseHoldP95.b, 1)} (${r.leaseHoldP95.verdict})` : '-'} |`)
   }
-  const abLines = rows.flatMap((r) => (r.thresholds ?? []).map((t) => `- ${t.status.toUpperCase()} ${r.caseId}: ${t.name} -- ${t.detail}`))
+  const abLines = rows.flatMap((r) => (r.thresholds ?? []).map((t) => `- ${t.status.toUpperCase()} ${r.caseId}${t.at ? ` ${t.at}` : ''}: ${t.name} -- ${t.detail}`))
   if (abLines.length) L.push('', `## Thresholds judged by this comparison (B/A)${judge.ok ? '' : ' -- NOT A JUDGE, read as direction only'}`, '', ...abLines)
   const ok = rows.filter((r) => !r.skipped), ratios = ok.map((r) => r.median.ratio).sort((a, b) => a - b)
   const q = (p) => ratios[Math.min(ratios.length - 1, Math.floor(p * ratios.length))]

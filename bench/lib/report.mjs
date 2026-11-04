@@ -8,7 +8,9 @@ const f = (x, d = 1) => (x == null || Number.isNaN(x) ? '-' : Number(x).toFixed(
 //   ratioTo: a caseId of the same run; the value is metric(this case) / metric(that case)
 //   ab:     true marks a B/A ratio that only the A/B comparison can judge: reported as 'deferred', never pass or fail here
 //   proposed: true marks a limit nobody has ratified yet (printed as such)
-// evaluateThresholds returns the same entries with {value, status: 'pass' | 'fail' | 'unmeasured' | 'deferred', detail}.
+// evaluateThresholds returns the same entries with {value, status: 'pass' | 'fail' | 'unmeasured' | 'deferred', detail}, plus what the
+// case was measured at (W7d item 5): nActual (the case's `params.n_actual`, else `extra.n`) and tier (`params.tier`, else `extra.tier`,
+// else the run's tier). A case's size name is nominal (tier s seeds 1,000 for an `n10k` case), so every threshold line says the real n.
 const metricOf = (r, metric) => {
   if (!r) return undefined
   if (['p50', 'p95', 'p99', 'mean', 'max', 'min'].includes(metric)) return r.n > 0 ? r.ms?.[metric] : undefined
@@ -18,16 +20,19 @@ const metricOf = (r, metric) => {
   return undefined
 }
 const cmp = { '<=': (a, b) => a <= b, '<': (a, b) => a < b, '>=': (a, b) => a >= b, '>': (a, b) => a > b, '==': (a, b) => a === b, '!=': (a, b) => a !== b }
-export function evaluateThresholds(specs, result, all = []) {
+const nActualOf = (r) => r?.params?.n_actual ?? r?.extra?.n ?? null
+const tierOfResult = (r, runTier = null) => r?.params?.tier ?? r?.extra?.tier ?? runTier
+export function evaluateThresholds(specs, result, all = [], { tier = null } = {}) {
+  const at = { nActual: nActualOf(result), tier: tierOfResult(result, tier) }
   return specs.map((t) => {
-    const out = { ...t }
+    const out = { ...t, ...at }
     if (t.ab) return { ...out, value: null, status: 'deferred', detail: 'B/A ratio: judged by the A/B comparison, not by a single run' }
     let value = metricOf(result, t.metric), detail = ''
     if (t.ratioTo) {
       const ref = all.find((c) => c.caseId === t.ratioTo), rv = metricOf(ref, t.metric)
       if (!ref) { detail = `reference ${t.ratioTo} not in this run`; value = undefined }
       else if (typeof value !== 'number' || typeof rv !== 'number' || !rv) { detail = `reference ${t.ratioTo} has no ${t.metric}`; value = undefined }
-      else { detail = `${t.metric} ${f(value, 2)} / ${f(rv, 2)} (${t.ratioTo})`; value = value / rv }
+      else { detail = `${t.metric} ${f(value, 2)} / ${f(rv, 2)} (${t.ratioTo}, n_actual ${nActualOf(ref) ?? '-'})`; value = value / rv }
     }
     const f1 = cmp[t.op]
     if (!f1) return { ...out, value: null, status: 'unmeasured', detail: `unknown op ${t.op}` }
@@ -40,12 +45,15 @@ export function thresholdSummary(cases) {
   for (const r of cases) for (const t of r.thresholds ?? []) c[t.status] = (c[t.status] ?? 0) + 1
   return c
 }
-export function thresholdLines(cases) {
+// The measured-at tag of a threshold line: `{n_actual N, tier T}`. Entries evaluated before W7d carry neither; the case's params (and the
+// run's tier, when given) stand in.
+export const measuredAt = (t, r, runTier = null) => `{n_actual ${t.nActual ?? nActualOf(r) ?? '-'}, tier ${t.tier ?? tierOfResult(r, runTier) ?? '-'}}`
+export function thresholdLines(cases, runTier = null) {
   const L = []
   for (const r of cases) for (const t of r.thresholds ?? []) {
     const v = t.value == null ? '-' : typeof t.value === 'number' ? f(t.value, 2) : String(t.value)
     const tag = t.status.toUpperCase()
-    L.push(`- ${tag} ${r.caseId}: ${t.name ?? t.metric} = ${v}${t.unit && typeof t.value === 'number' ? ' ' + t.unit : ''} (want ${t.metric}${t.ratioTo ? ' ratio' : ''} ${t.op} ${t.limit}${t.unit ? ' ' + t.unit : ''}${t.proposed ? ', proposed' : ''})${t.detail ? ` [${t.detail}]` : ''}${t.note ? ` -- ${t.note}` : ''}`)
+    L.push(`- ${tag} ${r.caseId} ${measuredAt(t, r, runTier)}: ${t.name ?? t.metric} = ${v}${t.unit && typeof t.value === 'number' ? ' ' + t.unit : ''} (want ${t.metric}${t.ratioTo ? ' ratio' : ''} ${t.op} ${t.limit}${t.unit ? ' ' + t.unit : ''}${t.proposed ? ', proposed' : ''})${t.detail ? ` [${t.detail}]` : ''}${t.note ? ` -- ${t.note}` : ''}`)
   }
   return L
 }
@@ -83,7 +91,7 @@ export function summaryMd(run) {
     if (c.exemplars?.[0]) L.push('', 'slowest call tree:', '```', renderTree(c.exemplars[0], 16), '```')
     L.push('')
   }
-  { const tl = thresholdLines(run.cases); if (tl.length) { const sm = thresholdSummary(run.cases); L.push(`## Thresholds (${sm.pass} pass, ${sm.fail} fail, ${sm.unmeasured} unmeasured, ${sm.deferred} deferred to A/B)`, '', ...tl, '') } }
+  { const tl = thresholdLines(run.cases, run.tier); if (tl.length) { const sm = thresholdSummary(run.cases); L.push(`## Thresholds (${sm.pass} pass, ${sm.fail} fail, ${sm.unmeasured} unmeasured, ${sm.deferred} deferred to A/B)`, '', ...tl, '') } }
   if (run.spanJoin?.unjoinedTop?.length) L.push('## Unjoined (background) spans, by total ms', '', run.spanJoin.unjoinedTop.map((t) => `- ${t.name}: n ${t.n}, ${f(t.totalMs, 0)} ms`).join('\n'), '')
   if (run.notes?.length) L.push('## Notes', '', run.notes.map((n) => `- ${n}`).join('\n'), '')
   return L.join('\n')

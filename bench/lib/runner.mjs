@@ -15,7 +15,7 @@ const CASES_DIR = new URL('../cases/', import.meta.url).pathname
 import { pathToFileURL } from 'node:url'
 import { takeMeasure, registerDev } from './lock.mjs'
 import { loadSpans, serverFacts } from './spans.mjs'
-import { summaryMd, evaluateThresholds, thresholdSummary } from './report.mjs'
+import { summaryMd, evaluateThresholds, thresholdSummary, thresholdLines, measuredAt } from './report.mjs'
 import { holdAwake, powerNow, powerDuring, foreignCpuSampler, roundHealth } from './power.mjs'
 
 const utcStamp = () => new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z')
@@ -219,9 +219,14 @@ async function runBenchInner(o) {
   }
   for (const r of results) delete r._calls
   // thresholds (cases that declare them; nothing changes for the rest): evaluate against this run's results, say what failed.
-  for (const r of results) if (r.thresholds) r.thresholds = evaluateThresholds(r.thresholds, r, results)
+  // Every line says what it was measured at (n_actual and tier, W7d item 5): a case's size name is nominal.
+  for (const r of results) if (r.thresholds) r.thresholds = evaluateThresholds(r.thresholds, r, results, { tier })
   const thr = results.some((r) => r.thresholds) ? thresholdSummary(results) : null
-  if (thr) { log(`thresholds: ${thr.pass} pass, ${thr.fail} fail, ${thr.unmeasured} unmeasured, ${thr.deferred} deferred to A/B`); if (thr.fail) notes.push(`THRESHOLDS FAILED: ${results.flatMap((r) => (r.thresholds ?? []).filter((t) => t.status === 'fail').map((t) => `${r.caseId} ${t.name ?? t.metric}`)).join('; ')}`) }
+  if (thr) {
+    log(`thresholds: ${thr.pass} pass, ${thr.fail} fail, ${thr.unmeasured} unmeasured, ${thr.deferred} deferred to A/B`)
+    for (const line of thresholdLines(results, tier)) log(`  ${line}`)
+    if (thr.fail) notes.push(`THRESHOLDS FAILED: ${results.flatMap((r) => (r.thresholds ?? []).filter((t) => t.status === 'fail').map((t) => `${r.caseId} ${t.name ?? t.metric} ${measuredAt(t, r, tier)}`)).join('; ')}`)
+  }
 
   const finishedAt = new Date()
   const run = {
