@@ -181,12 +181,15 @@ pub(super) async fn apply_classified_with_prior_hot_commit(
                         documents.remove(txn, &document_id);
                         Ok(json!({ "documentId": document_id, "deleted": true }))
                     }));
+                // A refusal (graph not found, an invalid id, a body marked unavailable, a deletion
+                // boundary that changed) fails the same way on every retry: permanent. Only the
+                // file and store removal that follows is I/O that may clear: transient (M5).
                 crate::document_delete_service::delete_document_for_operation(
                     app.clone(),
                     graph_id.clone(),
                     document_id,
                     Some(&operation.operation_id),
-                ).map_err(PersistenceError::transient)?;
+                ).map_err(super::flush_ops::classify_helper_text)?;
                 value
             }
         }

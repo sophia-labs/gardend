@@ -2067,6 +2067,73 @@ fn decode_bytes_base64(value: &str) -> Result<Vec<u8>, String> {
         .map_err(|error| format!("{error}"))
 }
 
+/// Class the failure of reading the pending archive an `import.vault` operation names (M5). The file being gone, a
+/// path outside the graph's pending-upload directory, a graph that does not exist, an id that does not validate: a
+/// retry reads the same nothing, so those are terminal. Other I/O stays retryable. The file's absence is asked of the
+/// filesystem, not read out of the error text; the rest is the fixed list in `flush_ops::is_refusal_text`.
+fn classify_pending_read_error(message: String, pending_path: &str) -> ApplyOperationError {
+    let gone = matches!(
+        std::fs::symlink_metadata(pending_path),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound
+    );
+    if gone || super::flush_ops::is_refusal_text(&message) {
+        ApplyOperationError::terminal(message)
+    } else {
+        ApplyOperationError::RetryableAfterHotCommit(message)
+    }
+}
+
+#[cfg(test)]
+mod pending_read_classification_tests {
+    use super::*;
+
+    #[test]
+    fn a_missing_pending_file_or_an_outside_path_is_terminal_and_other_io_is_not() {
+        let dir = std::env::temp_dir().join(format!("vault-pending-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let present = dir.join("archive.zip");
+        std::fs::write(&present, b"zip").unwrap();
+        let gone = dir.join("gone.zip");
+
+        // The real message validate_pending_upload_path gives for a path that is not there.
+        let not_found = crate::pending_upload_paths::validate_pending_upload_path(
+            &dir,
+            &gone.display().to_string(),
+        )
+        .unwrap_err();
+        assert!(matches!(
+            classify_pending_read_error(not_found, &gone.display().to_string()),
+            ApplyOperationError::Terminal(_)
+        ));
+        // A file that is there, outside the graph's pending directory: the real refusal text.
+        let graph = dir.join("graph");
+        std::fs::create_dir_all(graph.join("pending-uploads")).unwrap();
+        let outside = crate::pending_upload_paths::validate_pending_upload_path(
+            &graph,
+            &present.display().to_string(),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(
+                classify_pending_read_error(outside.clone(), &present.display().to_string()),
+                ApplyOperationError::Terminal(_)
+            ),
+            "{outside}"
+        );
+        // A read that failed on I/O while the file is there may clear: retried.
+        let io = format!(
+            "read {}: {}",
+            present.display(),
+            std::io::Error::from_raw_os_error(5)
+        );
+        assert!(matches!(
+            classify_pending_read_error(io, &present.display().to_string()),
+            ApplyOperationError::RetryableAfterHotCommit(_)
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
 fn cleanup_pending_archive(
     app: &AppHandle,
     graph_id: &str,
@@ -2261,7 +2328,7 @@ pub(crate) async fn apply_classified(
                 pending_path: pending.clone(),
             },
         )
-        .map_err(ApplyOperationError::RetryableAfterHotCommit)?;
+        .map_err(|message| classify_pending_read_error(message, pending))?;
         decode_bytes_base64(&pending_upload.data_base64)?
     } else {
         decode_bytes_base64(zip_base64.as_deref().unwrap_or(""))?

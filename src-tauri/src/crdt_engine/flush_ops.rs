@@ -669,6 +669,39 @@ pub(super) fn classify_flush_text(message: String) -> ApplyOperationError {
     classify_flush_error(PersistenceError::transient(message))
 }
 
+/// What the `String` errors of the graph lookup, the local-id validators, the document-delete boundary and the
+/// pending-upload path check say when they are a deterministic refusal (the same input fails the same way on every
+/// retry), as opposed to an I/O fault that may clear. Every text is one of those helpers' own fixed messages
+/// (`existing_graph_dir`, `validate_local_id`, `require_available`, `delete_document_locked`,
+/// `validate_pending_upload_path`).
+const REFUSAL_MARKERS: [&str; 7] = [
+    "graph not found:",
+    "cannot be empty",
+    "contains invalid characters",
+    "source_body_unavailable:",
+    "deletion boundary changed",
+    "document tombstoned:",
+    "outside the graph pending upload directory",
+];
+
+/// Whether `message` is one of the refusals in [`REFUSAL_MARKERS`].
+pub(super) fn is_refusal_text(message: &str) -> bool {
+    REFUSAL_MARKERS
+        .iter()
+        .any(|marker| message.contains(marker))
+}
+
+/// Class a `String` error from the helpers behind [`REFUSAL_MARKERS`]: a refusal is `Permanent`, anything else (the
+/// I/O the same helpers do) stays `Transient`. Like [`classify_flush_text`] this inspects a message on purpose, and
+/// only a fixed list of the helpers' own refusals.
+pub(super) fn classify_helper_text(message: String) -> PersistenceError {
+    if is_refusal_text(&message) {
+        PersistenceError::permanent(message)
+    } else {
+        PersistenceError::transient(message)
+    }
+}
+
 pub(super) fn classify_flush_error(error: impl Into<PersistenceError>) -> ApplyOperationError {
     let error = match error.into() {
         PersistenceError::Permanent(error) => return ApplyOperationError::terminal(error),
@@ -2853,5 +2886,61 @@ mod tests {
             storage,
             ApplyOperationError::RetryableAfterHotCommit(_)
         ));
+    }
+}
+
+/// M5: the refusals of the delete-document and pending-upload helpers are permanent, their I/O is not.
+#[cfg(test)]
+mod helper_text_classification_tests {
+    use super::{classify_helper_text, is_refusal_text};
+    use crate::app_error::PersistenceError;
+
+    fn permanent(message: &str) -> bool {
+        matches!(
+            classify_helper_text(message.to_string()),
+            PersistenceError::Permanent(_)
+        )
+    }
+
+    #[test]
+    fn deterministic_refusals_are_permanent() {
+        // Produced by the validators themselves.
+        assert!(permanent(
+            &crate::ids::validate_local_id("a/b", "document_id").unwrap_err()
+        ));
+        assert!(permanent(
+            &crate::ids::validate_local_id("", "document_id").unwrap_err()
+        ));
+        // Fixed texts of `existing_graph_dir` (graph_paths.rs), `require_available`
+        // (document_body_availability.rs), `delete_document_locked` (document_delete_service.rs).
+        assert!(permanent("graph not found: g1"));
+        assert!(permanent(
+            "source_body_unavailable: d1; retained source metadata is not an empty body"
+        ));
+        assert!(permanent(
+            "document deletion boundary changed during delete repair: d1"
+        ));
+        assert!(permanent("document tombstoned: d1"));
+        assert!(permanent(
+            "pending upload path is outside the graph pending upload directory"
+        ));
+    }
+
+    #[test]
+    fn io_stays_transient() {
+        for message in [
+            format!("read /x/y: {}", std::io::Error::from_raw_os_error(5)),
+            "remove document directory: Directory not empty (os error 66)".to_string(),
+            "write store: disk I/O error".to_string(),
+        ] {
+            assert!(!is_refusal_text(&message), "{message}");
+            assert!(
+                matches!(
+                    classify_helper_text(message.clone()),
+                    PersistenceError::Transient(_)
+                ),
+                "{message}"
+            );
+        }
     }
 }
