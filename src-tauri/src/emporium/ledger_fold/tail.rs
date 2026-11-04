@@ -1223,15 +1223,21 @@ impl Core {
             runs.extend(self.open_tail.iter().cloned());
             runs.sort_by(|a, b| (&a.origin, a.first_seq).cmp(&(&b.origin, b.first_seq)));
             shared.open_txns = runs;
-            shared.quarantined = self
-                .quarantined
-                .iter()
-                .map(|((origin, seq), error)| Quarantined {
-                    origin: origin.clone(),
-                    seq: *seq,
-                    error: error.clone(),
-                })
-                .collect();
+            // The list is rebuilt only when it changed (it only grows between loads): a clone of
+            // every quarantined frame per chunk is O(quarantined) work on the commit path.
+            if shared.quarantined.len() != self.quarantined.len()
+                || shared.quarantined_total != self.quarantined_total
+            {
+                shared.quarantined = self
+                    .quarantined
+                    .iter()
+                    .map(|((origin, seq), error)| Quarantined {
+                        origin: origin.clone(),
+                        seq: *seq,
+                        error: error.clone(),
+                    })
+                    .collect();
+            }
             shared.quarantined_total = self.quarantined_total;
             shared.contested_raised = self
                 .heads
