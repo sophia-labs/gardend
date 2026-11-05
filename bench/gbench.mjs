@@ -7,7 +7,7 @@ import { ensureFixture, TIERS, CACHE_ROOT } from './lib/fixture.mjs'
 import { fingerprint, DEFAULT_BIN, binaryInfo } from './lib/proc.mjs'
 import { loadRun, writeCompare, pooledRun } from './lib/compare.mjs'
 import { takeMeasure } from './lib/lock.mjs'
-import { holdAwake, powerDuring, roundHealth } from './lib/power.mjs'
+import { holdAwake, powerDuring, roundHealth, powerNow } from './lib/power.mjs'
 import { publish } from './lib/publish.mjs'
 
 const BOOL = new Set(['twin', 'measured', 'force', 'baseline'])
@@ -25,10 +25,25 @@ const USAGE = `gbench <cmd>
   run --attach <url> --key-file <path> [--suite ..] [--tier s] [--label ..] [--out ..]      (never against an instance you care about without reading PROTOCOL.md)
   run|ab ... --real-profile <backup profile dir> --graph <id> --suite real   (reads on an APFS clone of real data; never ~/sophia)
   compare <runDirA> <runDirB> [--out <dir>]
-  ab --a <bin> --b <bin> --rounds R [--suite ..] [--tier ..] [--label ..] [--out <dir>]
+  ab --a <bin> --b <bin> --rounds R [--suite ..] [--tier ..] [--label ..] [--out <dir>] [--cases <regex>] [--rest <s, default 120>] [--cool-max <s, default 1200>]
   publish <runDir> --url <url> --key-file <path> [--baseline]
   audit <dir>        reconstruct env.machine from the power log for runs that predate it; re-judge ab sittings
   env`
+
+// Between ab rounds: rest at least `rest` s, then wait (up to `max` s) for the CPU speed limit to read 100 twice,
+// 30 s apart, so each round starts on a cool chip (11-05: an i9 sitting throttled to 47% by its fifth round).
+// A round that still starts throttled is judged unclean by roundHealth, as before; the rest only makes that rarer.
+async function coolDown(lg, rest, max) {
+  const t0 = Date.now(), sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+  lg(`resting ${rest}s before the next round`); await sleep(rest * 1000)
+  let ok = 0
+  while (Date.now() - t0 < (rest + max) * 1000) {
+    const p = await powerNow(), lim = p?.cpuSpeedLimit
+    if (lim == null || lim >= 100) { if (++ok >= 2) break } else { ok = 0; lg(`cooling: CPU speed limit ${lim}%`) }
+    await sleep(30000)
+  }
+  lg(`cool-down done after ${Math.round((Date.now() - t0) / 1000)}s`)
+}
 
 const { pos, o } = parseArgs(process.argv.slice(2)), cmd = pos[0]
 try {
@@ -56,6 +71,7 @@ try {
     const awake = holdAwake(lg)                                                         // and one awake hold (power.mjs)
     try {
       for (let i = 0; i < rounds; i++) for (const [name, bin, acc] of [['a', o.a, ra], ['b', o.b, rb]]) {
+        if (i > 0 || name === 'b') await coolDown(lg, Number(o.rest ?? 120), Number(o['cool-max'] ?? 1200))
         // ABAB interleaved; both sides clone the same fixture snapshot (keyed by A's gitRev)
         const { run } = await runBench({ ...o, bin, fixtureBin: o.a, out: path.join(abDir, 'rounds'), label: `${label}-${name}${i + 1}`, suite: o.suite ?? 'smoke', tier: o.tier ?? 's', holdsLock: true, holdsAwake: true, _contention: lock.contention }); acc.push(run)
       }
