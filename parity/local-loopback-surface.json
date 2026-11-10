@@ -1564,7 +1564,7 @@
       "method": "GET",
       "path": "/hocuspocus/ledger/{graph_id}/{vocab}",
       "status": "implemented-websocket",
-      "scopes": ["workspace.write.crdt"],
+      "scopes": ["rdf.update"],
       "scopeMode": "bearer-token"
     },
     {

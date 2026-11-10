@@ -14044,7 +14044,7 @@
         "description": "Local native loopback route. Surface status: implemented-websocket. Scope mode: bearer-token.",
         "x-sophia-status": "implemented-websocket",
         "x-sophia-required-scopes": [
-          "workspace.write.crdt"
+          "rdf.update"
         ],
         "x-sophia-scope-mode": "bearer-token",
         "parameters": [

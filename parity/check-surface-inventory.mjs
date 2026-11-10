@@ -596,8 +596,9 @@ const specialHandlerScopes = new Map([
   // the hosted cell's Viewer floor (a Viewer lease reads, never writes).
   ['doc_room', ['documents.read']],
   ['workspace_room', ['workspace.read']],
-  // The ledger room writes (a peer's frames land in it): admission needs the CRDT write scope, ReadWrite only.
-  ['ledger_room_ws', ['workspace.write.crdt']],
+  // The ledger room writes RDF (a peer's frames land in it and are folded): admission needs the
+  // commit route's scope, ReadWrite only.
+  ['ledger_room_ws', ['rdf.update']],
   // The fold replay route: `into=oracle` needs rdf.query, `into=live` rdf.update (chosen at runtime); declare the union.
   ['loopback_fold_replay', ['rdf.query', 'rdf.update']],
   // Service facade handlers delegate authorization to this common helper.

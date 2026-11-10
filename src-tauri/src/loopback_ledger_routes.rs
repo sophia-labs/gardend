@@ -30,10 +30,13 @@ use crate::loopback_hocuspocus_routes::room_access;
 use crate::loopback_http::{loopback_error, require_loopback_scope};
 use crate::loopback_state::LoopbackState;
 
-/// The scope a scoped token needs for the ledger room. The same as the workspace room and the
-/// emporium log room: `emporium.write.crdt` does not exist in the scope tables, and a new scope
-/// would need a grant in `loopback_token_grants.rs`.
-const LEDGER_ROOM_SCOPE: &str = "workspace.write.crdt";
+/// The scope a scoped token needs for the ledger room: the commit route's. A peer in this room
+/// appends frames of its own origin and the fold writes them to the graph's RDF, so admitting it
+/// is admitting an RDF write that skips the commit route's gates (structure, contract, file
+/// references, a service's declaration). A member's `workspace.write.crdt` is not that: before
+/// 2026-11-09 it was, and a member token could write any vocabulary's RDF here. A supervised
+/// service's own token never holds `rdf.update` (`loopback_service_rdf`), so it is refused.
+const LEDGER_ROOM_SCOPE: &str = "rdf.update";
 
 /// The scope the version route needs (the same as the log stats route).
 const LEDGER_VERSION_SCOPE: &str = "rdf.query";
