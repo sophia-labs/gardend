@@ -30,8 +30,8 @@ jobs:
       matrix:
         include:
           - { target: x86_64-unknown-linux-gnu, os: ubuntu-latest }
-          - { target: aarch64-apple-darwin, os: macos-14 }
-          - { target: x86_64-apple-darwin, os: macos-14 }
+          - { target: aarch64-apple-darwin, os: macos-15 }
+          - { target: x86_64-apple-darwin, os: macos-15 }
     steps:
       - uses: actions/checkout@v4
 
@@ -82,7 +82,10 @@ jobs:
     name: rolling prerelease main-latest
     needs: build
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.repository == 'sophia-labs/gardend'
+    # Publish whatever built: one platform's runner outage (macos-14's retirement on 2026-11-02 failed both macOS
+    # jobs in 1 s) must not keep the other targets off main-latest. Each asset is named by sha and target, so a
+    # missing target means fetch-gardend 404s for that platform only.
+    if: ${{ !cancelled() && github.event_name == 'push' && github.repository == 'sophia-labs/gardend' }}
     permissions:
       contents: write
     steps:
@@ -97,6 +100,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
+          ls dist/gardend-* >/dev/null 2>&1 || { echo "::error::no target built; nothing to publish"; exit 1; }
           gh release view main-latest >/dev/null 2>&1 || gh release create main-latest --prerelease --target "$GITHUB_SHA" \
             --title "main-latest" --notes "Prebuilt gardend binaries for recent commits on main, named gardend-<sha>-<target>. Rolling; not a release."
           gh release upload main-latest dist/* --clobber
